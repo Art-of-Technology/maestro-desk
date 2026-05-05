@@ -733,9 +733,10 @@ function nav(page, el) {
   renderPage(page);
 }
 function renderPage(page) {
-  if (page !== 'roles')  ROLES_VIEW_AGENTS = null;
-  if (page !== 'kb')     KB_SELECTED = null;
-  if (page !== 'agents') AGENT_SELECTED = null;
+  if (page !== 'roles')     ROLES_VIEW_AGENTS = null;
+  if (page !== 'kb')        KB_SELECTED = null;
+  if (page !== 'agents')    AGENT_SELECTED = null;
+  if (page !== 'customers') CUSTOMER_SELECTED = null;
   CURRENT_PAGE = page;
   CURRENT_TICKET = null;
   const main = document.getElementById('main-area');
@@ -1136,7 +1137,7 @@ function custCellValue(c, colId) {
 
 function buildCustRows(list) {
   const cols = getCustColumns().filter(c=>c.visible);
-  return list.map(c=>`<tr onclick="openCustomerModal('${c.id}')" style="cursor:pointer">${cols.map(col=>custCellValue(c,col.id)).join('')}</tr>`).join('');
+  return list.map(c=>`<tr onclick="openCustomerProfile('${c.id}')" style="cursor:pointer">${cols.map(col=>custCellValue(c,col.id)).join('')}</tr>`).join('');
 }
 
 function buildCustHeaders() {
@@ -1184,13 +1185,41 @@ function showColumnPanel() {
   `, null, null);
 }
 
-function filterCustomers(q) {
-  const q2=q.toLowerCase();
-  refreshCustTable(CUSTOMERS.filter(c=>(c.first+' '+c.last+c.username+c.id).toLowerCase().includes(q2)));
+let CUST_QUERY = '';
+let CUST_VIP_FILTER = 'all';
+let CUST_BRAND_FILTER = 'all';
+let CUSTOMER_SELECTED = null;
+
+function applyCustFilters() {
+  let list = [...CUSTOMERS];
+  if (CUST_QUERY.trim()) {
+    const q = CUST_QUERY.toLowerCase();
+    list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.email+' '+c.brand).toLowerCase().includes(q));
+  }
+  if (CUST_VIP_FILTER !== 'all')   list = list.filter(c => c.vip === CUST_VIP_FILTER);
+  if (CUST_BRAND_FILTER !== 'all') list = list.filter(c => c.brand === CUST_BRAND_FILTER);
+  return list;
 }
+function filterCustomers(q) { CUST_QUERY = q; refreshCustTable(applyCustFilters()); refreshCustCounter(); }
+function refreshCustCounter() {
+  const el = document.getElementById('cust-counter'); if (!el) return;
+  el.textContent = `${applyCustFilters().length} of ${CUSTOMERS.length}`;
+}
+function custSetVIP(v)   { CUST_VIP_FILTER = v;   renderPage('customers'); }
+function custSetBrand(v) { CUST_BRAND_FILTER = v; renderPage('customers'); }
 
 function renderCustomers() {
+  if (CUSTOMER_SELECTED) return renderCustomerDetail(CUSTOMER_SELECTED);
   getCustColumns();
+  const filtered = applyCustFilters();
+  const total = CUSTOMERS.length;
+  const brands = [...new Set(CUSTOMERS.map(c => c.brand))];
+  const vipCounts = { Platinum:0, Gold:0, Silver:0, Bronze:0 };
+  CUSTOMERS.forEach(c => { if (vipCounts[c.vip] !== undefined) vipCounts[c.vip]++; });
+  const premium = vipCounts.Platinum + vipCounts.Gold;
+  const avgPerCust = total ? (TICKETS.length / total).toFixed(1) : '0';
+  const consentRate = total ? Math.round(CUSTOMERS.filter(c => c.consent).length / total * 100) : 0;
+
   return `
     <div class="page">
       <div class="topbar">
@@ -1203,17 +1232,154 @@ function renderCustomers() {
         <button class="btn btn-sm" onclick="showCSVModal()">CSV Import</button>
         <button class="btn btn-sm btn-solid" onclick="showNewContactModal()">+ New Contact</button>
       </div>
+      <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Customers</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${premium}</div><div class="kpi-l">Premium VIP</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${brands.length}</div><div class="kpi-l">Brands</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${avgPerCust}</div><div class="kpi-l">Avg tickets</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${consentRate}%</div><div class="kpi-l">Consent</div></div>
+      </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search name, username, ID…" style="width:200px" oninput="filterCustomers(this.value)"/>
-        <select class="filter-select"><option>All VIP tiers</option><option>Bronze</option><option>Silver</option><option>Gold</option><option>Platinum</option></select>
-        <select class="filter-select"><option>All brands</option>${[...new Set(CUSTOMERS.map(c=>c.brand))].map(b=>`<option>${b}</option>`).join('')}</select>
+        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${CUST_QUERY}" oninput="filterCustomers(this.value)"/>
+        <select class="filter-select" onchange="custSetVIP(this.value)">
+          <option value="all"      ${CUST_VIP_FILTER==='all'?'selected':''}>All VIP tiers</option>
+          <option value="Platinum" ${CUST_VIP_FILTER==='Platinum'?'selected':''}>Platinum</option>
+          <option value="Gold"     ${CUST_VIP_FILTER==='Gold'?'selected':''}>Gold</option>
+          <option value="Silver"   ${CUST_VIP_FILTER==='Silver'?'selected':''}>Silver</option>
+          <option value="Bronze"   ${CUST_VIP_FILTER==='Bronze'?'selected':''}>Bronze</option>
+        </select>
+        <select class="filter-select" onchange="custSetBrand(this.value)">
+          <option value="all" ${CUST_BRAND_FILTER==='all'?'selected':''}>All brands</option>
+          ${brands.map(b => `<option value="${b}" ${CUST_BRAND_FILTER===b?'selected':''}>${b}</option>`).join('')}
+        </select>
+        <span id="cust-counter" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${filtered.length} of ${total}</span>
       </div>
       <div style="flex:1;overflow:auto">
         <table class="tbl" style="min-width:500px">
           <thead><tr id="cust-thead">${buildCustHeaders()}</tr></thead>
-          <tbody id="cust-tbody">${buildCustRows(CUSTOMERS)}</tbody>
+          <tbody id="cust-tbody">${buildCustRows(filtered)}</tbody>
         </table>
+        ${filtered.length === 0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No customers match</div><div class="empty-line"></div></div>` : ''}
+      </div>
+    </div>`;
+}
+
+function getCustomerStats(custId) {
+  const tickets = TICKETS.filter(t => t.customerId === custId);
+  const open = tickets.filter(t => t.status === 'open' || t.status === 'escalated').length;
+  const resolved = tickets.filter(t => t.status === 'resolved').length;
+  const csat = tickets.filter(t => t.csat);
+  const avgCSAT = csat.length ? csat.reduce((a, t) => a + t.csat, 0) / csat.length : 0;
+  return { tickets, total: tickets.length, open, resolved, csatCount: csat.length, avgCSAT };
+}
+
+function openCustomerProfile(id) { CUSTOMER_SELECTED = id; renderPage('customers'); }
+function closeCustomerProfile()  { CUSTOMER_SELECTED = null; renderPage('customers'); }
+
+function updateCustomField(custId, fieldId, value) {
+  const c = CUSTOMERS.find(x => x.id === custId);
+  if (!c) return;
+  if (!c.custom) c.custom = {};
+  c.custom[fieldId] = value;
+}
+
+function showCustomerGDPR(custId) {
+  showModal('GDPR actions', `
+    <div class="gdpr-action"><div class="gdpr-action-title">Request erasure</div><div class="gdpr-action-desc">Permanently delete this customer's personal data under Article 17.</div><button class="btn btn-sm btn-danger" onclick="closeModal()">Request erasure</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">Redact in-thread data</div><div class="gdpr-action-desc">Mask PII in this customer's ticket messages.</div><button class="btn btn-sm" onclick="closeModal()">Redact</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">SAR export</div><div class="gdpr-action-desc">Export all data held about this customer.</div><button class="btn btn-sm" onclick="closeModal()">Export</button></div>
+  `, null, null);
+}
+
+function renderCustomerDetail(custId) {
+  const c = CUSTOMERS.find(x => x.id === custId);
+  if (!c) { CUSTOMER_SELECTED = null; return renderCustomers(); }
+  const s = getCustomerStats(custId);
+  const admin = isAdmin();
+
+  const ticketRows = s.tickets.map(t => `
+    <tr onclick="openTicket('${escAttr(t.id)}')" style="cursor:pointer">
+      <td class="bold">${t.id}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${t.subject}</td>
+      <td><span class="tag tag-${t.status}">${t.status}</span></td>
+      <td><span class="tag tag-${t.priority}">${t.priority}</span></td>
+      <td>${t.agent}</td>
+      <td><span class="sla-${t.sla}" style="font-size:11px;text-transform:uppercase;font-weight:500">${t.sla}</span></td>
+      <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${t.updated}</td>
+    </tr>`).join('');
+
+  const customFields = CUSTOM_FIELDS.map(cf => {
+    const val = c.custom?.[cf.id] ?? '';
+    const inputType = cf.type === 'number' ? 'number' : cf.type === 'date' ? 'date' : 'text';
+    return `
+      <div class="form-row">
+        <label class="form-label">${cf.label}</label>
+        ${admin
+          ? `<input class="form-input" type="${inputType}" value="${String(val).replace(/"/g,'&quot;')}" oninput="updateCustomField('${escAttr(c.id)}','${cf.id}',this.value)"/>`
+          : `<div style="font-size:13px;color:var(--ink);padding:9px 12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);min-height:36px;display:flex;align-items:center">${val || '<span style="color:var(--ink3)">—</span>'}</div>`}
+      </div>`;
+  }).join('') || '<div style="color:var(--ink3);font-size:12px;padding:8px 0">No custom fields defined. Admins can add them via Manage Fields on the list view.</div>';
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-breadcrumb">
+          <span onclick="closeCustomerProfile()">Customers</span>
+          <span class="tb-sep">/</span>
+          <span style="color:var(--ink);font-weight:500">${c.first} ${c.last}</span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            ${c.bo ? `<a href="${c.bo}" target="_blank" rel="noopener" class="btn btn-sm" style="text-decoration:none">Backoffice ↗</a>` : ''}
+            <button class="btn btn-sm btn-danger" onclick="showCustomerGDPR('${escAttr(c.id)}')">GDPR</button>
+          </span>
+        </div>
+      </div>
+      <div class="page-scroll">
+        <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${c.first[0]}${c.last[0]}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:18px;font-weight:600;color:var(--ink)">${c.first} ${c.last}</div>
+            <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <span style="font-family:'DM Mono',monospace">${c.id}</span>
+              <span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span>
+              <span>${c.brand}</span>
+              <span style="font-family:'DM Mono',monospace">${c.jurisdiction}</span>
+            </div>
+          </div>
+          <span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${c.kyc}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
+          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>
+          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
+          <div class="r-tile" style="border-color:${c.consent?'rgba(52,211,153,0.3)':'rgba(248,113,113,0.3)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="card">
+            <div class="card-title">Profile</div>
+            <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${c.email}</span></div>
+            <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${c.mobile}</span></div>
+            <div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.username}</span></div>
+            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${c.brand}</span></div>
+            <div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span></div>
+            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${c.jurisdiction}</span></div>
+            <div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${c.kyc}</span></div>
+            <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${c.since}</span></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Custom fields</div>
+            ${customFields}
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Tickets</div>
+          ${s.tickets.length ? `
+            <table class="tbl">
+              <thead><tr><th>ID</th><th>Subject</th><th>Status</th><th>Priority</th><th>Agent</th><th>SLA</th><th>Updated</th></tr></thead>
+              <tbody>${ticketRows}</tbody>
+            </table>
+          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets</div><div class="empty-line"></div></div>`}
+        </div>
       </div>
     </div>`;
 }
