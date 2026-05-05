@@ -1934,7 +1934,176 @@ function renderDashboard() {
 }
 function renderReports()  { return placeholderPage('Reports', 'Reporting dashboard — charts and breakdowns coming soon.'); }
 function renderAgents()   { return placeholderPage('Agents', 'Agent roster, workload and CSAT leaderboard.'); }
-function renderAI()       { return placeholderPage('AI Intelligence', 'AI assistant chat and prompt library.'); }
+// ─── AI Intelligence ─────────────────────────────────────────────────────────
+let AI_CONTEXT_SOURCES = { tickets:true, customers:false, agents:false, kb:false };
+const AI_PROMPT_CARDS = [
+  "Summarise today's open tickets and flag any that look urgent",
+  "Which categories have the highest ticket volume right now?",
+  "Draft a 3-point CSAT improvement plan based on recent tickets",
+  "List customers with multiple open tickets and the common themes",
+];
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderAI() {
+  const empty = AI_MESSAGES.length === 0;
+  const sources = [
+    {k:'tickets',   l:`Tickets · ${TICKETS.length}`},
+    {k:'customers', l:`Customers · ${CUSTOMERS.length}`},
+    {k:'agents',    l:`Agents · ${AGENTS.length}`},
+    {k:'kb',        l:`KB · ${KB_ARTICLES.length}`},
+  ];
+  const chips = sources.map(s => `<span class="source-chip ${AI_CONTEXT_SOURCES[s.k]?'on':''}" onclick="aiToggleSource('${s.k}')" style="cursor:pointer">${s.l}</span>`).join('');
+  const noKeyMsg = AI_API_KEY ? '' : ` Add a Claude API key in <span class="link" onclick="navTo('settings');setSettingsTab('ai')">Settings → AI Assistant</span> to get started.`;
+  const msgs = AI_MESSAGES.map(m => `
+    <div class="ai-msg ai-msg-${m.r==='user'?'user':'ai'}">
+      <div class="ai-msg-from">${m.r==='user' ? escHtml(SESSION?.name||'You') : 'AI Assistant'}</div>
+      <div style="white-space:pre-wrap;word-wrap:break-word">${escHtml(m.t)}</div>
+    </div>`).join('');
+  const thinkingMsg = AI_THINKING ? `
+    <div class="ai-msg ai-msg-ai">
+      <div class="ai-msg-from">AI Assistant</div>
+      <div style="display:flex;gap:4px;align-items:center;color:var(--purple);font-size:18px;line-height:1"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span></div>
+    </div>` : '';
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">AI Intelligence</div>
+        ${AI_MESSAGES.length ? `<button class="btn btn-sm" onclick="aiClear()">Clear</button>` : ''}
+        <span style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--amber)'};font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px">
+          <span style="width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor"></span>
+          ${AI_API_KEY ? `${AI_MODEL || 'claude-sonnet-4-6'}` : 'No API key'}
+        </span>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Context</span>
+        ${chips}
+        <span style="font-size:11px;color:var(--ink3);margin-left:auto">Toggle which workspace data the AI can see</span>
+      </div>
+      ${empty ? `
+        <div class="page-scroll" style="padding:48px 20px">
+          <div style="max-width:680px;margin:0 auto;text-align:center">
+            <div style="font-family:'Inter',sans-serif;font-size:24px;font-weight:700;letter-spacing:-.02em;color:var(--ink);margin-bottom:8px">How can I help?</div>
+            <div style="font-size:13px;color:var(--ink3);margin-bottom:28px">Ask about your workspace data — tickets, customers, agents or knowledge base.${noKeyMsg}</div>
+          </div>
+          <div class="prompt-cards" style="justify-content:center;padding:0">
+            ${AI_PROMPT_CARDS.map(p => `<div class="prompt-card" onclick="aiUsePrompt(${JSON.stringify(p)})">${p}</div>`).join('')}
+          </div>
+        </div>
+      ` : `<div class="ai-chat" id="ai-chat">${msgs}${thinkingMsg}</div>`}
+      <div class="ai-input-row">
+        <textarea id="ai-input" placeholder="${AI_API_KEY?'Ask about your workspace… (Enter to send, Shift+Enter for new line)':'Add an API key in Settings → AI Assistant to chat'}" style="flex:1;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:9px 12px;resize:none;outline:none;height:46px" onkeydown="aiInputKey(event)" ${AI_THINKING?'disabled':''}></textarea>
+        <button class="btn btn-solid" onclick="aiSend()" ${AI_THINKING?'disabled':''}>${AI_THINKING?'…':'Send'}</button>
+      </div>
+    </div>`;
+}
+
+function aiToggleSource(k) {
+  AI_CONTEXT_SOURCES[k] = !AI_CONTEXT_SOURCES[k];
+  renderPage('ai');
+}
+
+function aiUsePrompt(p) {
+  const input = document.getElementById('ai-input');
+  if (input) { input.value = p; input.focus(); }
+}
+
+function aiClear() {
+  AI_MESSAGES = [];
+  renderPage('ai');
+}
+
+function aiInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    aiSend();
+  }
+}
+
+function scrollAIBottom() {
+  const chat = document.getElementById('ai-chat');
+  if (chat) chat.scrollTop = chat.scrollHeight;
+}
+
+function buildAIContext() {
+  const parts = [];
+  if (AI_CONTEXT_SOURCES.tickets) {
+    parts.push(`TICKETS (${TICKETS.length}):\n` + TICKETS.map(t => {
+      const c = CUSTOMERS.find(x => x.id === t.customerId);
+      return `- ${t.id}: "${t.subject}" | status=${t.status} | priority=${t.priority} | category=${t.category} | sla=${t.sla} | agent=${t.agent} | customer=${c?c.first+' '+c.last:t.customerId} | tags=[${t.tags.join(',')}] | csat=${t.csat??'n/a'}`;
+    }).join('\n'));
+  }
+  if (AI_CONTEXT_SOURCES.customers) {
+    parts.push(`CUSTOMERS (${CUSTOMERS.length}):\n` + CUSTOMERS.map(c =>
+      `- ${c.id}: ${c.first} ${c.last} | brand=${c.brand} | vip=${c.vip} | jurisdiction=${c.jurisdiction} | kyc=${c.kyc} | consent=${c.consent} | since=${c.since}`
+    ).join('\n'));
+  }
+  if (AI_CONTEXT_SOURCES.agents) {
+    parts.push(`AGENTS (${AGENTS.length}):\n` + AGENTS.map(a =>
+      `- ${a.name} (${a.initials}) | role=${a.role} | active=${a.active}`
+    ).join('\n'));
+  }
+  if (AI_CONTEXT_SOURCES.kb) {
+    parts.push(`KNOWLEDGE BASE (${KB_ARTICLES.length}):\n` + KB_ARTICLES.map(a =>
+      `- ${a.id}: "${a.title}" | category=${a.category}`
+    ).join('\n'));
+  }
+  return parts.length ? parts.join('\n\n') : 'No workspace data context selected.';
+}
+
+async function aiSend() {
+  if (AI_THINKING) return;
+  const input = document.getElementById('ai-input');
+  const text = input?.value.trim();
+  if (!text) return;
+
+  AI_MESSAGES.push({r:'user', t:text});
+  if (input) input.value = '';
+
+  if (!AI_API_KEY) {
+    AI_MESSAGES.push({r:'ai', t:'No Claude API key configured. Add one in Settings → AI Assistant to enable the assistant.'});
+    renderPage('ai');
+    return;
+  }
+
+  AI_THINKING = true;
+  renderPage('ai');
+
+  const ctx = buildAIContext();
+  const conv = AI_MESSAGES
+    .filter(m => m.r === 'user' || m.r === 'ai')
+    .map(m => ({ role: m.r === 'user' ? 'user' : 'assistant', content: m.t }));
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        'x-api-key': AI_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL || 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: `You are an AI analyst embedded in a service desk app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
+        messages: conv,
+      })
+    });
+    const d = await res.json();
+    const reply = d.content?.find(c => c.type === 'text')?.text
+      || d.error?.message
+      || 'Could not generate a response.';
+    AI_MESSAGES.push({r:'ai', t:reply});
+  } catch (e) {
+    AI_MESSAGES.push({r:'ai', t:'AI unavailable: ' + (e?.message || 'network error')});
+  }
+  AI_THINKING = false;
+  renderPage('ai');
+}
+
 function renderWorkflows(){ return placeholderPage('Workflows', `${WORKFLOWS.length} automation rules configured.`); }
 function renderTags()     { return placeholderPage('Tags', `${TAG_LIBRARY.length} tags in the library.`); }
 // ─── Roles & Permissions ─────────────────────────────────────────────────────
@@ -2149,7 +2318,11 @@ function deleteRolePrompt(role) {
     closeModal(); renderPage('roles');
   }, 'Delete');
 }
-function initAI() {}
+function initAI() {
+  scrollAIBottom();
+  const input = document.getElementById('ai-input');
+  if (input && !AI_THINKING) input.focus();
+}
 function drawReportCharts() {}
 
 // ─── Auth helpers ────────────────────────────────────────────────────────────
