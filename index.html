@@ -335,6 +335,13 @@ textarea.form-input{resize:vertical;min-height:72px}
 .agent-stat-n.c-amber{color:var(--amber)}
 .agent-stat-n.c-green{color:var(--green)}
 .agent-stat-l{font-size:9px;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;font-weight:500}
+/* ── Dashboard layout ── */
+.dash-grid-12{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+.dash-grid-12 .span-12{grid-column:span 12}
+.dash-grid-12 .span-8{grid-column:span 8}
+.dash-grid-12 .span-6{grid-column:span 6}
+.dash-grid-12 .span-4{grid-column:span 4}
+@media (max-width:900px){.dash-grid-12 .span-12,.dash-grid-12 .span-8,.dash-grid-12 .span-6,.dash-grid-12 .span-4{grid-column:span 12}}
 /* ── AI page ── */
 .ai-chat{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
 .ai-msg{padding:14px 16px;font-size:14px;line-height:1.65;max-width:80%}
@@ -1939,23 +1946,185 @@ function placeholderPage(title, blurb) {
       </div>
     </div>`;
 }
+function openAgentFromDash(name) { AGENT_SELECTED = name; navTo('agents'); }
+function openKBFromDash(id)      { KB_SELECTED = id; navTo('kb'); }
+
+function dashRecentTickets() {
+  const tickets = [...TICKETS].slice(0, 6);
+  const rows = tickets.map(t => `
+    <div onclick="openTicket('${escAttr(t.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      <span class="tag tag-${t.status}" style="font-size:9px">${t.status}</span>
+      <span class="tag tag-${t.priority}" style="font-size:9px">${t.priority}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${t.id}</span>
+      <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500">${t.subject}</span>
+      <span class="sla-${t.sla}" style="font-size:10px;text-transform:uppercase;font-weight:500;flex-shrink:0">${t.sla}</span>
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);flex-shrink:0">${t.updated}</span>
+    </div>`).join('');
+  return `
+    <div class="card span-8">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title" style="margin:0">Recent activity</div>
+        <span class="link" onclick="navTo('tickets')" style="font-size:11px">View all →</span>
+      </div>
+      ${rows || '<div style="color:var(--ink3);font-size:12px">No tickets yet</div>'}
+    </div>`;
+}
+
+function dashStatus(s) {
+  const items = Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]);
+  const segs = items.map(([k, v]) => {
+    const pct = s.total ? (v/s.total)*100 : 0;
+    return `<div title="${k}: ${v}" style="background:${STATUS_COLORS[k]||'var(--ink3)'};width:${pct}%"></div>`;
+  }).join('');
+  const legend = items.map(([k, v]) => `<div class="donut-row" style="font-size:11px"><span class="donut-dot" style="background:${STATUS_COLORS[k]||'var(--ink3)'}"></span><span style="flex:1;text-transform:capitalize;color:var(--ink2)">${k}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3)">${v}</span></div>`).join('');
+  return `
+    <div class="card span-4">
+      <div class="card-title">Status</div>
+      <div class="r-stack">${segs}</div>
+      <div style="margin-top:12px">${legend}</div>
+    </div>`;
+}
+
+function dashSLA(s) {
+  return `
+    <div class="card span-4">
+      <div class="card-title">SLA health</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+        <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt);padding:10px"><div class="r-tile-n" style="color:var(--green);font-size:20px">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green);font-size:10px">On track</div></div>
+        <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt);padding:10px"><div class="r-tile-n" style="color:var(--amber);font-size:20px">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber);font-size:10px">Warning</div></div>
+        <div class="r-tile" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt);padding:10px"><div class="r-tile-n" style="color:var(--red);font-size:20px">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red);font-size:10px">Breach</div></div>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--ink3)"><strong style="color:var(--ink2)">${s.slaCompliance}%</strong> compliance window</div>
+    </div>`;
+}
+
+function dashAgentLoad() {
+  const agents = AGENTS.filter(a => a.active).map(a => ({
+    ...a,
+    open: TICKETS.filter(t => t.agent === a.name && (t.status === 'open' || t.status === 'escalated')).length
+  })).sort((a, b) => b.open - a.open).slice(0, 5);
+  if (!agents.length) return '<div class="card span-4"><div class="card-title">Agent load</div><div style="color:var(--ink3);font-size:12px">No active agents</div></div>';
+  const max = Math.max(...agents.map(a => a.open), 1);
+  const rows = agents.map(a => {
+    const pct = (a.open / max) * 100;
+    return `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" onclick="openAgentFromDash('${escAttr(a.name)}')">
+        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
+        <div style="font-size:12px;color:var(--ink2);width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name}</div>
+        <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--purple);height:100%;width:${pct}%"></div></div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:24px;text-align:right">${a.open}</div>
+      </div>`;
+  }).join('');
+  return `
+    <div class="card span-4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title" style="margin:0">Top open load</div>
+        <span class="link" onclick="navTo('agents')" style="font-size:11px">All →</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function dashAITags() {
+  const count = TICKETS.reduce((sum, t) => sum + (t.aiTags || []).filter(at => !at.accepted).length, 0);
+  const tickets = TICKETS.filter(t => (t.aiTags || []).some(at => !at.accepted)).length;
+  return `
+    <div class="card span-4">
+      <div class="card-title">AI tag suggestions</div>
+      <div style="text-align:center;padding:14px 0">
+        <div style="font-size:36px;font-weight:700;color:${count>0?'var(--purple)':'var(--ink3)'};font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1">${count}</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Pending review</div>
+      </div>
+      <div style="font-size:11px;color:var(--ink3);text-align:center;line-height:1.5">${count > 0 ? `Across ${tickets} ticket${tickets===1?'':'s'} — open a ticket to accept or dismiss.` : 'All current AI suggestions have been reviewed.'}</div>
+    </div>`;
+}
+
+function dashWorkflows() {
+  const active = WORKFLOWS.filter(w => w.status === 'active').length;
+  const runs = WORKFLOWS.reduce((s, w) => s + (w.runCount || 0), 0);
+  const recentlyRun = WORKFLOWS.filter(w => w.lastRun).slice(0, 2);
+  return `
+    <div class="card span-4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title" style="margin:0">Automation</div>
+        <span class="link" onclick="navTo('workflows')" style="font-size:11px">All →</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div class="r-tile" style="padding:12px"><div class="r-tile-n" style="color:var(--green);font-size:22px">${active}</div><div class="r-tile-l" style="color:var(--ink3);font-size:10px">Active</div></div>
+        <div class="r-tile" style="padding:12px"><div class="r-tile-n" style="color:var(--purple);font-size:22px">${runs}</div><div class="r-tile-l" style="color:var(--ink3);font-size:10px">Runs (30d)</div></div>
+      </div>
+      ${recentlyRun.length ? `<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Recent</div>
+        ${recentlyRun.map(w => `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2);padding:3px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${w.name}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3);flex-shrink:0;margin-left:8px">${w.lastRun}</span></div>`).join('')}` : ''}
+    </div>`;
+}
+
+function dashKB() {
+  const articles = [...KB_ARTICLES].sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 4);
+  const rows = articles.map(a => `
+    <div onclick="openKBFromDash('${escAttr(a.id)}')" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
+      <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${a.category}</div>
+      <div style="font-size:12px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.title}</div>
+    </div>`).join('');
+  return `
+    <div class="card span-4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div class="card-title" style="margin:0">Knowledge base</div>
+        <span class="link" onclick="navTo('kb')" style="font-size:11px">All →</span>
+      </div>
+      ${rows || '<div style="color:var(--ink3);font-size:12px">No articles</div>'}
+    </div>`;
+}
+
+function dashCSAT(s) {
+  const score = s.avgCSAT;
+  const color = score >= 4 ? 'var(--green)' : score >= 3 ? 'var(--amber)' : score > 0 ? 'var(--red)' : 'var(--ink3)';
+  return `
+    <div class="card span-4">
+      <div class="card-title">Customer satisfaction</div>
+      <div style="text-align:center;padding:14px 0">
+        <div style="font-size:42px;font-weight:700;color:${color};font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1">${score?score.toFixed(1):'—'}</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:8px">${s.csatCount} of ${s.total} tickets rated</div>
+      </div>
+      <div style="margin-top:6px;font-size:11px;color:var(--ink3);text-align:center"><span class="link" onclick="navTo('reports')">View report →</span></div>
+    </div>`;
+}
+
 function renderDashboard() {
-  const open = TICKETS.filter(t => t.status==='open'||t.status==='escalated').length;
-  const pending = TICKETS.filter(t => t.status==='pending').length;
-  const gdpr = TICKETS.filter(t => t.status==='gdpr').length;
-  const resolved = TICKETS.filter(t => t.status==='resolved').length;
+  const stats = computeReportStats(TICKETS);
+  const open = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
+  const pending = TICKETS.filter(t => t.status === 'pending').length;
+  const gdpr = TICKETS.filter(t => t.status === 'gdpr').length;
+  const breach = TICKETS.filter(t => t.sla === 'breach').length;
+  const warn = TICKETS.filter(t => t.sla === 'warn').length;
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  })();
   return `
     <div class="page">
-      <div class="topbar"><div class="tb-title">Dashboard</div></div>
-      <div class="kpi-bar">
+      <div class="topbar">
+        <div class="tb-title">${greeting}${SESSION?.name?', '+SESSION.name.split(' ')[0]:''}</div>
+      </div>
+      <div class="kpi-bar" style="grid-template-columns:repeat(6,1fr)">
         <div class="kpi"><div class="kpi-n c-blue">${open}</div><div class="kpi-l">Open</div></div>
         <div class="kpi"><div class="kpi-n c-amber">${pending}</div><div class="kpi-l">Pending</div></div>
         <div class="kpi"><div class="kpi-n c-purple">${gdpr}</div><div class="kpi-l">GDPR</div></div>
-        <div class="kpi"><div class="kpi-n c-green">${resolved}</div><div class="kpi-l">Resolved</div></div>
+        <div class="kpi"><div class="kpi-n c-red">${breach}</div><div class="kpi-l">SLA breach</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${warn}</div><div class="kpi-l">SLA warn</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${stats.resolved}</div><div class="kpi-l">Resolved</div></div>
       </div>
       <div class="page-scroll">
-        <div class="card"><div class="card-title">Welcome back, ${SESSION?.name||'agent'}</div>
-          <div style="font-size:13px;color:var(--ink2);line-height:1.6">You have ${open} open tickets to triage. Jump into <span class="link" onclick="nav('tickets',document.querySelectorAll('.sb-item')[1])">Tickets</span> to get started.</div>
+        <div class="dash-grid-12">
+          ${dashRecentTickets()}
+          ${dashStatus(stats)}
+          ${dashSLA(stats)}
+          ${dashAgentLoad()}
+          ${dashAITags()}
+          ${dashWorkflows()}
+          ${dashKB()}
+          ${dashCSAT(stats)}
         </div>
       </div>
     </div>`;
