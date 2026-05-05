@@ -135,6 +135,18 @@ body{font-family:'Inter',sans-serif;background:var(--w);color:var(--ink);font-si
 .help-faq-q:hover{color:var(--purple)}
 .help-faq-chev{font-family:'DM Mono',monospace;font-size:16px;color:var(--ink3);font-weight:400;flex-shrink:0;width:14px;text-align:center}
 .help-faq-a{padding:0 4px 14px;font-size:12.5px;color:var(--ink2);line-height:1.6}
+/* ── Knowledge Base ── */
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:8px}
+.kb-card{padding:14px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--off);cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:6px}
+.kb-card:hover{border-color:var(--purple);background:var(--purple-lt)}
+.kb-card-cat{font-family:'Inter',sans-serif;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--purple)}
+.kb-card-t{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.4}
+.kb-card-snippet{font-size:11.5px;color:var(--ink3);line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.kb-card-meta{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-top:auto;display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid var(--rule)}
+.kb-article{max-width:760px;margin:0 auto}
+.kb-article-h{font-family:'Inter',sans-serif;font-size:24px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:10px;line-height:1.2}
+.kb-article-meta{display:flex;gap:14px;align-items:center;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--rule)}
+.kb-article-body{font-size:14px;line-height:1.75;color:var(--ink2);white-space:pre-wrap;word-wrap:break-word}
 /* ── Topbar ── */
 .topbar{height:48px;border-bottom:1px solid var(--rule);display:flex;align-items:center;padding:0 20px;gap:10px;flex-shrink:0;background:var(--off)}
 .tb-title{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;letter-spacing:-.025em;color:var(--ink);flex:1}
@@ -464,6 +476,10 @@ textarea.form-input{resize:vertical;min-height:72px}
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="2" fill="currentColor" opacity=".8"/><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1" opacity=".3"/><circle cx="6.5" cy="6.5" r="6" stroke="currentColor" stroke-width=".5" stroke-dasharray="1.5 1.5" opacity=".2"/></svg>
           <span class="sb-lbl">AI Intelligence</span>
         </div>
+        <div class="sb-item" onclick="nav('kb',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M2 2.5h4a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 0 6 9.5H2v-7zM11 2.5H7a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 1 7 9.5h4v-7z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+          <span class="sb-lbl">Knowledge Base</span>
+        </div>
       </div>
       <div class="sb-section">
         <div class="sb-heading">Config</div>
@@ -684,6 +700,7 @@ function nav(page, el) {
 }
 function renderPage(page) {
   if (page !== 'roles') ROLES_VIEW_AGENTS = null;
+  if (page !== 'kb')    KB_SELECTED = null;
   CURRENT_PAGE = page;
   CURRENT_TICKET = null;
   const main = document.getElementById('main-area');
@@ -694,6 +711,7 @@ function renderPage(page) {
     reports:   renderReports,
     agents:    renderAgents,
     ai:        renderAI,
+    kb:        renderKB,
     workflows: renderWorkflows,
     tags:      renderTags,
     roles:     renderRoles,
@@ -1193,6 +1211,7 @@ const SEARCH_PAGES = [
   {p:'reports',   l:'Reports'},
   {p:'agents',    l:'Agents'},
   {p:'ai',        l:'AI Intelligence'},
+  {p:'kb',        l:'Knowledge Base'},
   {p:'workflows', l:'Workflows'},
   {p:'tags',      l:'Tags'},
   {p:'roles',     l:'Roles & Permissions'},
@@ -1228,6 +1247,13 @@ function globalSearch(q) {
     a.name.toLowerCase().includes(ql) || a.role.toLowerCase().includes(ql)
   ).slice(0, 5);
 
+  const articles = KB_ARTICLES.filter(a =>
+    a.title.toLowerCase().includes(ql)
+    || a.body.toLowerCase().includes(ql)
+    || a.category.toLowerCase().includes(ql)
+    || a.id.toLowerCase().includes(ql)
+  ).slice(0, 5);
+
   const pages = SEARCH_PAGES.filter(pg => pg.l.toLowerCase().includes(ql));
 
   let html = '';
@@ -1246,6 +1272,10 @@ function globalSearch(q) {
   if (agents.length) {
     html += '<div class="gs-group">Agents</div>';
     html += agents.map(a => `<div class="gs-result" onmousedown="gsGo('agent','${escAttr(a.name)}')"><span class="gs-result-type">${a.role}</span><span class="gs-result-main">${a.name}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
+  }
+  if (articles.length) {
+    html += '<div class="gs-group">Knowledge Base</div>';
+    html += articles.map(a => `<div class="gs-result" onmousedown="gsGo('article','${escAttr(a.id)}')"><span class="gs-result-type">${a.id}</span><span class="gs-result-main">${a.title}</span><span class="gs-result-meta">${a.category}</span></div>`).join('');
   }
   if (pages.length) {
     html += '<div class="gs-group">Pages</div>';
@@ -1266,6 +1296,16 @@ function gsGo(type, id) {
 
   if (type === 'ticket') openTicket(id);
   else if (type === 'customer') openCustomerModal(id);
+  else if (type === 'article') {
+    KB_SELECTED = id;
+    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+    let target = null;
+    document.querySelectorAll('.sb-item').forEach(i => {
+      if ((i.getAttribute('onclick') || '').includes("'kb'")) target = i;
+    });
+    if (target) target.classList.add('active');
+    renderPage('kb');
+  }
   else if (type === 'agent') {
     const a = AGENTS.find(x => x.name === id);
     if (!a) return;
@@ -1562,6 +1602,161 @@ function settingsAI() {
 
 function setAIKey(v)   { AI_API_KEY = v.trim(); localStorage.setItem('ai_api_key', AI_API_KEY); }
 function setAIModel(v) { AI_MODEL = v;          localStorage.setItem('ai_model', AI_MODEL); }
+
+// ─── Knowledge Base ──────────────────────────────────────────────────────────
+let KB_SELECTED = null;
+let KB_QUERY = '';
+let KB_FILTER_CAT = 'all';
+
+const KB_ARTICLES = [
+  {id:'KB-001', title:'How to reset your account password', category:'Account', author:'Emma Clarke', updated:'2025-04-10',
+   body:`Lost access to your account? Follow these steps to regain it.\n\nStep 1: Click "Forgot password?" on the sign-in screen.\n\nStep 2: Enter your work email address and submit. The reset link is sent only to addresses on your organisation's allowlist.\n\nStep 3: Check your inbox for a reset link. The link expires after 30 minutes.\n\nStep 4: Set a new password — minimum 12 characters, must include a number and a symbol.\n\nIf you don't receive an email within 5 minutes, check your spam folder. If it's still missing, contact your administrator — your account may be temporarily locked after multiple failed attempts.`},
+  {id:'KB-002', title:'Understanding SLA breach alerts', category:'Best Practices', author:'James Webb', updated:'2025-04-12',
+   body:`SLA breaches indicate tickets that have exceeded their contractual response or resolution window. They appear as red badges in the ticket list, in the notifications bell, and on the dashboard KPI bar.\n\nWhen an SLA is in "warn" state, the ticket is approaching but has not yet missed its deadline. When it moves to "breach", customer-facing escalation paths typically engage automatically depending on workflow rules.\n\nTo prioritise effectively: filter the Tickets page by SLA status, then sort by Updated descending. Reach out to the customer first, then update the ticket status to acknowledge the breach internally.`},
+  {id:'KB-003', title:'Submitting a GDPR data erasure request', category:'GDPR', author:'Sofia Reyes', updated:'2025-03-28',
+   body:`Customers in the EU/UK have the right to request erasure of their personal data under Article 17 of the GDPR.\n\nWhen a ticket is flagged with category GDPR, the ticket sidebar exposes three actions: Request Erasure, Redact Data, and SAR Export.\n\nErasure is a hard delete and is irreversible. Redaction masks identifying fields in the ticket thread but preserves the audit trail. SAR Export packages all data held about the customer into a downloadable archive within 30 days, as required by law.\n\nAll GDPR actions are logged with the requesting agent's name and timestamp.`},
+  {id:'KB-004', title:'Exporting transaction history to CSV', category:'Technical', author:'Priya Nair', updated:'2025-04-05',
+   body:`Customers can export their transaction history as CSV from the customer portal.\n\nIn the agent UI, open the customer's profile from any ticket sidebar, then use the "Export" action. The CSV will be emailed to the customer's verified address within a few minutes.\n\nIf the customer reports the file did not arrive, first verify the email address is correct, then check whether the export job timed out — exports for accounts with more than 50,000 transactions are generated overnight.`},
+  {id:'KB-005', title:'Setting up the Claude API key for AI Draft', category:'Getting Started', author:'Emma Clarke', updated:'2025-04-15',
+   body:`The "AI Draft" button in the ticket composer uses the Anthropic Claude API to draft a reply based on the conversation history.\n\nTo enable it:\n\n1. Go to Settings → AI Assistant.\n2. Paste your Claude API key in the API key field. It should start with "sk-ant-".\n3. Choose a model. Sonnet 4.6 is the default and a good balance of speed and quality.\n\nThe key is stored locally in your browser via localStorage. It is never transmitted to our servers — requests go directly from your browser to api.anthropic.com.\n\nIf the API rejects your request, the composer surfaces the error message returned by Anthropic.`},
+  {id:'KB-006', title:'Creating custom roles and permissions', category:'Best Practices', author:'Emma Clarke', updated:'2025-04-08',
+   body:`Out of the box, this workspace ships with Admin, Senior Agent and Read Only roles. You can extend this for your team's needs.\n\nTo add a permission: Roles & Permissions → "+ Permission". Pick a label and an internal key. The new permission is added as a column on every existing role with default off.\n\nTo add a role: Roles & Permissions → "+ Role". Optionally copy the permissions of an existing role as a starting point.\n\nThe Admin role is protected — you cannot delete it, and the Roles & Permissions toggle on the Admin row is locked on to prevent accidental self-lockout.`},
+  {id:'KB-007', title:'Resending invoices and billing documents', category:'Billing', author:'Tom Bates', updated:'2025-04-02',
+   body:`Customers occasionally request a resend of their invoice or other billing documents.\n\nFor invoices from the current and previous quarter, use the customer portal action — these are regenerated on demand.\n\nFor older documents, raise an internal billing ticket with the customer ID and the invoice month. The finance team typically responds within one business day.\n\nNever attach billing documents directly to support tickets — always send via the secure document portal to maintain the audit trail.`},
+];
+
+function articleSnippet(a) { return a.body.replace(/\n+/g, ' ').slice(0, 180); }
+
+function renderKB() {
+  if (KB_SELECTED) return renderKBArticle(KB_SELECTED);
+  const admin = isAdmin();
+  const cats = ['all', ...new Set(KB_ARTICLES.map(a => a.category))];
+  const ql = KB_QUERY.toLowerCase().trim();
+  let list = KB_ARTICLES.filter(a => KB_FILTER_CAT === 'all' || a.category === KB_FILTER_CAT);
+  if (ql) list = list.filter(a => a.title.toLowerCase().includes(ql) || a.body.toLowerCase().includes(ql) || a.category.toLowerCase().includes(ql) || a.id.toLowerCase().includes(ql));
+  const cards = list.map(a => `
+    <div class="kb-card" onclick="openKBArticle('${a.id}')">
+      <div class="kb-card-cat">${a.category}</div>
+      <div class="kb-card-t">${a.title}</div>
+      <div class="kb-card-snippet">${articleSnippet(a)}</div>
+      <div class="kb-card-meta"><span>${a.id}</span><span>${a.updated}</span></div>
+    </div>`).join('');
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Knowledge Base</div>
+        ${admin ? `<button class="btn btn-solid btn-sm" onclick="kbNewArticle()">+ New Article</button>` : ''}
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <input class="filter-select" placeholder="Search articles…" style="width:240px" value="${KB_QUERY}" oninput="kbSetQuery(this.value)"/>
+        <select class="filter-select" onchange="kbSetCat(this.value)">
+          ${cats.map(c => `<option value="${c}" ${KB_FILTER_CAT===c?'selected':''}>${c==='all'?'All categories':c}</option>`).join('')}
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles</span>
+      </div>
+      <div class="page-scroll">
+        ${list.length ? `<div class="kb-grid">${cards}</div>` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No articles match</div><div class="empty-line"></div></div>`}
+      </div>
+    </div>`;
+}
+
+function renderKBArticle(id) {
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (!a) { KB_SELECTED = null; return renderKB(); }
+  const admin = isAdmin();
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-breadcrumb">
+          <span onclick="closeKBArticle()">Knowledge Base</span>
+          <span class="tb-sep">/</span>
+          <span style="color:var(--ink);font-weight:500">${a.id}</span>
+          ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-sm" onclick="kbEditArticle('${a.id}')">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="kbDeleteArticle('${a.id}')">Delete</button>
+          </span>` : ''}
+        </div>
+      </div>
+      <div class="page-scroll">
+        <div class="kb-article">
+          <div class="kb-card-cat">${a.category}</div>
+          <h1 class="kb-article-h">${a.title}</h1>
+          <div class="kb-article-meta">
+            <span>${a.id}</span>
+            <span>By ${a.author}</span>
+            <span>Updated ${a.updated}</span>
+          </div>
+          <div class="kb-article-body">${a.body}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function kbSetQuery(q) {
+  const wasFocused = document.activeElement;
+  KB_QUERY = q;
+  renderPage('kb');
+  // restore focus to the input that had it
+  const input = document.querySelector('.filter-bar input');
+  if (input && wasFocused?.tagName === 'INPUT') {
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+}
+function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
+function openKBArticle(id) { KB_SELECTED = id; renderPage('kb'); }
+function closeKBArticle()  { KB_SELECTED = null; renderPage('kb'); }
+
+function kbArticleForm(initial) {
+  const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
+  const a = initial || {title:'', category:cats[0]||'Getting Started', body:''};
+  return `
+    <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="kb-title" value="${a.title.replace(/"/g,'&quot;')}"/></div>
+    <div class="form-row"><label class="form-label">Category</label>
+      <input class="form-input" id="kb-cat" list="kb-cat-list" value="${a.category.replace(/"/g,'&quot;')}"/>
+      <datalist id="kb-cat-list">${cats.map(c => `<option value="${c}">`).join('')}</datalist>
+    </div>
+    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${a.body}</textarea></div>`;
+}
+
+function kbNewArticle() {
+  if (!isAdmin()) return;
+  showModal('New article', kbArticleForm(null), () => {
+    const title = document.getElementById('kb-title').value.trim();
+    const cat   = document.getElementById('kb-cat').value.trim() || 'Getting Started';
+    const body  = document.getElementById('kb-body').value;
+    if (!title || !body.trim()) return;
+    const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
+    KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+    closeModal(); renderPage('kb');
+  }, 'Publish', true);
+}
+
+function kbEditArticle(id) {
+  if (!isAdmin()) return;
+  const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
+  showModal('Edit article', kbArticleForm(a), () => {
+    const title = document.getElementById('kb-title').value.trim();
+    const cat   = document.getElementById('kb-cat').value.trim() || a.category;
+    const body  = document.getElementById('kb-body').value;
+    if (!title || !body.trim()) return;
+    a.title = title; a.category = cat; a.body = body;
+    a.updated = new Date().toISOString().slice(0,10);
+    closeModal(); renderPage('kb');
+  }, 'Save changes', true);
+}
+
+function kbDeleteArticle(id) {
+  if (!isAdmin()) return;
+  const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
+  showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${a.title}</strong>? This cannot be undone.</div>`, () => {
+    const i = KB_ARTICLES.findIndex(x => x.id === id);
+    if (i >= 0) KB_ARTICLES.splice(i, 1);
+    KB_SELECTED = null;
+    closeModal(); renderPage('kb');
+  }, 'Delete');
+}
 
 // ─── Help & Support ──────────────────────────────────────────────────────────
 const HELP_FAQ_OPEN = new Set();
