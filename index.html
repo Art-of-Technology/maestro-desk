@@ -155,6 +155,13 @@ body{font-family:'Inter',sans-serif;background:var(--w);color:var(--ink);font-si
 .cust-timeline-item.role-note::before{background:var(--amber)}
 .cust-note{padding:10px 12px;border-left:2px solid var(--amber);background:rgba(251,191,36,0.07);border-radius:0 var(--r) var(--r) 0;margin-bottom:8px}
 .cust-note:last-child{margin-bottom:0}
+/* ── Composer extras ── */
+.comp-var-btn{font-family:'DM Mono',monospace;font-size:10px;padding:2px 7px;border:1px solid var(--rule);border-radius:3px;background:var(--off2);color:var(--ink3);cursor:pointer;transition:all .15s}
+.comp-var-btn:hover{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
+.comp-menu{position:absolute;top:calc(100% + 4px);right:0;background:var(--off);border:1px solid var(--rule2);border-radius:var(--r2);min-width:200px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.25);overflow:hidden;padding:4px 0}
+.comp-menu-item{padding:7px 12px;cursor:pointer;font-size:12px;color:var(--ink2);white-space:nowrap;font-family:'Inter',sans-serif}
+.comp-menu-item:hover{background:rgba(139,92,246,0.08);color:var(--ink)}
+.comp-meta{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:4px;padding:0 2px;letter-spacing:.04em}
 /* ── Help & Support ── */
 .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .help-quickstart{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
@@ -1291,9 +1298,20 @@ function openTicket(id) {
             <div class="composer-tabs">
               <div class="ctab ${COMPOSE_TAB==='reply'?'active':''}" onclick="setComposeTab('reply','${id}')">Reply</div>
               <div class="ctab ${COMPOSE_TAB==='note'?'active':''}" onclick="setComposeTab('note','${id}')">Internal note</div>
+              <div style="margin-left:auto;display:flex;gap:4px;align-items:center;padding:0 12px">
+                <span style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-right:4px">Insert</span>
+                <button class="comp-var-btn" onclick="insertVar('${id}','{name}')" title="Customer first name">{name}</button>
+                <button class="comp-var-btn" onclick="insertVar('${id}','{ticket}')" title="Ticket ID">{ticket}</button>
+                <button class="comp-var-btn" onclick="insertVar('${id}','{brand}')" title="Customer brand">{brand}</button>
+                <button class="comp-var-btn" onclick="insertVar('${id}','{agent}')" title="Assigned agent">{agent}</button>
+              </div>
             </div>
             <div class="composer-body">
-              <textarea class="compose-area" id="compose-${id}" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI draft…':'Add an internal note…'}"></textarea>
+              <textarea class="compose-area" id="compose-${id}" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI…':'Add an internal note…'}" oninput="onComposeInput('${id}')">${escHtml(loadDraft(id))}</textarea>
+              <div class="comp-meta">
+                <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
+                <span id="char-count-${id}">${loadDraft(id).length} chars</span>
+              </div>
               <div class="composer-foot">
                 <div class="composer-actions">
                   <select class="filter-select" id="status-sel-${id}" onchange="changeTicketStatus('${id}',this.value)">
@@ -1303,13 +1321,33 @@ function openTicket(id) {
                     <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
                   </select>
                   <button class="btn btn-sm" onclick="showMacroPanel('${id}')">Macros</button>
-                  <button class="btn btn-sm" onclick="showAttachPanel('${id}')">Attach</button>
+                  <button class="btn btn-sm" onclick="showAttachPanel('${id}')">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <button class="btn btn-sm btn-danger" onclick="showGDPRModal('${id}')">GDPR</button>
-                  <div class="thinking" id="thinking-${id}"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>&nbsp;drafting</div>
+                  <div class="thinking" id="thinking-${id}"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>&nbsp;working</div>
                 </div>
-                <div style="display:flex;gap:6px">
-                  ${COMPOSE_TAB==='reply'?`<button class="btn btn-sm" onclick="aiDraft('${id}')">AI Draft</button>`:''}
-                  <button class="btn btn-sm btn-solid" onclick="sendCompose('${id}')">${COMPOSE_TAB==='reply'?'Send':'Add Note'}</button>
+                <div style="display:flex;gap:6px;align-items:center">
+                  ${COMPOSE_TAB==='reply' ? `
+                  <div style="position:relative;display:inline-block">
+                    <button class="btn btn-sm" onclick="toggleAIMenu('${id}')">AI ▾</button>
+                    <div id="ai-menu-${id}" class="comp-menu">
+                      <div class="comp-menu-item" onclick="aiAction('${id}','draft')">Draft reply</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','improve')">Improve writing</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','shorten')">Shorten</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','lengthen')">Add detail</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','friendly')">Friendlier tone</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','formal')">More formal</div>
+                      <div class="comp-menu-item" onclick="aiAction('${id}','translate')">Translate to English</div>
+                    </div>
+                  </div>` : ''}
+                  <div style="position:relative;display:inline-flex">
+                    <button class="btn btn-sm btn-solid" style="border-radius:var(--r) 0 0 var(--r);border-right:1px solid rgba(255,255,255,0.25)" onclick="sendCompose('${id}')">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
+                    <button class="btn btn-sm btn-solid" style="border-radius:0 var(--r) var(--r) 0;padding:5px 8px" onclick="toggleSendMenu('${id}')" title="More send options">▾</button>
+                    <div id="send-menu-${id}" class="comp-menu">
+                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','resolved')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</div>
+                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','pending')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</div>
+                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','escalated')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1524,40 +1562,129 @@ function prevNextTicket(dir) {
   if (next) openTicket(next.id);
 }
 
-async function aiDraft(id) {
+function getDraftKey(id) { return `draft:${id}:${COMPOSE_TAB}`; }
+function loadDraft(id)   { return localStorage.getItem(getDraftKey(id)) || ''; }
+function saveDraft(id, value) {
+  if (value && value.length) localStorage.setItem(getDraftKey(id), value);
+  else localStorage.removeItem(getDraftKey(id));
+}
+function clearDraft(id) { localStorage.removeItem(getDraftKey(id)); }
+
+function onComposeInput(id) {
+  const el = document.getElementById('compose-' + id);
+  if (!el) return;
+  saveDraft(id, el.value);
+  const cc = document.getElementById('char-count-' + id);
+  if (cc) cc.textContent = `${el.value.length} chars`;
+  const ds = document.getElementById('draft-status-' + id);
+  if (ds) ds.textContent = el.value.length ? 'Draft saved' : '';
+}
+
+function insertVar(id, token) {
+  const t = TICKETS.find(x => x.id === id);
+  const cust = t ? CUSTOMERS.find(c => c.id === t.customerId) : null;
+  let val = token;
+  if (token === '{name}'   && cust) val = cust.first;
+  else if (token === '{ticket}')    val = id;
+  else if (token === '{brand}' && cust) val = cust.brand;
+  else if (token === '{agent}' && t) val = t.agent || '';
+  const el = document.getElementById('compose-' + id);
+  if (!el) return;
+  el.focus();
+  const start = el.selectionStart || 0;
+  const end   = el.selectionEnd   || 0;
+  el.value = el.value.slice(0, start) + val + el.value.slice(end);
+  const pos = start + val.length;
+  el.setSelectionRange(pos, pos);
+  onComposeInput(id);
+}
+
+function toggleAIMenu(id) {
+  const m = document.getElementById('ai-menu-' + id);
+  if (!m) return;
+  document.getElementById('send-menu-' + id)?.style.setProperty('display', 'none');
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+}
+function hideAIMenu(id)  { const m = document.getElementById('ai-menu-'   + id); if (m) m.style.display = 'none'; }
+function toggleSendMenu(id) {
+  const m = document.getElementById('send-menu-' + id);
+  if (!m) return;
+  document.getElementById('ai-menu-' + id)?.style.setProperty('display', 'none');
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+}
+function hideSendMenu(id) { const m = document.getElementById('send-menu-' + id); if (m) m.style.display = 'none'; }
+
+async function aiAction(id, action) {
+  hideAIMenu(id);
   if (AI_THINKING) return;
   const t = TICKETS.find(x => x.id === id);
-  const el = document.getElementById(`compose-${id}`);
-  const th = document.getElementById(`thinking-${id}`);
-  AI_THINKING = true;
-  th.classList.add('show');
-  el.value = '';
-  el.placeholder = 'Drafting…';
-  const hist = t.msgs.map(m => `${m.from}: ${m.t}`).join('\n\n');
+  const el = document.getElementById('compose-' + id);
+  if (!t || !el) return;
   if (!AI_API_KEY) {
     el.value = 'No Claude API key configured. Add one in Settings → AI Assistant.';
-  } else {
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type':'application/json',
-          'x-api-key': AI_API_KEY,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: AI_MODEL || 'claude-sonnet-4-6', max_tokens: 300,
-          system: 'You are a professional B2B SaaS support agent. Draft a concise, helpful reply. Output ONLY the reply text — no labels, no preamble.',
-          messages: [{ role: 'user', content: `Ticket: ${t.subject}\n\n${hist}\n\nDraft a reply:` }]
-        })
-      });
-      const d = await res.json();
-      el.value = d.content?.find(c=>c.type==='text')?.text || d.error?.message || 'Could not generate a draft.';
-    } catch { el.value = 'AI unavailable. Please type your reply.'; }
+    onComposeInput(id);
+    return;
   }
-  el.placeholder = COMPOSE_TAB==='reply'?'Write a reply or use AI draft…':'Add an internal note…';
-  AI_THINKING = false; th.classList.remove('show');
+  const current = el.value || '';
+  if (action !== 'draft' && !current.trim()) {
+    el.value = `Type something first — AI ${action} works on the current draft.`;
+    onComposeInput(id);
+    return;
+  }
+  AI_THINKING = true;
+  const th = document.getElementById('thinking-' + id);
+  if (th) th.classList.add('show');
+
+  let systemMsg, userMsg;
+  if (action === 'draft') {
+    const hist = (t.msgs || []).map(m => `${m.from}: ${m.t}`).join('\n\n');
+    systemMsg = 'You are a professional B2B SaaS support agent. Draft a concise, helpful reply. Output ONLY the reply text — no labels, no preamble.';
+    userMsg = `Ticket: ${t.subject}\n\n${hist}\n\nDraft a reply:`;
+  } else {
+    const instructions = {
+      improve:   'Rewrite the following text to improve clarity and professionalism. Keep the same meaning and roughly the same length. Output ONLY the rewritten text.',
+      shorten:   'Shorten the following text by 30-50% while preserving all key information. Output ONLY the rewritten text.',
+      lengthen:  'Expand the following text with more detail and helpful context, while staying professional and on-topic. Output ONLY the rewritten text.',
+      friendly:  'Rewrite the following text to be warmer and friendlier in tone, while staying professional. Output ONLY the rewritten text.',
+      formal:    'Rewrite the following text in a more formal, business tone. Output ONLY the rewritten text.',
+      translate: 'Translate the following text into clear, natural English. If it is already English, polish it lightly. Output ONLY the result.',
+    };
+    systemMsg = instructions[action] || instructions.improve;
+    userMsg = current;
+  }
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        'x-api-key': AI_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL || 'claude-sonnet-4-6', max_tokens: 800,
+        system: systemMsg,
+        messages: [{ role: 'user', content: userMsg }]
+      })
+    });
+    const d = await res.json();
+    const txt = d.content?.find(c => c.type === 'text')?.text || d.error?.message;
+    if (txt) el.value = txt;
+  } catch {
+    el.value = el.value || 'AI unavailable. Please type your reply.';
+  }
+  AI_THINKING = false;
+  if (th) th.classList.remove('show');
+  onComposeInput(id);
+  el.focus();
+}
+
+function sendComposeAnd(id, status) {
+  hideSendMenu(id);
+  sendCompose(id);
+  changeTicketStatus(id, status);
+  if (CURRENT_TICKET === id) openTicket(id);
 }
 
 function sendCompose(id) {
@@ -1566,6 +1693,8 @@ function sendCompose(id) {
   const t = TICKETS.find(x => x.id === id);
   t.msgs.push({from: SESSION.name, r: COMPOSE_TAB==='note'?'note':'agent', t: txt, ts: new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})});
   el.value = '';
+  clearDraft(id);
+  onComposeInput(id);
   const thread = document.getElementById(`thread-${id}`);
   if (thread) {
     const d = document.createElement('div');
@@ -2201,6 +2330,11 @@ document.addEventListener('mousedown', e => {
     profileDD.classList.remove('show');
     document.getElementById('profile-btn')?.classList.remove('active');
   }
+  document.querySelectorAll('.comp-menu').forEach(menu => {
+    if (menu.style.display === 'block' && !menu.parentElement.contains(e.target)) {
+      menu.style.display = 'none';
+    }
+  });
 });
 
 function toggleProfileMenu() {
