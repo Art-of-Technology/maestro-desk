@@ -1075,6 +1075,121 @@ function showModal(title, body, onConfirm, confirmLabel='Save', isLarge=false) {
     </div>`;
 }
 function closeModal() { document.getElementById('modal-container').innerHTML=''; }
+
+// ─── Stub pages (placeholders so sidebar nav renders) ────────────────────────
+function placeholderPage(title, blurb) {
+  return `
+    <div class="page">
+      <div class="topbar"><div class="tb-title">${title}</div></div>
+      <div class="page-scroll">
+        <div class="card" style="max-width:520px;margin:40px auto;text-align:center">
+          <div class="card-title" style="margin-bottom:10px">${title}</div>
+          <div style="font-size:13px;color:var(--ink3);line-height:1.6">${blurb}</div>
+        </div>
+      </div>
+    </div>`;
+}
+function renderDashboard() {
+  const open = TICKETS.filter(t => t.status==='open'||t.status==='escalated').length;
+  const pending = TICKETS.filter(t => t.status==='pending').length;
+  const gdpr = TICKETS.filter(t => t.status==='gdpr').length;
+  const resolved = TICKETS.filter(t => t.status==='resolved').length;
+  return `
+    <div class="page">
+      <div class="topbar"><div class="tb-title">Dashboard</div></div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n c-blue">${open}</div><div class="kpi-l">Open</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${pending}</div><div class="kpi-l">Pending</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${gdpr}</div><div class="kpi-l">GDPR</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${resolved}</div><div class="kpi-l">Resolved</div></div>
+      </div>
+      <div class="page-scroll">
+        <div class="card"><div class="card-title">Welcome back, ${SESSION?.name||'agent'}</div>
+          <div style="font-size:13px;color:var(--ink2);line-height:1.6">You have ${open} open tickets to triage. Jump into <span class="link" onclick="nav('tickets',document.querySelectorAll('.sb-item')[1])">Tickets</span> to get started.</div>
+        </div>
+      </div>
+    </div>`;
+}
+function renderReports()  { return placeholderPage('Reports', 'Reporting dashboard — charts and breakdowns coming soon.'); }
+function renderAgents()   { return placeholderPage('Agents', 'Agent roster, workload and CSAT leaderboard.'); }
+function renderAI()       { return placeholderPage('AI Intelligence', 'AI assistant chat and prompt library.'); }
+function renderWorkflows(){ return placeholderPage('Workflows', `${WORKFLOWS.length} automation rules configured.`); }
+function renderTags()     { return placeholderPage('Tags', `${TAG_LIBRARY.length} tags in the library.`); }
+function renderRoles()    { return placeholderPage('Roles & Permissions', `${Object.keys(ROLES_MATRIX).length} roles defined.`); }
+function initAI() {}
+function drawReportCharts() {}
+
+// ─── Auth helpers ────────────────────────────────────────────────────────────
+function showAuthPanel(panel) {
+  ['login','forgot','create'].forEach(p => {
+    const el = document.getElementById('auth-'+p);
+    if (el) el.style.display = p === panel ? 'block' : 'none';
+  });
+}
+function submitForgot() {
+  const c = document.getElementById('forgot-confirm'); if (c) c.style.display = 'block';
+}
+function submitCreate() {
+  const c = document.getElementById('create-confirm'); if (c) c.style.display = 'block';
+}
+
+// ─── Modal/panel stubs (referenced by inline onclick) ────────────────────────
+function showMacroPanel(id) {
+  showModal('Insert macro', `
+    <div class="macro-item" onclick="closeModal()">Greeting — Hi {{customer}}, thanks for reaching out…</div>
+    <div class="macro-item" onclick="closeModal()">Refund confirmation — Your refund has been processed…</div>
+    <div class="macro-item" onclick="closeModal()">Escalation — I've escalated this to our specialist team…</div>
+  `, null, null);
+}
+function showAttachPanel(id) {
+  showModal('Attach file', `<div class="attach-zone">Drop files here or click to upload</div>`, null, null);
+}
+function showGDPRModal(id) {
+  showModal('GDPR actions', `
+    <div class="gdpr-action"><div class="gdpr-action-title">Request erasure</div><div class="gdpr-action-desc">Permanently delete this customer's personal data under Article 17.</div><button class="btn btn-sm btn-danger" onclick="closeModal()">Request erasure</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">Redact in-thread data</div><div class="gdpr-action-desc">Mask PII in this ticket's messages.</div><button class="btn btn-sm" onclick="closeModal()">Redact</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">SAR export</div><div class="gdpr-action-desc">Export all data held about this customer.</div><button class="btn btn-sm" onclick="closeModal()">Export</button></div>
+  `, null, null);
+}
+function openCustomerModal(custId) {
+  const c = CUSTOMERS.find(x => x.id === custId); if (!c) return;
+  showModal(`${c.first} ${c.last}`, `
+    <div class="ts-row"><span class="ts-key">Member ID</span><span class="ts-val">${c.id}</span></div>
+    <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${c.email}</span></div>
+    <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${c.mobile}</span></div>
+    <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${c.brand}</span></div>
+    <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span></div>
+    <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${c.jurisdiction}</span></div>
+    <div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${c.kyc}</span></div>
+    <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${c.since}</span></div>
+  `, null, null);
+}
+function showCSVModal() {
+  showModal('CSV import', `<div class="attach-zone">Drop a CSV file or click to upload</div><div style="font-size:11px;color:var(--ink3);margin-top:10px">Expected columns: id, first, last, email, brand, vip, jurisdiction</div>`, () => closeModal(), 'Import');
+}
+function showManageFieldsModal() {
+  showModal('Manage custom fields', `
+    ${CUSTOM_FIELDS.map(f => `<div class="ts-row"><span class="ts-key">${f.label}</span><span class="ts-val">${f.type}</span></div>`).join('')}
+    <div style="font-size:11px;color:var(--ink3);margin-top:14px">Custom fields appear as toggleable columns in the customer table.</div>
+  `, null, null);
+}
+function showNewContactModal() {
+  showModal('New contact', `
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">First name</label><input class="form-input" id="nc-first"/></div>
+      <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="nc-last"/></div>
+    </div>
+    <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="nc-email" type="email"/></div>
+    <div class="form-row"><label class="form-label">Brand</label><input class="form-input" id="nc-brand"/></div>
+  `, () => {
+    const first = document.getElementById('nc-first').value.trim();
+    const last  = document.getElementById('nc-last').value.trim();
+    if (!first || !last) return;
+    const id = 'M' + String(CUSTOMERS.length + 1).padStart(3,'0');
+    CUSTOMERS.push({id,first,last,username:(first[0]+last).toLowerCase(),email:document.getElementById('nc-email').value,mobile:'',brand:document.getElementById('nc-brand').value,vip:'Bronze',jurisdiction:'UK',consent:true,kyc:'Pending',since:new Date().toISOString().slice(0,10),bo:'',custom:{}});
+    closeModal(); refreshCustTable(CUSTOMERS);
+  }, 'Create');
+}
 </script>
 </body>
 </html>
