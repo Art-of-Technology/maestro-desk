@@ -1071,6 +1071,44 @@ function openTicket(id) {
       <button class="btn btn-sm" onclick="acceptAllAITags('${id}')">Accept all</button>
     </div>` : '';
 
+  const times = getTicketTimes(t);
+  const timeBlock = `
+    <div class="ts-section">
+      <div class="ts-heading">Timing</div>
+      <div class="ts-row"><span class="ts-key">Created</span><span class="ts-val">${times.created}</span></div>
+      <div class="ts-row"><span class="ts-key">Age</span><span class="ts-val">${times.age}</span></div>
+      <div class="ts-row"><span class="ts-key">First response</span><span class="ts-val">${times.firstResp}</span></div>
+      <div class="ts-row"><span class="ts-key">Last update</span><span class="ts-val">${times.lastUpdate}</span></div>
+      ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" onclick="showAttachPanel('${id}')">${t.attachments.length}</span></span></div>` : ''}
+    </div>`;
+
+  const followers = t.followers || [];
+  const watching = SESSION ? followers.includes(SESSION.name) : false;
+  const followerAvatars = followers.map(name => {
+    const ag = AGENTS.find(a => a.name === name);
+    const initials = ag ? ag.initials : (name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase());
+    return `<div title="${name}" style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;margin-left:-6px;border:2px solid var(--off)">${initials}</div>`;
+  }).join('');
+  const followersBlock = `
+    <div class="ts-section">
+      <div class="ts-heading">Followers (${followers.length})</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <div style="display:flex;padding-left:6px">${followerAvatars || '<span style="font-size:11px;color:var(--ink3)">No followers yet</span>'}</div>
+        <button class="btn btn-sm" onclick="toggleWatch('${id}')">${watching ? 'Unfollow' : 'Watch'}</button>
+      </div>
+    </div>`;
+
+  const kbSuggestions = getSuggestedKB(t);
+  const kbBlock = kbSuggestions.length ? `
+    <div class="ts-section">
+      <div class="ts-heading">Suggested KB</div>
+      ${kbSuggestions.map(a => `
+        <div onclick="KB_SELECTED='${escAttr(a.id)}';navTo('kb')" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
+          <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${a.category}</div>
+          <div style="font-size:12px;color:var(--ink);font-weight:500;line-height:1.3">${a.title}</div>
+        </div>`).join('')}
+    </div>` : '';
+
   const msgsHtml = t.msgs.map(m => `
     <div class="msg msg-${m.r}">
       <div class="msg-from">${m.from} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:\'Inter\',sans-serif;font-size:11px;color:var(--ink3)">${m.ts}</span></div>
@@ -1160,7 +1198,10 @@ function openTicket(id) {
               <div style="font-size:11px;color:var(--ink2)">Avg score<br/><span style="color:var(--ink3);font-family:'Inter',sans-serif;font-size:11px">${TICKETS.filter(x=>x.customerId===t.customerId&&x.csat).length} rated tickets</span></div>
             </div>
           </div>
+          ${timeBlock}
           ${aiTagsHtml}
+          ${followersBlock}
+          ${kbBlock}
           <div class="ts-section">
             <div class="ts-heading">Properties</div>
             <select class="ts-select" onchange="changeTicketStatus('${id}',this.value)">
@@ -1202,6 +1243,102 @@ function openTicket(id) {
 }
 
 function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
+
+const CANNED_RESPONSES = [
+  { name: 'Greeting',         text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
+  { name: 'Need more info',   text: 'To help me debug this, could you share:\n\n- Steps to reproduce the issue\n- The exact error message you\'re seeing\n- A screenshot if possible' },
+  { name: 'Escalating',       text: 'I\'m escalating this to our specialist team — you should hear back within the hour.' },
+  { name: 'Resolution',       text: 'I\'ve resolved this for you. Please let me know if anything else needs attention.' },
+  { name: 'Refund processed', text: 'Your refund has been processed and should appear in 3-5 business days. Apologies for any inconvenience.' },
+  { name: 'CSAT request',     text: 'When you have a moment, we\'d appreciate your feedback on this ticket. Your rating helps us improve our support.' },
+];
+
+function getTicketTimes(t) {
+  const msgs = t.msgs || [];
+  const customerMsgs = msgs.filter(m => m.r === 'customer');
+  const agentMsgs = msgs.filter(m => m.r === 'agent' || m.r === 'ai');
+
+  let firstResp = '—';
+  if (customerMsgs.length && agentMsgs.length) {
+    const cust = customerMsgs[0];
+    const agentAfter = agentMsgs.find(a => msgs.indexOf(a) > msgs.indexOf(cust));
+    if (agentAfter && /^\d+:\d+/.test(cust.ts) && /^\d+:\d+/.test(agentAfter.ts)) {
+      const [ch, cm] = cust.ts.split(':').map(Number);
+      const [ah, am] = agentAfter.ts.split(':').map(Number);
+      const diff = Math.max(0, (ah - ch) * 60 + (am - cm));
+      firstResp = diff === 0 ? '< 1m' : diff < 60 ? `${diff}m` : `${Math.floor(diff/60)}h ${diff%60}m`;
+    }
+  }
+
+  let age = '—';
+  if (t.created) {
+    const created = new Date(t.created);
+    const today = new Date('2025-04-16');
+    const days = Math.max(0, Math.floor((today - created) / 86400000));
+    age = days === 0 ? 'today' : days === 1 ? '1 day' : `${days} days`;
+  }
+
+  return { firstResp, age, created: t.created || '—', lastUpdate: t.updated || '—' };
+}
+
+function getSuggestedKB(t) {
+  const tokens = (t.subject || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3);
+  const cat = (t.category || '').toLowerCase();
+  const scored = KB_ARTICLES.map(a => {
+    let score = 0;
+    if (a.category.toLowerCase() === cat) score += 3;
+    const text = (a.title + ' ' + a.body).toLowerCase();
+    tokens.forEach(tok => { if (text.includes(tok)) score += 1; });
+    return { a, score };
+  }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+  return scored.map(s => s.a);
+}
+
+function toggleWatch(id) {
+  const t = TICKETS.find(x => x.id === id);
+  if (!t || !SESSION) return;
+  if (!t.followers) t.followers = [];
+  const idx = t.followers.indexOf(SESSION.name);
+  if (idx >= 0) t.followers.splice(idx, 1);
+  else t.followers.push(SESSION.name);
+  openTicket(id);
+}
+
+function insertMacro(ticketId, idx) {
+  const r = CANNED_RESPONSES[idx];
+  if (!r) return;
+  const t = TICKETS.find(x => x.id === ticketId);
+  const cust = t ? CUSTOMERS.find(c => c.id === t.customerId) : null;
+  const text = r.text.replace('{name}', cust ? cust.first : 'there');
+  const el = document.getElementById('compose-' + ticketId);
+  if (el) {
+    el.value = el.value ? `${el.value}\n\n${text}` : text;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+  closeModal();
+}
+
+function addMockAttachment(id) {
+  const t = TICKETS.find(x => x.id === id);
+  if (!t) return;
+  if (!t.attachments) t.attachments = [];
+  const samples = [
+    { name: 'screenshot.png', size: '142 KB' },
+    { name: 'error-log.txt',  size: '8 KB'   },
+    { name: 'invoice.pdf',    size: '218 KB' },
+    { name: 'export.csv',     size: '47 KB'  },
+    { name: 'recording.mp4',  size: '2.4 MB' },
+  ];
+  t.attachments.push(samples[t.attachments.length % samples.length]);
+  showAttachPanel(id);
+}
+
+function removeAttachment(id, idx) {
+  const t = TICKETS.find(x => x.id === id);
+  if (t && t.attachments) t.attachments.splice(idx, 1);
+  showAttachPanel(id);
+}
 function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id); if(t) t.status = val;
   updateNavBadges();
@@ -4240,14 +4377,35 @@ function submitCreate() {
 
 // ─── Modal/panel stubs (referenced by inline onclick) ────────────────────────
 function showMacroPanel(id) {
-  showModal('Insert macro', `
-    <div class="macro-item" onclick="closeModal()">Greeting — Hi {{customer}}, thanks for reaching out…</div>
-    <div class="macro-item" onclick="closeModal()">Refund confirmation — Your refund has been processed…</div>
-    <div class="macro-item" onclick="closeModal()">Escalation — I've escalated this to our specialist team…</div>
-  `, null, null);
+  const items = CANNED_RESPONSES.map((r, i) => {
+    const preview = r.text.replace(/\n+/g, ' ').slice(0, 100);
+    return `<div class="macro-item" onclick="insertMacro('${escAttr(id)}',${i})">
+      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${r.name}</div>
+        <div style="font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${preview}</div>
+      </div>
+    </div>`;
+  }).join('');
+  showModal('Insert canned response', `<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">{name} placeholders are auto-filled with the customer\'s first name.</div>${items}`, null, null);
 }
+
 function showAttachPanel(id) {
-  showModal('Attach file', `<div class="attach-zone">Drop files here or click to upload</div>`, null, null);
+  const t = TICKETS.find(x => x.id === id);
+  if (!t.attachments) t.attachments = [];
+  const list = t.attachments.length
+    ? t.attachments.map((a, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);margin-bottom:6px;background:var(--off2)">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5h5l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 1.5v3h3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+          <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name}</span>
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${a.size}</span>
+          <button class="btn btn-sm btn-danger" onclick="removeAttachment('${escAttr(id)}',${i})" style="padding:2px 8px;font-size:11px">Remove</button>
+        </div>`).join('')
+    : '<div style="font-size:12px;color:var(--ink3);text-align:center;padding:18px 0">No attachments yet</div>';
+  showModal('Attachments', `
+    <div class="attach-zone" onclick="addMockAttachment('${escAttr(id)}')">Click to add a sample attachment</div>
+    <div style="margin-top:14px;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:8px">${t.attachments.length} file${t.attachments.length===1?'':'s'}</div>
+    ${list}
+  `, null, null);
 }
 function showGDPRModal(id) {
   showModal('GDPR actions', `
