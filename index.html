@@ -896,7 +896,7 @@ function renderPage(page) {
   if (page !== 'roles')     ROLES_VIEW_AGENTS = null;
   if (page !== 'kb')        KB_SELECTED = null;
   if (page !== 'agents')    AGENT_SELECTED = null;
-  if (page !== 'customers') CUSTOMER_SELECTED = null;
+  if (page !== 'customers') { CUSTOMER_SELECTED = null; CUSTOMER_SELECTED_IDS.clear(); }
   if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
   CURRENT_PAGE = page;
   CURRENT_TICKET = null;
@@ -1900,12 +1900,25 @@ function custCellValue(c, colId) {
 
 function buildCustRows(list) {
   const cols = getCustColumns().filter(c=>c.visible);
-  return list.map(c=>`<tr onclick="openCustomerProfile('${c.id}')" style="cursor:pointer">${cols.map(col=>custCellValue(c,col.id)).join('')}</tr>`).join('');
+  return list.map(c => {
+    const checked = CUSTOMER_SELECTED_IDS.has(c.id);
+    return `<tr onclick="openCustomerProfile('${c.id}')" style="cursor:pointer${checked?';background:var(--purple-lt)':''}">
+      <td style="width:32px;padding-right:0" onclick="event.stopPropagation()">
+        <input type="checkbox" ${checked?'checked':''} onchange="toggleCustSelected('${c.id}')" style="cursor:pointer;accent-color:var(--purple)" />
+      </td>
+      ${cols.map(col=>custCellValue(c,col.id)).join('')}
+    </tr>`;
+  }).join('');
 }
 
 function buildCustHeaders() {
   const cols = getCustColumns().filter(c=>c.visible);
-  return cols.map((col,i)=>`<th draggable="true" ondragstart="CUST_DRAG_COL=${i}" ondragover="event.preventDefault()" ondrop="dropCustCol(${i})" style="cursor:grab;user-select:none;white-space:nowrap" title="Drag to reorder">${col.label} <span style="opacity:.3;font-size:10px">⠿</span></th>`).join('');
+  const ids = applyCustFilters().map(c => c.id);
+  const allSelected = ids.length > 0 && ids.every(id => CUSTOMER_SELECTED_IDS.has(id));
+  const checkboxHeader = `<th style="width:32px;padding-right:0" onclick="event.stopPropagation()">
+    <input type="checkbox" ${allSelected?'checked':''} onchange="toggleAllCustomers()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+  </th>`;
+  return checkboxHeader + cols.map((col,i)=>`<th draggable="true" ondragstart="CUST_DRAG_COL=${i}" ondragover="event.preventDefault()" ondrop="dropCustCol(${i})" style="cursor:grab;user-select:none;white-space:nowrap" title="Drag to reorder">${col.label} <span style="opacity:.3;font-size:10px">⠿</span></th>`).join('');
 }
 
 function dropCustCol(targetIdx) {
@@ -1921,10 +1934,16 @@ function dropCustCol(targetIdx) {
 }
 
 function refreshCustTable(list) {
-  const thead=document.getElementById('cust-thead');
-  const tbody=document.getElementById('cust-tbody');
-  if(thead) thead.innerHTML=buildCustHeaders();
-  if(tbody) tbody.innerHTML=buildCustRows(list);
+  const thead = document.getElementById('cust-thead');
+  const tbody = document.getElementById('cust-tbody');
+  if (thead) thead.innerHTML = buildCustHeaders();
+  if (tbody) {
+    const groups = groupCustomersBy(list, CUST_GROUP_BY);
+    const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${key}</td></tr>`;
+    tbody.innerHTML = groups.map(g =>
+      (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
+    ).join('');
+  }
 }
 
 function showColumnPanel() {
@@ -1951,10 +1970,17 @@ function showColumnPanel() {
 let CUST_QUERY = '';
 let CUST_VIP_FILTER = 'all';
 let CUST_BRAND_FILTER = 'all';
+let CUST_VIEW_FILTER = 'all';
+let CUST_GROUP_BY = 'none';
 let CUSTOMER_SELECTED = null;
+const CUSTOMER_SELECTED_IDS = new Set();
 
 function applyCustFilters() {
   let list = [...CUSTOMERS];
+  if (CUST_VIEW_FILTER === 'premium')         list = list.filter(c => c.vip === 'Platinum' || c.vip === 'Gold');
+  else if (CUST_VIEW_FILTER === 'kyc-pending') list = list.filter(c => c.kyc !== 'Verified');
+  else if (CUST_VIEW_FILTER === 'no-consent')  list = list.filter(c => !c.consent);
+  else if (CUST_VIEW_FILTER === 'at-risk')     list = list.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated')));
   if (CUST_QUERY.trim()) {
     const q = CUST_QUERY.toLowerCase();
     list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.email+' '+c.brand).toLowerCase().includes(q));
@@ -1962,6 +1988,75 @@ function applyCustFilters() {
   if (CUST_VIP_FILTER !== 'all')   list = list.filter(c => c.vip === CUST_VIP_FILTER);
   if (CUST_BRAND_FILTER !== 'all') list = list.filter(c => c.brand === CUST_BRAND_FILTER);
   return list;
+}
+
+function groupCustomersBy(list, by) {
+  if (by === 'none') return [{ key: null, items: list }];
+  const groups = new Map();
+  list.forEach(c => {
+    let key = (c[by] || '—') + '';
+    if (by === 'consent') key = c.consent ? 'Consent given' : 'No consent';
+    groups.has(key) || groups.set(key, []);
+    groups.get(key).push(c);
+  });
+  return [...groups.entries()].map(([key, items]) => ({ key, items }));
+}
+
+function setCustView(v) { CUST_VIEW_FILTER = v; renderPage('customers'); }
+function setCustGroupBy(v) { CUST_GROUP_BY = v; renderPage('customers'); }
+
+function toggleCustSelected(id) {
+  if (CUSTOMER_SELECTED_IDS.has(id)) CUSTOMER_SELECTED_IDS.delete(id);
+  else CUSTOMER_SELECTED_IDS.add(id);
+  renderPage('customers');
+}
+
+function toggleAllCustomers() {
+  const ids = applyCustFilters().map(c => c.id);
+  const all = ids.length > 0 && ids.every(id => CUSTOMER_SELECTED_IDS.has(id));
+  if (all) ids.forEach(id => CUSTOMER_SELECTED_IDS.delete(id));
+  else ids.forEach(id => CUSTOMER_SELECTED_IDS.add(id));
+  renderPage('customers');
+}
+
+function clearCustSelection() { CUSTOMER_SELECTED_IDS.clear(); renderPage('customers'); }
+
+function bulkSetCustVIP(v) {
+  if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
+  CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.vip = v; });
+  CUSTOMER_SELECTED_IDS.clear();
+  renderPage('customers');
+}
+function bulkSetCustConsent(v) {
+  if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
+  CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.consent = v === 'yes'; });
+  CUSTOMER_SELECTED_IDS.clear();
+  renderPage('customers');
+}
+function bulkDeleteCustomers() {
+  const n = CUSTOMER_SELECTED_IDS.size;
+  if (n === 0) return;
+  showModal(`Delete ${n} customer${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> customer${n===1?'':'s'}? Tickets they own will be orphaned.</div>`, () => {
+    for (let i = CUSTOMERS.length - 1; i >= 0; i--) {
+      if (CUSTOMER_SELECTED_IDS.has(CUSTOMERS[i].id)) CUSTOMERS.splice(i, 1);
+    }
+    CUSTOMER_SELECTED_IDS.clear();
+    closeModal();
+    renderPage('customers');
+  }, 'Delete');
+}
+
+function exportCustomerList() {
+  const list = applyCustFilters();
+  const headers = ['ID','First','Last','Username','Email','Mobile','Brand','VIP','Jurisdiction','Consent','KYC','Since'];
+  const rows = list.map(c => [c.id, c.first, c.last, c.username, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.kyc, c.since]);
+  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `customers-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 function filterCustomers(q) { CUST_QUERY = q; refreshCustTable(applyCustFilters()); refreshCustCounter(); }
 function refreshCustCounter() {
@@ -1983,6 +2078,43 @@ function renderCustomers() {
   const avgPerCust = total ? (TICKETS.length / total).toFixed(1) : '0';
   const consentRate = total ? Math.round(CUSTOMERS.filter(c => c.consent).length / total * 100) : 0;
 
+  // View chip counts
+  const kycPendingN = CUSTOMERS.filter(c => c.kyc !== 'Verified').length;
+  const noConsentN  = CUSTOMERS.filter(c => !c.consent).length;
+  const atRiskN     = CUSTOMERS.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated'))).length;
+  const views = [
+    { k: 'all',         l: 'All',                         active: CUST_VIEW_FILTER === 'all' },
+    { k: 'premium',     l: `Premium · ${premium}`,        active: CUST_VIEW_FILTER === 'premium' },
+    { k: 'kyc-pending', l: `KYC pending · ${kycPendingN}`, active: CUST_VIEW_FILTER === 'kyc-pending' },
+    { k: 'no-consent',  l: `No consent · ${noConsentN}`,  active: CUST_VIEW_FILTER === 'no-consent' },
+    { k: 'at-risk',     l: `At risk · ${atRiskN}`,        active: CUST_VIEW_FILTER === 'at-risk' },
+  ];
+
+  const groups = groupCustomersBy(filtered, CUST_GROUP_BY);
+  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${key}</td></tr>`;
+  const tableBody = groups.map(g =>
+    (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
+  ).join('');
+
+  const bulkBar = CUSTOMER_SELECTED_IDS.size > 0 ? `
+    <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--purple);font-weight:600">${CUSTOMER_SELECTED_IDS.size} selected</span>
+      <select class="filter-select" onchange="bulkSetCustVIP(this.value)">
+        <option value="">Set VIP tier…</option>
+        <option value="Platinum">Platinum</option>
+        <option value="Gold">Gold</option>
+        <option value="Silver">Silver</option>
+        <option value="Bronze">Bronze</option>
+      </select>
+      <select class="filter-select" onchange="bulkSetCustConsent(this.value)">
+        <option value="">Set consent…</option>
+        <option value="yes">Consent: Yes</option>
+        <option value="no">Consent: No</option>
+      </select>
+      <button class="btn btn-sm btn-danger" onclick="bulkDeleteCustomers()">Delete</button>
+      <button class="btn btn-sm" onclick="clearCustSelection()" style="margin-left:auto">Clear selection</button>
+    </div>` : '';
+
   return `
     <div class="page">
       <div class="topbar">
@@ -1991,8 +2123,9 @@ function renderCustomers() {
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="5" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1" width="2" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
           Columns
         </button>
-        <button class="btn btn-sm" onclick="showManageFieldsModal()">Manage Fields</button>
+        <button class="btn btn-sm" onclick="showManageFieldsModal()">Fields</button>
         <button class="btn btn-sm" onclick="showCSVModal()">CSV Import</button>
+        <button class="btn btn-sm" onclick="exportCustomerList()">Export CSV</button>
         <button class="btn btn-sm btn-solid" onclick="showNewContactModal()">+ New Contact</button>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
@@ -2002,7 +2135,8 @@ function renderCustomers() {
         <div class="kpi"><div class="kpi-n c-amber">${avgPerCust}</div><div class="kpi-l">Avg tickets</div></div>
         <div class="kpi"><div class="kpi-n c-green">${consentRate}%</div><div class="kpi-l">Consent</div></div>
       </div>
-      <div class="filter-bar">
+      ${bulkBar}
+      <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Filter</span>
         <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${CUST_QUERY}" oninput="filterCustomers(this.value)"/>
         <select class="filter-select" onchange="custSetVIP(this.value)">
@@ -2016,12 +2150,24 @@ function renderCustomers() {
           <option value="all" ${CUST_BRAND_FILTER==='all'?'selected':''}>All brands</option>
           ${brands.map(b => `<option value="${b}" ${CUST_BRAND_FILTER===b?'selected':''}>${b}</option>`).join('')}
         </select>
+        <select class="filter-select" onchange="setCustGroupBy(this.value)" title="Group rows">
+          <option value="none"         ${CUST_GROUP_BY==='none'?'selected':''}>No grouping</option>
+          <option value="vip"          ${CUST_GROUP_BY==='vip'?'selected':''}>Group by VIP</option>
+          <option value="brand"        ${CUST_GROUP_BY==='brand'?'selected':''}>Group by brand</option>
+          <option value="jurisdiction" ${CUST_GROUP_BY==='jurisdiction'?'selected':''}>Group by jurisdiction</option>
+          <option value="kyc"          ${CUST_GROUP_BY==='kyc'?'selected':''}>Group by KYC</option>
+          <option value="consent"      ${CUST_GROUP_BY==='consent'?'selected':''}>Group by consent</option>
+        </select>
         <span id="cust-counter" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${filtered.length} of ${total}</span>
+      </div>
+      <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
+        <span class="filter-label">View</span>
+        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="setCustView('${v.k}')">${v.l}</span>`).join('')}
       </div>
       <div style="flex:1;overflow:auto">
         <table class="tbl" style="min-width:500px">
           <thead><tr id="cust-thead">${buildCustHeaders()}</tr></thead>
-          <tbody id="cust-tbody">${buildCustRows(filtered)}</tbody>
+          <tbody id="cust-tbody">${tableBody}</tbody>
         </table>
         ${filtered.length === 0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No customers match</div><div class="empty-line"></div></div>` : ''}
       </div>
