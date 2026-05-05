@@ -319,6 +319,22 @@ textarea.form-input{resize:vertical;min-height:72px}
 .r-tile{text-align:center;padding:14px 10px;border-radius:var(--r);border:1px solid var(--rule)}
 .r-tile-n{font-size:24px;font-weight:700;font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1}
 .r-tile-l{font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:6px;font-weight:500}
+/* ── Agents ── */
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.agent-card{padding:14px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--off);cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:14px}
+.agent-card:hover{border-color:var(--purple);background:rgba(139,92,246,0.04);box-shadow:0 0 16px rgba(139,92,246,0.1)}
+.agent-card.inactive{opacity:.55}
+.agent-card-head{display:flex;align-items:center;gap:10px}
+.agent-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0}
+.agent-name{font-size:14px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agent-role{font-size:11px;color:var(--ink3);margin-top:2px}
+.agent-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding-top:12px;border-top:1px solid var(--rule)}
+.agent-stat{text-align:center}
+.agent-stat-n{font-family:'Inter',sans-serif;font-size:18px;font-weight:700;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.agent-stat-n.c-blue{color:var(--cyan)}
+.agent-stat-n.c-amber{color:var(--amber)}
+.agent-stat-n.c-green{color:var(--green)}
+.agent-stat-l{font-size:9px;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;margin-top:4px;font-weight:500}
 /* ── AI page ── */
 .ai-chat{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
 .ai-msg{padding:14px 16px;font-size:14px;line-height:1.65;max-width:80%}
@@ -710,8 +726,9 @@ function nav(page, el) {
   renderPage(page);
 }
 function renderPage(page) {
-  if (page !== 'roles') ROLES_VIEW_AGENTS = null;
-  if (page !== 'kb')    KB_SELECTED = null;
+  if (page !== 'roles')  ROLES_VIEW_AGENTS = null;
+  if (page !== 'kb')     KB_SELECTED = null;
+  if (page !== 'agents') AGENT_SELECTED = null;
   CURRENT_PAGE = page;
   CURRENT_TICKET = null;
   const main = document.getElementById('main-area');
@@ -2099,7 +2116,201 @@ function renderReports() {
     </div>`;
 }
 
-function renderAgents()   { return placeholderPage('Agents', 'Agent roster, workload and CSAT leaderboard.'); }
+// ─── Agents ──────────────────────────────────────────────────────────────────
+let AGENT_FILTER_ROLE = 'all';
+let AGENT_FILTER_STATUS = 'all';
+let AGENT_QUERY = '';
+let AGENT_SELECTED = null;
+
+function getAgentStats(name) {
+  const tickets = TICKETS.filter(t => t.agent === name);
+  const open = tickets.filter(t => t.status === 'open' || t.status === 'escalated').length;
+  const resolved = tickets.filter(t => t.status === 'resolved').length;
+  const csat = tickets.filter(t => t.csat);
+  const avgCSAT = csat.length ? csat.reduce((a, t) => a + t.csat, 0) / csat.length : 0;
+  return { tickets, total: tickets.length, open, resolved, csatCount: csat.length, avgCSAT };
+}
+
+function renderAgents() {
+  if (AGENT_SELECTED) return renderAgentDetail(AGENT_SELECTED);
+  const admin = isAdmin();
+  const allRoles = Object.keys(ROLES_MATRIX);
+
+  let list = [...AGENTS];
+  if (AGENT_FILTER_ROLE !== 'all')   list = list.filter(a => a.role === AGENT_FILTER_ROLE);
+  if (AGENT_FILTER_STATUS === 'active')   list = list.filter(a => a.active);
+  if (AGENT_FILTER_STATUS === 'inactive') list = list.filter(a => !a.active);
+  if (AGENT_QUERY.trim()) {
+    const q = AGENT_QUERY.toLowerCase();
+    list = list.filter(a => a.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q));
+  }
+
+  const total = AGENTS.length;
+  const activeN = AGENTS.filter(a => a.active).length;
+  const totalLoad = AGENTS.filter(a => a.active).reduce((sum, a) =>
+    sum + TICKETS.filter(t => t.agent === a.name && (t.status === 'open' || t.status === 'escalated')).length, 0);
+  const avgLoad = activeN ? (totalLoad / activeN).toFixed(1) : '0';
+
+  let topAgent = null, topCSAT = 0;
+  AGENTS.forEach(a => {
+    const s = getAgentStats(a.name);
+    if (s.csatCount > 0 && s.avgCSAT > topCSAT) { topCSAT = s.avgCSAT; topAgent = a; }
+  });
+
+  const cards = list.map(a => {
+    const s = getAgentStats(a.name);
+    return `
+      <div class="agent-card ${a.active?'':'inactive'}" onclick="openAgentDetail('${escAttr(a.name)}')">
+        <div class="agent-card-head">
+          <div class="agent-av">${a.initials}</div>
+          <div style="flex:1;min-width:0">
+            <div class="agent-name">${a.name}</div>
+            <div class="agent-role">${a.role}</div>
+          </div>
+          <span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.active?'Active':'Off'}</span>
+        </div>
+        <div class="agent-stats">
+          <div class="agent-stat"><div class="agent-stat-n c-blue">${s.open}</div><div class="agent-stat-l">Open</div></div>
+          <div class="agent-stat"><div class="agent-stat-n">${s.total}</div><div class="agent-stat-l">Total</div></div>
+          <div class="agent-stat"><div class="agent-stat-n c-amber">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="agent-stat-l">CSAT</div></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Agents</div>
+        ${admin
+          ? `<button class="btn btn-solid btn-sm" onclick="agentNew()">+ Add Agent</button>`
+          : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total agents</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${activeN}</div><div class="kpi-l">Active</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${avgLoad}</div><div class="kpi-l">Avg open load</div></div>
+        <div class="kpi"><div class="kpi-n c-amber" style="font-size:18px;line-height:1.1">${topAgent?topAgent.name:'—'}</div><div class="kpi-l">Top CSAT ${topAgent?'· '+topCSAT.toFixed(1):''}</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${AGENT_QUERY}" oninput="agentSetQuery(this.value)"/>
+        <select class="filter-select" onchange="agentSetRole(this.value)">
+          <option value="all" ${AGENT_FILTER_ROLE==='all'?'selected':''}>All roles</option>
+          ${allRoles.map(r => `<option value="${r}" ${AGENT_FILTER_ROLE===r?'selected':''}>${r}</option>`).join('')}
+        </select>
+        <select class="filter-select" onchange="agentSetStatus(this.value)">
+          <option value="all"      ${AGENT_FILTER_STATUS==='all'?'selected':''}>All statuses</option>
+          <option value="active"   ${AGENT_FILTER_STATUS==='active'?'selected':''}>Active</option>
+          <option value="inactive" ${AGENT_FILTER_STATUS==='inactive'?'selected':''}>Inactive</option>
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        ${list.length
+          ? `<div class="agent-grid">${cards}</div>`
+          : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No agents match</div><div class="empty-line"></div></div>`}
+      </div>
+    </div>`;
+}
+
+function renderAgentDetail(name) {
+  const a = AGENTS.find(x => x.name === name);
+  if (!a) { AGENT_SELECTED = null; return renderAgents(); }
+  const s = getAgentStats(name);
+  const admin = isAdmin();
+  const allRoles = Object.keys(ROLES_MATRIX);
+
+  const ticketRows = s.tickets.map(t => {
+    const cust = CUSTOMERS.find(c => c.id === t.customerId);
+    return `<tr onclick="openTicket('${escAttr(t.id)}')" style="cursor:pointer">
+      <td class="bold">${t.id}</td>
+      <td>${cust ? cust.first + ' ' + cust.last : '—'}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.subject}</td>
+      <td><span class="tag tag-${t.status}">${t.status}</span></td>
+      <td><span class="tag tag-${t.priority}">${t.priority}</span></td>
+      <td><span class="sla-${t.sla}" style="font-size:11px;text-transform:uppercase;font-weight:500">${t.sla}</span></td>
+      <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${t.updated}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-breadcrumb">
+          <span onclick="closeAgentDetail()">Agents</span>
+          <span class="tb-sep">/</span>
+          <span style="color:var(--ink);font-weight:500">${a.name}</span>
+        </div>
+      </div>
+      <div class="page-scroll">
+        <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${a.initials}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:18px;font-weight:600;color:var(--ink)">${a.name}</div>
+            <div style="font-size:12px;color:var(--ink3);margin-top:2px">${a.role}</div>
+          </div>
+          <span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>
+          ${admin ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <select class="filter-select" onchange="reassignAgent('${escAttr(a.name)}',this.value)" style="font-size:12px">
+              ${allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('')}
+            </select>
+            ${a.active
+              ? `<button class="btn btn-sm" onclick="setAgentActive('${escAttr(a.name)}',false)">Deactivate</button>`
+              : `<button class="btn btn-sm" onclick="setAgentActive('${escAttr(a.name)}',true)">Activate</button>`}
+            <button class="btn btn-sm btn-danger" onclick="deleteAgentPrompt('${escAttr(a.name)}')">Delete</button>
+          </div>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
+          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total assigned</div></div>
+          <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${s.resolved}</div><div class="r-tile-l" style="color:var(--green)">Resolved</div></div>
+          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Assigned tickets</div>
+          ${s.tickets.length ? `
+            <table class="tbl">
+              <thead><tr><th>ID</th><th>Customer</th><th>Subject</th><th>Status</th><th>Priority</th><th>SLA</th><th>Updated</th></tr></thead>
+              <tbody>${ticketRows}</tbody>
+            </table>
+          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets assigned</div><div class="empty-line"></div></div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+function openAgentDetail(name) { AGENT_SELECTED = name; renderPage('agents'); }
+function closeAgentDetail()    { AGENT_SELECTED = null; renderPage('agents'); }
+function agentSetRole(v)       { AGENT_FILTER_ROLE = v; renderPage('agents'); }
+function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; renderPage('agents'); }
+function agentSetQuery(v) {
+  AGENT_QUERY = v;
+  renderPage('agents');
+  const input = document.getElementById('agent-search');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function agentNew() {
+  if (!isAdmin()) return;
+  const allRoles = Object.keys(ROLES_MATRIX);
+  showModal('Add agent', `
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
+      <div class="form-row"><label class="form-label">Initials</label><input class="form-input" id="ag-init" maxlength="3" placeholder="JD"/></div>
+    </div>
+    <div class="form-row"><label class="form-label">Role</label>
+      <select class="form-input" id="ag-role">${allRoles.map(r => `<option value="${r}" ${r==='Senior Agent'?'selected':''}>${r}</option>`).join('')}</select>
+    </div>
+  `, () => {
+    const name = document.getElementById('ag-name').value.trim();
+    const role = document.getElementById('ag-role').value;
+    let init = document.getElementById('ag-init').value.trim().toUpperCase();
+    if (!name || AGENTS.find(a => a.name === name)) return;
+    if (!init) init = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    AGENTS.push({ name, initials: init, role, active: true });
+    closeModal(); renderPage('agents');
+  }, 'Add');
+}
 // ─── AI Intelligence ─────────────────────────────────────────────────────────
 let AI_CONTEXT_SOURCES = { tickets:true, customers:false, agents:false, kb:false };
 const AI_PROMPT_CARDS = [
@@ -2745,14 +2956,14 @@ function reassignAgent(name, newRole) {
   if (!isAdmin()) return;
   const a = AGENTS.find(x => x.name === name);
   if (a && ROLES_MATRIX[newRole]) a.role = newRole;
-  renderPage('roles');
+  renderPage(CURRENT_PAGE);
 }
 
 function setAgentActive(name, active) {
   if (!isAdmin()) return;
   const a = AGENTS.find(x => x.name === name);
   if (a) a.active = active;
-  renderPage('roles');
+  renderPage(CURRENT_PAGE);
 }
 
 function deleteAgentPrompt(name) {
@@ -2760,7 +2971,8 @@ function deleteAgentPrompt(name) {
   showModal('Delete agent', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently remove <strong style="color:var(--ink)">${name}</strong>? Tickets currently assigned to them will keep the historical assignment.</div>`, () => {
     const i = AGENTS.findIndex(a => a.name === name);
     if (i >= 0) AGENTS.splice(i, 1);
-    closeModal(); renderPage('roles');
+    if (AGENT_SELECTED === name) AGENT_SELECTED = null;
+    closeModal(); renderPage(CURRENT_PAGE);
   }, 'Delete');
 }
 
