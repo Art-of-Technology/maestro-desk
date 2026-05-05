@@ -308,6 +308,17 @@ textarea.form-input{resize:vertical;min-height:72px}
 .report-chart{height:120px;display:flex;align-items:flex-end;gap:4px;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-top:8px}
 .r-bar{flex:1;background:var(--ink);border-radius:1px 1px 0 0;opacity:.8;min-height:2px}
 .r-bar.accent{background:var(--blue);opacity:1}
+.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.r-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.r-bar-lbl{font-size:12px;color:var(--ink2);width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
+.r-bar-track{flex:1;background:var(--off2);height:8px;border-radius:4px;overflow:hidden}
+.r-bar-fill{height:100%;border-radius:4px;transition:width .3s}
+.r-bar-val{font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);min-width:32px;text-align:right}
+.r-stack{display:flex;height:12px;border-radius:var(--r);overflow:hidden;background:var(--off2);margin-top:6px}
+.r-stack > div{transition:width .3s}
+.r-tile{text-align:center;padding:14px 10px;border-radius:var(--r);border:1px solid var(--rule)}
+.r-tile-n{font-size:24px;font-weight:700;font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1}
+.r-tile-l{font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:6px;font-weight:500}
 /* ── AI page ── */
 .ai-chat{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
 .ai-msg{padding:14px 16px;font-size:14px;line-height:1.65;max-width:80%}
@@ -1932,7 +1943,162 @@ function renderDashboard() {
       </div>
     </div>`;
 }
-function renderReports()  { return placeholderPage('Reports', 'Reporting dashboard — charts and breakdowns coming soon.'); }
+// ─── Reports ─────────────────────────────────────────────────────────────────
+function setReportTF(v) { REPORT_TF = v; renderPage('reports'); }
+
+function getReportTickets() {
+  if (REPORT_TF === 'all') return TICKETS.slice();
+  const days = REPORT_TF === '7d' ? 7 : REPORT_TF === '30d' ? 30 : 90;
+  const dates = TICKETS.map(t => new Date(t.created)).filter(d => !isNaN(d)).sort((a,b) => b - a);
+  const now = dates[0] || new Date();
+  const cutoff = new Date(now); cutoff.setDate(now.getDate() - days);
+  return TICKETS.filter(t => new Date(t.created) >= cutoff);
+}
+
+function computeReportStats(tickets) {
+  const byStatus = {}, byPriority = {}, byCategory = {}, byAgent = {};
+  const csatScores = [];
+  let slaOk = 0, slaWarn = 0, slaBreach = 0;
+  for (const t of tickets) {
+    byStatus[t.status]     = (byStatus[t.status]     ||0) + 1;
+    byPriority[t.priority] = (byPriority[t.priority] ||0) + 1;
+    byCategory[t.category] = (byCategory[t.category] ||0) + 1;
+    byAgent[t.agent]       = (byAgent[t.agent]       ||0) + 1;
+    if (t.csat) csatScores.push(t.csat);
+    if      (t.sla === 'ok')     slaOk++;
+    else if (t.sla === 'warn')   slaWarn++;
+    else if (t.sla === 'breach') slaBreach++;
+  }
+  const total = tickets.length;
+  const resolved = byStatus.resolved || 0;
+  const resolutionRate = total ? Math.round(resolved/total*100) : 0;
+  const avgCSAT = csatScores.length ? csatScores.reduce((a,b)=>a+b,0)/csatScores.length : 0;
+  const slaCompliance = total ? Math.round((slaOk + slaWarn)/total*100) : 0;
+  return { total, byStatus, byPriority, byCategory, byAgent, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate };
+}
+
+const STATUS_COLORS   = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
+const PRIORITY_COLORS = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
+
+function rBarRow(label, count, max, color) {
+  const pct = max ? (count/max)*100 : 0;
+  return `<div class="r-bar-row"><div class="r-bar-lbl">${label}</div><div class="r-bar-track"><div class="r-bar-fill" style="background:${color||'var(--purple)'};width:${pct}%"></div></div><div class="r-bar-val">${count}</div></div>`;
+}
+
+function reportStatus(s) {
+  const items = Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]);
+  const segs = items.map(([k, v]) => {
+    const pct = s.total ? (v/s.total)*100 : 0;
+    return `<div title="${k}: ${v}" style="background:${STATUS_COLORS[k]||'var(--ink3)'};width:${pct}%"></div>`;
+  }).join('');
+  const legend = items.map(([k, v]) => {
+    const pct = s.total ? Math.round(v/s.total*100) : 0;
+    return `<div class="donut-row"><span class="donut-dot" style="background:${STATUS_COLORS[k]||'var(--ink3)'}"></span><span style="flex:1;text-transform:capitalize;color:var(--ink2)">${k}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3)">${v} · ${pct}%</span></div>`;
+  }).join('');
+  return `<div class="card"><div class="card-title">Status distribution</div><div class="r-stack">${segs}</div><div style="margin-top:14px">${legend}</div></div>`;
+}
+
+function reportPriority(s) {
+  const items = ['urgent','high','normal','low'].filter(p => s.byPriority[p]).map(p => [p, s.byPriority[p]]);
+  const max = Math.max(...items.map(i => i[1]), 1);
+  const rows = items.map(([k, v]) => rBarRow(k, v, max, PRIORITY_COLORS[k])).join('');
+  return `<div class="card"><div class="card-title">Priority breakdown</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+}
+
+function reportCategory(s) {
+  const items = Object.entries(s.byCategory).sort((a,b) => b[1] - a[1]);
+  const max = Math.max(...items.map(i => i[1]), 1);
+  const rows = items.map(([k, v]) => rBarRow(k, v, max, 'var(--cyan)')).join('');
+  return `<div class="card"><div class="card-title">Category volume</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+}
+
+function reportAgents(s) {
+  const items = Object.entries(s.byAgent).sort((a,b) => b[1] - a[1]);
+  const max = Math.max(...items.map(i => i[1]), 1);
+  const rows = items.map(([name, count]) => rBarRow(name, count, max, 'var(--purple)')).join('');
+  return `<div class="card"><div class="card-title">Tickets per agent</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+}
+
+function reportCSAT(s) {
+  const buckets = [1,2,3,4,5].map(n => s.csatScores.filter(x => x === n).length);
+  const max = Math.max(...buckets, 1);
+  const rows = buckets.map((c, i) => {
+    const stars = '★'.repeat(i+1) + '☆'.repeat(4-i);
+    const pct = (c/max)*100;
+    return `<div class="r-bar-row"><div style="font-size:11px;color:var(--amber);width:60px;flex-shrink:0;letter-spacing:1px">${stars}</div><div class="r-bar-track"><div class="r-bar-fill" style="background:var(--amber);width:${pct}%"></div></div><div class="r-bar-val">${c}</div></div>`;
+  }).reverse().join('');
+  return `
+    <div class="card">
+      <div class="card-title">CSAT</div>
+      <div style="display:flex;align-items:flex-end;gap:14px;margin:6px 0 14px">
+        <div style="font-size:30px;font-weight:700;line-height:1;color:var(--amber);font-family:'Inter',sans-serif;letter-spacing:-.02em">${s.avgCSAT?s.avgCSAT.toFixed(1):'—'}</div>
+        <div style="font-size:11px;color:var(--ink3);padding-bottom:4px">${s.csatCount} of ${s.total} tickets rated</div>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function reportSLA(s) {
+  return `
+    <div class="card">
+      <div class="card-title">SLA</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px">
+        <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green)">On track</div></div>
+        <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber)">Warning</div></div>
+        <div class="r-tile" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt)"><div class="r-tile-n" style="color:var(--red)">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red)">Breached</div></div>
+      </div>
+      <div style="margin-top:14px;font-size:12px;color:var(--ink2);line-height:1.5"><strong style="color:var(--ink)">${s.slaCompliance}%</strong> of tickets are within SLA window</div>
+    </div>`;
+}
+
+function exportReport() {
+  const tickets = getReportTickets();
+  const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT'];
+  const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '']);
+  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `tickets-${REPORT_TF}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function renderReports() {
+  const tf = REPORT_TF;
+  const tickets = getReportTickets();
+  const s = computeReportStats(tickets);
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Reports</div>
+        <select class="filter-select" onchange="setReportTF(this.value)">
+          <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
+          <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>
+          <option value="90d" ${tf==='90d'?'selected':''}>Last 90 days</option>
+          <option value="all" ${tf==='all'?'selected':''}>All time</option>
+        </select>
+        <button class="btn btn-sm" onclick="exportReport()">Export CSV</button>
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${s.total}</div><div class="kpi-l">Total tickets</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${s.resolutionRate}%</div><div class="kpi-l">Resolved</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${s.avgCSAT?s.avgCSAT.toFixed(1):'—'}</div><div class="kpi-l">Avg CSAT</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${s.slaCompliance}%</div><div class="kpi-l">SLA compliance</div></div>
+      </div>
+      <div class="page-scroll">
+        <div class="report-grid">
+          ${reportStatus(s)}
+          ${reportSLA(s)}
+          ${reportPriority(s)}
+          ${reportCategory(s)}
+          ${reportAgents(s)}
+          ${reportCSAT(s)}
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderAgents()   { return placeholderPage('Agents', 'Agent roster, workload and CSAT leaderboard.'); }
 // ─── AI Intelligence ─────────────────────────────────────────────────────────
 let AI_CONTEXT_SOURCES = { tickets:true, customers:false, agents:false, kb:false };
