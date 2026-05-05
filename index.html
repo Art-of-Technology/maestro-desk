@@ -888,8 +888,9 @@ function renderPage(page) {
     workflows: renderWorkflows,
     tags:      renderTags,
     roles:     renderRoles,
-    settings:  renderSettings,
-    help:      renderHelp,
+    settings:      renderSettings,
+    help:          renderHelp,
+    notifications: renderNotificationsPage,
   };
   if (pages[page]) main.innerHTML = pages[page]();
   if (page === 'ai') initAI();
@@ -1633,7 +1634,8 @@ const SEARCH_PAGES = [
   {p:'tags',      l:'Tags'},
   {p:'roles',     l:'Roles & Permissions'},
   {p:'settings',  l:'Settings'},
-  {p:'help',      l:'Help & Support'},
+  {p:'help',          l:'Help & Support'},
+  {p:'notifications', l:'Notifications'},
 ];
 
 function globalSearch(q) {
@@ -1796,19 +1798,24 @@ function profileMenuGo(action) {
 
 // ─── Notifications ───────────────────────────────────────────────────────────
 const NOTIFICATIONS_READ = new Set();
+const NOTIFICATIONS_DISMISSED = new Set();
+let NOTIF_PAGE_FILTER_TYPE = 'all';
+let NOTIF_PAGE_FILTER_READ = 'all';
 
 function getNotifications() {
   const out = [];
   for (const t of TICKETS) {
+    let n = null;
     if (t.sla === 'breach' && NOTIF_PREFS.breach) {
-      out.push({id:'breach-'+t.id, color:'var(--red)', title:'SLA breach', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated});
+      n = {id:'breach-'+t.id, type:'breach', color:'var(--red)', title:'SLA breach', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.status === 'escalated' && NOTIF_PREFS.escalated) {
-      out.push({id:'esc-'+t.id, color:'var(--purple)', title:'Escalated', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated});
+      n = {id:'esc-'+t.id, type:'escalated', color:'var(--purple)', title:'Escalated', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.status === 'gdpr' && NOTIF_PREFS.gdpr) {
-      out.push({id:'gdpr-'+t.id, color:'var(--red)', title:'GDPR request', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated});
+      n = {id:'gdpr-'+t.id, type:'gdpr', color:'var(--red)', title:'GDPR request', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.sla === 'warn' && NOTIF_PREFS.warn) {
-      out.push({id:'warn-'+t.id, color:'var(--amber)', title:'SLA warning', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated});
+      n = {id:'warn-'+t.id, type:'warn', color:'var(--amber)', title:'SLA warning', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     }
+    if (n && !NOTIFICATIONS_DISMISSED.has(n.id)) out.push(n);
   }
   return out;
 }
@@ -1842,8 +1849,15 @@ function renderNotifications() {
           <div class="notif-text">${n.body}</div>
         </div>
       </div>`).join('');
+    html += `<div style="padding:10px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" onmousedown="closeNotifAndGo()" style="font-size:11px;font-weight:500">View all notifications →</span></div>`;
   }
   dd.innerHTML = html;
+}
+
+function closeNotifAndGo() {
+  document.getElementById('notif-dropdown')?.classList.remove('show');
+  document.getElementById('notif-btn')?.classList.remove('active');
+  navTo('notifications');
 }
 
 function toggleNotifications() {
@@ -1873,6 +1887,112 @@ function markAllNotifRead() {
   getNotifications().forEach(n => NOTIFICATIONS_READ.add(n.id));
   refreshNotifBadge();
   renderNotifications();
+}
+
+function notifPageSetType(v) { NOTIF_PAGE_FILTER_TYPE = v; renderPage('notifications'); }
+function notifPageSetRead(v) { NOTIF_PAGE_FILTER_READ = v; renderPage('notifications'); }
+
+function markNotifRead(id) {
+  NOTIFICATIONS_READ.add(id);
+  refreshNotifBadge();
+  renderPage('notifications');
+}
+
+function dismissNotif(id) {
+  NOTIFICATIONS_DISMISSED.add(id);
+  refreshNotifBadge();
+  renderPage('notifications');
+}
+
+function clearAllNotifications() {
+  showModal('Clear notifications', '<div style="font-size:13px;color:var(--ink2);line-height:1.6">Dismiss all current notifications? They will be removed from the bell and the notifications page.</div>', () => {
+    getNotifications().forEach(n => NOTIFICATIONS_DISMISSED.add(n.id));
+    refreshNotifBadge();
+    closeModal(); renderPage('notifications');
+  }, 'Clear all');
+}
+
+function openNotificationFromPage(id, ticketId) {
+  NOTIFICATIONS_READ.add(id);
+  refreshNotifBadge();
+  if (ticketId) openTicket(ticketId);
+}
+
+function markAllNotifReadAndRender() {
+  markAllNotifRead();
+  renderPage('notifications');
+}
+
+function renderNotificationsPage() {
+  const all = getNotifications();
+  let list = [...all];
+  if (NOTIF_PAGE_FILTER_TYPE !== 'all') list = list.filter(n => n.type === NOTIF_PAGE_FILTER_TYPE);
+  if (NOTIF_PAGE_FILTER_READ === 'unread') list = list.filter(n => !NOTIFICATIONS_READ.has(n.id));
+  if (NOTIF_PAGE_FILTER_READ === 'read')   list = list.filter(n =>  NOTIFICATIONS_READ.has(n.id));
+
+  const total = all.length;
+  const unread = all.filter(n => !NOTIFICATIONS_READ.has(n.id)).length;
+  const read = total - unread;
+  const types = { breach:0, escalated:0, gdpr:0, warn:0 };
+  all.forEach(n => { if (types[n.type] !== undefined) types[n.type]++; });
+  const highPri = types.breach + types.escalated + types.gdpr;
+
+  const items = list.map(n => {
+    const isRead = NOTIFICATIONS_READ.has(n.id);
+    return `
+      <div style="display:flex;gap:12px;padding:14px;border:1px solid var(--rule);border-radius:var(--r);background:${isRead?'var(--off2)':'var(--off)'};transition:all .15s;align-items:stretch">
+        <div style="width:4px;border-radius:2px;background:${n.color};flex-shrink:0;align-self:stretch"></div>
+        <div style="flex:1;min-width:0;cursor:pointer" onclick="openNotificationFromPage('${escAttr(n.id)}','${escAttr(n.ticketId)}')">
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
+            <span style="font-size:13px;font-weight:600;color:var(--ink)">${n.title}</span>
+            ${!isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--purple);box-shadow:0 0 6px var(--purple);flex-shrink:0"></span>' : ''}
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${n.ts}</span>
+          </div>
+          <div style="font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.body}</div>
+        </div>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0" onclick="event.stopPropagation()">
+          ${!isRead ? `<button class="btn btn-sm" onclick="markNotifRead('${escAttr(n.id)}')" title="Mark read">Mark read</button>` : ''}
+          <button class="btn btn-sm btn-danger" onclick="dismissNotif('${escAttr(n.id)}')" title="Dismiss">Dismiss</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Notifications</div>
+        ${unread ? `<button class="btn btn-sm" onclick="markAllNotifReadAndRender()">Mark all read</button>` : ''}
+        ${total ? `<button class="btn btn-sm btn-danger" onclick="clearAllNotifications()">Clear all</button>` : ''}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${unread}</div><div class="kpi-l">Unread</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${read}</div><div class="kpi-l">Read</div></div>
+        <div class="kpi"><div class="kpi-n c-red">${highPri}</div><div class="kpi-l">High priority</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <select class="filter-select" onchange="notifPageSetType(this.value)">
+          <option value="all"       ${NOTIF_PAGE_FILTER_TYPE==='all'?'selected':''}>All types</option>
+          <option value="breach"    ${NOTIF_PAGE_FILTER_TYPE==='breach'?'selected':''}>SLA breach (${types.breach})</option>
+          <option value="escalated" ${NOTIF_PAGE_FILTER_TYPE==='escalated'?'selected':''}>Escalated (${types.escalated})</option>
+          <option value="gdpr"      ${NOTIF_PAGE_FILTER_TYPE==='gdpr'?'selected':''}>GDPR (${types.gdpr})</option>
+          <option value="warn"      ${NOTIF_PAGE_FILTER_TYPE==='warn'?'selected':''}>SLA warning (${types.warn})</option>
+        </select>
+        <select class="filter-select" onchange="notifPageSetRead(this.value)">
+          <option value="all"    ${NOTIF_PAGE_FILTER_READ==='all'?'selected':''}>All statuses</option>
+          <option value="unread" ${NOTIF_PAGE_FILTER_READ==='unread'?'selected':''}>Unread only</option>
+          <option value="read"   ${NOTIF_PAGE_FILTER_READ==='read'?'selected':''}>Read only</option>
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        ${list.length === 0
+          ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">${total === 0 ? 'All caught up — no notifications' : 'No notifications match the filters'}</div><div class="empty-line"></div></div>`
+          : `<div style="display:flex;flex-direction:column;gap:8px">${items}</div>
+             <div style="font-size:11px;color:var(--ink3);text-align:center;margin-top:18px;line-height:1.6">Notifications are computed live from ticket state. Configure which types appear in <span class="link" onclick="navTo('settings');setSettingsTab('notifications')">Settings → Notifications</span>.</div>`}
+      </div>
+    </div>`;
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
