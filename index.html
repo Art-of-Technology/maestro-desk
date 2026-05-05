@@ -65,6 +65,25 @@ body{font-family:'Inter',sans-serif;background:var(--w);color:var(--ink);font-si
 .online-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0;box-shadow:0 0 6px var(--green)}
 /* ── Main ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.main-content{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+/* ── Global search ── */
+.global-search{padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--off);flex-shrink:0}
+.gs-wrap{position:relative;max-width:520px}
+.gs-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--ink3);pointer-events:none}
+.gs-input{width:100%;padding:7px 60px 7px 32px;border:1px solid var(--rule);border-radius:var(--r);background:var(--off2);color:var(--ink);font-family:'Inter',sans-serif;font-size:13px;outline:none;transition:border-color .15s,box-shadow .15s}
+.gs-input:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(139,92,246,0.1)}
+.gs-input::placeholder{color:var(--ink4)}
+.gs-kbd{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);background:var(--off2);border:1px solid var(--rule);padding:1px 6px;border-radius:3px;pointer-events:none}
+.gs-results{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--off);border:1px solid var(--rule2);border-radius:var(--r2);max-height:420px;overflow-y:auto;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.25);display:none}
+.gs-results.show{display:block}
+.gs-group{padding:8px 14px 4px;font-family:'Inter',sans-serif;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);background:var(--off2);border-top:1px solid var(--rule)}
+.gs-group:first-child{border-top:none}
+.gs-result{padding:8px 14px;cursor:pointer;display:flex;gap:10px;align-items:center;font-size:13px;color:var(--ink2);border-top:1px solid var(--rule)}
+.gs-result:hover,.gs-result.active{background:rgba(139,92,246,0.08);color:var(--ink)}
+.gs-result-type{font-size:10px;color:var(--ink3);font-family:'Inter',sans-serif;letter-spacing:.04em;text-transform:uppercase;flex-shrink:0;min-width:64px;font-weight:600}
+.gs-result-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)}
+.gs-result-meta{font-size:11px;color:var(--ink3);flex-shrink:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gs-empty{padding:16px;font-size:13px;color:var(--ink3);text-align:center}
 /* ── Topbar ── */
 .topbar{height:48px;border-bottom:1px solid var(--rule);display:flex;align-items:center;padding:0 20px;gap:10px;flex-shrink:0;background:var(--off)}
 .tb-title{font-family:'Inter',sans-serif;font-size:16px;font-weight:700;letter-spacing:-.025em;color:var(--ink);flex:1}
@@ -429,7 +448,17 @@ textarea.form-input{resize:vertical;min-height:72px}
   </aside>
 
   <!-- Main -->
-  <div class="main" id="main-area"></div>
+  <div class="main">
+    <div class="global-search">
+      <div class="gs-wrap">
+        <svg class="gs-icon" width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 9.5l3 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <input class="gs-input" id="gs-input" type="text" placeholder="Search tickets, customers, agents…" autocomplete="off" oninput="globalSearch(this.value)" onfocus="globalSearch(this.value)" onkeydown="gsKey(event)"/>
+        <span class="gs-kbd">/</span>
+        <div class="gs-results" id="gs-results"></div>
+      </div>
+    </div>
+    <div class="main-content" id="main-area"></div>
+  </div>
 
   <!-- Modal container -->
   <div id="modal-container"></div>
@@ -1093,6 +1122,140 @@ function showModal(title, body, onConfirm, confirmLabel='Save', isLarge=false) {
     </div>`;
 }
 function closeModal() { document.getElementById('modal-container').innerHTML=''; }
+
+// ─── Global search ───────────────────────────────────────────────────────────
+const SEARCH_PAGES = [
+  {p:'dashboard', l:'Dashboard'},
+  {p:'tickets',   l:'Tickets'},
+  {p:'customers', l:'Customers'},
+  {p:'reports',   l:'Reports'},
+  {p:'agents',    l:'Agents'},
+  {p:'ai',        l:'AI Intelligence'},
+  {p:'workflows', l:'Workflows'},
+  {p:'tags',      l:'Tags'},
+  {p:'roles',     l:'Roles & Permissions'},
+];
+
+function globalSearch(q) {
+  const results = document.getElementById('gs-results');
+  if (!results) return;
+  const ql = (q || '').toLowerCase().trim();
+  if (!ql) { results.classList.remove('show'); results.innerHTML = ''; return; }
+
+  const tickets = TICKETS.filter(t => {
+    const cust = CUSTOMERS.find(c => c.id === t.customerId);
+    const custName = cust ? (cust.first + ' ' + cust.last) : '';
+    return t.id.toLowerCase().includes(ql)
+      || t.subject.toLowerCase().includes(ql)
+      || (t.tags || []).some(tag => tag.toLowerCase().includes(ql))
+      || custName.toLowerCase().includes(ql)
+      || (t.agent || '').toLowerCase().includes(ql);
+  }).slice(0, 6);
+
+  const customers = CUSTOMERS.filter(c =>
+    c.id.toLowerCase().includes(ql)
+    || (c.first + ' ' + c.last).toLowerCase().includes(ql)
+    || c.username.toLowerCase().includes(ql)
+    || c.email.toLowerCase().includes(ql)
+    || c.brand.toLowerCase().includes(ql)
+  ).slice(0, 5);
+
+  const agents = AGENTS.filter(a =>
+    a.name.toLowerCase().includes(ql) || a.role.toLowerCase().includes(ql)
+  ).slice(0, 5);
+
+  const pages = SEARCH_PAGES.filter(pg => pg.l.toLowerCase().includes(ql));
+
+  let html = '';
+  if (tickets.length) {
+    html += '<div class="gs-group">Tickets</div>';
+    html += tickets.map(t => {
+      const cust = CUSTOMERS.find(c => c.id === t.customerId);
+      const meta = cust ? `${cust.first} ${cust.last}` : '—';
+      return `<div class="gs-result" onmousedown="gsGo('ticket','${escAttr(t.id)}')"><span class="gs-result-type">${t.id}</span><span class="gs-result-main">${t.subject}</span><span class="gs-result-meta">${meta}</span></div>`;
+    }).join('');
+  }
+  if (customers.length) {
+    html += '<div class="gs-group">Customers</div>';
+    html += customers.map(c => `<div class="gs-result" onmousedown="gsGo('customer','${escAttr(c.id)}')"><span class="gs-result-type">${c.id}</span><span class="gs-result-main">${c.first} ${c.last}</span><span class="gs-result-meta">${c.email}</span></div>`).join('');
+  }
+  if (agents.length) {
+    html += '<div class="gs-group">Agents</div>';
+    html += agents.map(a => `<div class="gs-result" onmousedown="gsGo('agent','${escAttr(a.name)}')"><span class="gs-result-type">${a.role}</span><span class="gs-result-main">${a.name}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
+  }
+  if (pages.length) {
+    html += '<div class="gs-group">Pages</div>';
+    html += pages.map(pg => `<div class="gs-result" onmousedown="gsGo('page','${pg.p}')"><span class="gs-result-type">Page</span><span class="gs-result-main">${pg.l}</span><span class="gs-result-meta"></span></div>`).join('');
+  }
+  if (!html) html = `<div class="gs-empty">No matches for "<strong style="color:var(--ink2)">${q}</strong>"</div>`;
+
+  results.innerHTML = html;
+  results.classList.add('show');
+}
+
+function gsGo(type, id) {
+  const input = document.getElementById('gs-input');
+  const results = document.getElementById('gs-results');
+  if (input) input.value = '';
+  if (results) { results.classList.remove('show'); results.innerHTML = ''; }
+  if (input) input.blur();
+
+  if (type === 'ticket') openTicket(id);
+  else if (type === 'customer') openCustomerModal(id);
+  else if (type === 'agent') {
+    const a = AGENTS.find(x => x.name === id);
+    if (!a) return;
+    ROLES_VIEW_AGENTS = a.role;
+    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+    const rolesItem = document.getElementById('nav-roles');
+    if (rolesItem) rolesItem.classList.add('active');
+    renderPage('roles');
+  }
+  else if (type === 'page') {
+    let target = null;
+    document.querySelectorAll('.sb-item').forEach(i => {
+      const a = i.getAttribute('onclick') || '';
+      if (a.includes(`'${id}'`)) target = i;
+    });
+    nav(id, target);
+  }
+}
+
+function gsKey(e) {
+  const results = document.getElementById('gs-results');
+  if (!results || !results.classList.contains('show')) {
+    if (e.key === 'Escape') e.target.blur();
+    return;
+  }
+  const items = results.querySelectorAll('.gs-result');
+  if (e.key === 'Escape') { e.preventDefault(); results.classList.remove('show'); return; }
+  if (!items.length) return;
+  let active = results.querySelector('.gs-result.active');
+  let idx = active ? [...items].indexOf(active) : -1;
+  if (e.key === 'ArrowDown')      { e.preventDefault(); idx = Math.min(items.length - 1, idx + 1); }
+  else if (e.key === 'ArrowUp')   { e.preventDefault(); idx = Math.max(0, idx - 1); }
+  else if (e.key === 'Enter')     { e.preventDefault(); if (idx >= 0) items[idx].dispatchEvent(new MouseEvent('mousedown')); return; }
+  else return;
+  items.forEach(i => i.classList.remove('active'));
+  items[idx].classList.add('active');
+  items[idx].scrollIntoView({ block: 'nearest' });
+}
+
+document.addEventListener('mousedown', e => {
+  const wrap = document.querySelector('.gs-wrap');
+  const results = document.getElementById('gs-results');
+  if (wrap && results && !wrap.contains(e.target)) results.classList.remove('show');
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+    const tag = document.activeElement?.tagName;
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+      const input = document.getElementById('gs-input');
+      if (input) { e.preventDefault(); input.focus(); input.select(); }
+    }
+  }
+});
 
 // ─── Stub pages (placeholders so sidebar nav renders) ────────────────────────
 function placeholderPage(title, blurb) {
