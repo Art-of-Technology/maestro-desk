@@ -249,11 +249,11 @@ textarea.form-input{resize:vertical;min-height:72px}
 .card{background:var(--off);border:1px solid var(--rule);border-radius:var(--r2);padding:16px;transition:border-color .15s}
 .card-title{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin-bottom:14px}
 /* ── Auth screen ── */
-#auth-screen{position:fixed;inset:0;background:var(--w);display:flex;align-items:center;justify-content:center;z-index:200;background-image:radial-gradient(ellipse at 20% 50%,rgba(139,92,246,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(34,211,238,0.05) 0%,transparent 50%)}
-.auth-box{width:360px}
+#auth-screen{position:fixed;inset:0;background:var(--w);display:flex;align-items:flex-start;justify-content:center;z-index:200;background-image:radial-gradient(ellipse at 20% 50%,rgba(139,92,246,0.08) 0%,transparent 60%),radial-gradient(ellipse at 80% 20%,rgba(34,211,238,0.05) 0%,transparent 50%);overflow-y:auto;padding:48px 20px}
+.auth-box{width:400px;max-width:100%}
 .auth-logo{margin-bottom:28px}
 .auth-logo .sb-word{font-size:14px}
-.auth-title{font-family:'Inter',sans-serif;font-size:clamp(2.8rem,6vw,5rem);font-weight:700;letter-spacing:-.025em;line-height:.95;margin-bottom:12px;background:linear-gradient(90deg,#ffffff 0%,#8b5cf6 30%,#22d3ee 60%,#ffffff 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:shimmer-title 4s linear infinite}
+.auth-title{font-family:'Inter',sans-serif;font-size:clamp(2rem,4vw,2.8rem);font-weight:700;letter-spacing:-.025em;line-height:1;margin-bottom:8px;background:linear-gradient(90deg,#ffffff 0%,#8b5cf6 30%,#22d3ee 60%,#ffffff 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:shimmer-title 4s linear infinite}
 @keyframes shimmer-title{0%{background-position:0% center}100%{background-position:200% center}}
 .auth-sub{font-size:16px;font-weight:400;color:var(--ink3);margin-bottom:24px}
 .auth-accounts{margin-top:20px;border-top:1px solid var(--rule);padding-top:16px}
@@ -262,6 +262,23 @@ textarea.form-input{resize:vertical;min-height:72px}
 .auth-account-av{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff}
 .auth-account-name{font-size:14px;font-weight:600;color:var(--ink)}
 .auth-account-role{font-family:'Inter',sans-serif;font-size:13px;color:var(--ink3)}
+.sso-btn{width:100%;padding:9px 14px;border:1px solid var(--rule);border-radius:var(--r);background:var(--off);color:var(--ink);cursor:pointer;font-family:'Inter',sans-serif;font-size:13px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;transition:all .15s}
+.sso-btn:hover{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
+.sso-btn svg{flex-shrink:0}
+.auth-divider{display:flex;align-items:center;gap:10px;margin:18px 0;color:var(--ink3)}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--rule)}
+.auth-divider span{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500;font-family:'Inter',sans-serif}
+.auth-remember{display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-size:12px}
+.auth-check{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink2);font-size:12px}
+.auth-check input{accent-color:var(--purple);cursor:pointer}
+.pw-input-wrap{position:relative}
+.pw-toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;color:var(--ink3);padding:6px;border-radius:3px;display:flex;align-items:center;justify-content:center}
+.pw-toggle:hover{color:var(--ink);background:var(--off2)}
+.pw-strength-wrap{margin-top:6px}
+.pw-strength-bar-track{height:3px;background:var(--off2);border-radius:2px;overflow:hidden}
+.pw-strength-bar{height:100%;width:0%;transition:all .25s}
+.pw-strength-text{font-size:11px;color:var(--ink3);margin-top:4px;font-family:'DM Mono',monospace;letter-spacing:.04em}
+.auth-error{margin-top:8px;font-size:11px;color:var(--red);text-align:center;font-family:'DM Mono',monospace;letter-spacing:.04em}
 /* ── Dashboard ── */
 .dash-grid{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:16px}
 .chart-bar-wrap{display:flex;align-items:flex-end;gap:6px;height:80px;margin-top:8px}
@@ -441,8 +458,47 @@ textarea.form-input{resize:vertical;min-height:72px}
     <div id="auth-login" style="display:block">
       <div class="auth-title">Maestro Desk</div>
       <div class="auth-sub">AI-powered support for iGaming operators</div>
-      <div class="auth-accounts">
-        <div style="font-family:'Inter',sans-serif;font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:12px">Select account</div>
+
+      <div style="margin-top:20px">
+        <button class="sso-btn" onclick="ssoLogin('google')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M13.5 7.16c0-.49-.04-.97-.13-1.43H7v2.7h3.65c-.16.85-.64 1.57-1.36 2.05v1.71h2.2c1.29-1.18 2.01-2.93 2.01-5.03z" fill="#4285F4"/><path d="M7 14c1.83 0 3.36-.6 4.49-1.63l-2.2-1.7c-.61.41-1.39.65-2.29.65-1.76 0-3.25-1.18-3.79-2.78H.93v1.74A6.99 6.99 0 0 0 7 14z" fill="#34A853"/><path d="M3.21 8.54a4.21 4.21 0 0 1 0-2.66V4.13H.93A7 7 0 0 0 0 7c0 1.13.27 2.2.93 3.13l2.28-1.59z" fill="#FBBC04"/><path d="M7 2.78c.99 0 1.88.34 2.59 1.01l1.94-1.94A6.96 6.96 0 0 0 7 0a6.99 6.99 0 0 0-6.07 4.13L3.21 5.87C3.75 4.27 5.24 2.78 7 2.78z" fill="#EA4335"/></svg>
+          Continue with Google
+        </button>
+        <button class="sso-btn" onclick="ssoLogin('microsoft')">
+          <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="5.5" height="5.5" fill="#F25022"/><rect x="7.5" y="1" width="5.5" height="5.5" fill="#7FBA00"/><rect x="1" y="7.5" width="5.5" height="5.5" fill="#00A4EF"/><rect x="7.5" y="7.5" width="5.5" height="5.5" fill="#FFB900"/></svg>
+          Continue with Microsoft
+        </button>
+        <button class="sso-btn" onclick="ssoLogin('saml')">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l5 2v4c0 3-2.2 5.5-5 6.5C4.2 12.5 2 10 2 7V3l5-2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5 7l1.5 1.5L9 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          SSO / SAML
+        </button>
+      </div>
+
+      <div class="auth-divider"><span>or with email</span></div>
+
+      <div class="form-row">
+        <label class="form-label">Work email</label>
+        <input class="form-input" id="login-email" type="email" placeholder="you@company.com" autocomplete="username"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Password</label>
+        <div class="pw-input-wrap">
+          <input class="form-input" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:38px" onkeydown="if(event.key==='Enter')submitLogin()"/>
+          <button type="button" class="pw-toggle" onclick="togglePassword('login-password')" tabindex="-1" aria-label="Toggle password visibility">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="auth-remember">
+        <label class="auth-check"><input type="checkbox" id="remember-me"/><span>Remember me</span></label>
+        <span class="auth-link" style="margin:0;font-size:12px" onclick="showAuthPanel('forgot')">Forgot password?</span>
+      </div>
+      <button class="btn btn-solid" onclick="submitLogin()" style="width:100%;justify-content:center;margin-top:12px;padding:10px 16px">Sign in</button>
+      <div id="login-error" class="auth-error" style="display:none"></div>
+
+      <div class="auth-divider"><span>or try the demo</span></div>
+
+      <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
         <div class="auth-account" onclick="login('Admin','Emma Clarke','EC')">
           <div class="auth-account-av">EC</div>
           <div><div class="auth-account-name">Emma Clarke</div><div class="auth-account-role">Admin · Full access</div></div>
@@ -456,8 +512,8 @@ textarea.form-input{resize:vertical;min-height:72px}
           <div><div class="auth-account-name">Sofia Reyes</div><div class="auth-account-role">Read Only · View only</div></div>
         </div>
       </div>
-      <div class="auth-link" onclick="showAuthPanel('forgot')">Forgot password?</div>
-      <div class="auth-link" onclick="showAuthPanel('create')" style="margin-top:6px">Create an account</div>
+
+      <div class="auth-link" onclick="showAuthPanel('create')" style="margin-top:14px">Don't have an account? Create one</div>
     </div>
     <!-- Forgot password panel -->
     <div id="auth-forgot" style="display:none">
@@ -480,11 +536,29 @@ textarea.form-input{resize:vertical;min-height:72px}
         <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="ca-last" placeholder="Doe"/></div>
       </div>
       <div class="form-row"><label class="form-label">Work email</label><input class="form-input" id="ca-email" type="email" placeholder="you@company.com"/></div>
+      <div class="form-row">
+        <label class="form-label">Password</label>
+        <div class="pw-input-wrap">
+          <input class="form-input" id="ca-password" type="password" placeholder="At least 12 characters" style="padding-right:38px" oninput="updatePwStrength(this.value)"/>
+          <button type="button" class="pw-toggle" onclick="togglePassword('ca-password')" tabindex="-1" aria-label="Toggle password visibility">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
+          </button>
+        </div>
+        <div id="pw-strength-wrap" class="pw-strength-wrap" style="display:none">
+          <div class="pw-strength-bar-track"><div id="pw-strength-bar" class="pw-strength-bar"></div></div>
+          <div id="pw-strength-text" class="pw-strength-text">Weak</div>
+        </div>
+      </div>
       <div class="form-row"><label class="form-label">Role requested</label>
         <select class="form-input" id="ca-role"><option>Senior Agent</option><option>Read Only</option></select>
       </div>
+      <label class="auth-check" style="margin:10px 0">
+        <input type="checkbox" id="ca-terms"/>
+        <span>I agree to the <span style="color:var(--purple);cursor:pointer">Terms</span> and <span style="color:var(--purple);cursor:pointer">Privacy Policy</span></span>
+      </label>
       <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" onclick="submitCreate()">Request access</button>
       <div id="create-confirm" style="display:none;margin-top:12px;font-size:12px;color:var(--green);text-align:center;font-family:'DM Mono',monospace;letter-spacing:.04em">Request submitted — an admin will approve your account.</div>
+      <div id="create-error" class="auth-error" style="display:none"></div>
     </div>
   </div>
 </div>
@@ -3560,12 +3634,102 @@ function showAuthPanel(panel) {
     const el = document.getElementById('auth-'+p);
     if (el) el.style.display = p === panel ? 'block' : 'none';
   });
+  // Clear stale error/confirmation messages
+  ['login-error','create-error','create-confirm','forgot-confirm'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
 }
+
+function isValidEmail(e) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
+
+function togglePassword(id) {
+  const el = document.getElementById(id); if (!el) return;
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function ssoLogin(provider) {
+  const presets = {
+    google:    { name: 'Sofia Reyes',  initials: 'SR', role: 'Senior Agent' },
+    microsoft: { name: 'James Webb',   initials: 'JW', role: 'Senior Agent' },
+    saml:      { name: 'Emma Clarke',  initials: 'EC', role: 'Admin' },
+  };
+  const p = presets[provider] || presets.saml;
+  login(p.role, p.name, p.initials);
+}
+
+function deriveNameFromEmail(email) {
+  const local = email.split('@')[0];
+  const parts = local.split(/[._-]/).filter(Boolean);
+  const cap = w => w ? w[0].toUpperCase() + w.slice(1) : '';
+  const first = cap(parts[0]) || 'User';
+  const last  = cap(parts[1]) || '';
+  return { name: (first + ' ' + last).trim(), initials: ((first[0]||'') + (last[0]||'')).toUpperCase() || first[0] };
+}
+
+function submitLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pw    = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if (!email || !pw) { errEl.textContent = 'Please enter your email and password.'; errEl.style.display = 'block'; return; }
+  if (!isValidEmail(email)) { errEl.textContent = 'Please enter a valid email.'; errEl.style.display = 'block'; return; }
+  if (pw.length < 6) { errEl.textContent = 'Invalid email or password.'; errEl.style.display = 'block'; return; }
+  const { name, initials } = deriveNameFromEmail(email);
+  login('Senior Agent', name, initials);
+}
+
 function submitForgot() {
-  const c = document.getElementById('forgot-confirm'); if (c) c.style.display = 'block';
+  const email = document.getElementById('forgot-email')?.value.trim() || '';
+  const c = document.getElementById('forgot-confirm');
+  if (!isValidEmail(email)) {
+    if (c) { c.textContent = 'Please enter a valid email address.'; c.style.color = 'var(--red)'; c.style.display = 'block'; }
+    return;
+  }
+  if (c) { c.textContent = 'Reset link sent — check your inbox.'; c.style.color = 'var(--green)'; c.style.display = 'block'; }
 }
+
+function pwScore(pw) {
+  let s = 0;
+  if (!pw) return 0;
+  if (pw.length >= 8)  s++;
+  if (pw.length >= 12) s++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) s++;
+  if (/[0-9]/.test(pw)) s++;
+  if (/[^A-Za-z0-9]/.test(pw)) s++;
+  return s;
+}
+
+function updatePwStrength(pw) {
+  const wrap = document.getElementById('pw-strength-wrap');
+  const bar  = document.getElementById('pw-strength-bar');
+  const text = document.getElementById('pw-strength-text');
+  if (!wrap || !bar || !text) return;
+  if (!pw) { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  const score = pwScore(pw);
+  const labels = ['Very weak','Weak','Fair','Good','Strong','Very strong'];
+  const colors = ['var(--red)','var(--red)','var(--amber)','var(--amber)','var(--green)','var(--green)'];
+  bar.style.width = (score / 5) * 100 + '%';
+  bar.style.background = colors[score];
+  text.textContent = labels[score];
+  text.style.color = colors[score];
+}
+
 function submitCreate() {
-  const c = document.getElementById('create-confirm'); if (c) c.style.display = 'block';
+  const first = document.getElementById('ca-first').value.trim();
+  const last  = document.getElementById('ca-last').value.trim();
+  const email = document.getElementById('ca-email').value.trim();
+  const pw    = document.getElementById('ca-password').value;
+  const terms = document.getElementById('ca-terms').checked;
+  const errEl = document.getElementById('create-error');
+  const okEl  = document.getElementById('create-confirm');
+  errEl.style.display = 'none';
+  okEl.style.display = 'none';
+  if (!first || !last)         { errEl.textContent = 'Please enter your first and last name.'; errEl.style.display = 'block'; return; }
+  if (!isValidEmail(email))    { errEl.textContent = 'Please enter a valid work email.';      errEl.style.display = 'block'; return; }
+  if (pwScore(pw) < 3)         { errEl.textContent = 'Password is too weak — aim for "Good" or higher.'; errEl.style.display = 'block'; return; }
+  if (!terms)                  { errEl.textContent = 'Please accept the terms.';              errEl.style.display = 'block'; return; }
+  okEl.style.display = 'block';
 }
 
 // ─── Modal/panel stubs (referenced by inline onclick) ────────────────────────
