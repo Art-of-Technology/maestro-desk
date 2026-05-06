@@ -1366,8 +1366,8 @@ function openTicket(id) {
     }
     return `
     <div class="msg msg-${m.r}">
-      <div class="msg-from">${m.from} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${m.ts}</span></div>
-      ${m.t}
+      <div class="msg-from">${escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${escHtml(m.ts)}</span></div>
+      ${escHtml(m.t).replace(/\n/g, '<br>')}
       ${translateBlock}
     </div>`;
   }).join('');
@@ -1646,12 +1646,33 @@ function copyTxResult() {
   const result = document.getElementById('tx-result');
   const status = document.getElementById('tx-status');
   if (!result) return;
-  navigator.clipboard?.writeText(result.textContent).then(() => {
-    if (status) {
-      status.textContent = 'Copied to clipboard';
-      setTimeout(() => { if (status) status.textContent = ''; }, 1500);
-    }
-  });
+  const text = result.textContent;
+  const flash = msg => {
+    if (!status) return;
+    status.textContent = msg;
+    setTimeout(() => { if (status) status.textContent = ''; }, 1800);
+  };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => flash('Copied to clipboard'),
+      () => flash('Copy failed — select the text and use Ctrl+C')
+    );
+    return;
+  }
+  // Fallback for non-secure contexts (file://, http://) where Clipboard API is unavailable
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    flash(ok ? 'Copied to clipboard' : 'Copy failed — select the text and use Ctrl+C');
+  } catch {
+    flash('Copy not supported — select the text and use Ctrl+C');
+  }
 }
 
 const CANNED_RESPONSES = [
@@ -2015,7 +2036,7 @@ function sendCompose(id) {
   if (thread) {
     const d = document.createElement('div');
     d.className = `msg msg-${COMPOSE_TAB==='note'?'note':'agent'}`;
-    d.innerHTML = `<div class="msg-from">${SESSION.name} ${COMPOSE_TAB==='note'?'<span class="note-mark">Note</span>':''}</div>${txt}`;
+    d.innerHTML = `<div class="msg-from">${escHtml(SESSION.name)} ${COMPOSE_TAB==='note'?'<span class="note-mark">Note</span>':''}</div>${escHtml(txt).replace(/\n/g, '<br>')}`;
     thread.appendChild(d);
     thread.scrollTop = thread.scrollHeight;
   }
