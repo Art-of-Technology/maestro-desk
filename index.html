@@ -1352,7 +1352,7 @@ function openTicket(id) {
         <div style="margin-top:10px">
           <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)">
             <span>First response</span>
-            <span style="color:${slaColor(sla.firstResponseStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${sla.firstResponseStatus}</span>
+            <span style="color:${slaColor(sla.firstResponseStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${escHtml(sla.firstResponseStatus)}</span>
           </div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${fmtSLAMinutes(sla.firstRespMin != null ? sla.firstRespMin : sla.elapsedMin)} ${sla.firstRespMin != null ? 'taken' : 'so far'} · target ${fmtSLAMinutes(sla.policy.firstResponseMin)}</div>
           ${slaBar(sla.firstRespMin != null ? sla.firstRespMin : sla.elapsedMin, sla.policy.firstResponseMin, sla.firstResponseStatus)}
@@ -1360,7 +1360,7 @@ function openTicket(id) {
         <div style="margin-top:10px">
           <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)">
             <span>Resolution</span>
-            <span style="color:${slaColor(sla.resolutionStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${sla.isResolved ? 'resolved' : sla.resolutionStatus}</span>
+            <span style="color:${slaColor(sla.resolutionStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${sla.isResolved ? 'resolved' : escHtml(sla.resolutionStatus)}</span>
           </div>
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${fmtSLAMinutes(sla.elapsedMin)} elapsed · target ${fmtSLAMinutes(sla.policy.resolutionMin)}</div>
           ${slaBar(sla.elapsedMin, sla.policy.resolutionMin, sla.isResolved ? 'ok' : sla.resolutionStatus)}
@@ -2004,11 +2004,15 @@ function getTicketEvents(t) {
 // ─── SLA evaluator ───────────────────────────────────────────────────────────
 // Demo "now" = 1 day after the latest seeded ticket creation date, so old fixture
 // dates produce believable SLA states without making everything a breach.
+let _slaNowCache = null;
 function slaNowForDemo() {
+  if (_slaNowCache) return _slaNowCache;
   const dates = TICKETS.map(t => new Date(t.created)).filter(d => !isNaN(d)).sort((a, b) => b - a);
   const latest = dates[0] || new Date();
-  return new Date(latest.getTime() + 24 * 60 * 60 * 1000);
+  _slaNowCache = new Date(latest.getTime() + 24 * 60 * 60 * 1000);
+  return _slaNowCache;
 }
+function invalidateSLAClock() { _slaNowCache = null; }
 
 function findMatchingSLAPolicy(t) {
   if (!t.priority) return null;
@@ -2031,7 +2035,11 @@ function ticketFirstResponseMinutes(t) {
   if (!a || !b) return null;
   const ah = parseInt(a[1], 10), am = parseInt(a[2], 10);
   const bh = parseInt(b[1], 10), bm = parseInt(b[2], 10);
-  return Math.max(0, (bh - ah) * 60 + (bm - am));
+  let delta = (bh - ah) * 60 + (bm - am);
+  // Cross-day responses (e.g. customer 23:55 → agent 00:10) come out negative; assume the
+  // reply was within 24h and roll forward rather than silently clamping to "instant".
+  if (delta < 0) delta += 24 * 60;
+  return delta;
 }
 
 function ticketElapsedMinutes(t) {
