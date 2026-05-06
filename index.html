@@ -813,6 +813,7 @@ let FILTER_QUERY = '';
 let FILTER_VIEW = 'all';
 let TICKET_GROUP_BY = 'none';
 const TICKET_SELECTED_IDS = new Set();
+let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
 let AI_THINKING = false;
@@ -1034,7 +1035,13 @@ function renderPage(page) {
   if (pages[page]) main.innerHTML = pages[page]();
   if (page === 'ai') initAI();
   if (page === 'reports') drawReportCharts();
+  if (page === 'tickets') initTicketsPage();
   updateNavBadges();
+}
+
+function initTicketsPage() {
+  const cb = document.getElementById('ticket-select-all-cb');
+  if (cb) cb.indeterminate = TICKET_HEADER_CB_INDETERMINATE;
 }
 
 function updateNavBadges() {
@@ -1092,6 +1099,8 @@ function renderTickets() {
   const filteredIds = list.map(t => t.id);
   const allSelected = filteredIds.length > 0 && filteredIds.every(id => TICKET_SELECTED_IDS.has(id));
   const someSelected = !allSelected && filteredIds.some(id => TICKET_SELECTED_IDS.has(id));
+  // initTicketsPage reads this and applies the indeterminate DOM property after innerHTML.
+  TICKET_HEADER_CB_INDETERMINATE = someSelected;
 
   const bulkBar = TICKET_SELECTED_IDS.size > 0 ? `
     <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
@@ -1111,6 +1120,8 @@ function renderTickets() {
         <option value="normal">Normal</option>
         <option value="low">Low</option>
       </select>
+      <button class="btn btn-sm" onclick="bulkAddTag()">Add tag…</button>
+      <button class="btn btn-sm" onclick="bulkExportTickets()">Export selected</button>
       <button class="btn btn-sm btn-danger" onclick="bulkDeleteTickets()">Delete</button>
       <button class="btn btn-sm" onclick="clearTicketSelection()" style="margin-left:auto">Clear selection</button>
     </div>` : '';
@@ -1169,7 +1180,7 @@ function renderTickets() {
         <table class="tbl">
           <thead><tr>
             <th style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-              <input type="checkbox" ${allSelected?'checked':''} onchange="toggleAllTickets()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+              <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} onchange="toggleAllTickets()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
             </th>
             ${[['id','ID'],['customerId','Customer'],['subject','Subject'],['status','Status'],['priority','Priority'],['category','Category'],['agent','Agent'],['updated','Updated'],['sla','SLA']].map(([k,l])=>`<th onclick="sortTickets('${k}')">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
           </tr></thead>
@@ -1254,11 +1265,18 @@ function bulkAssignTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   showModal(`Assign ${TICKET_SELECTED_IDS.size} ticket${TICKET_SELECTED_IDS.size===1?'':'s'}`, `
     <div class="form-row"><label class="form-label">Assign to</label>
-      <select class="form-input" id="bulk-agent">${AGENTS.map(a => `<option value="${a.name}">${a.name}</option>`).join('')}</select>
+      <select class="form-input" id="bulk-agent">${AGENTS.map(a => `<option value="${escAttr(a.name)}">${escHtml(a.name)}</option>`).join('')}</select>
     </div>
   `, () => {
     const agent = document.getElementById('bulk-agent').value;
-    TICKETS.forEach(t => { if (TICKET_SELECTED_IDS.has(t.id)) t.agent = agent; });
+    let changed = 0;
+    TICKETS.forEach(t => {
+      if (!TICKET_SELECTED_IDS.has(t.id)) return;
+      if (t.agent === agent) return;
+      logTicketEvent(t.id, 'assign', `Assigned: ${t.agent || 'Unassigned'} → ${agent} (bulk)`);
+      t.agent = agent;
+      changed++;
+    });
     TICKET_SELECTED_IDS.clear();
     closeModal(); renderPage('tickets');
   }, 'Assign');
@@ -1266,7 +1284,17 @@ function bulkAssignTickets() {
 
 function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  TICKETS.forEach(t => { if (TICKET_SELECTED_IDS.has(t.id)) t.status = v; });
+  TICKETS.forEach(t => {
+    if (!TICKET_SELECTED_IDS.has(t.id)) return;
+    if (t.status === v) return;
+    logTicketEvent(t.id, 'status', `Status: ${t.status} → ${v} (bulk)`);
+    t.status = v;
+    refreshTicketSLA(t);
+    if (v === 'resolved' && !t.csatRequestedAt && !t.csat) {
+      t.csatRequestedAt = new Date().toISOString().slice(0, 10);
+      logTicketEvent(t.id, 'system', 'CSAT survey sent to customer');
+    }
+  });
   TICKET_SELECTED_IDS.clear();
   updateNavBadges();
   renderPage('tickets');
@@ -1274,15 +1302,79 @@ function bulkSetStatus(v) {
 
 function bulkSetPriority(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  TICKETS.forEach(t => { if (TICKET_SELECTED_IDS.has(t.id)) t.priority = v; });
+  TICKETS.forEach(t => {
+    if (!TICKET_SELECTED_IDS.has(t.id)) return;
+    if (t.priority === v) return;
+    logTicketEvent(t.id, 'priority', `Priority: ${t.priority} → ${v} (bulk)`);
+    t.priority = v;
+    refreshTicketSLA(t);
+  });
   TICKET_SELECTED_IDS.clear();
   renderPage('tickets');
+}
+
+function bulkAddTag() {
+  if (TICKET_SELECTED_IDS.size === 0) return;
+  const n = TICKET_SELECTED_IDS.size;
+  showModal(`Tag ${n} ticket${n===1?'':'s'}`, `
+    <div class="form-row"><label class="form-label">Tag</label>
+      <input class="form-input" id="bulk-tag" placeholder="e.g. priority-customer" autocomplete="off"/>
+      <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lowercase, hyphenated. Tickets that already have the tag are skipped.</div>
+    </div>
+  `, () => {
+    const raw = document.getElementById('bulk-tag').value;
+    const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!tag) { alert('Enter a tag.'); return; }
+    let added = 0;
+    TICKETS.forEach(t => {
+      if (!TICKET_SELECTED_IDS.has(t.id)) return;
+      if (!t.tags) t.tags = [];
+      if (t.tags.includes(tag)) return;
+      t.tags.push(tag);
+      logTicketEvent(t.id, 'tag', `Tagged: ${tag} (bulk)`);
+      added++;
+    });
+    if (added > 0) {
+      const lib = TAG_LIBRARY.find(x => x.tag === tag);
+      if (lib) lib.count += added;
+      else TAG_LIBRARY.push({ tag, count: added, type: 'manual', conf: null });
+    }
+    TICKET_SELECTED_IDS.clear();
+    closeModal();
+    renderPage('tickets');
+  }, 'Apply tag');
+}
+
+function bulkExportTickets() {
+  if (TICKET_SELECTED_IDS.size === 0) return;
+  const list = TICKETS.filter(t => TICKET_SELECTED_IDS.has(t.id));
+  const headers = ['ID','Customer','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','Tags','CSAT'];
+  const rows = list.map(t => {
+    const cust = CUSTOMERS.find(c => c.id === t.customerId);
+    return [t.id, cust ? cust.first + ' ' + cust.last : '', t.subject, t.status, t.priority, t.category, t.agent || '', t.created, t.updated, t.sla, (t.tags || []).join(';'), t.csat ?? ''];
+  });
+  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
+  // UTF-8 BOM so Excel on Windows recognises the encoding for accented names/tags.
+  const blob = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url; a.download = `tickets-selected-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function bulkDeleteTickets() {
   const n = TICKET_SELECTED_IDS.size;
   if (n === 0) return;
   showModal(`Delete ${n} ticket${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> ticket${n===1?'':'s'}? This cannot be undone.</div>`, () => {
+    const ids = [...TICKET_SELECTED_IDS];
+    ids.forEach(id => {
+      const t = TICKETS.find(x => x.id === id);
+      if (t) logTicketEvent(id, 'system', `Ticket deleted (bulk) by ${SESSION?.name || 'system'}`);
+    });
     for (let i = TICKETS.length - 1; i >= 0; i--) {
       if (TICKET_SELECTED_IDS.has(TICKETS[i].id)) TICKETS.splice(i, 1);
     }
