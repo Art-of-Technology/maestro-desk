@@ -2570,7 +2570,7 @@ function renderCustomerDetail(custId) {
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${c.first[0]}${c.last[0]}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${c.first} ${c.last}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -2737,8 +2737,8 @@ function globalSearch(q) {
     html += '<div class="gs-group">Pages</div>';
     html += pages.map(pg => `<div class="gs-result" onmousedown="gsGo('page','${pg.p}')"><span class="gs-result-type">Page</span><span class="gs-result-main">${pg.l}</span><span class="gs-result-meta"></span></div>`).join('');
   }
-  if (!html) html = `<div class="gs-empty">No matches for "<strong style="color:var(--ink2)">${q}</strong>"</div>`;
-  else html += `<div style="padding:9px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" onmousedown="gsOpenAllResults(${JSON.stringify(q)})" style="font-size:11px;font-weight:500">See all results for "${q}" →</span></div>`;
+  if (!html) html = `<div class="gs-empty">No matches for "<strong style="color:var(--ink2)">${escHtml(q)}</strong>"</div>`;
+  else html += `<div style="padding:9px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" onmousedown="gsOpenAllResults(${JSON.stringify(q)})" style="font-size:11px;font-weight:500">See all results for "${escHtml(q)}" →</span></div>`;
 
   results.innerHTML = html;
   results.classList.add('show');
@@ -2897,7 +2897,7 @@ function renderSearchResults() {
   const customersHtml = sectionHtml('Customers', customers, `
     <div style="display:flex;flex-direction:column;gap:5px">
       ${customers.slice(0, 50).map(c => `<div onclick="CUSTOMER_SELECTED='${escAttr(c.id)}';navTo('customers')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${c.first[0]}${c.last[0]}</div>
+        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${c.id}</span>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${escHtml(c.first + ' ' + c.last)}</span>
         <span class="vip-badge vip-${c.vip.toLowerCase()}" style="flex-shrink:0">${c.vip}</span>
