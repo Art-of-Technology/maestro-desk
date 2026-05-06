@@ -6057,10 +6057,18 @@ const WF_ACTION_PRESETS = [
 let CSAT_FILTER_SCORE = 'all';
 let CSAT_FILTER_AGENT = 'all';
 
+function csatStarString(n) {
+  const score = Math.max(0, Math.min(5, parseInt(n, 10) || 0));
+  return '★'.repeat(score) + '☆'.repeat(5 - score);
+}
+function csatColorFor(n) {
+  return n >= 4 ? 'var(--green)' : n === 3 ? 'var(--blue)' : 'var(--red)';
+}
+
 function ticketCSATBlock(t) {
   if (t.csat) {
-    const stars = '★★★★★'.slice(0, t.csat) + '☆☆☆☆☆'.slice(0, 5 - t.csat);
-    const color = t.csat >= 4 ? 'var(--green)' : t.csat >= 3 ? 'var(--blue)' : 'var(--red)';
+    const stars = csatStarString(t.csat);
+    const color = csatColorFor(t.csat);
     return `
       <div class="ts-section">
         <div class="ts-heading">Survey response</div>
@@ -6118,13 +6126,17 @@ function openCSATSurveyModal(id) {
       <label class="form-label">Tell us more (optional)</label>
       <textarea class="form-input" id="csat-comment" rows="3" placeholder="What worked well? What could be better?">${escHtml(t.csatComment || '')}</textarea>
     </div>
-    <input type="hidden" id="csat-pick" value="${initial}"/>
-    <input type="hidden" id="csat-id" value="${escAttr(t.id)}"/>`;
+    <input type="hidden" id="csat-pick" value="${initial}"/>`;
+  // ticketId captured by closure rather than re-read from DOM, so the modal can't
+  // submit against a different ticket if it's reused mid-flight.
+  const ticketId = t.id;
   showModal('Customer satisfaction survey', body, () => {
-    const ticketId = document.getElementById('csat-id').value;
     const score = parseInt(document.getElementById('csat-pick').value, 10);
     const comment = document.getElementById('csat-comment').value.trim();
-    if (!score) { alert('Please pick a rating from 1 to 5.'); return; }
+    if (!Number.isInteger(score) || score < 1 || score > 5) {
+      alert('Please pick a rating from 1 to 5.');
+      return;
+    }
     submitCSAT(ticketId, score, comment);
   }, 'Submit rating');
   if (initial) csatHover(initial);
@@ -6152,15 +6164,17 @@ function csatPick(n) {
 function submitCSAT(id, score, comment) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
-  t.csat = score;
-  t.csatStars = score;
+  const clamped = Math.max(1, Math.min(5, parseInt(score, 10)));
+  if (!Number.isInteger(clamped)) return;
+  t.csat = clamped;
+  t.csatStars = clamped;
   t.csatComment = comment || null;
   t.csatSubmittedAt = new Date().toISOString().slice(0, 10);
   if (!t.csatRequestedAt) t.csatRequestedAt = t.csatSubmittedAt;
-  logTicketEvent(id, 'system', `CSAT submitted: ${score}/5${comment ? ' with comment' : ''}`);
+  logTicketEvent(id, 'system', `CSAT submitted: ${clamped}/5${comment ? ' with comment' : ''}`);
   closeModal();
   if (CURRENT_TICKET === id) openTicket(id);
-  if (document.querySelector('.tb-title')?.textContent === 'CSAT Surveys') renderPage('csat');
+  if (CURRENT_PAGE === 'csat') renderPage('csat');
 }
 
 function renderCSAT() {
@@ -6195,8 +6209,8 @@ function renderCSAT() {
 
   const rows = visible.map(t => {
     const cust = CUSTOMERS.find(c => c.id === t.customerId);
-    const stars = '★'.repeat(t.csat) + '☆'.repeat(5 - t.csat);
-    const color = t.csat >= 4 ? 'var(--green)' : t.csat === 3 ? 'var(--blue)' : 'var(--red)';
+    const stars = csatStarString(t.csat);
+    const color = csatColorFor(t.csat);
     return `
     <tr>
       <td class="bold">${escHtml(t.id)}</td>
