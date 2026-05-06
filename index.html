@@ -1406,7 +1406,34 @@ function openTicket(id) {
   CURRENT_TICKET = id;
   const t = TICKETS.find(x => x.id === id);
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
-  const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id);
+  const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
+  const mergedFromIds = (t.mergedFrom || []);
+  const mergedBanner = t.mergedInto ? `
+    <div style="margin:0 0 10px;padding:8px 12px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:8px">
+      <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
+      <span style="color:var(--ink2)">→</span>
+      <span class="link" onclick="openTicket('${escAttr(t.mergedInto)}')" style="color:var(--purple);font-weight:500">${escHtml(t.mergedInto)}</span>
+      <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${escHtml(t.mergedAt || '—')}</span>
+      <button class="btn btn-sm" style="margin-left:auto" onclick="unmergeTicket('${escAttr(t.id)}')">Un-merge</button>
+    </div>` : '';
+  const mergedFromBlock = mergedFromIds.length ? `
+    <div class="ts-section">
+      <div class="ts-heading">Merged duplicates (${mergedFromIds.length})</div>
+      ${mergedFromIds.map(mid => {
+        const m = TICKETS.find(x => x.id === mid);
+        if (!m) return '';
+        return `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--rule)">
+            <div style="flex:1;min-width:0;cursor:pointer" onclick="openTicket('${escAttr(mid)}')">
+              <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.subject)}</div>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+                <span class="tag" style="font-size:9px;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">merged</span>
+                <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(mid)} · ${escHtml(m.mergedAt || '—')}</span>
+              </div>
+            </div>
+          </div>`;
+      }).join('')}
+    </div>` : '';
   const csatScore = cust ? TICKETS.filter(x=>x.customerId===cust.id&&x.csat).reduce((a,x)=>a+x.csat,0) / (TICKETS.filter(x=>x.customerId===cust.id&&x.csat).length||1) : 0;
   const csatColor = csatScore >= 4 ? '#007744' : csatScore >= 3 ? '#0044cc' : '#cc2200';
   const csatPct = Math.round((csatScore/5)*100);
@@ -1497,7 +1524,10 @@ function openTicket(id) {
     <div class="ts-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ts-heading" style="margin:0">Linked tickets (${linkedIds.length})</div>
-        <span class="link" onclick="showLinkTicketModal('${id}')" style="font-size:11px">+ Link</span>
+        <span style="display:flex;gap:10px">
+          <span class="link" onclick="showLinkTicketModal('${id}')" style="font-size:11px">+ Link</span>
+          ${t.mergedInto ? '' : `<span class="link" onclick="showMergeTicketModal('${id}')" style="font-size:11px">↩ Merge</span>`}
+        </span>
       </div>
       ${linkedIds.length ? linkedIds.map(linkedId => {
         const lt = TICKETS.find(x => x.id === linkedId);
@@ -1612,6 +1642,7 @@ function openTicket(id) {
         </div>
       </div>
       <div style="padding:14px 20px 10px;border-bottom:1px solid var(--rule);flex-shrink:0">
+        ${mergedBanner}
         <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${t.subject}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span class="tag tag-${t.status}">${t.status}</span>
@@ -1739,6 +1770,7 @@ function openTicket(id) {
             <button class="btn btn-sm" style="width:100%;margin-bottom:5px;justify-content:center" onclick="alert('Data redacted')">Redact Data</button>
             <button class="btn btn-sm" style="width:100%;justify-content:center" onclick="alert('SAR export started')">SAR Export</button>
           </div>`:''}
+          ${mergedFromBlock}
           ${linkedBlock}
           ${otherTickets.length?`
           <div class="ts-section">
@@ -2270,6 +2302,91 @@ function unlinkTicket(id, otherId) {
   logTicketEvent(id, 'system', `Unlinked from ${otherId}`);
   logTicketEvent(otherId, 'system', `Unlinked from ${id}`);
   if (CURRENT_TICKET === id) openTicket(id);
+}
+
+function showMergeTicketModal(id) {
+  const t = TICKETS.find(x => x.id === id);
+  if (!t) return;
+  if (t.mergedInto) { alert(`Already merged into ${t.mergedInto}.`); return; }
+  const card = x => `
+      <div onmousedown="closeModal();mergeTickets('${escAttr(id)}','${escAttr(x.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+        <span class="tag tag-${escAttr(x.status)}" style="font-size:9px">${escHtml(x.status)}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${escHtml(x.id)}</span>
+        <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(x.subject)}</span>
+      </div>`;
+  const sameCust = TICKETS.filter(x => x.id !== id && !x.mergedInto && x.customerId === t.customerId);
+  const others   = TICKETS.filter(x => x.id !== id && !x.mergedInto && x.customerId !== t.customerId);
+  showModal('Merge ticket into…', `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">${escHtml(t.id)} will be marked as a duplicate of the primary you choose. Its messages copy across, the audit trail is preserved on both sides, and ${escHtml(t.id)} is set to <strong style="color:var(--ink)">resolved</strong>.</div>
+    ${sameCust.length ? `<div style="font-size:11px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Same customer (most likely duplicate)</div>${sameCust.map(card).join('')}` : ''}
+    ${others.length ? `<div style="font-size:11px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 6px">Other tickets</div><div style="max-height:240px;overflow-y:auto">${others.map(card).join('')}</div>` : ''}
+    ${!sameCust.length && !others.length ? '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No primary candidates available</div>' : ''}
+  `, null, null);
+}
+
+function mergeTickets(srcId, primaryId) {
+  if (srcId === primaryId) return;
+  const src = TICKETS.find(x => x.id === srcId);
+  const primary = TICKETS.find(x => x.id === primaryId);
+  if (!src || !primary || src.mergedInto) return;
+  // Chain-merge guard: don't merge into a ticket that's itself a duplicate.
+  if (primary.mergedInto) {
+    alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
+    return;
+  }
+  src.mergedInto = primaryId;
+  src.mergedAt = new Date().toISOString().slice(0, 10);
+  primary.mergedFrom = primary.mergedFrom || [];
+  if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
+  primary.msgs = primary.msgs || [];
+  // Tag every msg pushed during this merge with `mergedFrom: srcId` so unmergeTicket
+  // can strip them cleanly without leaving phantom messages on the primary.
+  primary.msgs.push({
+    from: 'System', r: 'system',
+    t: `── Merged from ${srcId}: "${src.subject}" ──`,
+    ts: new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }),
+    mergedFrom: srcId,
+  });
+  (src.msgs || []).forEach(m => primary.msgs.push({ ...m, mergedFrom: srcId }));
+  if (src.status !== 'resolved') {
+    src._statusBeforeMerge = src.status;
+    logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
+    src.status = 'resolved';
+    refreshTicketSLA(src);
+  }
+  logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
+  logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
+  updateNavBadges();
+  if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
+  else renderPage('tickets');
+}
+
+function unmergeTicket(srcId) {
+  const src = TICKETS.find(x => x.id === srcId);
+  if (!src || !src.mergedInto) return;
+  const primaryId = src.mergedInto;
+  const primary = TICKETS.find(x => x.id === primaryId);
+  if (primary) {
+    if (primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
+    if (primary.msgs) primary.msgs = primary.msgs.filter(m => m.mergedFrom !== srcId);
+  }
+  src.mergedInto = null;
+  src.mergedAt = null;
+  // Restore the pre-merge status if we captured one; otherwise default to 'open'
+  // so the un-merged ticket re-enters the queue rather than staying resolved-but-active.
+  const restored = src._statusBeforeMerge || 'open';
+  if (src.status === 'resolved' && src.status !== restored) {
+    logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
+    src.status = restored;
+    refreshTicketSLA(src);
+  }
+  delete src._statusBeforeMerge;
+  logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
+  if (primary) logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
+  updateNavBadges();
+  if (CURRENT_TICKET === srcId) openTicket(srcId);
+  else if (CURRENT_TICKET === primaryId) openTicket(primaryId);
+  else renderPage('tickets');
 }
 
 function showLinkTicketModal(id) {
