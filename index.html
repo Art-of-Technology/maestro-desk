@@ -2203,6 +2203,11 @@ function ttFormBody(t) {
     <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="tt-body" style="min-height:140px;font-family:'Inter',sans-serif" placeholder="Initial ticket message or agent guidance">${escHtml(t?.body||'')}</textarea></div>`;
 }
 
+function ttNextId() {
+  const max = Math.max(0, ...TICKET_TEMPLATES.map(x => parseInt((x.id||'').split('-')[1] || '0', 10)));
+  return 'TT-' + String(max + 1).padStart(3, '0');
+}
+
 function ttNew() {
   if (!isAdmin()) return;
   showModal('New ticket template', ttFormBody(null), () => {
@@ -2212,8 +2217,7 @@ function ttNew() {
     const subject = document.getElementById('tt-subj').value.trim();
     const body = document.getElementById('tt-body').value;
     if (!name || !subject) return;
-    const id = 'TT-' + String(TICKET_TEMPLATES.length + 1).padStart(3, '0');
-    TICKET_TEMPLATES.unshift({ id, name, category, priority, subject, body });
+    TICKET_TEMPLATES.unshift({ id: ttNextId(), name, category, priority, subject, body });
     closeModal(); renderPage('ticket-templates');
   }, 'Create');
 }
@@ -2236,8 +2240,7 @@ function ttEdit(id) {
 function ttDuplicate(id) {
   if (!isAdmin()) return;
   const orig = TICKET_TEMPLATES.find(x => x.id === id); if (!orig) return;
-  const newId = 'TT-' + String(TICKET_TEMPLATES.length + 1).padStart(3, '0');
-  TICKET_TEMPLATES.unshift({ ...orig, id: newId, name: orig.name + ' (copy)' });
+  TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
   renderPage('ticket-templates');
 }
 
