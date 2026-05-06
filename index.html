@@ -751,6 +751,10 @@ textarea.form-input{resize:vertical;min-height:72px}
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 4.7c0-.9.7-1.6 1.5-1.6.9 0 1.5.7 1.5 1.5 0 .9-1.5 1-1.5 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.8" r=".6" fill="currentColor"/></svg>
                 Help & Support
               </div>
+              <div class="profile-menu-item" onclick="profileMenuGo('translator')">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 3h5M3.5 2v1M2 3c0 2.5 1.5 4 4 4M5 3c0 1.5-2 3.5-4 4.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M5.5 11l2-5 2 5M6 9.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Translator
+              </div>
               <div class="profile-menu-divider"></div>
               <div class="profile-menu-item danger" onclick="profileMenuGo('signout')">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M5 2H2v8h3M7 4l2 2-2 2M9 6H4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -1345,11 +1349,28 @@ function openTicket(id) {
       </div>
     </div>` : '';
 
-  const msgsHtml = t.msgs.map(m => `
+  const msgsHtml = t.msgs.map((m, i) => {
+    let translateBlock = '';
+    if (m.r === 'customer') {
+      if (m.translating) {
+        translateBlock = '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule);font-size:11px;color:var(--purple);font-style:italic">Translating…</div>';
+      } else if (m.translation) {
+        translateBlock = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)">
+          <div style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:4px">Translation</div>
+          <div style="font-size:13px;color:var(--ink2);font-style:italic;line-height:1.55">${escHtml(m.translation)}</div>
+          <div style="margin-top:6px"><span class="link" style="font-size:11px" onclick="hideMessageTranslation('${id}',${i})">Hide translation</span></div>
+        </div>`;
+      } else {
+        translateBlock = `<div style="margin-top:6px"><span class="link" style="font-size:11px" onclick="translateMessage('${id}',${i})">Translate</span></div>`;
+      }
+    }
+    return `
     <div class="msg msg-${m.r}">
-      <div class="msg-from">${m.from} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:\'Inter\',sans-serif;font-size:11px;color:var(--ink3)">${m.ts}</span></div>
+      <div class="msg-from">${m.from} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${m.ts}</span></div>
       ${m.t}
-    </div>`).join('');
+      ${translateBlock}
+    </div>`;
+  }).join('');
 
   const main = document.getElementById('main-area');
   main.innerHTML = `
@@ -1512,6 +1533,126 @@ function openTicket(id) {
 }
 
 function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
+
+// ─── Translator ──────────────────────────────────────────────────────────────
+async function translateText(text, targetLang) {
+  if (!AI_API_KEY) return { error: 'No Claude API key configured. Add one in Settings → AI Assistant.' };
+  if (!text || !text.trim()) return { error: 'No text to translate.' };
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':'application/json',
+        'x-api-key': AI_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL || 'claude-sonnet-4-6',
+        max_tokens: 1000,
+        system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, polish it lightly for clarity.`,
+        messages: [{ role: 'user', content: text }],
+      })
+    });
+    const d = await res.json();
+    const translation = d.content?.find(c => c.type === 'text')?.text;
+    return translation ? { translation } : { error: d.error?.message || 'Could not translate.' };
+  } catch (e) {
+    return { error: 'Translation failed: ' + (e?.message || 'network error') };
+  }
+}
+
+async function translateMessage(ticketId, msgIdx) {
+  const t = TICKETS.find(x => x.id === ticketId);
+  if (!t || !t.msgs[msgIdx]) return;
+  const m = t.msgs[msgIdx];
+  m.translating = true;
+  openTicket(ticketId);
+  const res = await translateText(m.t, 'English');
+  m.translating = false;
+  m.translation = res.translation || ('⚠ ' + (res.error || 'Translation failed'));
+  openTicket(ticketId);
+}
+
+function hideMessageTranslation(ticketId, msgIdx) {
+  const t = TICKETS.find(x => x.id === ticketId);
+  if (!t || !t.msgs[msgIdx]) return;
+  delete t.msgs[msgIdx].translation;
+  openTicket(ticketId);
+}
+
+const TRANSLATOR_LANGS = [
+  'English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian',
+];
+
+function showTranslatorModal(prefillText) {
+  const langs = TRANSLATOR_LANGS.map(l => `<option value="${l}">${l}</option>`).join('');
+  showModal('Translator', `
+    <div class="form-row">
+      <label class="form-label">Source text</label>
+      <textarea class="form-input" id="tx-src" placeholder="Paste text to translate…" style="min-height:120px;font-family:'Inter',sans-serif">${prefillText ? escHtml(prefillText) : ''}</textarea>
+    </div>
+    <div class="form-grid">
+      <div class="form-row">
+        <label class="form-label">Target language</label>
+        <select class="form-input" id="tx-target">${langs}</select>
+      </div>
+      <div class="form-row" style="display:flex;align-items:flex-end">
+        <button class="btn btn-solid" onclick="runTranslator()" style="width:100%;justify-content:center">Translate</button>
+      </div>
+    </div>
+    <div id="tx-result-wrap" style="display:none">
+      <div class="form-label" style="margin-top:6px">Result</div>
+      <div id="tx-result" style="padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);font-size:13px;color:var(--ink);line-height:1.6;white-space:pre-wrap;min-height:80px;transition:background .3s"></div>
+      <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm" onclick="copyTxResult()">Copy</button>
+        <span id="tx-status" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)"></span>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:var(--ink3);line-height:1.5">Uses your configured Claude API key. ${AI_API_KEY ? '' : 'Add one in Settings → AI Assistant to enable.'}</div>
+  `, null, null);
+}
+
+async function runTranslator() {
+  const src    = document.getElementById('tx-src')?.value || '';
+  const target = document.getElementById('tx-target')?.value || 'English';
+  const wrap   = document.getElementById('tx-result-wrap');
+  const result = document.getElementById('tx-result');
+  const status = document.getElementById('tx-status');
+  if (!result || !wrap) return;
+  if (!src.trim()) {
+    result.textContent = 'Please paste some text first.';
+    result.style.color = 'var(--red)';
+    wrap.style.display = 'block';
+    return;
+  }
+  result.textContent = 'Translating…';
+  result.style.color = 'var(--purple)';
+  result.style.fontStyle = 'italic';
+  if (status) status.textContent = '';
+  wrap.style.display = 'block';
+  const res = await translateText(src, target);
+  result.style.fontStyle = 'normal';
+  if (res.translation) {
+    result.style.color = 'var(--ink)';
+    result.textContent = res.translation;
+  } else {
+    result.style.color = 'var(--red)';
+    result.textContent = res.error || 'Could not translate.';
+  }
+}
+
+function copyTxResult() {
+  const result = document.getElementById('tx-result');
+  const status = document.getElementById('tx-status');
+  if (!result) return;
+  navigator.clipboard?.writeText(result.textContent).then(() => {
+    if (status) {
+      status.textContent = 'Copied to clipboard';
+      setTimeout(() => { if (status) status.textContent = ''; }, 1500);
+    }
+  });
+}
 
 const CANNED_RESPONSES = [
   { name: 'Greeting',         text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
@@ -2669,10 +2810,11 @@ function toggleProfileMenu() {
 function profileMenuGo(action) {
   document.getElementById('profile-dropdown')?.classList.remove('show');
   document.getElementById('profile-btn')?.classList.remove('active');
-  if (action === 'profile')      { navTo('profile'); }
-  else if (action === 'settings'){ navTo('settings'); }
-  else if (action === 'help')    { navTo('help'); }
-  else if (action === 'signout') { logout(); }
+  if (action === 'profile')        { navTo('profile'); }
+  else if (action === 'settings')  { navTo('settings'); }
+  else if (action === 'help')      { navTo('help'); }
+  else if (action === 'translator'){ showTranslatorModal(''); }
+  else if (action === 'signout')   { logout(); }
 }
 
 // ─── Notifications ───────────────────────────────────────────────────────────
