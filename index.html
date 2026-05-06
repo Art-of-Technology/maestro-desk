@@ -2208,7 +2208,7 @@ function showMergeTicketModal(id) {
   if (t.mergedInto) { alert(`Already merged into ${t.mergedInto}.`); return; }
   const card = x => `
       <div onmousedown="closeModal();mergeTickets('${escAttr(id)}','${escAttr(x.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-        <span class="tag tag-${x.status}" style="font-size:9px">${x.status}</span>
+        <span class="tag tag-${escAttr(x.status)}" style="font-size:9px">${escHtml(x.status)}</span>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${escHtml(x.id)}</span>
         <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(x.subject)}</span>
       </div>`;
@@ -2227,18 +2227,27 @@ function mergeTickets(srcId, primaryId) {
   const src = TICKETS.find(x => x.id === srcId);
   const primary = TICKETS.find(x => x.id === primaryId);
   if (!src || !primary || src.mergedInto) return;
+  // Chain-merge guard: don't merge into a ticket that's itself a duplicate.
+  if (primary.mergedInto) {
+    alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
+    return;
+  }
   src.mergedInto = primaryId;
   src.mergedAt = new Date().toISOString().slice(0, 10);
   primary.mergedFrom = primary.mergedFrom || [];
   if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
   primary.msgs = primary.msgs || [];
+  // Tag every msg pushed during this merge with `mergedFrom: srcId` so unmergeTicket
+  // can strip them cleanly without leaving phantom messages on the primary.
   primary.msgs.push({
     from: 'System', r: 'system',
     t: `── Merged from ${srcId}: "${src.subject}" ──`,
     ts: new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }),
+    mergedFrom: srcId,
   });
-  (src.msgs || []).forEach(m => primary.msgs.push({ ...m }));
+  (src.msgs || []).forEach(m => primary.msgs.push({ ...m, mergedFrom: srcId }));
   if (src.status !== 'resolved') {
+    src._statusBeforeMerge = src.status;
     logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
     src.status = 'resolved';
     refreshTicketSLA(src);
@@ -2246,8 +2255,7 @@ function mergeTickets(srcId, primaryId) {
   logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
   logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
   updateNavBadges();
-  if (CURRENT_TICKET === srcId) openTicket(primaryId);
-  else if (CURRENT_TICKET === primaryId) openTicket(primaryId);
+  if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
   else renderPage('tickets');
 }
 
@@ -2256,12 +2264,26 @@ function unmergeTicket(srcId) {
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
   const primary = TICKETS.find(x => x.id === primaryId);
-  if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
+  if (primary) {
+    if (primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
+    if (primary.msgs) primary.msgs = primary.msgs.filter(m => m.mergedFrom !== srcId);
+  }
   src.mergedInto = null;
   src.mergedAt = null;
+  // Restore the pre-merge status if we captured one; otherwise default to 'open'
+  // so the un-merged ticket re-enters the queue rather than staying resolved-but-active.
+  const restored = src._statusBeforeMerge || 'open';
+  if (src.status === 'resolved' && src.status !== restored) {
+    logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
+    src.status = restored;
+    refreshTicketSLA(src);
+  }
+  delete src._statusBeforeMerge;
   logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
   if (primary) logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
+  updateNavBadges();
   if (CURRENT_TICKET === srcId) openTicket(srcId);
+  else if (CURRENT_TICKET === primaryId) openTicket(primaryId);
   else renderPage('tickets');
 }
 
