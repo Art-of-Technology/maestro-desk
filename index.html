@@ -6271,13 +6271,17 @@ function cfReadForm() {
   return { label, type, entity, defaultValue, required, options };
 }
 
+function cfNextId() {
+  const max = Math.max(0, ...CUSTOM_FIELDS.map(x => parseInt((x.id || '').replace(/^cf/i, ''), 10) || 0));
+  return 'cf' + (max + 1);
+}
+
 function cfNew() {
   if (!isAdmin()) return;
   showModal('New custom field', cfFormBody(null), () => {
     const data = cfReadForm();
     if (!data.label) return;
-    const id = 'cf' + (CUSTOM_FIELDS.length + 1);
-    const field = { id, label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
+    const field = { id: cfNextId(), label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
     if (data.options) field.options = data.options;
     CUSTOM_FIELDS.unshift(field);
     closeModal(); renderPage('custom-fields');
