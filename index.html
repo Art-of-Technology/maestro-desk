@@ -4122,23 +4122,22 @@ function chToggle(id, active) {
 
 function chFormBody(c) {
   const cats = ['all', ...new Set(TICKETS.map(t => t.category))];
-  const esc = s => String(s||'').replace(/"/g,'&quot;');
   return `
     <div class="form-grid">
-      <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="ch-name" value="${esc(c?.name)}" placeholder="e.g. EU Support inbox"/></div>
+      <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="ch-name" value="${escHtml(c?.name ?? '')}" placeholder="e.g. EU Support inbox"/></div>
       <div class="form-row"><label class="form-label">Type</label>
-        <select class="form-input" id="ch-type">${CH_TYPES.map(t => `<option value="${t.v}" ${(c?.type||'email')===t.v?'selected':''}>${t.l}</option>`).join('')}</select>
+        <select class="form-input" id="ch-type">${CH_TYPES.map(t => `<option value="${escHtml(t.v)}" ${(c?.type||'email')===t.v?'selected':''}>${escHtml(t.l)}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="form-row"><label class="form-label">Address</label><input class="form-input" id="ch-address" value="${esc(c?.address)}" placeholder="email@example.com / URL / endpoint"/></div>
+    <div class="form-row"><label class="form-label">Address</label><input class="form-input" id="ch-address" value="${escHtml(c?.address ?? '')}" placeholder="email@example.com / URL / endpoint"/></div>
     <div class="form-grid">
       <div class="form-row"><label class="form-label">Default category</label>
-        <select class="form-input" id="ch-cat">${cats.map(cat => `<option value="${cat}" ${(c?.defaultCategory||'all')===cat?'selected':''}>${cat==='all'?'Any':cat}</option>`).join('')}</select>
+        <select class="form-input" id="ch-cat">${cats.map(cat => `<option value="${escHtml(cat)}" ${(c?.defaultCategory||'all')===cat?'selected':''}>${cat==='all'?'Any':escHtml(cat)}</option>`).join('')}</select>
       </div>
       <div class="form-row"><label class="form-label">Default agent</label>
         <select class="form-input" id="ch-agent">
           <option value="">Round-robin (no fixed agent)</option>
-          ${AGENTS.map(a => `<option value="${a.name}" ${c?.defaultAgent===a.name?'selected':''}>${a.name}</option>`).join('')}
+          ${AGENTS.map(a => `<option value="${escHtml(a.name)}" ${c?.defaultAgent===a.name?'selected':''}>${escHtml(a.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -4149,6 +4148,11 @@ function chFormBody(c) {
     </div>`;
 }
 
+function chNextId() {
+  const max = Math.max(0, ...CHANNELS.map(x => parseInt((x.id||'').split('-')[1] || '0', 10)));
+  return 'CH-' + String(max + 1).padStart(3, '0');
+}
+
 function chNew() {
   if (!isAdmin()) return;
   showModal('New channel', chFormBody(null), () => {
@@ -4156,9 +4160,8 @@ function chNew() {
     const type = document.getElementById('ch-type').value;
     const address = document.getElementById('ch-address').value.trim();
     if (!name || !address) return;
-    const id = 'CH-' + String(CHANNELS.length + 1).padStart(3, '0');
     CHANNELS.unshift({
-      id, name, type, address,
+      id: chNextId(), name, type, address,
       defaultCategory: document.getElementById('ch-cat').value,
       defaultAgent:    document.getElementById('ch-agent').value,
       signature:       document.getElementById('ch-sig').value,
