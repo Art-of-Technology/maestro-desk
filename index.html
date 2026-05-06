@@ -6580,7 +6580,13 @@ function runMacro(macroId, ticketId) {
       const tpl = CANNED_RESPONSES.find(r => r.id === a.templateId);
       if (tpl) {
         const cust = CUSTOMERS.find(c => c.id === t.customerId);
-        const text = tpl.text.replace('{name}', cust ? cust.first : 'there');
+        // Resolve the same {var} tokens the composer's "Insert" buttons offer
+        // so a reply-step macro produces the same text an agent would compose.
+        const text = tpl.text
+          .replace(/\{name\}/g,   cust ? cust.first : 'there')
+          .replace(/\{ticket\}/g, t.id)
+          .replace(/\{brand\}/g,  cust?.brand || '')
+          .replace(/\{agent\}/g,  t.agent || SESSION?.name || '');
         replyAppended = replyAppended ? `${replyAppended}\n\n${text}` : text;
       }
     }
@@ -6623,7 +6629,7 @@ function showApplyMacroModal(ticketId) {
     return;
   }
   const items = MACROS.map(m => `
-    <div onmousedown="closeModal();runMacro('${escAttr(m.id)}','${escAttr(ticketId)}')" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+    <div onmousedown="closeModal();runMacro(${escHtml(JSON.stringify(m.id))},${escHtml(JSON.stringify(ticketId))})" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         <span style="font-size:14px">${escHtml(m.icon || '⚡')}</span>
         <span style="font-size:13px;font-weight:600;color:var(--ink)">${escHtml(m.name)}</span>
