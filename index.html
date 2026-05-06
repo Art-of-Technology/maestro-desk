@@ -1711,19 +1711,22 @@ async function detectAndTranslateThread(ticketId) {
       if (lang) t.detectedCustomerLang = lang;
     }
   }
-  let any = false;
-  for (const m of (t.msgs || [])) {
-    if (m.r !== 'customer') continue;
-    if (m.translatedFor === AGENT_PREFERRED_LANG && m.translation) continue;
-    const result = await translateText(m.t, AGENT_PREFERRED_LANG);
-    if (result.translation) {
-      m.translation = result.translation;
-      m.translatedFor = AGENT_PREFERRED_LANG;
-      any = true;
-    }
+  // Translate all stale customer messages in parallel — long threads no longer block on serial round-trips.
+  const target = AGENT_PREFERRED_LANG;
+  const stale = (t.msgs || []).filter(m =>
+    m.r === 'customer' && (m.translatedFor !== target || !m.translation)
+  );
+  if (stale.length) {
+    await Promise.all(stale.map(async m => {
+      const res = await translateText(m.t, target);
+      if (res.translation) {
+        m.translation = res.translation;
+        m.translatedFor = target;
+      }
+    }));
   }
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
-  return any;
+  return stale.length > 0;
 }
 
 function toggleThreadTranslate(ticketId, on) {
@@ -1750,8 +1753,11 @@ function toggleAutoTranslateReplies(ticketId, on) {
 
 function setCustomerLanguage(ticketId, lang) {
   const t = TICKETS.find(x => x.id === ticketId);
-  if (!t) return;
+  if (!t || !lang) return;
   t.detectedCustomerLang = lang;
+  // No need to re-translate customer messages (target = AGENT_PREFERRED_LANG, unchanged) —
+  // but if the agent had auto-translate-replies on, the new language becomes the target for
+  // outgoing replies, so just re-render so the toolbar reflects the override.
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
@@ -3782,6 +3788,11 @@ function settingsLanguage() {
 function setAgentPreferredLang(v) {
   AGENT_PREFERRED_LANG = v;
   localStorage.setItem('agent_preferred_lang', v);
+  // If a ticket is open with thread translation on, refresh stale translations against the new target.
+  if (CURRENT_TICKET) {
+    const t = TICKETS.find(x => x.id === CURRENT_TICKET);
+    if (t && t.translateThread) detectAndTranslateThread(CURRENT_TICKET);
+  }
 }
 
 function setAIKey(v)   { AI_API_KEY = v.trim(); localStorage.setItem('ai_api_key', AI_API_KEY); }
