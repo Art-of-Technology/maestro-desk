@@ -1420,7 +1420,7 @@ function openTicket(id) {
   const t = TICKETS.find(x => x.id === id);
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
   const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
-  const snoozeBanner = t.snoozedUntil ? `
+  const snoozeBanner = (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) ? `
     <div style="margin:0 0 10px;padding:8px 12px;background:var(--off2);border:1px solid var(--rule2);border-radius:var(--r);font-size:11px;color:var(--ink2);display:flex;align-items:center;gap:8px">
       <span style="font-size:14px">💤</span>
       <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3)">Snoozed</span>
@@ -2333,7 +2333,9 @@ function snoozePresetIso(key) {
     d.setHours(9, 0, 0, 0);
     return d.toISOString();
   }
-  return null;
+  // Unknown key: fall back to +4h so callers can chain .slice() safely.
+  d.setHours(d.getHours() + 4);
+  return d.toISOString();
 }
 
 function showSnoozeModal(ticketId) {
@@ -2346,7 +2348,7 @@ function showSnoozeModal(ticketId) {
     { key:'monday',   label:'Next Monday 9:00' },
   ];
   const pillRow = presets.map(p => `
-    <button type="button" class="btn btn-sm" style="flex:1" onclick="document.getElementById('snz-when').value=snoozePresetIso('${p.key}').slice(0,16);document.getElementById('snz-preset').value='${p.key}'">${p.label}</button>`).join('');
+    <button type="button" class="btn btn-sm" style="flex:1" onclick="document.getElementById('snz-when').value=snoozePresetIso('${p.key}').slice(0,16)">${p.label}</button>`).join('');
   const defaultIso = snoozePresetIso('4h').slice(0, 16);
   showModal(`Snooze ${escHtml(t.id)}`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">SLA evaluation pauses while snoozed. The ticket wakes itself when the time is reached and posts a notification.</div>
@@ -2359,7 +2361,6 @@ function showSnoozeModal(ticketId) {
     <div class="form-row"><label class="form-label">Reason (optional)</label>
       <input class="form-input" id="snz-reason" placeholder="e.g. Awaiting customer reply"/>
     </div>
-    <input type="hidden" id="snz-preset" value="4h"/>
   `, () => {
     const when = document.getElementById('snz-when').value;
     if (!when) { alert('Pick a wake-up time.'); return; }
