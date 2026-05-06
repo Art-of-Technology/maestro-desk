@@ -977,6 +977,7 @@ function login(role, name, initials) {
   document.getElementById('pf-role-lg').textContent = role;
   if (role === 'Read Only') document.getElementById('nav-roles').style.opacity = '.3';
   applyTheme(THEME);
+  refreshAllSLA();
   renderPage('dashboard');
 }
 function logout() {
@@ -1336,6 +1337,37 @@ function openTicket(id) {
       ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" onclick="showAttachPanel('${id}')">${t.attachments.length}</span></span></div>` : ''}
     </div>`;
 
+  // SLA evaluation block — computed live from policies + ticket timing.
+  const sla = computeTicketSLA(t);
+  const slaColor = s => s === 'breach' ? 'var(--red)' : s === 'warn' ? 'var(--amber)' : 'var(--green)';
+  const slaBar = (used, total, status) => {
+    const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+    return `<div style="height:5px;background:var(--off2);border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:100%;background:${slaColor(status)};width:${pct}%;transition:width .25s"></div></div>`;
+  };
+  const slaBlock = `
+    <div class="ts-section">
+      <div class="ts-heading">SLA</div>
+      ${sla.policy ? `
+        <div class="ts-row"><span class="ts-key">Policy</span><span class="ts-val"><span class="link" onclick="navTo('sla')">${escHtml(sla.policy.name)}</span></span></div>
+        <div style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)">
+            <span>First response</span>
+            <span style="color:${slaColor(sla.firstResponseStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${sla.firstResponseStatus}</span>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${fmtSLAMinutes(sla.firstRespMin != null ? sla.firstRespMin : sla.elapsedMin)} ${sla.firstRespMin != null ? 'taken' : 'so far'} · target ${fmtSLAMinutes(sla.policy.firstResponseMin)}</div>
+          ${slaBar(sla.firstRespMin != null ? sla.firstRespMin : sla.elapsedMin, sla.policy.firstResponseMin, sla.firstResponseStatus)}
+        </div>
+        <div style="margin-top:10px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)">
+            <span>Resolution</span>
+            <span style="color:${slaColor(sla.resolutionStatus)};font-weight:500;text-transform:uppercase;font-size:10px;letter-spacing:.06em">${sla.isResolved ? 'resolved' : sla.resolutionStatus}</span>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${fmtSLAMinutes(sla.elapsedMin)} elapsed · target ${fmtSLAMinutes(sla.policy.resolutionMin)}</div>
+          ${slaBar(sla.elapsedMin, sla.policy.resolutionMin, sla.isResolved ? 'ok' : sla.resolutionStatus)}
+        </div>
+      ` : `<div style="font-size:11px;color:var(--ink3);font-style:italic">No active policy matches this ticket. Configure one in <span class="link" onclick="navTo('sla')">SLA Policies</span>.</div>`}
+    </div>`;
+
   const followers = t.followers || [];
   const watching = SESSION ? followers.includes(SESSION.name) : false;
   const followerAvatars = followers.map(name => {
@@ -1579,6 +1611,7 @@ function openTicket(id) {
             </div>
           </div>
           ${timeBlock}
+          ${slaBlock}
           ${aiTagsHtml}
           ${followersBlock}
           ${kbBlock}
@@ -1968,11 +2001,94 @@ function getTicketEvents(t) {
   return (t.events || []).concat(seeded);
 }
 
+// ─── SLA evaluator ───────────────────────────────────────────────────────────
+// Demo "now" = 1 day after the latest seeded ticket creation date, so old fixture
+// dates produce believable SLA states without making everything a breach.
+function slaNowForDemo() {
+  const dates = TICKETS.map(t => new Date(t.created)).filter(d => !isNaN(d)).sort((a, b) => b - a);
+  const latest = dates[0] || new Date();
+  return new Date(latest.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function findMatchingSLAPolicy(t) {
+  if (!t.priority) return null;
+  const candidates = SLA_POLICIES.filter(p => p.status === 'active' && p.priority === t.priority);
+  // Prefer specific category match over the catch-all "all"
+  return candidates.find(p => p.category === t.category)
+      || candidates.find(p => p.category === 'all')
+      || null;
+}
+
+function ticketFirstResponseMinutes(t) {
+  const msgs = t.msgs || [];
+  const firstCust = msgs.find(m => m.r === 'customer');
+  if (!firstCust) return null;
+  const idx = msgs.indexOf(firstCust);
+  const firstAgent = msgs.find((m, i) => i > idx && (m.r === 'agent' || m.r === 'ai'));
+  if (!firstAgent) return null;
+  const a = (firstCust.ts || '').match(/^(\d+):(\d+)/);
+  const b = (firstAgent.ts || '').match(/^(\d+):(\d+)/);
+  if (!a || !b) return null;
+  const ah = parseInt(a[1], 10), am = parseInt(a[2], 10);
+  const bh = parseInt(b[1], 10), bm = parseInt(b[2], 10);
+  return Math.max(0, (bh - ah) * 60 + (bm - am));
+}
+
+function ticketElapsedMinutes(t) {
+  if (!t.created) return 0;
+  const created = new Date(t.created);
+  if (isNaN(created)) return 0;
+  return Math.max(0, Math.floor((slaNowForDemo() - created) / 60000));
+}
+
+const SLA_WARN_FRACTION = 0.7; // warn at 70 % of the window
+
+function computeTicketSLA(t) {
+  const policy = findMatchingSLAPolicy(t);
+  const elapsedMin = ticketElapsedMinutes(t);
+  const firstRespMin = ticketFirstResponseMinutes(t);
+  const isResolved = t.status === 'resolved';
+
+  if (!policy) return { status: 'ok', policy: null, elapsedMin, firstRespMin, firstResponseStatus: 'ok', resolutionStatus: 'ok', isResolved };
+
+  let firstResponseStatus = 'ok';
+  if (firstRespMin == null) {
+    // Awaiting first response; clock is running against firstResponseMin
+    if (elapsedMin >= policy.firstResponseMin) firstResponseStatus = 'breach';
+    else if (elapsedMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
+  } else {
+    if (firstRespMin > policy.firstResponseMin) firstResponseStatus = 'breach';
+    else if (firstRespMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
+  }
+
+  let resolutionStatus = 'ok';
+  if (!isResolved) {
+    if (elapsedMin >= policy.resolutionMin) resolutionStatus = 'breach';
+    else if (elapsedMin >= policy.resolutionMin * SLA_WARN_FRACTION) resolutionStatus = 'warn';
+  }
+
+  const order = { ok: 0, warn: 1, breach: 2 };
+  const status = order[firstResponseStatus] >= order[resolutionStatus] ? firstResponseStatus : resolutionStatus;
+  return { status, policy, elapsedMin, firstRespMin, firstResponseStatus, resolutionStatus, isResolved };
+}
+
+function refreshTicketSLA(t) {
+  const r = computeTicketSLA(t);
+  t.sla = r.status;
+  t.slaPolicyId = r.policy ? r.policy.id : null;
+  t.slaFirstResponseStatus = r.firstResponseStatus;
+  t.slaResolutionStatus = r.resolutionStatus;
+  return r;
+}
+
+function refreshAllSLA() { TICKETS.forEach(refreshTicketSLA); }
+
 function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
   logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
   t.status = val;
+  refreshTicketSLA(t);
   updateNavBadges();
   if (CURRENT_TICKET === id) openTicket(id);
 }
@@ -2006,6 +2122,7 @@ function changeTicketPriority(id, val) {
   if (!t || t.priority === val) return;
   logTicketEvent(id, 'priority', `Priority: ${t.priority} → ${val}`);
   t.priority = val;
+  refreshTicketSLA(t);
   if (CURRENT_TICKET === id) openTicket(id);
 }
 function changeTicketAgent(id, val) {
@@ -2294,6 +2411,7 @@ function showNewTicketModal(templateId) {
     if (!subj) return;
     const newId = 'TK-' + String(TICKETS.length + 1).padStart(3,'0');
     TICKETS.unshift({id:newId,subject:subj,customerId:custId,status:'open',priority:document.getElementById('nt-pri').value,category:document.getElementById('nt-cat').value,agent:document.getElementById('nt-agent').value,created:new Date().toISOString().slice(0,10),updated:'just now',sla:'ok',tags:[],aiTags:[],csat:null,msgs:msg?[{from:SESSION.name,r:'agent',t:msg,ts:new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}]:[]});
+    refreshTicketSLA(TICKETS[0]);
     closeModal(); renderPage('tickets');
   }, 'Create Ticket');
 }
@@ -5940,7 +6058,17 @@ function renderSLA() {
   const avgFirst = activeN ? Math.round(SLA_POLICIES.filter(p => p.status==='active').reduce((s,p)=>s+p.firstResponseMin,0) / activeN) : 0;
   const avgRes   = activeN ? Math.round(SLA_POLICIES.filter(p => p.status==='active').reduce((s,p)=>s+p.resolutionMin,0)   / activeN) : 0;
 
-  const rows = list.map(p => `
+  // Compute, per-policy, how many open tickets currently match it (resolved tickets excluded)
+  const policyTicketCounts = {};
+  TICKETS.forEach(t => {
+    if (t.status === 'resolved') return;
+    const m = findMatchingSLAPolicy(t);
+    if (m) policyTicketCounts[m.id] = (policyTicketCounts[m.id] || 0) + 1;
+  });
+
+  const rows = list.map(p => {
+    const matched = policyTicketCounts[p.id] || 0;
+    return `
     <tr>
       <td class="bold">${p.id}</td>
       <td style="font-weight:500;color:var(--ink)">${p.name}</td>
@@ -5948,6 +6076,7 @@ function renderSLA() {
       <td>${p.category === 'all' ? '<span style="color:var(--ink3)">Any</span>' : p.category}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${fmtSLAMinutes(p.firstResponseMin)}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${fmtSLAMinutes(p.resolutionMin)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px;color:${matched ? 'var(--ink2)' : 'var(--ink4)'}">${matched}</td>
       <td style="text-align:center">
         <label class="toggle">
           <input type="checkbox" ${p.status==='active'?'checked':''} ${admin?'':'disabled'} onchange="slaToggle('${escAttr(p.id)}',this.checked)">
@@ -5958,7 +6087,8 @@ function renderSLA() {
         <button class="btn btn-sm" onclick="slaEdit('${escAttr(p.id)}')">Edit</button>
         <button class="btn btn-sm btn-danger" onclick="slaDelete('${escAttr(p.id)}')">Delete</button>
       </td>` : ''}
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
   return `
     <div class="page">
@@ -5986,7 +6116,7 @@ function renderSLA() {
       <div class="page-scroll">
         <table class="tbl">
           <thead><tr>
-            <th>ID</th><th>Name</th><th>Priority</th><th>Category</th><th>First response</th><th>Resolution</th>
+            <th>ID</th><th>Name</th><th>Priority</th><th>Category</th><th>First response</th><th>Resolution</th><th>Open tickets</th>
             <th style="text-align:center">Active</th>
             ${admin?'<th style="text-align:right">Actions</th>':''}
           </tr></thead>
