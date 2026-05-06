@@ -676,12 +676,32 @@ textarea.form-input{resize:vertical;min-height:72px}
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M2 2.5h4a1.5 1.5 0 0 1 1.5 1.5v7A1.5 1.5 0 0 0 6 9.5H2v-7zM11 2.5H7a1.5 1.5 0 0 0-1.5 1.5v7A1.5 1.5 0 0 1 7 9.5h4v-7z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
           <span class="sb-lbl">Knowledge Base</span>
         </div>
+        <div class="sb-item" onclick="nav('activity',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 6.5h2l1.5-3 2 6 1.5-3h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="sb-lbl">Activity Log</span>
+        </div>
       </div>
       <div class="sb-section">
         <div class="sb-heading">Config</div>
         <div class="sb-item" onclick="nav('workflows',this)">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 6.5h3l2-4 2 8 2-4h1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="sb-lbl">Workflows</span>
+        </div>
+        <div class="sb-item" onclick="nav('sla',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 3.5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="sb-lbl">SLA Policies</span>
+        </div>
+        <div class="sb-item" onclick="nav('templates',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="2" y="1.5" width="9" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M4 4.5h5M4 6.5h5M4 8.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          <span class="sb-lbl">Templates</span>
+        </div>
+        <div class="sb-item" onclick="nav('ticket-templates',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="2.5" width="10" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 4.5h10M3.5 7h6M3.5 8.5h4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+          <span class="sb-lbl">Ticket Templates</span>
+        </div>
+        <div class="sb-item" onclick="nav('custom-fields',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="3" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="7.5" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><circle cx="3.5" cy="4.5" r=".7" fill="currentColor"/><circle cx="3.5" cy="9" r=".7" fill="currentColor"/></svg>
+          <span class="sb-lbl">Custom Fields</span>
         </div>
         <div class="sb-item" onclick="nav('tags',this)">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 6.5L6.5 1.5h4v4L5.5 11.5l-4-4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="9" cy="4" r="1" fill="currentColor"/></svg>
@@ -859,9 +879,9 @@ const TICKETS = [
 ];
 
 const CUSTOM_FIELDS = [
-  {id:'cf1',label:'Account Manager',type:'text'},
-  {id:'cf2',label:'Contract Value',type:'number'},
-  {id:'cf3',label:'Renewal Date',type:'date'},
+  {id:'cf1',label:'Account Manager',type:'text',   entity:'customer', required:false, defaultValue:''},
+  {id:'cf2',label:'Contract Value', type:'number', entity:'customer', required:false, defaultValue:''},
+  {id:'cf3',label:'Renewal Date',   type:'date',   entity:'customer', required:false, defaultValue:''},
 ];
 
 const WORKFLOWS = [
@@ -882,6 +902,22 @@ const TAG_LIBRARY = [
   {tag:'feature-request',count:9,type:'manual',conf:null},
   {tag:'urgent-billing',count:2,type:'ai',conf:94},
   {tag:'checkout-issue',count:3,type:'ai',conf:87},
+];
+
+const SLA_POLICIES = [
+  {id:'SLA-001', name:'Urgent · Billing',   priority:'urgent', category:'Billing',   firstResponseMin:15,  resolutionMin:240,   status:'active'},
+  {id:'SLA-002', name:'Urgent · GDPR',      priority:'urgent', category:'GDPR',      firstResponseMin:30,  resolutionMin:4320,  status:'active'},
+  {id:'SLA-003', name:'High · Default',     priority:'high',   category:'all',       firstResponseMin:60,  resolutionMin:1440,  status:'active'},
+  {id:'SLA-004', name:'Normal · Default',   priority:'normal', category:'all',       firstResponseMin:240, resolutionMin:2880,  status:'active'},
+  {id:'SLA-005', name:'Low · Default',      priority:'low',    category:'all',       firstResponseMin:480, resolutionMin:7200,  status:'inactive'},
+];
+
+const TICKET_TEMPLATES = [
+  {id:'TT-001', name:'Password reset request',         category:'Account',   priority:'normal', subject:'Password reset for [member ID]',          body:'Customer is unable to log in after attempting a password reset. Please verify identity, unlock the account if necessary, and confirm the reset email has been delivered.'},
+  {id:'TT-002', name:'Refund — duplicate charge',      category:'Billing',   priority:'high',   subject:'Duplicate charge — refund requested',     body:'Customer reports being charged twice for the same transaction. Verify in the payments system, raise a refund for the duplicate amount, and confirm via email when processed.'},
+  {id:'TT-003', name:'GDPR data erasure request',      category:'GDPR',      priority:'high',   subject:'Article 17 erasure request from [member]', body:'Formal GDPR Article 17 erasure request received. Acknowledge within 24h, run the erasure workflow, and confirm completion in writing within the statutory 30-day window.'},
+  {id:'TT-004', name:'Mobile app — performance issue', category:'Technical', priority:'normal', subject:'Mobile app slow on [device]',             body:'Customer reports the mobile app is unusably slow. Capture device model, OS version, and app build. Cross-reference against known performance regressions; escalate to mobile team if not on a patched build.'},
+  {id:'TT-005', name:'Feature request',                category:'Feature',   priority:'low',    subject:'Feature request: [short description]',    body:'Customer suggested a new feature. Capture the use case, expected behaviour, and any business impact. Add to the product backlog and acknowledge the customer with an expected review timeframe.'},
 ];
 
 const ROLES_MATRIX = {
@@ -965,6 +1001,11 @@ function renderPage(page) {
     workflows: renderWorkflows,
     tags:      renderTags,
     roles:     renderRoles,
+    sla:           renderSLA,
+    templates:     renderTemplates,
+    'ticket-templates': renderTicketTemplates,
+    'custom-fields': renderCustomFields,
+    activity:      renderActivityLog,
     search:        renderSearchResults,
     settings:      renderSettings,
     help:          renderHelp,
@@ -1677,12 +1718,12 @@ function copyTxResult() {
 }
 
 const CANNED_RESPONSES = [
-  { name: 'Greeting',         text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
-  { name: 'Need more info',   text: 'To help me debug this, could you share:\n\n- Steps to reproduce the issue\n- The exact error message you\'re seeing\n- A screenshot if possible' },
-  { name: 'Escalating',       text: 'I\'m escalating this to our specialist team — you should hear back within the hour.' },
-  { name: 'Resolution',       text: 'I\'ve resolved this for you. Please let me know if anything else needs attention.' },
-  { name: 'Refund processed', text: 'Your refund has been processed and should appear in 3-5 business days. Apologies for any inconvenience.' },
-  { name: 'CSAT request',     text: 'When you have a moment, we\'d appreciate your feedback on this ticket. Your rating helps us improve our support.' },
+  { id:'TPL-001', name: 'Greeting',         category:'General',  text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
+  { id:'TPL-002', name: 'Need more info',   category:'Triage',   text: 'To help me debug this, could you share:\n\n- Steps to reproduce the issue\n- The exact error message you\'re seeing\n- A screenshot if possible' },
+  { id:'TPL-003', name: 'Escalating',       category:'Triage',   text: 'I\'m escalating this to our specialist team — you should hear back within the hour.' },
+  { id:'TPL-004', name: 'Resolution',       category:'General',  text: 'I\'ve resolved this for you. Please let me know if anything else needs attention.' },
+  { id:'TPL-005', name: 'Refund processed', category:'Billing',  text: 'Your refund has been processed and should appear in 3-5 business days. Apologies for any inconvenience.' },
+  { id:'TPL-006', name: 'CSAT request',     category:'General',  text: 'When you have a moment, we\'d appreciate your feedback on this ticket. Your rating helps us improve our support.' },
 ];
 
 function getTicketTimes(t) {
@@ -2043,25 +2084,36 @@ function sendCompose(id) {
   }
 }
 
-function showNewTicketModal() {
-  const cats = [...new Set(TICKETS.map(t=>t.category))];
+function showNewTicketModal(templateId) {
+  const cats = [...new Set([...TICKETS.map(t=>t.category), ...TICKET_TEMPLATES.map(t=>t.category)])];
+  const tpl = templateId ? TICKET_TEMPLATES.find(t => t.id === templateId) : null;
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const tplOptions = TICKET_TEMPLATES.map(t => `<option value="${escAttr(t.id)}" ${tpl?.id===t.id?'selected':''}>${escHtml(t.name)}</option>`).join('');
   showModal('New Ticket', `
+    ${TICKET_TEMPLATES.length ? `
+    <div class="form-row">
+      <label class="form-label">Start from template (optional)</label>
+      <select class="form-input" id="nt-template" onchange="ntApplyTemplate(this.value)">
+        <option value="">— Blank ticket —</option>
+        ${tplOptions}
+      </select>
+    </div>` : ''}
     <div class="form-grid">
       <div class="form-row"><label class="form-label">Customer ID</label><input class="form-input" id="nt-cust" placeholder="M001"/></div>
       <div class="form-row"><label class="form-label">Category</label>
-        <select class="form-input" id="nt-cat">${cats.map(c=>`<option>${c}</option>`).join('')}</select>
+        <select class="form-input" id="nt-cat">${cats.map(c=>`<option ${tpl?.category===c?'selected':''}>${c}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="form-row"><label class="form-label">Subject</label><input class="form-input" id="nt-subj" placeholder="Describe the issue…"/></div>
+    <div class="form-row"><label class="form-label">Subject</label><input class="form-input" id="nt-subj" value="${esc(tpl?.subject)}" placeholder="Describe the issue…"/></div>
     <div class="form-grid">
       <div class="form-row"><label class="form-label">Priority</label>
-        <select class="form-input" id="nt-pri"><option>normal</option><option>high</option><option>urgent</option><option>low</option></select>
+        <select class="form-input" id="nt-pri">${['normal','high','urgent','low'].map(p => `<option ${tpl?.priority===p?'selected':''}>${p}</option>`).join('')}</select>
       </div>
       <div class="form-row"><label class="form-label">Assign to</label>
         <select class="form-input" id="nt-agent">${AGENTS.map(a=>`<option>${a.name}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="form-row"><label class="form-label">Message</label><textarea class="form-input" id="nt-msg" placeholder="First message…"></textarea></div>
+    <div class="form-row"><label class="form-label">Message</label><textarea class="form-input" id="nt-msg" placeholder="First message…">${escHtml(tpl?.body || '')}</textarea></div>
   `, () => {
     const subj = document.getElementById('nt-subj').value.trim();
     const msg = document.getElementById('nt-msg').value.trim();
@@ -2071,6 +2123,164 @@ function showNewTicketModal() {
     TICKETS.unshift({id:newId,subject:subj,customerId:custId,status:'open',priority:document.getElementById('nt-pri').value,category:document.getElementById('nt-cat').value,agent:document.getElementById('nt-agent').value,created:new Date().toISOString().slice(0,10),updated:'just now',sla:'ok',tags:[],aiTags:[],csat:null,msgs:msg?[{from:SESSION.name,r:'agent',t:msg,ts:new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}]:[]});
     closeModal(); renderPage('tickets');
   }, 'Create Ticket');
+}
+
+function ntApplyTemplate(id) {
+  const t = id ? TICKET_TEMPLATES.find(x => x.id === id) : null;
+  const subj = document.getElementById('nt-subj');
+  const cat  = document.getElementById('nt-cat');
+  const pri  = document.getElementById('nt-pri');
+  const msg  = document.getElementById('nt-msg');
+  if (!t) {
+    if (subj) subj.value = '';
+    if (msg) msg.value = '';
+    return;
+  }
+  if (subj) subj.value = t.subject || '';
+  if (msg) msg.value = t.body || '';
+  if (cat && t.category) {
+    [...cat.options].forEach(o => { if (o.value === t.category) cat.value = t.category; });
+  }
+  if (pri && t.priority) pri.value = t.priority;
+}
+
+// ─── Ticket Templates page ───────────────────────────────────────────────────
+let TT_QUERY = '';
+let TT_FILTER_CAT = 'all';
+
+function renderTicketTemplates() {
+  const admin = isAdmin();
+  let list = [...TICKET_TEMPLATES];
+  if (TT_FILTER_CAT !== 'all') list = list.filter(t => t.category === TT_FILTER_CAT);
+  if (TT_QUERY.trim()) {
+    const q = TT_QUERY.toLowerCase();
+    list = list.filter(t => t.name.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q) || (t.body||'').toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q));
+  }
+  const total = TICKET_TEMPLATES.length;
+  const cats = [...new Set(TICKET_TEMPLATES.map(t => t.category))];
+
+  const rows = list.map(t => `
+    <tr>
+      <td class="bold">${t.id}</td>
+      <td style="font-weight:500;color:var(--ink)">${escHtml(t.name)}</td>
+      <td><span class="tag tag-neutral" style="font-size:10px">${escHtml(t.category)}</span></td>
+      <td><span class="tag tag-${t.priority}" style="font-size:10px">${t.priority}</span></td>
+      <td style="font-size:12px;color:var(--ink2);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.subject)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm btn-solid" onclick="showNewTicketModal('${escAttr(t.id)}')">Use</button>
+        ${admin ? `
+          <button class="btn btn-sm" onclick="ttEdit('${escAttr(t.id)}')">Edit</button>
+          <button class="btn btn-sm" onclick="ttDuplicate('${escAttr(t.id)}')">Copy</button>
+          <button class="btn btn-sm btn-danger" onclick="ttDelete('${escAttr(t.id)}')">Delete</button>` : ''}
+      </td>
+    </tr>`).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Ticket Templates</div>
+        ${admin ? `<button class="btn btn-solid btn-sm" onclick="ttNew()">+ New Template</button>` : ''}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Templates</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${cats.length}</div><div class="kpi-l">Categories</div></div>
+        <div class="kpi"><div class="kpi-n c-red">${TICKET_TEMPLATES.filter(t => t.priority==='urgent' || t.priority==='high').length}</div><div class="kpi-l">High/urgent defaults</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${Math.round(TICKET_TEMPLATES.reduce((s,t)=>s+(t.body||'').length,0)/(total||1))}</div><div class="kpi-l">Avg body chars</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${TT_QUERY}" oninput="ttSetQuery(this.value)" id="tt-search"/>
+        <select class="filter-select" onchange="TT_FILTER_CAT=this.value;renderPage('ticket-templates')">
+          <option value="all" ${TT_FILTER_CAT==='all'?'selected':''}>All categories</option>
+          ${cats.map(c => `<option value="${c}" ${TT_FILTER_CAT===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr><th>ID</th><th>Name</th><th>Category</th><th>Priority</th><th>Subject preview</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No templates match</div><div class="empty-line"></div></div>` : ''}
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Click <strong style="color:var(--ink2)">Use</strong> to open the New Ticket modal pre-filled from the template. The same picker is also available inside the regular New Ticket flow.</div>
+      </div>
+    </div>`;
+}
+
+function ttSetQuery(q) {
+  TT_QUERY = q;
+  renderPage('ticket-templates');
+  const input = document.getElementById('tt-search');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function ttFormBody(t) {
+  const cats = [...new Set([...TICKET_TEMPLATES.map(x => x.category), ...TICKETS.map(x => x.category)])];
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  return `
+    <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="tt-name" value="${esc(t?.name)}" placeholder="e.g. Outage report"/></div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Category</label>
+        <input class="form-input" id="tt-cat" list="tt-cat-list" value="${esc(t?.category)}" placeholder="Account / Billing / Technical…"/>
+        <datalist id="tt-cat-list">${cats.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>
+      </div>
+      <div class="form-row"><label class="form-label">Default priority</label>
+        <select class="form-input" id="tt-pri">${['low','normal','high','urgent'].map(p => `<option value="${p}" ${(t?.priority||'normal')===p?'selected':''}>${p}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="form-row"><label class="form-label">Subject (template)</label><input class="form-input" id="tt-subj" value="${esc(t?.subject)}" placeholder="Use [placeholders] for fields agents fill in"/></div>
+    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="tt-body" style="min-height:140px;font-family:'Inter',sans-serif" placeholder="Initial ticket message or agent guidance">${escHtml(t?.body||'')}</textarea></div>`;
+}
+
+function ttNextId() {
+  const max = Math.max(0, ...TICKET_TEMPLATES.map(x => parseInt((x.id||'').split('-')[1] || '0', 10)));
+  return 'TT-' + String(max + 1).padStart(3, '0');
+}
+
+function ttNew() {
+  if (!isAdmin()) return;
+  showModal('New ticket template', ttFormBody(null), () => {
+    const name = document.getElementById('tt-name').value.trim();
+    const category = document.getElementById('tt-cat').value.trim() || 'General';
+    const priority = document.getElementById('tt-pri').value;
+    const subject = document.getElementById('tt-subj').value.trim();
+    const body = document.getElementById('tt-body').value;
+    if (!name || !subject) return;
+    TICKET_TEMPLATES.unshift({ id: ttNextId(), name, category, priority, subject, body });
+    closeModal(); renderPage('ticket-templates');
+  }, 'Create');
+}
+
+function ttEdit(id) {
+  if (!isAdmin()) return;
+  const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
+  showModal(`Edit ${t.id}`, ttFormBody(t), () => {
+    const name = document.getElementById('tt-name').value.trim();
+    const category = document.getElementById('tt-cat').value.trim() || 'General';
+    const priority = document.getElementById('tt-pri').value;
+    const subject = document.getElementById('tt-subj').value.trim();
+    const body = document.getElementById('tt-body').value;
+    if (!name || !subject) return;
+    t.name = name; t.category = category; t.priority = priority; t.subject = subject; t.body = body;
+    closeModal(); renderPage('ticket-templates');
+  }, 'Save');
+}
+
+function ttDuplicate(id) {
+  if (!isAdmin()) return;
+  const orig = TICKET_TEMPLATES.find(x => x.id === id); if (!orig) return;
+  TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
+  renderPage('ticket-templates');
+}
+
+function ttDelete(id) {
+  if (!isAdmin()) return;
+  const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
+  showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${escHtml(t.name)}</strong>?</div>`, () => {
+    const i = TICKET_TEMPLATES.findIndex(x => x.id === id);
+    if (i >= 0) TICKET_TEMPLATES.splice(i, 1);
+    closeModal(); renderPage('ticket-templates');
+  }, 'Delete');
 }
 
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -2669,6 +2879,11 @@ const SEARCH_PAGES = [
   {p:'workflows', l:'Workflows'},
   {p:'tags',      l:'Tags'},
   {p:'roles',     l:'Roles & Permissions'},
+  {p:'sla',       l:'SLA Policies'},
+  {p:'templates', l:'Response Templates'},
+  {p:'ticket-templates', l:'Ticket Templates'},
+  {p:'custom-fields', l:'Custom Fields'},
+  {p:'activity',  l:'Activity Log'},
   {p:'settings',  l:'Settings'},
   {p:'help',          l:'Help & Support'},
   {p:'notifications', l:'Notifications'},
@@ -4165,6 +4380,163 @@ function renderDashboard() {
     </div>`;
 }
 
+// ─── Activity log ────────────────────────────────────────────────────────────
+let ACT_FILTER_TYPE = 'all';
+let ACT_FILTER_ENTITY = 'all';
+let ACT_QUERY = '';
+
+function getAllActivity() {
+  const events = [];
+  // Ticket events (status, priority, agent, tag, system)
+  TICKETS.forEach(t => {
+    (t.events || []).forEach(e => {
+      events.push({
+        ts: e.ts,
+        sortKey: e.ts,
+        author: e.author || 'System',
+        kind: e.type || 'system',          // status / priority / agent / tag / system
+        entity: 'ticket',
+        entityId: t.id,
+        entityName: t.subject,
+        details: e.details,
+      });
+    });
+    // Inferred: ticket creation
+    if (t.created) {
+      events.push({
+        ts: t.created,
+        sortKey: t.created + ' 00:00',
+        author: t.agent || 'System',
+        kind: 'created',
+        entity: 'ticket',
+        entityId: t.id,
+        entityName: t.subject,
+        details: 'Ticket created',
+      });
+    }
+  });
+  // Workflow run history
+  WORKFLOWS.forEach(w => (w.history || []).forEach(h => {
+    events.push({
+      ts: h.ts,
+      sortKey: h.ts,
+      author: h.triggeredBy || 'System',
+      kind: 'workflow',
+      entity: 'workflow',
+      entityId: w.id,
+      entityName: w.name,
+      details: `${h.type === 'manual' ? 'Manual run' : 'Triggered run'}${h.ticketId ? ' on ' + h.ticketId : ''}`,
+    });
+  }));
+  // Customer notes
+  CUSTOMERS.forEach(c => (c.notes || []).forEach(n => {
+    events.push({
+      ts: n.ts,
+      sortKey: n.ts,
+      author: n.author || 'Unknown',
+      kind: 'note',
+      entity: 'customer',
+      entityId: c.id,
+      entityName: c.first + ' ' + c.last,
+      details: 'Internal note: ' + (n.text || '').slice(0, 80) + ((n.text || '').length > 80 ? '…' : ''),
+    });
+  }));
+  // Sort: newest first by sortKey (string compare works for the common formats we use)
+  events.sort((a, b) => (b.sortKey || '').localeCompare(a.sortKey || ''));
+  return events;
+}
+
+const ACT_KIND_META = {
+  status:   { label: 'Status',   color: 'var(--cyan)' },
+  priority: { label: 'Priority', color: 'var(--amber)' },
+  agent:    { label: 'Agent',    color: 'var(--purple)' },
+  tag:      { label: 'Tag',      color: 'var(--green)' },
+  workflow: { label: 'Workflow', color: 'var(--purple)' },
+  note:     { label: 'Note',     color: 'var(--amber)' },
+  created:  { label: 'Created',  color: 'var(--cyan)' },
+  system:   { label: 'System',   color: 'var(--ink3)' },
+};
+
+function actSetQuery(q) {
+  ACT_QUERY = q;
+  renderPage('activity');
+  const input = document.getElementById('act-search');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function actGotoEntity(entity, id) {
+  if (entity === 'ticket')        openTicket(id);
+  else if (entity === 'customer') { CUSTOMER_SELECTED = id; navTo('customers'); }
+  else if (entity === 'workflow') { WF_SELECTED = id; navTo('workflows'); }
+}
+
+function renderActivityLog() {
+  const all = getAllActivity();
+  let list = [...all];
+  if (ACT_FILTER_TYPE   !== 'all') list = list.filter(e => e.kind   === ACT_FILTER_TYPE);
+  if (ACT_FILTER_ENTITY !== 'all') list = list.filter(e => e.entity === ACT_FILTER_ENTITY);
+  if (ACT_QUERY.trim()) {
+    const q = ACT_QUERY.toLowerCase();
+    list = list.filter(e =>
+      (e.details||'').toLowerCase().includes(q) ||
+      (e.entityName||'').toLowerCase().includes(q) ||
+      (e.entityId||'').toLowerCase().includes(q) ||
+      (e.author||'').toLowerCase().includes(q)
+    );
+  }
+
+  const total = all.length;
+  const tickets = all.filter(e => e.entity === 'ticket').length;
+  const customers = all.filter(e => e.entity === 'customer').length;
+  const workflows = all.filter(e => e.entity === 'workflow').length;
+
+  const rows = list.slice(0, 200).map(e => {
+    const meta = ACT_KIND_META[e.kind] || ACT_KIND_META.system;
+    return `<tr onclick="actGotoEntity('${escAttr(e.entity)}','${escAttr(e.entityId)}')" style="cursor:pointer">
+      <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);white-space:nowrap">${escHtml(e.ts || '—')}</td>
+      <td><span class="tag" style="font-size:10px;border:1px solid ${meta.color}40;color:${meta.color};background:${meta.color}15">${meta.label}</span></td>
+      <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${escHtml(e.entity)}</span></td>
+      <td><span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink2)">${escHtml(e.entityId)}</span> <span style="font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;max-width:200px;vertical-align:bottom">${escHtml(e.entityName || '')}</span></td>
+      <td style="font-size:12px;color:var(--ink2)">${escHtml(e.details || '')}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);white-space:nowrap">${escHtml(e.author || '')}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar"><div class="tb-title">Activity Log</div></div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Events</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${tickets}</div><div class="kpi-l">On tickets</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${workflows}</div><div class="kpi-l">Workflow runs</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${customers}</div><div class="kpi-l">Customer notes</div></div>
+      </div>
+      <div class="filter-bar" style="flex-wrap:wrap">
+        <span class="filter-label">Filter</span>
+        <input class="filter-select" id="act-search" placeholder="Search events…" style="width:240px" value="${ACT_QUERY}" oninput="actSetQuery(this.value)"/>
+        <select class="filter-select" onchange="ACT_FILTER_ENTITY=this.value;renderPage('activity')">
+          <option value="all"      ${ACT_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
+          <option value="ticket"   ${ACT_FILTER_ENTITY==='ticket'?'selected':''}>Tickets</option>
+          <option value="customer" ${ACT_FILTER_ENTITY==='customer'?'selected':''}>Customers</option>
+          <option value="workflow" ${ACT_FILTER_ENTITY==='workflow'?'selected':''}>Workflows</option>
+        </select>
+        <select class="filter-select" onchange="ACT_FILTER_TYPE=this.value;renderPage('activity')">
+          <option value="all"      ${ACT_FILTER_TYPE==='all'?'selected':''}>All types</option>
+          ${Object.entries(ACT_KIND_META).map(([k, m]) => `<option value="${k}" ${ACT_FILTER_TYPE===k?'selected':''}>${m.label}</option>`).join('')}
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}${list.length>200?` · showing first 200`:''}</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr><th style="width:130px">When</th><th>Type</th><th>Entity</th><th>Reference</th><th>Detail</th><th>Author</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No activity events match</div><div class="empty-line"></div></div>` : ''}
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Aggregates events from ticket history (status/priority/agent/tag changes, creation), workflow runs, and customer internal notes. Click a row to jump to the source entity.</div>
+      </div>
+    </div>`;
+}
+
 // ─── Profile page ────────────────────────────────────────────────────────────
 function renderProfile() {
   if (!SESSION) return '';
@@ -5148,6 +5520,179 @@ const WF_ACTION_PRESETS = [
   'Send email to customer',
   'Send satisfaction survey email',
 ];
+
+// ─── SLA policies ────────────────────────────────────────────────────────────
+let SLA_FILTER = 'all';
+
+function fmtSLAMinutes(min) {
+  if (!min || min < 1) return '—';
+  if (min < 60) return `${min}m`;
+  if (min < 1440) {
+    const h = Math.floor(min / 60), rest = min % 60;
+    return rest ? `${h}h ${rest}m` : `${h}h`;
+  }
+  const d = Math.floor(min / 1440), rest = min % 1440;
+  return rest ? `${d}d ${Math.round(rest/60)}h` : `${d}d`;
+}
+
+function renderSLA() {
+  const admin = isAdmin();
+  let list = [...SLA_POLICIES];
+  if (SLA_FILTER === 'active')   list = list.filter(p => p.status === 'active');
+  if (SLA_FILTER === 'inactive') list = list.filter(p => p.status === 'inactive');
+  const total    = SLA_POLICIES.length;
+  const activeN  = SLA_POLICIES.filter(p => p.status === 'active').length;
+  const avgFirst = activeN ? Math.round(SLA_POLICIES.filter(p => p.status==='active').reduce((s,p)=>s+p.firstResponseMin,0) / activeN) : 0;
+  const avgRes   = activeN ? Math.round(SLA_POLICIES.filter(p => p.status==='active').reduce((s,p)=>s+p.resolutionMin,0)   / activeN) : 0;
+
+  const rows = list.map(p => `
+    <tr>
+      <td class="bold">${p.id}</td>
+      <td style="font-weight:500;color:var(--ink)">${p.name}</td>
+      <td><span class="tag tag-${p.priority}">${p.priority}</span></td>
+      <td>${p.category === 'all' ? '<span style="color:var(--ink3)">Any</span>' : p.category}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${fmtSLAMinutes(p.firstResponseMin)}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px">${fmtSLAMinutes(p.resolutionMin)}</td>
+      <td style="text-align:center">
+        <label class="toggle">
+          <input type="checkbox" ${p.status==='active'?'checked':''} ${admin?'':'disabled'} onchange="slaToggle('${escAttr(p.id)}',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </td>
+      ${admin ? `<td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="slaEdit('${escAttr(p.id)}')">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="slaDelete('${escAttr(p.id)}')">Delete</button>
+      </td>` : ''}
+    </tr>`).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">SLA Policies</div>
+        ${admin
+          ? `<button class="btn btn-solid btn-sm" onclick="slaNew()">+ New Policy</button>`
+          : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Policies</div></div>
+        <div class="kpi"><div class="kpi-n c-green">${activeN}</div><div class="kpi-l">Active</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${fmtSLAMinutes(avgFirst)}</div><div class="kpi-l">Avg first-response</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${fmtSLAMinutes(avgRes)}</div><div class="kpi-l">Avg resolution</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <select class="filter-select" onchange="SLA_FILTER=this.value;renderPage('sla')">
+          <option value="all"      ${SLA_FILTER==='all'?'selected':''}>All policies</option>
+          <option value="active"   ${SLA_FILTER==='active'?'selected':''}>Active</option>
+          <option value="inactive" ${SLA_FILTER==='inactive'?'selected':''}>Inactive</option>
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr>
+            <th>ID</th><th>Name</th><th>Priority</th><th>Category</th><th>First response</th><th>Resolution</th>
+            <th style="text-align:center">Active</th>
+            ${admin?'<th style="text-align:right">Actions</th>':''}
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No policies match</div><div class="empty-line"></div></div>` : ''}
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Policies are evaluated by priority + category match. The most-specific matching active policy wins (specific category beats <strong style="color:var(--ink2)">Any</strong>). Times are in minutes; values render as <strong style="color:var(--ink2)">Xm</strong>, <strong style="color:var(--ink2)">Yh Zm</strong>, or <strong style="color:var(--ink2)">Nd Yh</strong>.</div>
+      </div>
+    </div>`;
+}
+
+function slaToggle(id, active) {
+  if (!isAdmin()) return;
+  const p = SLA_POLICIES.find(x => x.id === id);
+  if (p) p.status = active ? 'active' : 'inactive';
+}
+
+function slaFormBody(p) {
+  const cats = ['all', ...new Set(TICKETS.map(t => t.category))];
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  return `
+    <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="sla-name" value="${esc(p?.name)}" placeholder="e.g. Urgent · Technical"/></div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Priority</label>
+        <select class="form-input" id="sla-priority">
+          ${['urgent','high','normal','low'].map(pr => `<option value="${pr}" ${p?.priority===pr?'selected':''}>${pr}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row"><label class="form-label">Category</label>
+        <select class="form-input" id="sla-category">
+          ${cats.map(c => `<option value="${c}" ${(p?.category||'all')===c?'selected':''}>${c==='all'?'Any':c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">First response (minutes)</label><input class="form-input" id="sla-first" type="number" min="1" value="${p?.firstResponseMin||60}"/></div>
+      <div class="form-row"><label class="form-label">Resolution (minutes)</label><input class="form-input" id="sla-res" type="number" min="1" value="${p?.resolutionMin||1440}"/></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+      <span style="font-family:'Inter',sans-serif;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3)">Active</span>
+      <label class="toggle"><input type="checkbox" id="sla-active" ${(!p || p.status==='active')?'checked':''}><span class="toggle-slider"></span></label>
+    </div>
+    <div id="sla-form-error" style="display:none;margin-top:8px;font-size:11px;color:var(--red);font-family:'DM Mono',monospace;letter-spacing:.04em"></div>`;
+}
+
+function slaNextId() {
+  const max = Math.max(0, ...SLA_POLICIES.map(x => parseInt((x.id||'').split('-')[1] || '0', 10)));
+  return 'SLA-' + String(max + 1).padStart(3, '0');
+}
+
+function slaShowError(msg) {
+  const el = document.getElementById('sla-form-error');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+
+function slaReadAndValidate() {
+  const name  = document.getElementById('sla-name').value.trim();
+  const first = parseInt(document.getElementById('sla-first').value, 10);
+  const res   = parseInt(document.getElementById('sla-res').value, 10);
+  if (!name) { slaShowError('Name is required.'); return null; }
+  if (!Number.isFinite(first) || first < 1) { slaShowError('First response must be a positive number of minutes.'); return null; }
+  if (!Number.isFinite(res)   || res   < 1) { slaShowError('Resolution must be a positive number of minutes.'); return null; }
+  if (res < first) { slaShowError('Resolution must be at least the first-response window.'); return null; }
+  return {
+    name,
+    priority: document.getElementById('sla-priority').value,
+    category: document.getElementById('sla-category').value,
+    firstResponseMin: first,
+    resolutionMin: res,
+    status: document.getElementById('sla-active').checked ? 'active' : 'inactive',
+  };
+}
+
+function slaNew() {
+  if (!isAdmin()) return;
+  showModal('New SLA policy', slaFormBody(null), () => {
+    const data = slaReadAndValidate(); if (!data) return;
+    SLA_POLICIES.unshift({ id: slaNextId(), ...data });
+    closeModal(); renderPage('sla');
+  }, 'Create');
+}
+
+function slaEdit(id) {
+  if (!isAdmin()) return;
+  const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
+  showModal(`Edit ${p.id}`, slaFormBody(p), () => {
+    const data = slaReadAndValidate(); if (!data) return;
+    Object.assign(p, data);
+    closeModal(); renderPage('sla');
+  }, 'Save');
+}
+
+function slaDelete(id) {
+  if (!isAdmin()) return;
+  const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
+  showModal('Delete policy', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${p.name}</strong>?</div>`, () => {
+    const i = SLA_POLICIES.findIndex(x => x.id === id);
+    if (i >= 0) SLA_POLICIES.splice(i, 1);
+    closeModal(); renderPage('sla');
+  }, 'Delete');
+}
 
 function renderWorkflows() {
   if (WF_SELECTED) return renderWfDetail(WF_SELECTED);
@@ -6265,6 +6810,144 @@ function submitCreate() {
 }
 
 // ─── Modal/panel stubs (referenced by inline onclick) ────────────────────────
+// ─── Response templates page ─────────────────────────────────────────────────
+let TPL_QUERY = '';
+let TPL_FILTER_CAT = 'all';
+
+function renderTemplates() {
+  const admin = isAdmin();
+  let list = [...CANNED_RESPONSES];
+  if (TPL_FILTER_CAT !== 'all') list = list.filter(t => t.category === TPL_FILTER_CAT);
+  if (TPL_QUERY.trim()) {
+    const q = TPL_QUERY.toLowerCase();
+    list = list.filter(t => t.name.toLowerCase().includes(q) || t.text.toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q));
+  }
+  const total = CANNED_RESPONSES.length;
+  const cats = [...new Set(CANNED_RESPONSES.map(t => t.category || 'Uncategorised'))];
+
+  const rows = list.map(t => {
+    const preview = (t.text || '').replace(/\n+/g, ' ').slice(0, 120);
+    return `<tr>
+      <td class="bold">${escHtml(t.id)}</td>
+      <td style="font-weight:500;color:var(--ink)">${escHtml(t.name)}</td>
+      <td><span class="tag tag-neutral" style="font-size:10px">${escHtml(t.category||'—')}</span></td>
+      <td style="font-size:12px;color:var(--ink2);max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(preview)}</td>
+      ${admin ? `<td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="tplEdit('${escAttr(t.id)}')">Edit</button>
+        <button class="btn btn-sm" onclick="tplDuplicate('${escAttr(t.id)}')">Copy</button>
+        <button class="btn btn-sm btn-danger" onclick="tplDelete('${escAttr(t.id)}')">Delete</button>
+      </td>` : ''}
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Response Templates</div>
+        ${admin
+          ? `<button class="btn btn-solid btn-sm" onclick="tplNew()">+ New Template</button>`
+          : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Templates</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${cats.length}</div><div class="kpi-l">Categories</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${CANNED_RESPONSES.filter(t => /\{name\}|\{ticket\}|\{brand\}|\{agent\}/.test(t.text||'')).length}</div><div class="kpi-l">With variables</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${Math.round(CANNED_RESPONSES.reduce((s,t)=>s+(t.text||'').length,0)/(total||1))}</div><div class="kpi-l">Avg chars</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Filter</span>
+        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${TPL_QUERY}" oninput="tplSetQuery(this.value)" id="tpl-search"/>
+        <select class="filter-select" onchange="TPL_FILTER_CAT=this.value;renderPage('templates')">
+          <option value="all" ${TPL_FILTER_CAT==='all'?'selected':''}>All categories</option>
+          ${cats.map(c => `<option value="${c}" ${TPL_FILTER_CAT===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr>
+            <th>ID</th><th>Name</th><th>Category</th><th>Preview</th>
+            ${admin?'<th style="text-align:right">Actions</th>':''}
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No templates match</div><div class="empty-line"></div></div>` : ''}
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Variables auto-fill at insert time: <code style="font-family:'DM Mono',monospace;font-size:11px">{name}</code> = customer first name, <code style="font-family:'DM Mono',monospace;font-size:11px">{ticket}</code> = ticket id, <code style="font-family:'DM Mono',monospace;font-size:11px">{brand}</code> = customer brand, <code style="font-family:'DM Mono',monospace;font-size:11px">{agent}</code> = assigned agent.</div>
+      </div>
+    </div>`;
+}
+
+function tplSetQuery(q) {
+  TPL_QUERY = q;
+  renderPage('templates');
+  const input = document.getElementById('tpl-search');
+  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+function tplFormBody(t) {
+  const cats = [...new Set(CANNED_RESPONSES.map(x => x.category || 'General'))];
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  return `
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="tpl-name" value="${esc(t?.name)}" placeholder="e.g. Outage acknowledgement"/></div>
+      <div class="form-row"><label class="form-label">Category</label>
+        <input class="form-input" id="tpl-cat" list="tpl-cat-list" value="${esc(t?.category)}" placeholder="General"/>
+        <datalist id="tpl-cat-list">${cats.map(c => `<option value="${escHtml(c)}">`).join('')}</datalist>
+      </div>
+    </div>
+    <div class="form-row">
+      <label class="form-label">Body</label>
+      <textarea class="form-input" id="tpl-text" style="min-height:160px;font-family:'Inter',sans-serif" placeholder="Write the template body. Use {name}, {ticket}, {brand}, {agent} for variables.">${escHtml(t?.text || '')}</textarea>
+    </div>`;
+}
+
+function tplNextId() {
+  const max = Math.max(0, ...CANNED_RESPONSES.map(x => parseInt((x.id||'').split('-')[1] || '0', 10)));
+  return 'TPL-' + String(max + 1).padStart(3, '0');
+}
+
+function tplNew() {
+  if (!isAdmin()) return;
+  showModal('New template', tplFormBody(null), () => {
+    const name = document.getElementById('tpl-name').value.trim();
+    const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
+    const text = document.getElementById('tpl-text').value;
+    if (!name || !text.trim()) return;
+    CANNED_RESPONSES.unshift({ id: tplNextId(), name, category:cat, text });
+    closeModal(); renderPage('templates');
+  }, 'Create');
+}
+
+function tplEdit(id) {
+  if (!isAdmin()) return;
+  const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
+  showModal(`Edit ${t.id}`, tplFormBody(t), () => {
+    const name = document.getElementById('tpl-name').value.trim();
+    const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
+    const text = document.getElementById('tpl-text').value;
+    if (!name || !text.trim()) return;
+    t.name = name; t.category = cat; t.text = text;
+    closeModal(); renderPage('templates');
+  }, 'Save');
+}
+
+function tplDuplicate(id) {
+  if (!isAdmin()) return;
+  const orig = CANNED_RESPONSES.find(x => x.id === id); if (!orig) return;
+  CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text });
+  renderPage('templates');
+}
+
+function tplDelete(id) {
+  if (!isAdmin()) return;
+  const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
+  showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${escHtml(t.name)}</strong>?</div>`, () => {
+    const i = CANNED_RESPONSES.findIndex(x => x.id === id);
+    if (i >= 0) CANNED_RESPONSES.splice(i, 1);
+    closeModal(); renderPage('templates');
+  }, 'Delete');
+}
+
 function showMacroPanel(id) {
   const items = CANNED_RESPONSES.map((r, i) => {
     const preview = r.text.replace(/\n+/g, ' ').slice(0, 100);
@@ -6319,6 +7002,162 @@ function openCustomerModal(custId) {
 function showCSVModal() {
   showModal('CSV import', `<div class="attach-zone">Drop a CSV file or click to upload</div><div style="font-size:11px;color:var(--ink3);margin-top:10px">Expected columns: id, first, last, email, brand, vip, jurisdiction</div>`, () => closeModal(), 'Import');
 }
+// ─── Custom Fields manager ───────────────────────────────────────────────────
+let CF_FILTER_ENTITY = 'all';
+
+const CF_TYPES = [
+  { v:'text',    l:'Text' },
+  { v:'number',  l:'Number' },
+  { v:'date',    l:'Date' },
+  { v:'select',  l:'Select (single)' },
+  { v:'boolean', l:'Boolean (yes/no)' },
+];
+
+function renderCustomFields() {
+  const admin = isAdmin();
+  let list = [...CUSTOM_FIELDS];
+  if (CF_FILTER_ENTITY !== 'all') list = list.filter(f => (f.entity || 'customer') === CF_FILTER_ENTITY);
+  const total = CUSTOM_FIELDS.length;
+  const byType = {};
+  CUSTOM_FIELDS.forEach(f => { byType[f.type] = (byType[f.type] || 0) + 1; });
+
+  const rows = list.map(f => {
+    const entity = f.entity || 'customer';
+    const def = f.defaultValue ?? '';
+    return `<tr>
+      <td class="bold">${f.id}</td>
+      <td style="font-weight:500;color:var(--ink)">${escHtml(f.label)}</td>
+      <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${escHtml(f.type)}</span></td>
+      <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${entity}</span></td>
+      <td style="font-size:12px;color:var(--ink2);font-family:'DM Mono',monospace">${def !== '' ? escHtml(String(def)) : '—'}</td>
+      <td style="text-align:center">${f.required ? '<span class="tag tag-gdpr" style="font-size:10px">required</span>' : '<span style="color:var(--ink4);font-size:11px">—</span>'}</td>
+      ${admin ? `<td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="cfEdit('${escAttr(f.id)}')">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="cfDelete('${escAttr(f.id)}')">Delete</button>
+      </td>` : ''}
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Custom Fields</div>
+        ${admin ? `<button class="btn btn-solid btn-sm" onclick="cfNew()">+ New Field</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Fields</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${CUSTOM_FIELDS.filter(f => (f.entity||'customer') === 'customer').length}</div><div class="kpi-l">On customers</div></div>
+        <div class="kpi"><div class="kpi-n c-purple">${CUSTOM_FIELDS.filter(f => (f.entity||'customer') === 'ticket').length}</div><div class="kpi-l">On tickets</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${CUSTOM_FIELDS.filter(f => f.required).length}</div><div class="kpi-l">Required</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Entity</span>
+        <select class="filter-select" onchange="CF_FILTER_ENTITY=this.value;renderPage('custom-fields')">
+          <option value="all"      ${CF_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
+          <option value="customer" ${CF_FILTER_ENTITY==='customer'?'selected':''}>Customer fields</option>
+          <option value="ticket"   ${CF_FILTER_ENTITY==='ticket'?'selected':''}>Ticket fields</option>
+        </select>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr><th>ID</th><th>Label</th><th>Type</th><th>Entity</th><th>Default</th><th style="text-align:center">Required</th>${admin?'<th style="text-align:right">Actions</th>':''}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No custom fields defined</div><div class="empty-line"></div></div>` : ''}
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Customer fields render in the customer detail page (Custom fields card). Ticket fields are reserved for future ticket-detail integration. Select fields use a comma-separated <code style="font-family:'DM Mono',monospace;font-size:11px">options</code> list captured at edit time.</div>
+      </div>
+    </div>`;
+}
+
+function cfFormBody(f) {
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const optsCsv = f && Array.isArray(f.options) ? f.options.join(', ') : '';
+  return `
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Label</label><input class="form-input" id="cf-label" value="${esc(f?.label)}" placeholder="e.g. Renewal Date"/></div>
+      <div class="form-row"><label class="form-label">Type</label>
+        <select class="form-input" id="cf-type" onchange="cfFormToggleOptions(this.value)">
+          ${CF_TYPES.map(t => `<option value="${t.v}" ${(f?.type||'text')===t.v?'selected':''}>${t.l}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Entity</label>
+        <select class="form-input" id="cf-entity">
+          <option value="customer" ${(f?.entity||'customer')==='customer'?'selected':''}>Customer</option>
+          <option value="ticket"   ${f?.entity==='ticket'?'selected':''}>Ticket</option>
+        </select>
+      </div>
+      <div class="form-row"><label class="form-label">Default value</label><input class="form-input" id="cf-default" value="${esc(f?.defaultValue)}" placeholder="optional"/></div>
+    </div>
+    <div class="form-row" id="cf-options-row" style="display:${f?.type==='select'?'block':'none'}">
+      <label class="form-label">Options (comma-separated)</label>
+      <input class="form-input" id="cf-options" value="${esc(optsCsv)}" placeholder="e.g. Bronze, Silver, Gold, Platinum"/>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+      <span style="font-family:'Inter',sans-serif;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3)">Required</span>
+      <label class="toggle"><input type="checkbox" id="cf-required" ${f?.required?'checked':''}><span class="toggle-slider"></span></label>
+    </div>`;
+}
+
+function cfFormToggleOptions(type) {
+  const row = document.getElementById('cf-options-row');
+  if (row) row.style.display = type === 'select' ? 'block' : 'none';
+}
+
+function cfReadForm() {
+  const label = document.getElementById('cf-label').value.trim();
+  const type = document.getElementById('cf-type').value;
+  const entity = document.getElementById('cf-entity').value;
+  const defaultValue = document.getElementById('cf-default').value;
+  const required = document.getElementById('cf-required').checked;
+  const options = type === 'select'
+    ? document.getElementById('cf-options').value.split(',').map(s => s.trim()).filter(Boolean)
+    : undefined;
+  return { label, type, entity, defaultValue, required, options };
+}
+
+function cfNextId() {
+  const max = Math.max(0, ...CUSTOM_FIELDS.map(x => parseInt((x.id || '').replace(/^cf/i, ''), 10) || 0));
+  return 'cf' + (max + 1);
+}
+
+function cfNew() {
+  if (!isAdmin()) return;
+  showModal('New custom field', cfFormBody(null), () => {
+    const data = cfReadForm();
+    if (!data.label) return;
+    const field = { id: cfNextId(), label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
+    if (data.options) field.options = data.options;
+    CUSTOM_FIELDS.unshift(field);
+    closeModal(); renderPage('custom-fields');
+  }, 'Create');
+}
+
+function cfEdit(id) {
+  if (!isAdmin()) return;
+  const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
+  showModal(`Edit ${f.id}`, cfFormBody(f), () => {
+    const data = cfReadForm();
+    if (!data.label) return;
+    f.label = data.label; f.type = data.type; f.entity = data.entity;
+    f.required = data.required; f.defaultValue = data.defaultValue;
+    if (data.options) f.options = data.options; else delete f.options;
+    closeModal(); renderPage('custom-fields');
+  }, 'Save');
+}
+
+function cfDelete(id) {
+  if (!isAdmin()) return;
+  const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
+  showModal('Delete custom field', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${escHtml(f.label)}</strong>? Existing values stored on customer / ticket records will become orphaned (not deleted).</div>`, () => {
+    const i = CUSTOM_FIELDS.findIndex(x => x.id === id);
+    if (i >= 0) CUSTOM_FIELDS.splice(i, 1);
+    closeModal(); renderPage('custom-fields');
+  }, 'Delete');
+}
+
 function showManageFieldsModal() {
   showModal('Manage custom fields', `
     ${CUSTOM_FIELDS.map(f => `<div class="ts-row"><span class="ts-key">${f.label}</span><span class="ts-val">${f.type}</span></div>`).join('')}
