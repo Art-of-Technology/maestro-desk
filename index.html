@@ -371,6 +371,12 @@ textarea.form-input{resize:vertical;min-height:72px}
 .msg-agent .msg-from{color:var(--purple)}.msg-ai .msg-from{color:var(--green)}.msg-note .msg-from{color:var(--amber)}
 .ai-mark{font-size:8px;padding:0 4px;border:1px solid var(--green);color:var(--green);border-radius:3px;background:rgba(52,211,153,0.1)}
 .note-mark{font-size:8px;padding:0 4px;border:1px solid var(--amber);color:var(--amber);border-radius:1px}
+.mention{display:inline-block;padding:1px 4px;border-radius:3px;background:var(--purple-lt);color:var(--purple);font-weight:500}
+.mention.self{background:var(--amber-lt);color:var(--amber)}
+.mention-dd{position:absolute;background:var(--off);border:1px solid var(--rule2);border-radius:var(--r);max-height:220px;overflow-y:auto;z-index:30;box-shadow:0 8px 18px rgba(0,0,0,.18);min-width:200px}
+.mention-dd-item{padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px}
+.mention-dd-item:hover,.mention-dd-item.active{background:var(--purple-lt);color:var(--purple)}
+.mention-dd-empty{padding:10px 12px;color:var(--ink3);font-size:12px;font-style:italic}
 /* ── Composer ── */
 .composer{border-top:1px solid var(--rule);flex-shrink:0}
 .composer-tabs{display:flex;padding:0 16px;border-bottom:1px solid var(--rule)}
@@ -1650,10 +1656,13 @@ function openTicket(id) {
       bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">→ Sent to customer in ${escHtml(m.translatedTo || 'their language')} · <span class="link" onclick="showSentTextModal('${escAttr(id)}',${i})">view sent text</span></div>`;
     }
 
+    const bodyHtml = m.r === 'note'
+      ? renderTextWithMentions(bodyText)
+      : escHtml(bodyText).replace(/\n/g, '<br>');
     return `
     <div class="msg msg-${m.r}">
       <div class="msg-from">${escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${escHtml(m.ts)}</span></div>
-      ${escHtml(bodyText).replace(/\n/g, '<br>')}
+      ${bodyHtml}
       ${bodyNote}
       ${translateBlock}
     </div>`;
@@ -1735,7 +1744,7 @@ function openTicket(id) {
               </div>
             </div>
             <div class="composer-body">
-              <textarea class="compose-area" id="compose-${id}" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI…':'Add an internal note…'}" oninput="onComposeInput('${id}')">${escHtml(loadDraft(id))}</textarea>
+              <textarea class="compose-area" id="compose-${id}" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI…':'Add an internal note… type @ to mention an agent'}" oninput="onComposeInput('${id}')" onkeydown="if(mentionDropdownKey(event,'${id}'))return;" onblur="setTimeout(hideMentionDropdown,150)">${escHtml(loadDraft(id))}</textarea>
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
@@ -2688,6 +2697,137 @@ function onComposeInput(id) {
   if (cc) cc.textContent = `${el.value.length} chars`;
   const ds = document.getElementById('draft-status-' + id);
   if (ds) ds.textContent = el.value.length ? 'Draft saved' : '';
+  if (COMPOSE_TAB === 'note') updateMentionDropdown(id, el);
+  else hideMentionDropdown();
+}
+
+// ─── @mentions ───────────────────────────────────────────────────────────────
+// Parse @Full Name tokens out of a note body, returning an array of agent
+// names that actually exist. Used both at submit time (to seed the message's
+// mentions array for notifications) and during render to highlight tokens.
+function parseMentions(text) {
+  const out = [];
+  if (!text) return out;
+  // Match longer names first so "Tom Bates Jr" wins over "Tom Bates" if both exist.
+  const names = AGENTS.map(a => a.name).sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const re = new RegExp('(^|[^A-Za-z0-9_@])@' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_])');
+    if (re.test(text) && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+function renderTextWithMentions(text) {
+  let html = escHtml(text);
+  const me = SESSION?.name;
+  // Replace longest names first so substrings don't break the longer match.
+  const names = AGENTS.map(a => a.name).sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const escName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(^|[^A-Za-z0-9_@])@' + escName + '(?![A-Za-z0-9_])', 'g');
+    const cls = name === me ? 'mention self' : 'mention';
+    html = html.replace(re, (_, lead) => `${lead}<span class="${cls}">@${escHtml(name)}</span>`);
+  }
+  return html.replace(/\n/g, '<br>');
+}
+
+let MENTION_DD_ACTIVE_INDEX = 0;
+let MENTION_DD_MATCHES = [];
+
+function updateMentionDropdown(ticketId, el) {
+  const cursor = el.selectionStart || 0;
+  const before = el.value.slice(0, cursor);
+  // Match an @-token at the cursor: optional preceding space/start, '@', then up to one word.
+  const m = before.match(/(?:^|\s)@([A-Za-z]*)$/);
+  if (!m) { hideMentionDropdown(); return; }
+  const query = m[1].toLowerCase();
+  const matches = AGENTS
+    .map(a => a.name)
+    .filter(name => name !== SESSION?.name)
+    .filter(name => name.toLowerCase().includes(query))
+    .slice(0, 6);
+  MENTION_DD_MATCHES = matches;
+  MENTION_DD_ACTIVE_INDEX = 0;
+  showMentionDropdown(ticketId, el, matches, query);
+}
+
+function showMentionDropdown(ticketId, el, matches, query) {
+  let dd = document.getElementById('mention-dd');
+  if (!dd) {
+    dd = document.createElement('div');
+    dd.id = 'mention-dd';
+    dd.className = 'mention-dd';
+    document.body.appendChild(dd);
+  }
+  if (!matches.length) {
+    dd.innerHTML = `<div class="mention-dd-empty">No agents match "${escHtml(query)}"</div>`;
+  } else {
+    dd.innerHTML = matches.map((name, i) => `
+      <div class="mention-dd-item ${i === MENTION_DD_ACTIVE_INDEX ? 'active' : ''}" onmousedown="insertMention('${escAttr(ticketId)}', ${i})">
+        <span style="width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--w);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;flex-shrink:0">${escHtml(name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase())}</span>
+        <span>${escHtml(name)}</span>
+      </div>`).join('');
+  }
+  // Position above the textarea (simple anchoring; matches the modal-portal approach used elsewhere).
+  const r = el.getBoundingClientRect();
+  dd.style.left = `${Math.round(r.left)}px`;
+  dd.style.top  = `${Math.round(r.bottom + 4)}px`;
+  dd.style.display = 'block';
+}
+
+function hideMentionDropdown() {
+  const dd = document.getElementById('mention-dd');
+  if (dd) dd.style.display = 'none';
+  MENTION_DD_MATCHES = [];
+}
+
+function insertMention(ticketId, idx) {
+  const name = MENTION_DD_MATCHES[idx];
+  const el = document.getElementById('compose-' + ticketId);
+  if (!el || !name) return;
+  const cursor = el.selectionStart || 0;
+  const before = el.value.slice(0, cursor);
+  const after  = el.value.slice(cursor);
+  // Replace the @partial at cursor with @Full Name plus a trailing space.
+  const replaced = before.replace(/@([A-Za-z]*)$/, `@${name} `);
+  el.value = replaced + after;
+  const newPos = replaced.length;
+  el.focus();
+  el.setSelectionRange(newPos, newPos);
+  hideMentionDropdown();
+  onComposeInput(ticketId);
+}
+
+function mentionDropdownKey(e, ticketId) {
+  const dd = document.getElementById('mention-dd');
+  if (!dd || dd.style.display === 'none' || !MENTION_DD_MATCHES.length) return false;
+  if (e.key === 'ArrowDown') {
+    MENTION_DD_ACTIVE_INDEX = (MENTION_DD_ACTIVE_INDEX + 1) % MENTION_DD_MATCHES.length;
+    e.preventDefault();
+    updateMentionDDActive();
+    return true;
+  }
+  if (e.key === 'ArrowUp') {
+    MENTION_DD_ACTIVE_INDEX = (MENTION_DD_ACTIVE_INDEX - 1 + MENTION_DD_MATCHES.length) % MENTION_DD_MATCHES.length;
+    e.preventDefault();
+    updateMentionDDActive();
+    return true;
+  }
+  if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    insertMention(ticketId, MENTION_DD_ACTIVE_INDEX);
+    return true;
+  }
+  if (e.key === 'Escape') {
+    hideMentionDropdown();
+    return true;
+  }
+  return false;
+}
+
+function updateMentionDDActive() {
+  const items = document.querySelectorAll('#mention-dd .mention-dd-item');
+  items.forEach((el, i) => el.classList.toggle('active', i === MENTION_DD_ACTIVE_INDEX));
 }
 
 function insertVar(id, token) {
@@ -2836,12 +2976,15 @@ async function sendCompose(id) {
     }
   }
 
+  const isNote = COMPOSE_TAB === 'note';
+  const mentions = isNote ? parseMentions(outgoing) : null;
   t.msgs.push({
     from: SESSION.name,
-    r: COMPOSE_TAB==='note' ? 'note' : 'agent',
+    r: isNote ? 'note' : 'agent',
     t: outgoing,
     tOriginal: original,
     translatedTo,
+    mentions,
     ts: new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),
   });
   el.value = '';
@@ -4008,6 +4151,19 @@ let NOTIF_PAGE_FILTER_READ = 'all';
 function getNotifications() {
   const out = [];
   const wakeWindowMs = 24 * 60 * 60 * 1000;
+  // Mentions of the current session user across all tickets — emit before per-ticket
+  // status notifications so they're not crowded out when an SLA breach also exists.
+  if (SESSION?.name && NOTIF_PREFS.mention !== false) {
+    for (const t of TICKETS) {
+      (t.msgs || []).forEach((m, i) => {
+        if (m.r !== 'note' || !m.mentions || !m.mentions.includes(SESSION.name)) return;
+        if (m.from === SESSION.name) return;
+        const mid = `mention-${t.id}-${i}`;
+        if (NOTIFICATIONS_DISMISSED.has(mid)) return;
+        out.push({id:mid, type:'mention', color:'var(--purple)', title:`Mentioned by ${m.from}`, body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:m.ts});
+      });
+    }
+  }
   for (const t of TICKETS) {
     let n = null;
     // Snooze wake-up takes priority for ~24h after firing so an agent doesn't miss it.
@@ -4204,8 +4360,9 @@ function renderNotificationsPage() {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 let SETTINGS_TAB = 'profile';
-let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true };
+let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true };
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
+if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
 let AI_API_KEY = localStorage.getItem('ai_api_key') || '';
 let AI_MODEL = localStorage.getItem('ai_model') || 'claude-sonnet-4-6';
 let AGENT_PREFERRED_LANG = localStorage.getItem('agent_preferred_lang') || 'English';
@@ -4325,6 +4482,7 @@ function settingsNotifications() {
     {k:'gdpr',      l:'GDPR requests', d:'Data subject access and erasure requests'},
     {k:'warn',      l:'SLA warnings',  d:'Tickets approaching SLA breach'},
     {k:'wake',      l:'Snooze wake-ups', d:'Tickets that have come back from a snooze'},
+    {k:'mention',   l:'@mentions',     d:'You were @-mentioned in an internal note'},
   ];
   return `
     <div class="settings-section">
