@@ -265,12 +265,14 @@ mark{background:rgba(251,191,36,0.35);color:var(--ink);padding:0 2px;border-radi
 /* Carets are injected after each .kpi-bar / .filter-bar / .tab-bar by
    applyCollapsibleHeaders(); per-section state lives in localStorage so the
    layout sticks across reloads and page changes. */
-.sec-caret{position:absolute;top:6px;right:8px;background:transparent;border:none;cursor:pointer;color:var(--ink3);font-size:11px;padding:2px 6px;border-radius:3px;line-height:1;z-index:2;font-family:'Inter',sans-serif}
-.sec-caret:hover{color:var(--ink);background:var(--off2)}
-.sec-collapsed{padding:6px 14px!important;min-height:0!important;cursor:pointer;display:flex!important;align-items:center;gap:8px;grid-template-columns:none!important;flex-wrap:nowrap}
+.sec-caret{position:absolute;top:8px;right:10px;background:var(--off2);border:1px solid var(--rule);cursor:pointer;color:var(--ink2);font-size:11px;font-weight:500;padding:4px 9px;border-radius:14px;line-height:1;z-index:2;font-family:'Inter',sans-serif;display:inline-flex;align-items:center;gap:4px;transition:all .12s;letter-spacing:.02em;opacity:.8}
+.sec-caret:hover{color:var(--purple);border-color:var(--purple);background:var(--purple-lt);opacity:1}
+.sec-collapsed{padding:8px 18px!important;min-height:0!important;cursor:pointer;display:flex!important;align-items:center;gap:8px;grid-template-columns:none!important;flex-wrap:nowrap;background:var(--off2)!important;border-bottom:1px dashed var(--rule)!important}
 .sec-collapsed > *:not(.sec-caret){display:none!important}
-.sec-collapsed::before{content:attr(data-collapsed-label);color:var(--ink3);font-size:11px;font-style:italic;font-family:'Inter',sans-serif}
-.sec-collapsed:hover{background:var(--off2)!important}
+.sec-collapsed::before{content:attr(data-collapsed-label);color:var(--ink2);font-size:12px;font-style:normal;font-family:'Inter',sans-serif;font-weight:500;letter-spacing:.02em}
+.sec-collapsed:hover{background:var(--purple-lt)!important;border-color:var(--purple)!important}
+.sec-collapsed:hover::before{color:var(--purple)}
+.sec-collapsed .sec-caret{position:static;background:transparent;border:none;padding:0;opacity:.7}
 /* ── Tags / Pills ── */
 .tag{font-family:'Inter',sans-serif;font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:3px}
 .tag-open{border:1px solid rgba(34,211,238,.3);color:var(--cyan);background:var(--cyan-lt)}
@@ -1196,7 +1198,10 @@ function syncCollapsedSectionDom(el, id) {
   el.classList.toggle('sec-collapsed', collapsed);
   const caret = el.querySelector(':scope > .sec-caret');
   if (caret) {
-    caret.textContent = collapsed ? '▸' : '▾';
+    // When expanded, the caret carries a clear "Hide" label so it's
+    // discoverable. When collapsed the whole bar is the affordance, so
+    // the caret reduces to a small chevron next to the "▸ Show …" label.
+    caret.innerHTML = collapsed ? '▸' : '▾&nbsp;Hide';
     caret.title = collapsed ? 'Show section' : 'Hide section';
     caret.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   }
