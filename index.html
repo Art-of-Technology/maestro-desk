@@ -6182,11 +6182,6 @@ let INBOX_SELECTED_ID = null;
 let INBOX_FILTER_CHANNEL = 'all';
 let INBOX_FILTER_STATUS  = 'new';
 
-function inboxNextId() {
-  const max = Math.max(0, ...INBOX.map(e => parseInt((e.id || '').split('-')[1] || '0', 10)));
-  return 'EM-' + String(max + 1).padStart(3, '0');
-}
-
 function dismissEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
@@ -6220,22 +6215,32 @@ function convertEmailToTicket(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
   const cust = CUSTOMERS.find(c => (c.email || '').toLowerCase() === (e.fromEmail || '').toLowerCase());
+  // Block conversion when no customer matches — silently attaching to
+  // CUSTOMERS[0] would mis-attribute the ticket. Force the agent to either
+  // create a customer record first or pick one explicitly via the new-ticket
+  // form. The dialog explains the situation rather than just refusing.
+  if (!cust) {
+    alert(`No customer record matches ${e.fromEmail}.\n\nCreate the customer first (Customers → + New Customer) or use Tickets → + New Ticket and paste this email's content manually. The email will stay in the inbox until you handle it.`);
+    return;
+  }
   const channel = CHANNELS.find(c => c.id === e.channelId);
   const max = Math.max(0, ...TICKETS.map(x => parseInt((x.id || '').split('-')[1] || '0', 10)));
   const newId = 'TK-' + String(max + 1).padStart(3, '0');
+  const cats = [...new Set(TICKETS.map(x => x.category).filter(Boolean))];
+  const fallbackCat = cats.includes('Technical') ? 'Technical' : (cats[0] || 'Technical');
   const newT = {
     id: newId,
     subject: e.subject || '(no subject)',
-    customerId: cust ? cust.id : (CUSTOMERS[0]?.id || 'M001'),
+    customerId: cust.id,
     status: 'open',
     priority: 'normal',
-    category: (channel?.defaultCategory && channel.defaultCategory !== 'all') ? channel.defaultCategory : 'Technical',
+    category: (channel?.defaultCategory && channel.defaultCategory !== 'all') ? channel.defaultCategory : fallbackCat,
     agent: channel?.defaultAgent || '',
     created: new Date().toISOString().slice(0, 10),
     updated: 'just now',
     sla: 'ok', tags: [], aiTags: [], csat: null,
     msgs: [{
-      from: cust ? `${cust.first} ${cust.last}` : (e.from || 'Customer'),
+      from: `${cust.first} ${cust.last}`,
       r: 'customer',
       t: e.body || '',
       ts: (e.receivedAt || '').slice(11, 16) || new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }),
@@ -6250,9 +6255,6 @@ function convertEmailToTicket(emailId) {
   e.convertedTicketId = newId;
   e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
   updateNavBadges();
-  if (!cust) {
-    alert(`No matching customer found for ${e.fromEmail}. Ticket ${newId} attached to ${TICKETS.find(t=>t.id===newId).customerId} as a fallback — reassign on the ticket.`);
-  }
   openTicket(newId);
 }
 
@@ -6262,6 +6264,10 @@ function renderInbox() {
   if (INBOX_FILTER_STATUS  !== 'all') list = list.filter(e => e.status === INBOX_FILTER_STATUS);
   if (INBOX_FILTER_CHANNEL !== 'all') list = list.filter(e => e.channelId === INBOX_FILTER_CHANNEL);
   list.sort((a, b) => (b.receivedAt || '').localeCompare(a.receivedAt || ''));
+  // If the previously-selected email is no longer in the filtered view, drop
+  // the selection so the detail pane reverts to the empty placeholder rather
+  // than showing an item that's hidden in the list.
+  if (INBOX_SELECTED_ID && !list.some(e => e.id === INBOX_SELECTED_ID)) INBOX_SELECTED_ID = null;
 
   const total    = INBOX.length;
   const newN     = INBOX.filter(e => e.status === 'new').length;
@@ -6280,7 +6286,7 @@ function renderInbox() {
     const isUnread = e.status === 'new';
     const cust = CUSTOMERS.find(c => (c.email || '').toLowerCase() === (e.fromEmail || '').toLowerCase());
     return `
-      <div class="inbox-row ${isSelected ? 'inbox-row-selected' : ''} ${isUnread ? 'inbox-row-unread' : 'inbox-row-read'}" onclick="INBOX_SELECTED_ID='${escAttr(e.id)}';renderPage('inbox')">
+      <div class="inbox-row ${isSelected ? 'inbox-row-selected' : ''} ${isUnread ? 'inbox-row-unread' : 'inbox-row-read'}" onclick="INBOX_SELECTED_ID=${escHtml(JSON.stringify(e.id))};renderPage('inbox')">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px">
           <span style="font-size:13px;color:var(--ink);${isUnread ? 'font-weight:600' : 'font-weight:400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${escHtml(e.from || 'Unknown')}</span>
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);flex-shrink:0">${escHtml(e.receivedAt || '')}</span>
