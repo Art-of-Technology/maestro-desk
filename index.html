@@ -993,9 +993,9 @@ const ASSIGN_RULES = [
 const ASSIGN_RULES_RR_INDEX = {};
 
 const TICKET_TEMPLATES = [
-  {id:'TT-001', name:'Password reset request',         category:'Account',   priority:'normal', subject:'Password reset for [member ID]',          body:'Customer is unable to log in after attempting a password reset. Please verify identity, unlock the account if necessary, and confirm the reset email has been delivered.'},
+  {id:'TT-001', name:'Password reset request',         category:'Account',   priority:'normal', subject:'Password reset for [customer ID]',        body:'Customer is unable to log in after attempting a password reset. Please verify identity, unlock the account if necessary, and confirm the reset email has been delivered.'},
   {id:'TT-002', name:'Refund — duplicate charge',      category:'Billing',   priority:'high',   subject:'Duplicate charge — refund requested',     body:'Customer reports being charged twice for the same transaction. Verify in the payments system, raise a refund for the duplicate amount, and confirm via email when processed.'},
-  {id:'TT-003', name:'GDPR data erasure request',      category:'GDPR',      priority:'high',   subject:'Article 17 erasure request from [member]', body:'Formal GDPR Article 17 erasure request received. Acknowledge within 24h, run the erasure workflow, and confirm completion in writing within the statutory 30-day window.'},
+  {id:'TT-003', name:'GDPR data erasure request',      category:'GDPR',      priority:'high',   subject:'Article 17 erasure request from [customer]', body:'Formal GDPR Article 17 erasure request received. Acknowledge within 24h, run the erasure workflow, and confirm completion in writing within the statutory 30-day window.'},
   {id:'TT-004', name:'Mobile app — performance issue', category:'Technical', priority:'normal', subject:'Mobile app slow on [device]',             body:'Customer reports the mobile app is unusably slow. Capture device model, OS version, and app build. Cross-reference against known performance regressions; escalate to mobile team if not on a patched build.'},
   {id:'TT-005', name:'Feature request',                category:'Feature',   priority:'low',    subject:'Feature request: [short description]',    body:'Customer suggested a new feature. Capture the use case, expected behaviour, and any business impact. Add to the product backlog and acknowledge the customer with an expected review timeframe.'},
 ];
@@ -1676,7 +1676,7 @@ function openTicket(id) {
       <div class="ts-heading">Followers (${followers.length})</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <div style="display:flex;padding-left:6px">${followerAvatars || '<span style="font-size:11px;color:var(--ink3)">No followers yet</span>'}</div>
-        <button class="btn btn-sm" onclick="toggleWatch('${id}')">${watching ? 'Unfollow' : 'Watch'}</button>
+        <button class="btn btn-sm" onclick="toggleWatch('${id}')">${watching ? 'Unfollow' : 'Follow'}</button>
       </div>
     </div>`;
 
@@ -3633,7 +3633,7 @@ function ttDelete(id) {
 // ─── Customers ────────────────────────────────────────────────────────────────
 // ─── Customer table column state ─────────────────────────────────────────────
 const BASE_COLUMNS = [
-  {id:'id',label:'Member ID',fixed:true},
+  {id:'id',label:'Customer ID',fixed:true},
   {id:'name',label:'Name',fixed:true},
   {id:'username',label:'Username',fixed:false},
   {id:'brand',label:'Brand',fixed:false},
@@ -3900,7 +3900,7 @@ function renderCustomers() {
         <button class="btn btn-sm" onclick="showManageFieldsModal()">Fields</button>
         <button class="btn btn-sm" onclick="showCSVModal()">CSV Import</button>
         <button class="btn btn-sm" onclick="exportCustomerList()">Export CSV</button>
-        <button class="btn btn-sm btn-solid" onclick="showNewContactModal()">+ New Contact</button>
+        <button class="btn btn-sm btn-solid" onclick="showNewCustomerModal()">+ New Customer</button>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Customers</div></div>
@@ -5528,7 +5528,7 @@ function helpFAQ() {
     {q:'How are notifications generated?',                 a:'They are derived from current ticket state in real time: SLA breach, escalations, GDPR requests, and SLA warnings. Toggle which types appear in <strong>Settings → Notifications</strong>.'},
     {q:'Does my data sync across devices?',                a:'No — this demo stores state in your browser. Theme, notification preferences, and AI key persist via localStorage. Tickets, customers, and roles reset on reload.'},
     {q:'How do I delete a role?',                          a:'<strong>Roles & Permissions →</strong> click <strong>Delete</strong> next to the role. All agents must be reassigned off the role first. The Admin role is protected and cannot be deleted.'},
-    {q:'Can a Read Only user edit anything?',              a:'No — Read Only users see all read-only views (matrix, settings, etc.) but the toggles, edit buttons, and delete actions are hidden or disabled.'},
+    {q:'Can a Read Only agent edit anything?',             a:'No — Read Only agents see all read-only views (matrix, settings, etc.) but the toggles, edit buttons, and delete actions are hidden or disabled.'},
   ];
   return `
     <div class="card" style="margin-top:16px">
@@ -10299,7 +10299,7 @@ function showGDPRModal(id) {
 function openCustomerModal(custId) {
   const c = CUSTOMERS.find(x => x.id === custId); if (!c) return;
   showModal(`${c.first} ${c.last}`, `
-    <div class="ts-row"><span class="ts-key">Member ID</span><span class="ts-val">${c.id}</span></div>
+    <div class="ts-row"><span class="ts-key">Customer ID</span><span class="ts-val">${c.id}</span></div>
     <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${c.email}</span></div>
     <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${c.mobile}</span></div>
     <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${c.brand}</span></div>
@@ -10587,8 +10587,8 @@ function showManageFieldsModal() {
     <div style="font-size:11px;color:var(--ink3);margin-top:14px">Custom fields appear as toggleable columns in the customer table.</div>
   `, null, null);
 }
-function showNewContactModal() {
-  showModal('New contact', `
+function showNewCustomerModal() {
+  showModal('New customer', `
     <div class="form-grid">
       <div class="form-row"><label class="form-label">First name</label><input class="form-input" id="nc-first"/></div>
       <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="nc-last"/></div>
