@@ -378,6 +378,8 @@ textarea.form-input{resize:vertical;min-height:72px}
 .portal-tab.active{background:var(--purple-lt);color:var(--purple);font-weight:500}
 .portal-card{background:var(--off);border:1px solid var(--rule);border-radius:var(--r2);padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:all .15s}
 .portal-card:hover{border-color:var(--purple);box-shadow:0 2px 8px rgba(139,92,246,0.08)}
+.portal-card--static{cursor:default}
+.portal-card--static:hover{border-color:var(--rule);box-shadow:none}
 .portal-msg-customer{background:var(--purple-lt);color:var(--ink);padding:10px 14px;border-radius:var(--r2);max-width:75%;align-self:flex-end;margin-left:auto;font-size:13px;line-height:1.55}
 .portal-msg-agent{background:var(--off2);color:var(--ink);padding:10px 14px;border-radius:var(--r2);max-width:75%;font-size:13px;line-height:1.55}
 /* ── Composer ── */
@@ -5453,7 +5455,10 @@ function portalCreateTicket() {
   const body = document.getElementById('portal-body').value.trim();
   const cat  = document.getElementById('portal-cat').value;
   if (!subj) { alert('Please add a subject.'); return; }
-  const newId = 'TK-' + String(TICKETS.length + 1).padStart(3, '0');
+  // Scan max(id) instead of TICKETS.length so deletions/merges don't produce a
+  // colliding ID. Same pattern as slaNextId / macNextId / arNextId.
+  const max = Math.max(0, ...TICKETS.map(x => parseInt((x.id || '').split('-')[1] || '0', 10)));
+  const newId = 'TK-' + String(max + 1).padStart(3, '0');
   const newT = {
     id: newId, subject: subj, customerId: cust.id,
     status: 'open', priority: 'normal', category: cat || 'Technical',
@@ -5614,7 +5619,7 @@ function renderPortalKB() {
     <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--ink);margin-bottom:14px">Help articles</div>
     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
       ${articles.map(a => `
-        <div class="portal-card" style="cursor:default">
+        <div class="portal-card portal-card--static">
           <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:6px">${escHtml(a.category || '')}</div>
           <div style="font-size:14px;font-weight:600;color:var(--ink);margin-bottom:6px">${escHtml(a.title || '')}</div>
           <div style="font-size:12px;color:var(--ink2);line-height:1.5">${escHtml((a.summary || a.body || '').slice(0, 140))}…</div>
@@ -5626,7 +5631,7 @@ function renderPortalProfile(cust) {
   return `
     <div style="max-width:520px">
       <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--ink);margin-bottom:14px">My profile</div>
-      <div class="portal-card" style="cursor:default">
+      <div class="portal-card portal-card--static">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
           <div style="width:50px;height:50px;border-radius:50%;background:var(--ink);color:var(--w);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600">${escHtml((cust.first[0] + cust.last[0]).toUpperCase())}</div>
           <div>
