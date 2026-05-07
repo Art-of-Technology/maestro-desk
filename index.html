@@ -860,7 +860,7 @@ const AGENTS = [
   {name:'Emma Clarke', initials:'EC', role:'Admin',        active:true},
   {name:'James Webb',  initials:'JW', role:'Senior Agent', active:true},
   {name:'Sofia Reyes', initials:'SR', role:'Read Only',    active:true},
-  {name:'Priya Nair',  initials:'PN', role:'Senior Agent', active:true},
+  {name:'Priya Nair',  initials:'PN', role:'Senior Agent', active:true, oooFrom:'2026-05-04', oooTo:'2026-05-08', oooNote:'Annual leave — back Friday'},
   {name:'Tom Bates',   initials:'TB', role:'Senior Agent', active:true},
 ];
 
@@ -1343,7 +1343,7 @@ function bulkAssignTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   showModal(`Assign ${TICKET_SELECTED_IDS.size} ticket${TICKET_SELECTED_IDS.size===1?'':'s'}`, `
     <div class="form-row"><label class="form-label">Assign to</label>
-      <select class="form-input" id="bulk-agent">${AGENTS.map(a => `<option value="${escAttr(a.name)}">${escHtml(a.name)}</option>`).join('')}</select>
+      <select class="form-input" id="bulk-agent">${AGENTS.map(a => `<option value="${escAttr(a.name)}">${escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}</select>
     </div>
   `, () => {
     const agent = document.getElementById('bulk-agent').value;
@@ -1885,7 +1885,7 @@ function openTicket(id) {
               <option value="low" ${t.priority==='low'?'selected':''}>Low</option>
             </select>
             <select class="ts-select" onchange="changeTicketAgent('${id}',this.value)">
-              ${AGENTS.map(a=>`<option ${t.agent===a.name?'selected':''}>${a.name}</option>`).join('')}
+              ${AGENTS.map(a=>`<option value="${escAttr(a.name)}" ${t.agent===a.name?'selected':''}>${escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
             </select>
           </div>
           ${t.status==='gdpr'||t.category==='GDPR'?`
@@ -3258,7 +3258,7 @@ function showNewTicketModal(templateId) {
       <div class="form-row"><label class="form-label">Assign to</label>
         <select class="form-input" id="nt-agent">
           <option value="__auto__">Auto (apply rules)</option>
-          ${AGENTS.map(a=>`<option value="${escAttr(a.name)}">${escHtml(a.name)}</option>`).join('')}
+          ${AGENTS.map(a=>`<option value="${escAttr(a.name)}">${escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -6253,9 +6253,21 @@ function renderProfile() {
             <div style="font-size:11px;color:var(--ink3);margin-top:6px">Member since ${since}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn btn-sm" onclick="showAgentOOOModal('${escAttr(SESSION.name)}')">${isAgentOOO(SESSION.name) ? 'Edit OOO' : 'Set OOO'}</button>
             <button class="btn btn-sm" onclick="SETTINGS_TAB='profile';navTo('settings')">Edit profile</button>
           </div>
         </div>
+        ${isAgentOOO(SESSION.name) ? (() => {
+          const me = AGENTS.find(a => a.name === SESSION.name);
+          // If a note is present, the dates go on the right; with no note,
+          // the dates are the only content so we don't double-render them.
+          const dates = `${escHtml(me?.oooFrom || '')}${me?.oooTo ? ' → ' + escHtml(me.oooTo) : ''}`;
+          return `<div style="margin-top:12px;padding:12px 16px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
+            <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px">Out of office</span>
+            ${me?.oooNote ? `<span style="color:var(--ink2);font-style:italic">${escHtml(me.oooNote)}</span>` : ''}
+            <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${dates}</span>
+          </div>`;
+        })() : ''}
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px">
           <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${open.length}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
@@ -6530,6 +6542,7 @@ function renderAgents() {
 
   const cards = list.map(a => {
     const s = getAgentStats(a.name);
+    const ooo = isAgentOOO(a.name);
     return `
       <div class="agent-card ${a.active?'':'inactive'}" onclick="openAgentDetail('${escAttr(a.name)}')">
         <div class="agent-card-head">
@@ -6538,8 +6551,9 @@ function renderAgents() {
             <div class="agent-name">${a.name}</div>
             <div class="agent-role">${a.role}</div>
           </div>
-          <span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.active?'Active':'Off'}</span>
+          ${ooo ? `<span class="tag" style="font-size:9px;flex-shrink:0;background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${escAttr(a.oooNote || ('Until ' + (a.oooTo || 'further notice')))}">OOO</span>` : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.active?'Active':'Off'}</span>`}
         </div>
+        ${ooo ? `<div style="font-size:11px;color:var(--amber);font-style:italic;line-height:1.4">${escHtml(a.oooNote || `On leave until ${a.oooTo || '—'}`)}</div>` : ''}
         <div class="agent-stats">
           <div class="agent-stat"><div class="agent-stat-n c-blue">${s.open}</div><div class="agent-stat-l">Open</div></div>
           <div class="agent-stat"><div class="agent-stat-n">${s.total}</div><div class="agent-stat-l">Total</div></div>
@@ -6746,17 +6760,25 @@ function renderAgentDetail(name) {
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${a.name}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:2px">${a.role}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>
           </div>
-          <span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>
-          ${admin ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <select class="filter-select" onchange="reassignAgent('${escAttr(a.name)}',this.value)" style="font-size:12px">
+          ${isAgentOOO(a.name)
+            ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + escHtml(a.oooTo) : ''}</span>`
+            : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>`}
+          ${admin || (SESSION && SESSION.name === a.name) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            ${admin ? `<select class="filter-select" onchange="reassignAgent('${escAttr(a.name)}',this.value)" style="font-size:12px">
               ${allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('')}
-            </select>
-            ${a.active
+            </select>` : ''}
+            <button class="btn btn-sm" onclick="showAgentOOOModal('${escAttr(a.name)}')">${isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
+            ${admin ? (a.active
               ? `<button class="btn btn-sm" onclick="setAgentActive('${escAttr(a.name)}',false)">Deactivate</button>`
-              : `<button class="btn btn-sm" onclick="setAgentActive('${escAttr(a.name)}',true)">Activate</button>`}
-            <button class="btn btn-sm btn-danger" onclick="deleteAgentPrompt('${escAttr(a.name)}')">Delete</button>
+              : `<button class="btn btn-sm" onclick="setAgentActive('${escAttr(a.name)}',true)">Activate</button>`) : ''}
+            ${admin ? `<button class="btn btn-sm btn-danger" onclick="deleteAgentPrompt('${escAttr(a.name)}')">Delete</button>` : ''}
           </div>` : ''}
         </div>
+        ${isAgentOOO(a.name) ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
+          <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px">Out of office</span>
+          ${a.oooNote ? `<span style="color:var(--ink2);font-style:italic">${escHtml(a.oooNote)}</span>` : ''}
+          <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(a.oooFrom)}${a.oooTo ? ' → ' + escHtml(a.oooTo) : ''}</span>
+        </div>` : ''}
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
@@ -7779,19 +7801,35 @@ function arRuleMatches(rule, t) {
 function arPickAgent(rule) {
   const a = rule.assignment || {};
   if (a.mode === 'specific-agent') return a.agent || null;
+  // Round-robin and least-busy modes filter out agents who are currently OOO so
+  // tickets don't queue up against someone on leave.
   if (a.mode === 'round-robin') {
     const team = (a.team || []).filter(Boolean);
     if (!team.length) return null;
-    const idx = ASSIGN_RULES_RR_INDEX[rule.id] || 0;
-    const pick = team[idx % team.length];
-    ASSIGN_RULES_RR_INDEX[rule.id] = (idx + 1) % team.length;
+    const available = team.filter(name => !isAgentOOO(name));
+    if (!available.length) return null;
+    // Walk forward through the FULL team starting at the stored cursor; pick
+    // the first available agent. Storing the cursor against `team.length`
+    // (not `available.length`) keeps the cycle stable when an OOO agent
+    // returns and rejoins the rotation mid-cycle.
+    const len = team.length;
+    let idx = (ASSIGN_RULES_RR_INDEX[rule.id] || 0) % len;
+    let pick = null;
+    for (let i = 0; i < len; i++) {
+      const candidate = team[(idx + i) % len];
+      if (available.includes(candidate)) { pick = candidate; idx = (idx + i); break; }
+    }
+    if (!pick) return null;
+    ASSIGN_RULES_RR_INDEX[rule.id] = (idx + 1) % len;
     return pick;
   }
   if (a.mode === 'least-busy') {
     const team = (a.team || []).filter(Boolean);
     if (!team.length) return null;
-    // Pick the team member with the fewest open/escalated tickets right now.
-    const counts = team.map(name => ({
+    const available = team.filter(name => !isAgentOOO(name));
+    if (!available.length) return null;
+    // Pick the available team member with the fewest open/escalated tickets.
+    const counts = available.map(name => ({
       name,
       n: TICKETS.filter(t => t.agent === name && (t.status === 'open' || t.status === 'escalated')).length,
     }));
@@ -7799,6 +7837,74 @@ function arPickAgent(rule) {
     return counts[0].name;
   }
   return null;
+}
+
+// ─── Agent out-of-office ────────────────────────────────────────────────────
+// Agents flag themselves OOO with a from/to date range and an optional note.
+// Assignment rules (round-robin and least-busy) skip OOO agents so tickets
+// don't queue up against someone on leave. Direct "specific agent" rules and
+// manual assignment still allow assigning to an OOO agent (an admin may
+// intentionally page them) but the agent's tile shows the OOO state clearly.
+function isAgentOOO(name, atDate) {
+  const a = AGENTS.find(x => x.name === name);
+  if (!a || !a.oooFrom) return false;
+  // Use local date — `<input type="date">` returns local YYYY-MM-DD, so
+  // comparing in the same frame avoids a half-day off-by-one around midnight UTC.
+  const d = atDate ? new Date(atDate) : new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return today >= a.oooFrom && (!a.oooTo || today <= a.oooTo);
+}
+
+// Auth guard: only the agent themselves or an admin may mutate OOO state.
+// Surface buttons gate this too, but checking on the mutators keeps it safe
+// against console / macro / future automation callers.
+function canEditAgentOOO(name) {
+  return SESSION && (SESSION.name === name || isAdmin());
+}
+
+function setAgentOOO(name, from, to, note) {
+  if (!canEditAgentOOO(name)) return;
+  const a = AGENTS.find(x => x.name === name);
+  if (!a) return;
+  if (!from) { delete a.oooFrom; delete a.oooTo; delete a.oooNote; return; }
+  a.oooFrom = from;
+  a.oooTo = to || null;
+  a.oooNote = (note || '').trim() || null;
+}
+
+function clearAgentOOO(name) {
+  if (!canEditAgentOOO(name)) return;
+  setAgentOOO(name, null);
+}
+
+function showAgentOOOModal(name) {
+  if (!canEditAgentOOO(name)) {
+    alert('Only the agent themselves or an admin can edit OOO status.');
+    return;
+  }
+  const a = AGENTS.find(x => x.name === name);
+  if (!a) return;
+  const today = new Date().toISOString().slice(0, 10);
+  showModal(`Out of office · ${escHtml(name)}`, `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">While ${escHtml(a.name.split(' ')[0])} is OOO, the assignment rules engine skips them in round-robin and least-busy modes. Direct assignment still works — admins may intentionally page someone on leave.</div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">From</label><input class="form-input" type="date" id="ooo-from" value="${escAttr(a.oooFrom || today)}"/></div>
+      <div class="form-row"><label class="form-label">Until</label><input class="form-input" type="date" id="ooo-to" value="${escAttr(a.oooTo || '')}"/></div>
+    </div>
+    <div class="form-row"><label class="form-label">Auto-reply note (optional)</label>
+      <input class="form-input" id="ooo-note" value="${escAttr(a.oooNote || '')}" placeholder="e.g. Annual leave — back Friday"/>
+    </div>
+    ${a.oooFrom ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-sm btn-danger" onclick="clearAgentOOO('${escAttr(name)}');closeModal();renderPage(CURRENT_PAGE)">Clear OOO</button></div>` : ''}
+  `, () => {
+    const from = document.getElementById('ooo-from').value;
+    const to   = document.getElementById('ooo-to').value;
+    const note = document.getElementById('ooo-note').value;
+    if (!from) { alert('Pick a start date.'); return; }
+    if (to && to < from) { alert('End date must be on or after the start date.'); return; }
+    setAgentOOO(name, from, to, note);
+    closeModal();
+    renderPage(CURRENT_PAGE);
+  }, 'Save');
 }
 
 function applyAssignmentRules(t) {
