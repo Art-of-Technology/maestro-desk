@@ -6170,10 +6170,13 @@ function renderProfile() {
         </div>
         ${isAgentOOO(SESSION.name) ? (() => {
           const me = AGENTS.find(a => a.name === SESSION.name);
+          // If a note is present, the dates go on the right; with no note,
+          // the dates are the only content so we don't double-render them.
+          const dates = `${escHtml(me?.oooFrom || '')}${me?.oooTo ? ' → ' + escHtml(me.oooTo) : ''}`;
           return `<div style="margin-top:12px;padding:12px 16px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
             <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px">Out of office</span>
-            <span style="color:var(--ink2);font-style:italic">${escHtml(me?.oooNote || (me?.oooFrom ? me.oooFrom + ' → ' + (me?.oooTo || 'further notice') : ''))}</span>
-            <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(me?.oooFrom || '')}${me?.oooTo ? ' → ' + escHtml(me.oooTo) : ''}</span>
+            ${me?.oooNote ? `<span style="color:var(--ink2);font-style:italic">${escHtml(me.oooNote)}</span>` : ''}
+            <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${dates}</span>
           </div>`;
         })() : ''}
 
@@ -6684,7 +6687,7 @@ function renderAgentDetail(name) {
         </div>
         ${isAgentOOO(a.name) ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px">Out of office</span>
-          <span style="color:var(--ink2);font-style:italic">${escHtml(a.oooNote || (a.oooFrom ? `${a.oooFrom} → ${a.oooTo || 'further notice'}` : ''))}</span>
+          ${a.oooNote ? `<span style="color:var(--ink2);font-style:italic">${escHtml(a.oooNote)}</span>` : ''}
           <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(a.oooFrom)}${a.oooTo ? ' → ' + escHtml(a.oooTo) : ''}</span>
         </div>` : ''}
 
@@ -7716,9 +7719,19 @@ function arPickAgent(rule) {
     if (!team.length) return null;
     const available = team.filter(name => !isAgentOOO(name));
     if (!available.length) return null;
-    const idx = ASSIGN_RULES_RR_INDEX[rule.id] || 0;
-    const pick = available[idx % available.length];
-    ASSIGN_RULES_RR_INDEX[rule.id] = (idx + 1) % available.length;
+    // Walk forward through the FULL team starting at the stored cursor; pick
+    // the first available agent. Storing the cursor against `team.length`
+    // (not `available.length`) keeps the cycle stable when an OOO agent
+    // returns and rejoins the rotation mid-cycle.
+    const len = team.length;
+    let idx = (ASSIGN_RULES_RR_INDEX[rule.id] || 0) % len;
+    let pick = null;
+    for (let i = 0; i < len; i++) {
+      const candidate = team[(idx + i) % len];
+      if (available.includes(candidate)) { pick = candidate; idx = (idx + i); break; }
+    }
+    if (!pick) return null;
+    ASSIGN_RULES_RR_INDEX[rule.id] = (idx + 1) % len;
     return pick;
   }
   if (a.mode === 'least-busy') {
@@ -7746,11 +7759,22 @@ function arPickAgent(rule) {
 function isAgentOOO(name, atDate) {
   const a = AGENTS.find(x => x.name === name);
   if (!a || !a.oooFrom) return false;
-  const today = (atDate ? new Date(atDate) : new Date()).toISOString().slice(0, 10);
+  // Use local date — `<input type="date">` returns local YYYY-MM-DD, so
+  // comparing in the same frame avoids a half-day off-by-one around midnight UTC.
+  const d = atDate ? new Date(atDate) : new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return today >= a.oooFrom && (!a.oooTo || today <= a.oooTo);
 }
 
+// Auth guard: only the agent themselves or an admin may mutate OOO state.
+// Surface buttons gate this too, but checking on the mutators keeps it safe
+// against console / macro / future automation callers.
+function canEditAgentOOO(name) {
+  return SESSION && (SESSION.name === name || isAdmin());
+}
+
 function setAgentOOO(name, from, to, note) {
+  if (!canEditAgentOOO(name)) return;
   const a = AGENTS.find(x => x.name === name);
   if (!a) return;
   if (!from) { delete a.oooFrom; delete a.oooTo; delete a.oooNote; return; }
@@ -7759,9 +7783,16 @@ function setAgentOOO(name, from, to, note) {
   a.oooNote = (note || '').trim() || null;
 }
 
-function clearAgentOOO(name) { setAgentOOO(name, null); }
+function clearAgentOOO(name) {
+  if (!canEditAgentOOO(name)) return;
+  setAgentOOO(name, null);
+}
 
 function showAgentOOOModal(name) {
+  if (!canEditAgentOOO(name)) {
+    alert('Only the agent themselves or an admin can edit OOO status.');
+    return;
+  }
   const a = AGENTS.find(x => x.name === name);
   if (!a) return;
   const today = new Date().toISOString().slice(0, 10);
