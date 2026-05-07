@@ -1599,7 +1599,7 @@ function openTicket(id) {
               ${e.note ? `<div style="font-size:11px;color:var(--ink2);font-style:italic;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${escHtml(e.note)}"</div>` : ''}
               <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${escHtml(e.agent)} · ${escHtml(e.ts)}</div>
             </div>
-            <button onclick="removeTimeEntry('${escAttr(id)}','${escAttr(e.id)}')" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Remove entry">×</button>
+            <button onclick="removeTimeEntry(${escHtml(JSON.stringify(id))},${escHtml(JSON.stringify(e.id))})" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Remove entry">×</button>
           </div>`).join('')}
       ` : `<div style="font-size:11px;color:var(--ink3);text-align:center;padding:8px 0">No time logged yet</div>`}
     </div>`;
@@ -2346,14 +2346,6 @@ function refreshAllSLA() { TICKETS.forEach(refreshTicketSLA); }
 // per-customer totals in reports, and a CSV column on tickets export.
 function timeEntryNextId() {
   return 'TE-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-}
-
-function fmtMinutes(min) {
-  if (!min || min < 1) return '0m';
-  if (min < 60) return `${min}m`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 function ticketTotalMinutes(t) {
@@ -5865,7 +5857,7 @@ function reportTime(s) {
     const billPct = vals.total ? (vals.billable / vals.total) * 100 : 0;
     return `<div class="r-bar-row">
       <div style="font-size:11px;color:var(--ink2);width:140px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(name || 'Unassigned')}</div>
-      <div class="r-bar-track" title="${escHtml(fmtMinutes(vals.billable))} billable of ${escHtml(fmtMinutes(vals.total))}"><div class="r-bar-fill" style="background:var(--purple);width:${pct}%"></div><div class="r-bar-fill" style="background:var(--amber);width:${pct * billPct / 100}%;position:absolute;left:0;top:0;height:100%;opacity:.85"></div></div>
+      <div class="r-bar-track" title="${escHtml(fmtMinutes(vals.billable))} billable of ${escHtml(fmtMinutes(vals.total))}"><div class="r-bar-fill" style="background:var(--purple);width:${pct}%;position:relative"><div style="background:var(--amber);height:100%;width:${billPct}%"></div></div></div>
       <div class="r-bar-val" style="font-family:'DM Mono',monospace">${fmtMinutes(vals.total)}</div>
     </div>`;
   }).join('');
