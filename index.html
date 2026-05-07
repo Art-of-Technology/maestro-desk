@@ -4036,7 +4036,7 @@ function showMergeCustomerModal(custId) {
     return;
   }
   const card = c => `
-    <div onmousedown="closeModal();mergeCustomers(${escHtml(JSON.stringify(custId))},${escHtml(JSON.stringify(c.id))})" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+    <div onmousedown="closeModal();mergeCustomers('${escAttr(custId)}','${escAttr(c.id)}')" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${escHtml(c.first + ' ' + c.last)}</div>
@@ -4267,7 +4267,7 @@ function renderCustomerDetail(custId) {
           <span style="color:var(--ink2)">→</span>
           <span class="link" onclick="CUSTOMER_SELECTED='${escAttr(c.mergedInto)}';renderPage('customers')" style="color:var(--purple);font-weight:500">${escHtml(c.mergedInto)}</span>
           <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${escHtml(c.mergedAt || '—')}</span>
-          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="unmergeCustomer(${escHtml(JSON.stringify(c.id))})">Un-merge</button>` : ''}
+          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="unmergeCustomer('${escAttr(c.id)}')">Un-merge</button>` : ''}
         </div>` : ''}
         ${(c.mergedFrom || []).length ? `<div class="card" style="margin-bottom:16px">
           <div class="card-title">Merged duplicates (${c.mergedFrom.length})</div>
