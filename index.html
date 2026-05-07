@@ -2292,7 +2292,10 @@ function slaNowForDemo() {
   _slaNowCache = new Date(latest.getTime() + 24 * 60 * 60 * 1000);
   return _slaNowCache;
 }
-function invalidateSLAClock() { _slaNowCache = null; }
+function invalidateSLAClock() {
+  _slaNowCache = null;
+  if (typeof bhInvalidateCache === 'function') bhInvalidateCache();
+}
 
 function findMatchingSLAPolicy(t) {
   if (!t.priority) return null;
@@ -2372,14 +2375,24 @@ function isWithinBusinessHours(date) {
   return mins >= (start.h * 60 + start.min) && mins < (end.h * 60 + end.min);
 }
 
+// Cached results keyed by (startMs, endMs). refreshAllSLA on many tickets
+// re-uses the same slaNow anchor, so most calls share startMs (created date)
+// or endMs across calls. Cache invalidates on every config edit + slaNow reset.
+let _bizMinutesCache = new Map();
+function bhInvalidateCache() { _bizMinutesCache = new Map(); }
+
 function businessMinutesBetween(startMs, endMs) {
   if (!BUSINESS_HOURS.enabled) return Math.max(0, Math.floor((endMs - startMs) / 60000));
   if (endMs <= startMs) return 0;
+  const cacheKey = startMs + '-' + endMs;
+  const hit = _bizMinutesCache.get(cacheKey);
+  if (hit !== undefined) return hit;
   let total = 0;
   const startDay = new Date(startMs);
   startDay.setHours(0, 0, 0, 0);
   // Walk one calendar day at a time and sum the overlap with that day's window.
-  for (let d = startDay.getTime(); d <= endMs; d += 86400000) {
+  // Strict `<` so an endMs at midnight doesn't trigger an extra empty iteration.
+  for (let d = startDay.getTime(); d < endMs; d += 86400000) {
     const day = new Date(d);
     const cfg = BUSINESS_HOURS.days[day.getDay()];
     if (!cfg || !cfg.enabled) continue;
@@ -2392,6 +2405,7 @@ function businessMinutesBetween(startMs, endMs) {
     const winEnd   = Math.min(dayEnd.getTime(),   endMs);
     if (winEnd > winStart) total += Math.floor((winEnd - winStart) / 60000);
   }
+  _bizMinutesCache.set(cacheKey, total);
   return total;
 }
 
@@ -8107,7 +8121,7 @@ function renderBusinessHours() {
     <div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid var(--rule);border-radius:var(--r);margin-bottom:4px;background:var(--off2)">
       <span style="font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2)">${escHtml(date)}</span>
       <span style="font-size:11px;color:var(--ink3);font-style:italic">${escHtml(new Date(date).toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'short' }))}</span>
-      ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="bhRemoveHoliday('${escAttr(date)}')">Remove</button>` : ''}
+      ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="bhRemoveHoliday(${escHtml(JSON.stringify(date))})">Remove</button>` : ''}
     </div>`).join('');
 
   return `
