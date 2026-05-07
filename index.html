@@ -371,6 +371,7 @@ textarea.form-input{resize:vertical;min-height:72px}
 .msg-agent .msg-from{color:var(--purple)}.msg-ai .msg-from{color:var(--green)}.msg-note .msg-from{color:var(--amber)}
 .ai-mark{font-size:8px;padding:0 4px;border:1px solid var(--green);color:var(--green);border-radius:3px;background:rgba(52,211,153,0.1)}
 .note-mark{font-size:8px;padding:0 4px;border:1px solid var(--amber);color:var(--amber);border-radius:1px}
+.ts-stale-badge{font-weight:400;text-transform:none;letter-spacing:0;color:var(--amber);font-size:10px;font-style:italic;margin-left:6px}
 .portal-banner{padding:8px 20px;background:var(--purple-lt);border-bottom:1px solid var(--purple);color:var(--purple);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:10px;flex-shrink:0}
 .portal-tabs{display:flex;gap:2px;padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--off);flex-shrink:0}
 .portal-tab{padding:8px 14px;font-size:12px;color:var(--ink2);cursor:pointer;border-radius:6px;transition:all .15s}
@@ -1581,6 +1582,31 @@ function openTicket(id) {
       ` : `<div style="font-size:11px;color:var(--ink3);font-style:italic">No active policy matches this ticket. Configure one in <span class="link" onclick="navTo('sla')">SLA Policies</span>.</div>`}
     </div>`;
 
+  const summarizing = t.aiSummary && t.aiSummary.summarizing;
+  const summary = t.aiSummary && !t.aiSummary.summarizing ? t.aiSummary : null;
+  const summaryStale = summary && summary.coveredMsgCount !== undefined && summary.coveredMsgCount !== null && (t.msgs || []).length > summary.coveredMsgCount;
+  const aiSummaryBlock = summarizing ? `
+    <div class="ts-section">
+      <div class="ts-heading">AI Summary <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--purple);font-size:10px;font-style:italic;margin-left:4px">generating…</span></div>
+      <div style="font-size:11px;color:var(--ink3);font-style:italic">Talking to Claude…</div>
+    </div>` : (summary ? `
+    <div class="ts-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ts-heading" style="margin:0">AI Summary${summaryStale ? '<span class="ts-stale-badge">stale</span>' : ''}</div>
+        <span style="display:flex;gap:10px">
+          <span class="link" onclick="summarizeTicket('${escAttr(id)}')" style="font-size:11px">Refresh</span>
+          <span class="link" onclick="clearTicketSummary('${escAttr(id)}')" style="font-size:11px;color:var(--ink3)">×</span>
+        </span>
+      </div>
+      ${summary.error ? `<div style="font-size:11px;color:var(--red);font-style:italic">${escHtml(summary.error)}</div>` : `
+        <div style="font-size:12px;color:var(--ink);line-height:1.5;margin-bottom:8px">${escHtml(summary.tldr || '')}</div>
+        ${summary.issue ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--purple);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Issue · </strong>${escHtml(summary.issue)}</div>` : ''}
+        ${summary.done ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--green);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Done · </strong>${escHtml(summary.done)}</div>` : ''}
+        ${summary.next ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--amber);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Next · </strong>${escHtml(summary.next)}</div>` : ''}
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:6px">covered ${summary.coveredMsgCount || 0} msg${summary.coveredMsgCount === 1 ? '' : 's'} · ${escHtml((summary.generatedAt || '').slice(0, 16).replace('T', ' '))}</div>
+      `}
+    </div>` : '');
+
   const followers = t.followers || [];
   const watching = SESSION ? followers.includes(SESSION.name) : false;
   const followerAvatars = followers.map(name => {
@@ -1752,6 +1778,7 @@ function openTicket(id) {
             <button class="btn btn-sm" onclick="prevNextTicket(-1)">← Prev</button>
             <button class="btn btn-sm" onclick="prevNextTicket(1)">Next →</button>
             <span style="width:1px;background:var(--rule);align-self:stretch;margin:0 4px"></span>
+            ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="summarizeTicket('${id}')" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="showApplyMacroModal('${id}')" title="Apply a macro">⚡ Macro</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="runAssignmentRulesOnTicket('${id}')" title="Auto-assign by rules">⇄ Run rules</button>`}
             ${t.status !== 'escalated' && t.status !== 'resolved' ? `<button class="btn btn-sm" onclick="quickStatus('${id}','escalated')">Escalate</button>` : ''}
@@ -1862,6 +1889,7 @@ function openTicket(id) {
               <div style="font-size:11px;color:var(--ink2)">Avg score<br/><span style="color:var(--ink3);font-family:'Inter',sans-serif;font-size:11px">${TICKETS.filter(x=>x.customerId===t.customerId&&x.csat).length} rated tickets</span></div>
             </div>
           </div>
+          ${aiSummaryBlock}
           ${ticketCSATBlock(t)}
           ${timeBlock}
           ${slaBlock}
@@ -1915,6 +1943,75 @@ function openTicket(id) {
 function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
 
 // ─── Translator ──────────────────────────────────────────────────────────────
+// ─── AI ticket summarization ────────────────────────────────────────────────
+// Generates a TL;DR + 3 bullets (issue / done / next) for a ticket thread.
+// Result is cached on t.aiSummary along with the message index it covered, so
+// the sidebar can show a "stale" hint when newer messages arrive.
+async function summarizeTicket(ticketId) {
+  if (!AI_API_KEY) { alert('No Claude API key configured. Add one in Settings → AI Assistant.'); return; }
+  const t = TICKETS.find(x => x.id === ticketId);
+  if (!t) return;
+  const msgs = t.msgs || [];
+  if (!msgs.length) { alert('Nothing to summarise yet — this ticket has no messages.'); return; }
+  t.aiSummary = { ...(t.aiSummary || {}), summarizing: true };
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+  // Compose a compact transcript. Skip internal notes by default — the summary
+  // is meant for the customer-facing thread; agents who want notes included
+  // can re-summarise after the next reply.
+  const cust = CUSTOMERS.find(c => c.id === t.customerId);
+  const transcript = msgs.map((m, i) => {
+    const who = m.r === 'customer' ? `Customer (${m.from})` : m.r === 'agent' ? `Agent ${m.from}` : m.r === 'note' ? `Note from ${m.from}` : m.r === 'ai' ? 'AI' : m.from;
+    return `[${i + 1}] ${who}: ${m.tOriginal || m.t}`;
+  }).join('\n\n');
+  const prompt = `Ticket ${t.id} · ${t.subject}\nCustomer: ${cust ? cust.first + ' ' + cust.last : t.customerId}\nStatus: ${t.status} · Priority: ${t.priority} · Category: ${t.category}\n\n${transcript}\n\nSummarise the conversation for an agent inheriting this ticket. Reply with strict JSON only, in this shape:\n{\n  "tldr": "one or two sentences capturing the gist",\n  "issue": "what the customer needs in 8-15 words",\n  "done": "what's been done so far in 8-15 words",\n  "next": "the most likely next action the agent should take in 8-15 words"\n}\nDo not include any prose outside the JSON.`;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': AI_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: AI_MODEL || 'claude-sonnet-4-6',
+        max_tokens: 600,
+        system: 'You produce concise, agent-friendly handoff summaries for support tickets. Output strict JSON only.',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const d = await res.json();
+    const raw = d.content?.find(c => c.type === 'text')?.text;
+    let parsed = null;
+    try {
+      const trimmed = (raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      parsed = JSON.parse(trimmed);
+    } catch (e) { parsed = null; }
+    if (!parsed) {
+      t.aiSummary = { error: 'Could not parse AI response', generatedAt: new Date().toISOString() };
+    } else {
+      t.aiSummary = {
+        tldr: String(parsed.tldr || '').trim(),
+        issue: String(parsed.issue || '').trim(),
+        done: String(parsed.done || '').trim(),
+        next: String(parsed.next || '').trim(),
+        coveredMsgCount: msgs.length,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+  } catch (e) {
+    t.aiSummary = { error: 'AI request failed: ' + (e?.message || 'network error'), generatedAt: new Date().toISOString() };
+  }
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+}
+
+function clearTicketSummary(ticketId) {
+  const t = TICKETS.find(x => x.id === ticketId);
+  if (!t) return;
+  delete t.aiSummary;
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+}
+
 async function translateText(text, targetLang) {
   if (!AI_API_KEY) return { error: 'No Claude API key configured. Add one in Settings → AI Assistant.' };
   if (!text || !text.trim()) return { error: 'No text to translate.' };
