@@ -751,6 +751,10 @@ textarea.form-input{resize:vertical;min-height:72px}
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="3" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="7.5" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><circle cx="3.5" cy="4.5" r=".7" fill="currentColor"/><circle cx="3.5" cy="9" r=".7" fill="currentColor"/></svg>
           <span class="sb-lbl">Custom Fields</span>
         </div>
+        <div class="sb-item" onclick="nav('layouts',this)">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="1.5" width="4" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/><rect x="7.5" y="1.5" width="4" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/><rect x="1.5" y="7.5" width="10" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/></svg>
+          <span class="sb-lbl">Layouts</span>
+        </div>
         <div class="sb-item" onclick="nav('channels',this)">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 4.5h10v6h-10z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M1.5 4.5l5 4 5-4" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="11" cy="3" r="1.5" fill="currentColor"/></svg>
           <span class="sb-lbl">Channels</span>
@@ -1139,6 +1143,7 @@ function renderPage(page) {
     macros:        renderMacros,
     'ticket-templates': renderTicketTemplates,
     'custom-fields': renderCustomFields,
+    layouts:       renderLayouts,
     activity:      renderActivityLog,
     portal:        renderPortal,
     search:        renderSearchResults,
@@ -3384,6 +3389,32 @@ function showNewTicketModal(templateId) {
   const tpl = templateId ? TICKET_TEMPLATES.find(t => t.id === templateId) : null;
   const esc = s => String(s||'').replace(/"/g,'&quot;');
   const tplOptions = TICKET_TEMPLATES.map(t => `<option value="${escAttr(t.id)}" ${tpl?.id===t.id?'selected':''}>${escHtml(t.name)}</option>`).join('');
+  const req = key => isFieldRequired('ticket', key) ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : '';
+  const visible = key => isFieldVisible('ticket', key);
+  const customerRow = visible('customerId')
+    ? `<div class="form-row"><label class="form-label">Customer ID${req('customerId')}</label><input class="form-input" id="nt-cust" placeholder="M001"/></div>`
+    : '';
+  const categoryRow = visible('category')
+    ? `<div class="form-row"><label class="form-label">Category${req('category')}</label>
+        <select class="form-input" id="nt-cat">${cats.map(c=>`<option ${tpl?.category===c?'selected':''}>${c}</option>`).join('')}</select>
+      </div>`
+    : '';
+  const priorityRow = visible('priority')
+    ? `<div class="form-row"><label class="form-label">Priority${req('priority')}</label>
+        <select class="form-input" id="nt-pri">${['normal','high','urgent','low'].map(p => `<option ${tpl?.priority===p?'selected':''}>${p}</option>`).join('')}</select>
+      </div>`
+    : '';
+  const agentRow = visible('agent')
+    ? `<div class="form-row"><label class="form-label">Assign to${req('agent')}</label>
+        <select class="form-input" id="nt-agent">
+          <option value="__auto__">Auto (apply rules)</option>
+          ${AGENTS.map(a=>`<option value="${escAttr(a.name)}">${escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
+        </select>
+      </div>`
+    : '';
+  const messageRow = visible('message')
+    ? `<div class="form-row"><label class="form-label">Message${req('message')}</label><textarea class="form-input" id="nt-msg" placeholder="First message…">${escHtml(tpl?.body || '')}</textarea></div>`
+    : '';
   showModal('New Ticket', `
     ${TICKET_TEMPLATES.length ? `
     <div class="form-row">
@@ -3393,33 +3424,38 @@ function showNewTicketModal(templateId) {
         ${tplOptions}
       </select>
     </div>` : ''}
-    <div class="form-grid">
-      <div class="form-row"><label class="form-label">Customer ID</label><input class="form-input" id="nt-cust" placeholder="M001"/></div>
-      <div class="form-row"><label class="form-label">Category</label>
-        <select class="form-input" id="nt-cat">${cats.map(c=>`<option ${tpl?.category===c?'selected':''}>${c}</option>`).join('')}</select>
-      </div>
-    </div>
-    <div class="form-row"><label class="form-label">Subject</label><input class="form-input" id="nt-subj" value="${esc(tpl?.subject)}" placeholder="Describe the issue…"/></div>
-    <div class="form-grid">
-      <div class="form-row"><label class="form-label">Priority</label>
-        <select class="form-input" id="nt-pri">${['normal','high','urgent','low'].map(p => `<option ${tpl?.priority===p?'selected':''}>${p}</option>`).join('')}</select>
-      </div>
-      <div class="form-row"><label class="form-label">Assign to</label>
-        <select class="form-input" id="nt-agent">
-          <option value="__auto__">Auto (apply rules)</option>
-          ${AGENTS.map(a=>`<option value="${escAttr(a.name)}">${escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-row"><label class="form-label">Message</label><textarea class="form-input" id="nt-msg" placeholder="First message…">${escHtml(tpl?.body || '')}</textarea></div>
+    ${customerRow || categoryRow ? `<div class="form-grid">${customerRow}${categoryRow}</div>` : ''}
+    <div class="form-row"><label class="form-label">Subject${req('subject')}</label><input class="form-input" id="nt-subj" value="${esc(tpl?.subject)}" placeholder="Describe the issue…"/></div>
+    ${priorityRow || agentRow ? `<div class="form-grid">${priorityRow}${agentRow}</div>` : ''}
+    ${messageRow}
   `, () => {
     const subj = document.getElementById('nt-subj').value.trim();
-    const msg = document.getElementById('nt-msg').value.trim();
-    const custId = document.getElementById('nt-cust').value.trim() || 'M001';
-    if (!subj) return;
-    const newId = 'TK-' + String(TICKETS.length + 1).padStart(3,'0');
-    const agentPick = document.getElementById('nt-agent').value;
-    TICKETS.unshift({id:newId,subject:subj,customerId:custId,status:'open',priority:document.getElementById('nt-pri').value,category:document.getElementById('nt-cat').value,agent:agentPick === '__auto__' ? '' : agentPick,created:new Date().toISOString().slice(0,10),updated:'just now',sla:'ok',tags:[],aiTags:[],csat:null,msgs:msg?[{from:SESSION.name,r:'agent',t:msg,ts:new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}]:[]});
+    if (!subj) { alert('Subject is required.'); return; }
+    const custInput = document.getElementById('nt-cust');
+    const custId = custInput ? (custInput.value.trim() || 'M001') : 'M001';
+    if (visible('customerId') && isFieldRequired('ticket', 'customerId') && !custInput?.value.trim()) {
+      alert('Customer is required.'); return;
+    }
+    const msgEl = document.getElementById('nt-msg');
+    const msg = msgEl ? msgEl.value.trim() : '';
+    if (visible('message') && isFieldRequired('ticket', 'message') && !msg) {
+      alert('First message is required.'); return;
+    }
+    if (visible('category') && isFieldRequired('ticket', 'category') && !document.getElementById('nt-cat')?.value) {
+      alert('Category is required.'); return;
+    }
+    const newId = 'TK-' + String(Math.max(0, ...TICKETS.map(t => parseInt((t.id||'').split('-')[1] || '0', 10))) + 1).padStart(3,'0');
+    const agentPick = document.getElementById('nt-agent')?.value || '__auto__';
+    TICKETS.unshift({
+      id:newId, subject:subj, customerId:custId,
+      status:'open',
+      priority: document.getElementById('nt-pri')?.value || 'normal',
+      category: document.getElementById('nt-cat')?.value || 'Technical',
+      agent:agentPick === '__auto__' ? '' : agentPick,
+      created:new Date().toISOString().slice(0,10), updated:'just now',
+      sla:'ok', tags:[], aiTags:[], csat:null,
+      msgs: msg ? [{from:SESSION.name,r:'agent',t:msg,ts:new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}] : [],
+    });
     if (agentPick === '__auto__') applyAssignmentRules(TICKETS[0]);
     refreshTicketSLA(TICKETS[0]);
     closeModal(); renderPage('tickets');
@@ -3695,11 +3731,15 @@ let CUST_VIP_FILTER = 'all';
 let CUST_BRAND_FILTER = 'all';
 let CUST_VIEW_FILTER = 'all';
 let CUST_GROUP_BY = 'none';
+let CUST_SHOW_MERGED = false;
 let CUSTOMER_SELECTED = null;
 const CUSTOMER_SELECTED_IDS = new Set();
 
 function applyCustFilters() {
   let list = [...CUSTOMERS];
+  // Hide merged-into duplicates by default; the "Show merged" view chip surfaces them.
+  if (CUST_VIEW_FILTER === 'merged')           list = list.filter(c => c.mergedInto);
+  else if (!CUST_SHOW_MERGED)                  list = list.filter(c => !c.mergedInto);
   if (CUST_VIEW_FILTER === 'premium')         list = list.filter(c => c.vip === 'Platinum' || c.vip === 'Gold');
   else if (CUST_VIEW_FILTER === 'kyc-pending') list = list.filter(c => c.kyc !== 'Verified');
   else if (CUST_VIEW_FILTER === 'no-consent')  list = list.filter(c => !c.consent);
@@ -3805,12 +3845,14 @@ function renderCustomers() {
   const kycPendingN = CUSTOMERS.filter(c => c.kyc !== 'Verified').length;
   const noConsentN  = CUSTOMERS.filter(c => !c.consent).length;
   const atRiskN     = CUSTOMERS.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated'))).length;
+  const mergedN = CUSTOMERS.filter(c => c.mergedInto).length;
   const views = [
     { k: 'all',         l: 'All',                         active: CUST_VIEW_FILTER === 'all' },
     { k: 'premium',     l: `Premium · ${premium}`,        active: CUST_VIEW_FILTER === 'premium' },
     { k: 'kyc-pending', l: `KYC pending · ${kycPendingN}`, active: CUST_VIEW_FILTER === 'kyc-pending' },
     { k: 'no-consent',  l: `No consent · ${noConsentN}`,  active: CUST_VIEW_FILTER === 'no-consent' },
     { k: 'at-risk',     l: `At risk · ${atRiskN}`,        active: CUST_VIEW_FILTER === 'at-risk' },
+    { k: 'merged',      l: `Merged · ${mergedN}`,         active: CUST_VIEW_FILTER === 'merged' },
   ];
 
   const groups = groupCustomersBy(filtered, CUST_GROUP_BY);
@@ -3967,6 +4009,105 @@ function deleteCustomerNote(custId, idx) {
 function openCustomerProfile(id) { CUSTOMER_SELECTED = id; renderPage('customers'); }
 function closeCustomerProfile()  { CUSTOMER_SELECTED = null; renderPage('customers'); }
 
+// ─── Customer merge ─────────────────────────────────────────────────────────
+// Combines a duplicate customer record into a primary. Tickets reassign their
+// customerId, notes copy across, and missing profile fields are pulled from
+// the source if the primary's value was empty. Each affected ticket is tagged
+// with `preMergeCustomerId` so unmergeCustomer can reliably restore them.
+function showMergeCustomerModal(custId) {
+  const src = CUSTOMERS.find(x => x.id === custId);
+  if (!src) return;
+  if (src.mergedInto) { alert(`Already merged into ${src.mergedInto}.`); return; }
+  // Candidates: not self, not already merged, not previously merged into this one.
+  const candidates = CUSTOMERS.filter(x => x.id !== custId && !x.mergedInto && x.mergedFrom?.includes(custId) !== true);
+  if (!candidates.length) {
+    showModal('Merge customer into…', '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No primary candidates available.</div>', null, null);
+    return;
+  }
+  const card = c => `
+    <div onmousedown="closeModal();mergeCustomers(${escHtml(JSON.stringify(custId))},${escHtml(JSON.stringify(c.id))})" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--ink)">${escHtml(c.first + ' ' + c.last)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(c.id)} · ${escHtml(c.email || '')}</div>
+      </div>
+      <span class="vip-badge vip-${(c.vip || '').toLowerCase()}">${escHtml(c.vip || '')}</span>
+    </div>`;
+  showModal('Merge customer into…', `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">${escHtml(src.first + ' ' + src.last)} (${escHtml(src.id)}) will be marked as a duplicate of the primary you choose. All of this customer's tickets reassign to the primary, internal notes copy over, and any blank profile fields on the primary fill in from this record.</div>
+    <div style="max-height:380px;overflow-y:auto">${candidates.map(card).join('')}</div>
+  `, null, null);
+}
+
+function mergeCustomers(srcId, primaryId) {
+  if (srcId === primaryId) return;
+  const src = CUSTOMERS.find(x => x.id === srcId);
+  const primary = CUSTOMERS.find(x => x.id === primaryId);
+  if (!src || !primary || src.mergedInto) return;
+  if (primary.mergedInto) {
+    alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
+    return;
+  }
+  // Reassign tickets, stamping each with the original customerId so un-merge
+  // can put them back on the source if the merge is reversed.
+  TICKETS.forEach(t => {
+    if (t.customerId === srcId) {
+      t.preMergeCustomerId = srcId;
+      t.customerId = primaryId;
+      logTicketEvent(t.id, 'system', `Customer merged: ${srcId} → ${primaryId}`);
+    }
+  });
+  // Merge notes: append src.notes onto primary.notes with a separator marker
+  // so an admin can see the boundary.
+  if (src.notes && src.notes.length) {
+    if (!primary.notes) primary.notes = [];
+    primary.notes.push({ author:'System', ts: new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }), text: `── Notes merged from ${srcId} ──`, mergedFromCustomerId: srcId });
+    src.notes.forEach(n => primary.notes.push({ ...n, mergedFromCustomerId: srcId }));
+  }
+  // Backfill primary fields from src where primary is blank.
+  ['email','mobile','username','brand','vip','jurisdiction','kyc','since','bo'].forEach(f => {
+    if (!primary[f] && src[f]) primary[f] = src[f];
+  });
+  // Backfill custom fields where primary doesn't have a value.
+  if (src.custom) {
+    primary.custom = primary.custom || {};
+    Object.keys(src.custom).forEach(k => {
+      if (primary.custom[k] === undefined || primary.custom[k] === '') primary.custom[k] = src.custom[k];
+    });
+  }
+  src.mergedInto = primaryId;
+  src.mergedAt = new Date().toISOString().slice(0, 10);
+  primary.mergedFrom = primary.mergedFrom || [];
+  if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
+  // Navigate to the primary so the agent sees the consolidated view.
+  CUSTOMER_SELECTED = primaryId;
+  renderPage('customers');
+}
+
+function unmergeCustomer(srcId) {
+  const src = CUSTOMERS.find(x => x.id === srcId);
+  if (!src || !src.mergedInto) return;
+  const primaryId = src.mergedInto;
+  const primary = CUSTOMERS.find(x => x.id === primaryId);
+  // Walk tickets and put them back on the source.
+  TICKETS.forEach(t => {
+    if (t.preMergeCustomerId === srcId && t.customerId === primaryId) {
+      t.customerId = srcId;
+      delete t.preMergeCustomerId;
+      logTicketEvent(t.id, 'system', `Customer un-merged: restored to ${srcId}`);
+    }
+  });
+  // Strip notes that came from src, including the separator marker.
+  if (primary && primary.notes) {
+    primary.notes = primary.notes.filter(n => n.mergedFromCustomerId !== srcId);
+  }
+  if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
+  delete src.mergedInto;
+  delete src.mergedAt;
+  CUSTOMER_SELECTED = srcId;
+  renderPage('customers');
+}
+
 function updateCustomField(custId, fieldId, value) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c) return;
@@ -4091,8 +4232,29 @@ function renderCustomerDetail(custId) {
               <span style="font-family:'DM Mono',monospace">${c.jurisdiction}</span>
             </div>
           </div>
-          <span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${c.kyc}</span>
+          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${escHtml(c.mergedInto)}</span>` : `<span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${c.kyc}</span>`}
         </div>
+        ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
+          <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
+          <span style="color:var(--ink2)">→</span>
+          <span class="link" onclick="CUSTOMER_SELECTED='${escAttr(c.mergedInto)}';renderPage('customers')" style="color:var(--purple);font-weight:500">${escHtml(c.mergedInto)}</span>
+          <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${escHtml(c.mergedAt || '—')}</span>
+          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="unmergeCustomer(${escHtml(JSON.stringify(c.id))})">Un-merge</button>` : ''}
+        </div>` : ''}
+        ${(c.mergedFrom || []).length ? `<div class="card" style="margin-bottom:16px">
+          <div class="card-title">Merged duplicates (${c.mergedFrom.length})</div>
+          ${c.mergedFrom.map(mid => {
+            const m = CUSTOMERS.find(x => x.id === mid);
+            if (!m) return '';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--rule);cursor:pointer" onclick="CUSTOMER_SELECTED='${escAttr(mid)}';renderPage('customers')">
+              <div style="width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--w);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600">${escHtml((m.first[0]||'') + (m.last[0]||''))}</div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(m.first + ' ' + m.last)}</div>
+                <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${escHtml(mid)} · merged ${escHtml(m.mergedAt || '—')}</div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` : ''}
         <div class="cust-quickactions">
           <a href="mailto:${c.email}" class="btn btn-sm">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2.5" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 3l4.5 3.5L10.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -4104,6 +4266,7 @@ function renderCustomerDetail(custId) {
           </a>
           <button class="btn btn-sm" onclick="addCustomerNote('${escAttr(c.id)}')">+ Note</button>
           ${c.bo ? `<a href="${c.bo}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : ''}
+          ${admin && !c.mergedInto ? `<button class="btn btn-sm" onclick="showMergeCustomerModal('${escAttr(c.id)}')">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" onclick="showCustomerGDPR('${escAttr(c.id)}')">GDPR</button>
         </div>
         ${riskPanel}
@@ -4117,14 +4280,14 @@ function renderCustomerDetail(custId) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div class="card">
             <div class="card-title">Profile</div>
-            <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${c.email}</span></div>
-            <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${c.mobile}</span></div>
-            <div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.username}</span></div>
-            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${c.brand}</span></div>
-            <div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span></div>
-            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${c.jurisdiction}</span></div>
-            <div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${c.kyc}</span></div>
-            <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${c.since}</span></div>
+            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${escHtml(c.email)}</span></div>` : ''}
+            ${isFieldVisible('customer','mobile')       ? `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${escHtml(c.mobile)}</span></div>` : ''}
+            ${isFieldVisible('customer','username')     ? `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${escHtml(c.username)}</span></div>` : ''}
+            ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${escHtml(c.brand)}</span></div>` : ''}
+            ${isFieldVisible('customer','vip')          ? `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${escHtml(c.vip)}</span></div>` : ''}
+            ${isFieldVisible('customer','jurisdiction') ? `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${escHtml(c.jurisdiction)}</span></div>` : ''}
+            ${isFieldVisible('customer','kyc')          ? `<div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${escHtml(c.kyc)}</span></div>` : ''}
+            ${isFieldVisible('customer','since')        ? `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${escHtml(c.since)}</span></div>` : ''}
           </div>
           <div class="card">
             <div class="card-title">Custom fields</div>
@@ -4189,6 +4352,7 @@ const SEARCH_PAGES = [
   {p:'macros',    l:'Macros'},
   {p:'ticket-templates', l:'Ticket Templates'},
   {p:'custom-fields', l:'Custom Fields'},
+  {p:'layouts',   l:'Layouts'},
   {p:'activity',  l:'Activity Log'},
   {p:'portal',    l:'Customer Portal'},
   {p:'channels',  l:'Channels'},
@@ -10120,6 +10284,119 @@ function openCustomerModal(custId) {
 function showCSVModal() {
   showModal('CSV import', `<div class="attach-zone">Drop a CSV file or click to upload</div><div style="font-size:11px;color:var(--ink3);margin-top:10px">Expected columns: id, first, last, email, brand, vip, jurisdiction</div>`, () => closeModal(), 'Import');
 }
+// ─── Layouts ─────────────────────────────────────────────────────────────────
+// Drives which fields appear (and which are required) on the new-ticket and
+// new-customer forms, and on the customer-detail Profile card. Locked fields
+// are key info that the schema can't function without — we still render them
+// in the UI but disable the Required toggle so admins can't accidentally
+// turn off something the rest of the app depends on.
+let LAYOUTS_TAB = 'ticket';
+const FIELD_LAYOUTS = {
+  ticket: [
+    { key:'subject',    label:'Subject',          locked:true,  required:true,  visible:true },
+    { key:'customerId', label:'Customer',         locked:true,  required:true,  visible:true },
+    { key:'category',   label:'Category',         locked:false, required:false, visible:true },
+    { key:'priority',   label:'Priority',         locked:false, required:false, visible:true },
+    { key:'agent',      label:'Assignee',         locked:false, required:false, visible:true },
+    { key:'message',    label:'First message',    locked:false, required:false, visible:true },
+    { key:'tags',       label:'Tags',             locked:false, required:false, visible:true },
+  ],
+  customer: [
+    { key:'first',        label:'First name',     locked:true,  required:true,  visible:true },
+    { key:'last',         label:'Last name',      locked:true,  required:true,  visible:true },
+    { key:'email',        label:'Email',          locked:false, required:true,  visible:true },
+    { key:'mobile',       label:'Mobile',         locked:false, required:false, visible:true },
+    { key:'username',     label:'Username',       locked:false, required:false, visible:true },
+    { key:'brand',        label:'Brand',          locked:false, required:false, visible:true },
+    { key:'vip',          label:'VIP tier',       locked:false, required:false, visible:true },
+    { key:'jurisdiction', label:'Jurisdiction',   locked:false, required:false, visible:true },
+    { key:'kyc',          label:'KYC status',     locked:false, required:false, visible:true },
+    { key:'since',        label:'Customer since', locked:false, required:false, visible:true },
+  ],
+};
+
+function getLayoutField(entity, key) {
+  return (FIELD_LAYOUTS[entity] || []).find(f => f.key === key);
+}
+function isFieldVisible(entity, key) {
+  const f = getLayoutField(entity, key);
+  return !f || f.visible !== false;
+}
+function isFieldRequired(entity, key) {
+  const f = getLayoutField(entity, key);
+  return f ? !!f.required : false;
+}
+
+function setLayoutFieldFlag(entity, key, flag, val) {
+  const f = getLayoutField(entity, key);
+  if (!f || f.locked) return;
+  // Locked fields must stay required + visible; non-locked fields can flip
+  // both flags freely. Marking a field invisible also implies non-required —
+  // a hidden field can't be required without a way for the agent to fill it.
+  f[flag] = !!val;
+  if (flag === 'visible' && !f.visible) f.required = false;
+  if (flag === 'required' && f.required) f.visible = true;
+  renderPage('layouts');
+}
+
+function renderLayouts() {
+  const admin = isAdmin();
+  const tab = LAYOUTS_TAB;
+  const fields = FIELD_LAYOUTS[tab] || [];
+  const visN = fields.filter(f => f.visible).length;
+  const reqN = fields.filter(f => f.required).length;
+  const lockedN = fields.filter(f => f.locked).length;
+
+  const rows = fields.map(f => `
+    <tr>
+      <td>
+        <strong style="color:var(--ink)">${escHtml(f.label)}</strong>
+        ${f.locked ? '<span style="margin-left:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--ink3);background:var(--off2);padding:1px 6px;border-radius:3px">key</span>' : ''}
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${escHtml(f.key)}</div>
+      </td>
+      <td style="text-align:center">
+        <label class="toggle">
+          <input type="checkbox" ${f.required?'checked':''} ${(!admin || f.locked)?'disabled':''} onchange="setLayoutFieldFlag('${escAttr(tab)}','${escAttr(f.key)}','required',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        ${f.locked ? '<div style="font-size:10px;color:var(--ink3);margin-top:2px;font-style:italic">locked</div>' : ''}
+      </td>
+      <td style="text-align:center">
+        <label class="toggle">
+          <input type="checkbox" ${f.visible?'checked':''} ${(!admin || f.locked)?'disabled':''} onchange="setLayoutFieldFlag('${escAttr(tab)}','${escAttr(f.key)}','visible',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        ${f.locked ? '<div style="font-size:10px;color:var(--ink3);margin-top:2px;font-style:italic">locked</div>' : ''}
+      </td>
+    </tr>`).join('');
+
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Layouts</div>
+        <span style="font-size:11px;color:var(--ink3);font-style:italic">${admin ? 'Toggle each field as required or visible. Key fields stay locked so the rest of the app keeps working.' : 'Read-only — admin access required to edit'}</span>
+      </div>
+      <div class="kpi-bar">
+        <div class="kpi"><div class="kpi-n">${fields.length}</div><div class="kpi-l">Fields</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${visN}</div><div class="kpi-l">Visible</div></div>
+        <div class="kpi"><div class="kpi-n c-amber">${reqN}</div><div class="kpi-l">Required</div></div>
+        <div class="kpi"><div class="kpi-n">${lockedN}</div><div class="kpi-l">Locked</div></div>
+      </div>
+      <div class="filter-bar">
+        <span class="filter-label">Apply to</span>
+        <span class="filter-tag" style="cursor:pointer;${tab==='ticket'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="LAYOUTS_TAB='ticket';renderPage('layouts')">Tickets</span>
+        <span class="filter-tag" style="cursor:pointer;${tab==='customer'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="LAYOUTS_TAB='customer';renderPage('layouts')">Customers</span>
+      </div>
+      <div class="page-scroll">
+        <table class="tbl">
+          <thead><tr><th>Field</th><th style="text-align:center;width:120px">Required</th><th style="text-align:center;width:120px">Visible</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Hidden fields are dropped from the new-${tab} form and the ${tab === 'ticket' ? 'ticket sidebar' : 'customer profile card'}. Required fields validate on submit. Marking a field hidden also clears its required flag — a hidden field with no input path would be unfillable.</div>
+      </div>
+    </div>`;
+}
+
 // ─── Custom Fields manager ───────────────────────────────────────────────────
 let CF_FILTER_ENTITY = 'all';
 
