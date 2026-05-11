@@ -482,6 +482,26 @@ textarea.form-input{resize:vertical;min-height:72px}
 .dash-grid-12 .span-6{grid-column:span 6}
 .dash-grid-12 .span-4{grid-column:span 4}
 @media (max-width:900px){.dash-grid-12 .span-12,.dash-grid-12 .span-8,.dash-grid-12 .span-6,.dash-grid-12 .span-4{grid-column:span 12}}
+/* ── Widget chrome (dashboard + reports) ── */
+.widget{position:relative}
+.widget-head{display:flex;align-items:center;gap:6px;font-family:'Inter',sans-serif;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);margin-bottom:10px;cursor:grab}
+.widget-head:active{cursor:grabbing}
+.widget-handle{color:var(--ink3);opacity:.4;font-size:13px;letter-spacing:-2px;line-height:1;flex-shrink:0;user-select:none}
+.widget:hover .widget-handle{opacity:.85;color:var(--purple)}
+.widget-title{flex:1}
+.widget-actions{display:flex;align-items:center;gap:2px;opacity:0;transition:opacity .12s}
+.widget:hover .widget-actions{opacity:1}
+.widget-actions button{background:transparent;border:none;cursor:pointer;color:var(--ink3);font-size:13px;padding:3px 6px;border-radius:3px;line-height:1}
+.widget-actions button:hover{color:var(--purple);background:var(--purple-lt)}
+.widget.dragging{opacity:.45;transform:scale(.985)}
+.widget.drop-target-before{box-shadow:-4px 0 0 var(--purple)}
+.widget.drop-target-after{box-shadow:4px 0 0 var(--purple)}
+.widget-menu{position:absolute;top:30px;right:8px;background:var(--off);border:1px solid var(--rule2);border-radius:var(--r);box-shadow:0 6px 18px rgba(0,0,0,.12);padding:4px;min-width:140px;z-index:20}
+.widget-menu-item{padding:6px 10px;font-size:12px;color:var(--ink2);cursor:pointer;border-radius:3px;display:flex;align-items:center;gap:8px}
+.widget-menu-item:hover{background:var(--off2);color:var(--ink)}
+.widget-menu-item.active{color:var(--purple);font-weight:500}
+.widget-menu-divider{height:1px;background:var(--rule);margin:4px 0}
+.widget-menu-head{padding:4px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3)}
 /* ── AI page ── */
 .ai-chat{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px}
 .ai-msg{padding:14px 16px;font-size:14px;line-height:1.65;max-width:80%}
@@ -5742,30 +5762,63 @@ function dashRecentTickets() {
     </div>`;
 }
 
+// Render a categorical breakdown as bar / donut / list. Used by the dash and
+// report widgets that have a `charts:['bar','donut','list']` registry entry.
+function renderCategoricalChart(items, colorFor, chart) {
+  const total = items.reduce((sum, [, v]) => sum + v, 0);
+  const legend = items.map(([k, v]) => `<div class="donut-row" style="font-size:11px"><span class="donut-dot" style="background:${colorFor(k)}"></span><span style="flex:1;text-transform:capitalize;color:var(--ink2)">${escHtml(k)}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3)">${v}</span></div>`).join('');
+  if (chart === 'list') return legend || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:16px 0">No data</div>';
+  if (chart === 'donut') {
+    if (!total) return `<div style="color:var(--ink3);font-size:12px;text-align:center;padding:16px 0">No data</div>${legend}`;
+    const r = 36, c = 2 * Math.PI * r;
+    let off = 0;
+    const arcs = items.map(([k, v]) => {
+      const len = (v / total) * c;
+      const seg = `<circle cx="50" cy="50" r="${r}" fill="none" stroke="${colorFor(k)}" stroke-width="14" stroke-dasharray="${len} ${c - len}" stroke-dashoffset="${-off}" transform="rotate(-90 50 50)"/>`;
+      off += len;
+      return seg;
+    }).join('');
+    return `
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:8px">
+        <svg width="100" height="100" viewBox="0 0 100 100" style="flex-shrink:0">${arcs}<text x="50" y="55" text-anchor="middle" font-family="Inter" font-size="14" font-weight="600" fill="var(--ink)">${total}</text></svg>
+        <div style="flex:1">${legend}</div>
+      </div>`;
+  }
+  // Default: stacked horizontal bar + legend below.
+  const segs = items.map(([k, v]) => {
+    const pct = total ? (v / total) * 100 : 0;
+    return `<div title="${escHtml(k)}: ${v}" style="background:${colorFor(k)};width:${pct}%"></div>`;
+  }).join('');
+  return `<div class="r-stack">${segs}</div><div style="margin-top:12px">${legend}</div>`;
+}
+
 function dashStatus(s) {
   const items = Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]);
-  const segs = items.map(([k, v]) => {
-    const pct = s.total ? (v/s.total)*100 : 0;
-    return `<div title="${k}: ${v}" style="background:${STATUS_COLORS[k]||'var(--ink3)'};width:${pct}%"></div>`;
-  }).join('');
-  const legend = items.map(([k, v]) => `<div class="donut-row" style="font-size:11px"><span class="donut-dot" style="background:${STATUS_COLORS[k]||'var(--ink3)'}"></span><span style="flex:1;text-transform:capitalize;color:var(--ink2)">${k}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3)">${v}</span></div>`).join('');
+  const chart = DASH_LAYOUT.charts['status'] || 'bar';
   return `
     <div class="card span-4">
       <div class="card-title">Status</div>
-      <div class="r-stack">${segs}</div>
-      <div style="margin-top:12px">${legend}</div>
+      ${renderCategoricalChart(items, k => STATUS_COLORS[k] || 'var(--ink3)', chart)}
     </div>`;
 }
 
 function dashSLA(s) {
+  const chart = DASH_LAYOUT.charts['sla'] || 'tiles';
+  const tilesBody = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
+      <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt);padding:10px"><div class="r-tile-n" style="color:var(--green);font-size:20px">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green);font-size:10px">On track</div></div>
+      <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt);padding:10px"><div class="r-tile-n" style="color:var(--amber);font-size:20px">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber);font-size:10px">Warning</div></div>
+      <div class="r-tile" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt);padding:10px"><div class="r-tile-n" style="color:var(--red);font-size:20px">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red);font-size:10px">Breach</div></div>
+    </div>`;
+  const barBody = renderCategoricalChart(
+    [['on track', s.slaOk], ['warning', s.slaWarn], ['breach', s.slaBreach]],
+    k => k === 'on track' ? 'var(--green)' : k === 'warning' ? 'var(--amber)' : 'var(--red)',
+    'bar'
+  );
   return `
     <div class="card span-4">
       <div class="card-title">SLA health</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
-        <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt);padding:10px"><div class="r-tile-n" style="color:var(--green);font-size:20px">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green);font-size:10px">On track</div></div>
-        <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt);padding:10px"><div class="r-tile-n" style="color:var(--amber);font-size:20px">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber);font-size:10px">Warning</div></div>
-        <div class="r-tile" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt);padding:10px"><div class="r-tile-n" style="color:var(--red);font-size:20px">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red);font-size:10px">Breach</div></div>
-      </div>
+      ${chart === 'bar' ? barBody : tilesBody}
       <div style="margin-top:12px;font-size:11px;color:var(--ink3)"><strong style="color:var(--ink2)">${s.slaCompliance}%</strong> compliance window</div>
     </div>`;
 }
@@ -5866,19 +5919,30 @@ function dashToday() {
 
 function dashPriority(s) {
   const items = ['urgent','high','normal','low'].filter(p => s.byPriority[p]).map(p => [p, s.byPriority[p]]);
-  const max = Math.max(...items.map(i => i[1]), 1);
-  const rows = items.map(([k, v]) => {
-    const pct = (v / max) * 100;
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
-      <div style="font-size:12px;color:var(--ink2);width:60px;text-transform:capitalize">${k}</div>
-      <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:${PRIORITY_COLORS[k]};height:100%;width:${pct}%"></div></div>
-      <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:24px;text-align:right">${v}</div>
-    </div>`;
-  }).join('');
+  const chart = DASH_LAYOUT.charts['priority'] || 'bar';
+  // The default "bar" rendering for priority uses per-row gauges (different
+  // shape from the stacked horizontal bar). Keep it for parity with the
+  // existing UI; donut + list reuse the shared chart helper.
+  if (chart === 'bar') {
+    const max = Math.max(...items.map(i => i[1]), 1);
+    const rows = items.map(([k, v]) => {
+      const pct = (v / max) * 100;
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <div style="font-size:12px;color:var(--ink2);width:60px;text-transform:capitalize">${escHtml(k)}</div>
+        <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:${PRIORITY_COLORS[k]};height:100%;width:${pct}%"></div></div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:24px;text-align:right">${v}</div>
+      </div>`;
+    }).join('');
+    return `
+      <div class="card span-4">
+        <div class="card-title">Priority</div>
+        ${rows || '<div style="color:var(--ink3);font-size:12px">No tickets</div>'}
+      </div>`;
+  }
   return `
     <div class="card span-4">
       <div class="card-title">Priority</div>
-      ${rows || '<div style="color:var(--ink3);font-size:12px">No tickets</div>'}
+      ${renderCategoricalChart(items, k => PRIORITY_COLORS[k] || 'var(--ink3)', chart)}
     </div>`;
 }
 
@@ -5994,6 +6058,251 @@ function dashCSAT(s) {
     </div>`;
 }
 
+// ─── Customisable widget shell (dashboard + reports) ───────────────────────
+// Each widget on the dashboard or reports page is wrapped with a chrome that
+// provides a drag handle, a "..." menu (hide + chart-type switcher where
+// available), and an aria-friendly hide button. Layouts (order, hidden set,
+// per-widget chart choice) persist in localStorage so each agent's
+// customisations stick across reloads.
+const DASH_WIDGETS = [
+  { id:'today',       title:'Today',                 span:'span-12', render:s => dashToday() },
+  { id:'recent',      title:'Recent tickets',        span:'span-8',  render:s => dashRecentTickets() },
+  { id:'status',      title:'Status',                span:'span-4',  render:s => dashStatus(s),       charts:['bar','donut','list'] },
+  { id:'priority',    title:'Priority',              span:'span-4',  render:s => dashPriority(s),     charts:['bar','donut','list'] },
+  { id:'sla',         title:'SLA health',            span:'span-4',  render:s => dashSLA(s),          charts:['tiles','bar'] },
+  { id:'volume',      title:'Volume trend',          span:'span-12', render:s => dashVolumeTrend() },
+  { id:'csat',        title:'Customer satisfaction', span:'span-4',  render:s => dashCSAT(s) },
+  { id:'agent-load',  title:'Agent load',            span:'span-8',  render:s => dashAgentLoad() },
+  { id:'personal',    title:'My queue',              span:'span-4',  render:s => dashPersonal() },
+  { id:'ai-tags',     title:'AI tag suggestions',    span:'span-4',  render:s => dashAITags() },
+  { id:'workflows',   title:'Workflows',             span:'span-4',  render:s => dashWorkflows() },
+  { id:'kb',          title:'Knowledge base',        span:'span-4',  render:s => dashKB() },
+  { id:'top-customers', title:'Top customers',       span:'span-8',  render:s => dashTopCustomers() },
+];
+const REPORT_WIDGETS = [
+  { id:'r-status',    title:'Status breakdown', render:s => reportStatus(s),   charts:['bar','donut'] },
+  { id:'r-sla',       title:'SLA',              render:s => reportSLA(s),      charts:['tiles','bar'] },
+  { id:'r-priority',  title:'Priority',         render:s => reportPriority(s), charts:['bar','donut'] },
+  { id:'r-category',  title:'Category',         render:s => reportCategory(s), charts:['bar','donut'] },
+  { id:'r-agents',    title:'Tickets per agent',render:s => reportAgents(s) },
+  { id:'r-csat',      title:'CSAT',             render:s => reportCSAT(s) },
+  { id:'r-time',      title:'Time logged',      render:s => reportTime(s) },
+];
+
+const DEFAULT_DASH_LAYOUT   = { order: DASH_WIDGETS.map(w => w.id), hidden: [], charts: {} };
+const DEFAULT_REPORT_LAYOUT = { order: REPORT_WIDGETS.map(w => w.id), hidden: [], charts: {} };
+
+function loadLayout(key, fallback) {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!raw || typeof raw !== 'object') return { ...fallback, hidden: [...fallback.hidden], order: [...fallback.order], charts: { ...fallback.charts } };
+    return {
+      order:  Array.isArray(raw.order)  ? raw.order  : [...fallback.order],
+      hidden: Array.isArray(raw.hidden) ? raw.hidden : [...fallback.hidden],
+      charts: (raw.charts && typeof raw.charts === 'object') ? raw.charts : { ...fallback.charts },
+    };
+  } catch (e) { return { ...fallback }; }
+}
+function saveLayout(key, layout) {
+  localStorage.setItem(key, JSON.stringify(layout));
+}
+
+let DASH_LAYOUT   = loadLayout('dash_layout',   DEFAULT_DASH_LAYOUT);
+let REPORT_LAYOUT = loadLayout('report_layout', DEFAULT_REPORT_LAYOUT);
+
+// New widgets added in code releases need to land at the end of the order so
+// they're discoverable without nuking the agent's existing arrangement.
+function reconcileLayout(layout, widgets) {
+  const ids = widgets.map(w => w.id);
+  layout.order = layout.order.filter(id => ids.includes(id));
+  ids.forEach(id => { if (!layout.order.includes(id)) layout.order.push(id); });
+  layout.hidden = layout.hidden.filter(id => ids.includes(id));
+  return layout;
+}
+reconcileLayout(DASH_LAYOUT,   DASH_WIDGETS);
+reconcileLayout(REPORT_LAYOUT, REPORT_WIDGETS);
+
+function widgetChrome(scope, w, innerHtml, chartType) {
+  // Strip the outer .card wrapper from each widget's existing render so we
+  // can put our chrome around it. Widget render functions historically wrap
+  // their body in `<div class="card ...">...</div>`; we extract the inner
+  // content so the chrome can include a drag handle + menu.
+  const m = innerHtml.match(/^\s*<div class="card([^"]*)"([^>]*)>([\s\S]*)<\/div>\s*$/);
+  let spanClass = '';
+  let body = innerHtml;
+  if (m) {
+    spanClass = (m[1] || '').trim();
+    body = m[3];
+    // Strip the widget's own "card-title" so the chrome shows the title.
+    body = body.replace(/^\s*<div class="card-title"[^>]*>[\s\S]*?<\/div>\s*/, '');
+  } else if (w.span) {
+    spanClass = w.span;
+  }
+  const chartMenu = (w.charts && w.charts.length > 1) ? `<button title="Chart type" onclick="event.stopPropagation();showWidgetMenu(this,'${scope}','${w.id}','chart')">📊</button>` : '';
+  return `
+    <div class="widget card ${spanClass}" data-widget-scope="${scope}" data-widget-id="${w.id}" draggable="true"
+         ondragstart="widgetDragStart(event,'${scope}','${w.id}')"
+         ondragend="widgetDragEnd(event)"
+         ondragover="widgetDragOver(event,'${scope}','${w.id}')"
+         ondragleave="widgetDragLeave(event)"
+         ondrop="widgetDragDrop(event,'${scope}','${w.id}')">
+      <div class="widget-head" title="Drag to reorder">
+        <span class="widget-handle">⋮⋮</span>
+        <span class="widget-title">${escHtml(w.title)}${chartType ? ` · <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink3);font-style:italic">${escHtml(chartType)}</span>` : ''}</span>
+        <div class="widget-actions">
+          ${chartMenu}
+          <button title="Hide widget" onclick="event.stopPropagation();hideWidgetById('${scope}','${w.id}')">×</button>
+        </div>
+      </div>
+      <div class="widget-body">${body}</div>
+    </div>`;
+}
+
+function renderWidgetGrid(scope, gridClass, widgets, layout, stats) {
+  const byId = Object.fromEntries(widgets.map(w => [w.id, w]));
+  const items = layout.order
+    .filter(id => !layout.hidden.includes(id))
+    .map(id => byId[id])
+    .filter(Boolean);
+  const hiddenN = layout.hidden.length;
+  const cards = items.map(w => widgetChrome(scope, w, w.render(stats), layout.charts[w.id])).join('');
+  return `
+    <div class="${gridClass}" data-widget-scope="${scope}">${cards}</div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="showManageWidgetsModal('${scope}')">⚙ Manage widgets${hiddenN ? ` · ${hiddenN} hidden` : ''}</button>
+    </div>`;
+}
+
+let _widgetDragging = null;
+function widgetDragStart(ev, scope, id) {
+  _widgetDragging = { scope, id };
+  ev.target.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+  // Some browsers require setData() to actually start a drag.
+  try { ev.dataTransfer.setData('text/plain', id); } catch(e) {}
+}
+function widgetDragEnd(ev) {
+  ev.target.classList.remove('dragging');
+  document.querySelectorAll('.widget.drop-target-before,.widget.drop-target-after').forEach(el => {
+    el.classList.remove('drop-target-before','drop-target-after');
+  });
+  _widgetDragging = null;
+}
+function widgetDragOver(ev, scope, id) {
+  if (!_widgetDragging || _widgetDragging.scope !== scope) return;
+  if (_widgetDragging.id === id) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = 'move';
+  const target = ev.currentTarget;
+  const rect = target.getBoundingClientRect();
+  const before = (ev.clientX - rect.left) < rect.width / 2;
+  target.classList.toggle('drop-target-before', before);
+  target.classList.toggle('drop-target-after', !before);
+}
+function widgetDragLeave(ev) {
+  ev.currentTarget.classList.remove('drop-target-before','drop-target-after');
+}
+function widgetDragDrop(ev, scope, targetId) {
+  if (!_widgetDragging || _widgetDragging.scope !== scope) return;
+  ev.preventDefault();
+  const target = ev.currentTarget;
+  const rect = target.getBoundingClientRect();
+  const before = (ev.clientX - rect.left) < rect.width / 2;
+  target.classList.remove('drop-target-before','drop-target-after');
+  reorderWidget(scope, _widgetDragging.id, targetId, before);
+}
+
+function reorderWidget(scope, srcId, targetId, before) {
+  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  const i = layout.order.indexOf(srcId);
+  if (i < 0) return;
+  layout.order.splice(i, 1);
+  let j = layout.order.indexOf(targetId);
+  if (j < 0) j = layout.order.length;
+  if (!before) j += 1;
+  layout.order.splice(j, 0, srcId);
+  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+}
+
+function hideWidgetById(scope, id) {
+  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  if (!layout.hidden.includes(id)) layout.hidden.push(id);
+  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+}
+function showWidgetById(scope, id) {
+  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  layout.hidden = layout.hidden.filter(x => x !== id);
+  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+}
+function setWidgetChart(scope, id, chartType) {
+  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  layout.charts = layout.charts || {};
+  layout.charts[id] = chartType;
+  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
+  document.querySelectorAll('.widget-menu').forEach(el => el.remove());
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+}
+function resetWidgetLayout(scope) {
+  const isDash = scope === 'dash';
+  const layout = isDash ? { ...DEFAULT_DASH_LAYOUT, order:[...DEFAULT_DASH_LAYOUT.order], hidden:[] } : { ...DEFAULT_REPORT_LAYOUT, order:[...DEFAULT_REPORT_LAYOUT.order], hidden:[] };
+  if (isDash) DASH_LAYOUT = layout; else REPORT_LAYOUT = layout;
+  saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
+  closeModal();
+  renderPage(isDash ? 'dashboard' : 'reports');
+}
+
+function showWidgetMenu(anchor, scope, id, kind) {
+  document.querySelectorAll('.widget-menu').forEach(el => el.remove());
+  const widgets = scope === 'dash' ? DASH_WIDGETS : REPORT_WIDGETS;
+  const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  const w = widgets.find(x => x.id === id);
+  if (!w || kind !== 'chart' || !w.charts) return;
+  const current = layout.charts[id] || w.charts[0];
+  const menu = document.createElement('div');
+  menu.className = 'widget-menu';
+  menu.innerHTML = `
+    <div class="widget-menu-head">Chart type</div>
+    ${w.charts.map(c => `<div class="widget-menu-item ${c===current?'active':''}" onclick="setWidgetChart('${scope}','${id}','${c}')">${c === current ? '✓' : '·'} ${escHtml(c)}</div>`).join('')}`;
+  document.body.appendChild(menu);
+  const r = anchor.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 4}px`;
+  menu.style.left = `${Math.max(8, r.right - 160)}px`;
+  // Dismiss on outside click
+  setTimeout(() => {
+    const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
+    document.addEventListener('mousedown', close);
+  }, 0);
+}
+
+function showManageWidgetsModal(scope) {
+  const widgets = scope === 'dash' ? DASH_WIDGETS : REPORT_WIDGETS;
+  const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  const body = widgets.map(w => {
+    const visible = !layout.hidden.includes(w.id);
+    return `
+      <div class="settings-row">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--ink)">${escHtml(w.title)}</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px;font-family:'DM Mono',monospace">${escHtml(w.id)}</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" ${visible?'checked':''} onchange="this.checked ? showWidgetById('${scope}','${w.id}') : hideWidgetById('${scope}','${w.id}')">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>`;
+  }).join('');
+  showModal(scope === 'dash' ? 'Manage dashboard widgets' : 'Manage report widgets', `
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Toggle a widget off to remove it from the layout. Drag the widget headers on the page to rearrange. Order and visibility are saved per browser.</div>
+    ${body}
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule);text-align:right">
+      <button class="btn btn-sm btn-danger" onclick="resetWidgetLayout('${scope}')">Reset to default</button>
+    </div>
+  `, null, null);
+}
+
 function renderDashboard() {
   const stats = computeReportStats(TICKETS);
   const open = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
@@ -6021,21 +6330,7 @@ function renderDashboard() {
         <div class="kpi"><div class="kpi-n c-green">${stats.resolved}</div><div class="kpi-l">Resolved</div></div>
       </div>
       <div class="page-scroll">
-        <div class="dash-grid-12">
-          ${dashToday()}
-          ${dashRecentTickets()}
-          ${dashStatus(stats)}
-          ${dashPriority(stats)}
-          ${dashSLA(stats)}
-          ${dashVolumeTrend()}
-          ${dashCSAT(stats)}
-          ${dashAgentLoad()}
-          ${dashPersonal()}
-          ${dashAITags()}
-          ${dashWorkflows()}
-          ${dashKB()}
-          ${dashTopCustomers()}
-        </div>
+        ${renderWidgetGrid('dash', 'dash-grid-12', DASH_WIDGETS, DASH_LAYOUT, stats)}
       </div>
     </div>`;
 }
@@ -7015,29 +7310,20 @@ function rBarRow(label, count, max, color) {
 
 function reportStatus(s) {
   const items = Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]);
-  const segs = items.map(([k, v]) => {
-    const pct = s.total ? (v/s.total)*100 : 0;
-    return `<div title="${k}: ${v}" style="background:${STATUS_COLORS[k]||'var(--ink3)'};width:${pct}%"></div>`;
-  }).join('');
-  const legend = items.map(([k, v]) => {
-    const pct = s.total ? Math.round(v/s.total*100) : 0;
-    return `<div class="donut-row"><span class="donut-dot" style="background:${STATUS_COLORS[k]||'var(--ink3)'}"></span><span style="flex:1;text-transform:capitalize;color:var(--ink2)">${k}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3)">${v} · ${pct}%</span></div>`;
-  }).join('');
-  return `<div class="card"><div class="card-title">Status distribution</div><div class="r-stack">${segs}</div><div style="margin-top:14px">${legend}</div></div>`;
+  const chart = REPORT_LAYOUT.charts['r-status'] || 'bar';
+  return `<div class="card"><div class="card-title">Status distribution</div>${renderCategoricalChart(items, k => STATUS_COLORS[k] || 'var(--ink3)', chart)}</div>`;
 }
 
 function reportPriority(s) {
   const items = ['urgent','high','normal','low'].filter(p => s.byPriority[p]).map(p => [p, s.byPriority[p]]);
-  const max = Math.max(...items.map(i => i[1]), 1);
-  const rows = items.map(([k, v]) => rBarRow(k, v, max, PRIORITY_COLORS[k])).join('');
-  return `<div class="card"><div class="card-title">Priority breakdown</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+  const chart = REPORT_LAYOUT.charts['r-priority'] || 'bar';
+  return `<div class="card"><div class="card-title">Priority breakdown</div>${renderCategoricalChart(items, k => PRIORITY_COLORS[k] || 'var(--ink3)', chart)}</div>`;
 }
 
 function reportCategory(s) {
   const items = Object.entries(s.byCategory).sort((a,b) => b[1] - a[1]);
-  const max = Math.max(...items.map(i => i[1]), 1);
-  const rows = items.map(([k, v]) => rBarRow(k, v, max, 'var(--cyan)')).join('');
-  return `<div class="card"><div class="card-title">Category volume</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+  const chart = REPORT_LAYOUT.charts['r-category'] || 'bar';
+  return `<div class="card"><div class="card-title">Category volume</div>${renderCategoricalChart(items, () => 'var(--cyan)', chart)}</div>`;
 }
 
 function reportAgents(s) {
@@ -7140,15 +7426,7 @@ function renderReports() {
         <div class="kpi"><div class="kpi-n c-purple">${fmtMinutes(s.timeTotal)}</div><div class="kpi-l">Time logged</div></div>
       </div>
       <div class="page-scroll">
-        <div class="report-grid">
-          ${reportStatus(s)}
-          ${reportSLA(s)}
-          ${reportPriority(s)}
-          ${reportCategory(s)}
-          ${reportAgents(s)}
-          ${reportCSAT(s)}
-          ${reportTime(s)}
-        </div>
+        ${renderWidgetGrid('report', 'report-grid', REPORT_WIDGETS, REPORT_LAYOUT, s)}
       </div>
     </div>`;
 }
