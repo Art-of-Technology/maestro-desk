@@ -6654,12 +6654,13 @@ const WEBHOOKS = (() => {
   catch (e) { return seedWebhooks(); }
 })();
 function seedWebhooks() {
-  // Seed one example pointing at a public request-bin-style host so an admin
-  // can immediately see a delivery without configuring anything.
+  // One disabled example so an admin can see the shape immediately. Points
+  // at a clearly-fake URL — admins must edit before enabling, and the
+  // disabled state makes it obvious nothing is firing on first open.
   return [{
     id: 'WH-001',
-    name: 'Slack relay (example)',
-    url: 'https://webhook.site/your-uuid-here',
+    name: 'Example — edit the URL before enabling',
+    url: 'https://your-relay.example.com/webhook',
     secret: '',
     events: ['ticket.resolved', 'sla.breach'],
     active: false,
@@ -6676,30 +6677,58 @@ function whNextId() {
   return 'WH-' + String(max + 1).padStart(3, '0');
 }
 
-// Fire any webhooks subscribed to `event` with the given payload. Each delivery
-// records the outcome in a per-hook log capped at WEBHOOK_DELIVERY_CAP entries.
-async function fireWebhook(event, payload) {
-  if (!WEBHOOKS.length) return;
-  const hooks = WEBHOOKS.filter(h => h.active && (h.events || []).includes(event));
-  if (!hooks.length) return;
-  const body = JSON.stringify({ event, at: new Date().toISOString(), payload });
-  for (const h of hooks) {
-    const started = Date.now();
+// HMAC-SHA256 signs the body with the webhook's shared secret. Lets the
+// receiver verify the request came from us and hasn't been tampered with.
+// SubtleCrypto is part of the Web Crypto API and is widely supported.
+async function hmacSha256Hex(secret, body) {
+  if (!secret || !crypto?.subtle) return null;
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name:'HMAC', hash:'SHA-256' }, false, ['sign']);
+    const sig = await crypto.subtle.sign('HMAC', key, enc.encode(body));
+    return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) { return null; }
+}
+
+// POST a single hook. Splitting this out from the broadcast loop lets the
+// test-fire button target one hook without mutating the WEBHOOKS array.
+async function deliverWebhook(h, event, body) {
+  const started = Date.now();
+  let entry;
+  // Defensive URL check: form validation rejects non-http(s) on save, but
+  // re-check here so a tampered localStorage entry can't smuggle a
+  // javascript:/file:/data: target into fetch.
+  if (typeof h.url !== 'string' || !/^https?:\/\//i.test(h.url.trim())) {
+    entry = { ts: new Date().toISOString(), event, status: 0, ok: false, durationMs: 0, error: 'Invalid URL (must start with http:// or https://)' };
+  } else {
     const headers = { 'Content-Type': 'application/json', 'X-Webhook-Event': event };
-    if (h.secret) headers['X-Webhook-Secret'] = h.secret;
-    let entry;
+    if (h.secret) {
+      const sig = await hmacSha256Hex(h.secret, body);
+      if (sig) headers['X-Webhook-Signature'] = 'sha256=' + sig;
+    }
     try {
       const res = await fetch(h.url, { method: 'POST', headers, body, mode: 'cors' });
       entry = { ts: new Date().toISOString(), event, status: res.status, ok: res.ok, durationMs: Date.now() - started };
     } catch (e) {
       entry = { ts: new Date().toISOString(), event, status: 0, ok: false, durationMs: Date.now() - started, error: e?.message || 'fetch failed (likely CORS)' };
     }
-    h.deliveries = (h.deliveries || []);
-    h.deliveries.unshift(entry);
-    if (h.deliveries.length > WEBHOOK_DELIVERY_CAP) h.deliveries.length = WEBHOOK_DELIVERY_CAP;
-    h.lastFiredAt = entry.ts;
-    h.lastStatus = entry.ok ? 'success' : 'failure';
   }
+  h.deliveries = h.deliveries || [];
+  h.deliveries.unshift(entry);
+  if (h.deliveries.length > WEBHOOK_DELIVERY_CAP) h.deliveries.length = WEBHOOK_DELIVERY_CAP;
+  h.lastFiredAt = entry.ts;
+  h.lastStatus = entry.ok ? 'success' : 'failure';
+  return entry;
+}
+
+// Fire all webhooks subscribed to `event`. Deliveries run in parallel via
+// Promise.all so a slow endpoint doesn't block the others.
+async function fireWebhook(event, payload) {
+  if (!WEBHOOKS.length) return;
+  const hooks = WEBHOOKS.filter(h => h.active && (h.events || []).includes(event));
+  if (!hooks.length) return;
+  const body = JSON.stringify({ event, at: new Date().toISOString(), payload });
+  await Promise.all(hooks.map(h => deliverWebhook(h, event, body)));
   saveWebhooks();
   if (CURRENT_PAGE === 'webhooks') renderPage('webhooks');
 }
@@ -6773,20 +6802,13 @@ function whDelete(id) {
 async function whTestFire(id) {
   const h = WEBHOOKS.find(x => x.id === id);
   if (!h) return;
-  // Fire a sample payload regardless of the active flag; route through fireWebhook
-  // by temporarily flipping the active state so the existing pipeline applies.
-  const wasActive = h.active;
-  h.active = true;
-  const samplePayload = { test: true, message: 'Test delivery from Maestro Desk webhooks', timestamp: new Date().toISOString() };
-  // Pick the first subscribed event for the test, or 'ticket.created' if none yet.
+  // Test-fire bypasses the active/subscribed filters and goes through the
+  // single-hook deliver helper directly. Avoids the race that would happen
+  // if a real event landed while we mutated the shared WEBHOOKS array.
   const event = (h.events && h.events[0]) || 'ticket.created';
-  // Run only this hook by isolating temporarily.
-  const others = WEBHOOKS.filter(w => w !== h);
-  WEBHOOKS.length = 0; WEBHOOKS.push(h);
-  await fireWebhook(event, samplePayload);
-  WEBHOOKS.length = 0;
-  WEBHOOKS.push(h, ...others);
-  h.active = wasActive;
+  const samplePayload = { test: true, message: 'Test delivery from Maestro Desk webhooks', timestamp: new Date().toISOString() };
+  const body = JSON.stringify({ event, at: new Date().toISOString(), payload: samplePayload });
+  await deliverWebhook(h, event, body);
   saveWebhooks();
   renderPage('webhooks');
 }
@@ -6856,7 +6878,7 @@ function renderWebhooks() {
           <div class="card-title" style="margin-bottom:10px">Recent deliveries (${recentDeliveries.length})</div>
           ${deliveryRows}
         </div>
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Webhooks fire as POST requests with a JSON body — <code style="font-family:'DM Mono',monospace">{event, at, payload}</code> — and an <code style="font-family:'DM Mono',monospace">X-Webhook-Event</code> header. If a secret is set, it ships as <code style="font-family:'DM Mono',monospace">X-Webhook-Secret</code>. Browser CORS will block most direct cross-origin endpoints — route via a relay (workflow tool or serverless function) when targeting third-party services.</div>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Webhooks fire as POST requests with a JSON body — <code style="font-family:'DM Mono',monospace">{event, at, payload}</code> — and an <code style="font-family:'DM Mono',monospace">X-Webhook-Event</code> header. If a secret is set the body is HMAC-SHA256 signed with it and the signature ships as <code style="font-family:'DM Mono',monospace">X-Webhook-Signature: sha256=&lt;hex&gt;</code> so the receiver can verify the request came from us. Browser CORS will block most direct cross-origin endpoints — route via a relay (workflow tool or serverless function) when targeting third-party services.</div>
       </div>
     </div>`;
 }
