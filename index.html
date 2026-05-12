@@ -6945,14 +6945,96 @@ function whEdit(id) {
   const h = WEBHOOKS.find(x => x.id === id);
   if (h) whFormModal(h);
 }
+// Common integration targets — pre-fill name + URL pattern + sensible event
+// subscriptions. The "note" surfaces during template selection so admins know
+// what shape the relay/receiver should expect. Payload shape is always the
+// app's native {event, at, payload}; transforming for chat targets is left to
+// the relay (Zapier, n8n, serverless function, etc.) which makes templates
+// composable rather than locked-in.
+const WEBHOOK_TEMPLATES = [
+  { id:'slack', name:'Slack — incoming webhook',
+    url:'https://hooks.slack.com/services/T0000/B0000/XXXXXXXXXXXX',
+    events:['ticket.escalated','sla.breach'],
+    note:'Slack incoming webhooks expect {text}. Route via a relay (Zapier / Workflow) that formats the native payload into Slack message text, or use a Slack workflow accepting raw JSON.' },
+  { id:'teams', name:'Microsoft Teams — incoming webhook',
+    url:'https://outlook.office.com/webhook/00000000-0000/IncomingWebhook/...',
+    events:['ticket.escalated','sla.breach'],
+    note:'Teams Office 365 / Power Automate webhooks expect MessageCard or Adaptive Card JSON. Use a Logic Apps step to transform first.' },
+  { id:'discord', name:'Discord — channel webhook',
+    url:'https://discord.com/api/webhooks/0000000000/XXXXXXXX',
+    events:['ticket.escalated','sla.breach','ticket.resolved'],
+    note:'Discord webhooks expect {content} or {embeds}. Route via a relay or a Discord-side webhook handler that maps event to message.' },
+  { id:'pagerduty', name:'PagerDuty — Events API v2',
+    url:'https://events.pagerduty.com/v2/enqueue',
+    events:['sla.breach','ticket.escalated'],
+    note:'PagerDuty Events API expects {routing_key, event_action, payload}. Put the routing key in the secret field and rebuild the payload in a relay.' },
+  { id:'opsgenie', name:'Opsgenie — alert API',
+    url:'https://api.opsgenie.com/v2/alerts',
+    events:['sla.breach','ticket.escalated'],
+    note:'Opsgenie expects GenieKey auth in the Authorization header and a {message, alias, description} body — transform via relay.' },
+  { id:'zapier', name:'Zapier — catch hook',
+    url:'https://hooks.zapier.com/hooks/catch/0000000/abcdef/',
+    events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
+    note:'Zapier catch hooks accept any JSON, so the native payload works as-is. Map fields in a downstream Zap step.' },
+  { id:'make', name:'Make.com — custom webhook',
+    url:'https://hook.eu1.make.com/abcdefghijklmnopqrstuvwxyz0123',
+    events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
+    note:'Make custom webhooks accept arbitrary JSON. The native payload works as-is.' },
+  { id:'n8n', name:'n8n — Webhook node',
+    url:'https://n8n.example.com/webhook/maestro-desk',
+    events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
+    note:'n8n Webhook nodes accept arbitrary JSON and you build the downstream flow visually.' },
+  { id:'jira', name:'Jira Cloud — create issue (REST)',
+    url:'https://your-domain.atlassian.net/rest/api/3/issue',
+    events:['ticket.escalated'],
+    note:'Direct Jira API requires Basic auth — supply the base64 of email:token in the Authorization header (use a relay; the browser can\'t set Authorization on cross-origin requests).' },
+  { id:'linear', name:'Linear — issue create (relay)',
+    url:'https://your-relay.example.com/linear-create',
+    events:['ticket.escalated'],
+    note:'Linear\'s API uses GraphQL + bearer auth. Route via a relay that translates the native payload into a createIssue mutation.' },
+  { id:'github', name:'GitHub — repository_dispatch',
+    url:'https://api.github.com/repos/OWNER/REPO/dispatches',
+    events:['ticket.created','ticket.escalated'],
+    note:'GitHub repository_dispatch requires a PAT in the Authorization header. Use a relay to add the auth header and reshape into {event_type, client_payload}.' },
+  { id:'webhook-site', name:'webhook.site — quick test target',
+    url:'https://webhook.site/your-uuid-here',
+    events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
+    note:'Free request inspector for quickly verifying delivery shape. Replace the UUID with your test endpoint.' },
+];
+
+function whApplyTemplate(idOrNull) {
+  if (!idOrNull) return;
+  const tpl = WEBHOOK_TEMPLATES.find(t => t.id === idOrNull);
+  if (!tpl) return;
+  const nameEl = document.getElementById('wh-name');
+  const urlEl  = document.getElementById('wh-url');
+  if (nameEl) nameEl.value = tpl.name;
+  if (urlEl)  urlEl.value  = tpl.url;
+  document.querySelectorAll('[data-wh-event]').forEach(el => { el.checked = tpl.events.includes(el.dataset.whEvent); });
+  const noteEl = document.getElementById('wh-template-note');
+  if (noteEl) {
+    noteEl.style.display = 'block';
+    noteEl.textContent = tpl.note;
+  }
+}
+
 function whFormModal(h) {
   const esc = s => String(s||'').replace(/"/g,'&quot;');
   const events = WEBHOOK_EVENT_TYPES;
   const subscribed = (h?.events) || [];
+  const templateOptions = WEBHOOK_TEMPLATES.map(t => `<option value="${escAttr(t.id)}">${escHtml(t.name)}</option>`).join('');
   showModal(h ? `Edit webhook · ${h.id}` : 'New webhook', `
+    ${!h ? `<div class="form-row">
+      <label class="form-label">Start from a template (optional)</label>
+      <select class="form-input" id="wh-template" onchange="whApplyTemplate(this.value)">
+        <option value="">— Blank webhook —</option>
+        ${templateOptions}
+      </select>
+      <div id="wh-template-note" style="display:none;font-size:11px;color:var(--ink3);margin-top:6px;padding:8px 10px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);line-height:1.5"></div>
+    </div>` : ''}
     <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="wh-name" value="${esc(h?.name)}" placeholder="e.g. Slack relay"/></div>
     <div class="form-row"><label class="form-label">URL</label><input class="form-input" id="wh-url" type="url" value="${esc(h?.url)}" placeholder="https://hooks.example.com/abc"/></div>
-    <div class="form-row"><label class="form-label">Secret (optional)</label><input class="form-input" id="wh-secret" type="password" value="${esc(h?.secret)}" placeholder="Sent as X-Webhook-Secret header"/></div>
+    <div class="form-row"><label class="form-label">Secret (optional)</label><input class="form-input" id="wh-secret" type="password" value="${esc(h?.secret)}" placeholder="Used as the HMAC-SHA256 signing key"/></div>
     <div class="form-row"><label class="form-label">Events</label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;border:1px solid var(--rule);border-radius:var(--r);padding:8px">
         ${events.map(e => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--ink2);cursor:pointer"><input type="checkbox" data-wh-event="${e.v}" ${subscribed.includes(e.v)?'checked':''}/> ${escHtml(e.l)}</label>`).join('')}
