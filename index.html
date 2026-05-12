@@ -6045,19 +6045,24 @@ function quickSwitcherSearch(rawQ) {
   }
   const match = text => text && String(text).toLowerCase().includes(q);
   const pageHits = pages.filter(p => match(p.label) || match(p.sub));
-  const tickets = TICKETS.filter(t => match(t.id) || match(t.subject) || match(t.agent) || (t.tags || []).some(match)).slice(0, 10).map(t => ({
+  // Guard these globals symmetrically with SEARCH_PAGES / KB_ARTICLES so the
+  // switcher renders cleanly even if a future refactor delays one of them.
+  const TKS = (typeof TICKETS    !== 'undefined' ? TICKETS    : []);
+  const CUS = (typeof CUSTOMERS  !== 'undefined' ? CUSTOMERS  : []);
+  const AGS = (typeof AGENTS     !== 'undefined' ? AGENTS     : []);
+  const tickets = TKS.filter(t => match(t.id) || match(t.subject) || match(t.agent) || (t.tags || []).some(match)).slice(0, 10).map(t => ({
     kind: 'ticket',
     label: t.subject,
     sub: `${t.id} · ${t.status} · ${t.priority}${t.agent ? ' · ' + t.agent : ''}`,
     payload: { ticketId: t.id },
   }));
-  const customers = CUSTOMERS.filter(c => match(c.first + ' ' + c.last) || match(c.id) || match(c.email) || match(c.brand)).slice(0, 8).map(c => ({
+  const customers = CUS.filter(c => match(c.first + ' ' + c.last) || match(c.id) || match(c.email) || match(c.brand)).slice(0, 8).map(c => ({
     kind: 'customer',
     label: `${c.first} ${c.last}`,
     sub: `${c.id} · ${c.brand || ''} · ${c.email || ''}`.replace(/\s·\s$/, ''),
     payload: { customerId: c.id },
   }));
-  const agents = AGENTS.filter(a => match(a.name) || match(a.role)).slice(0, 6).map(a => ({
+  const agents = AGS.filter(a => match(a.name) || match(a.role)).slice(0, 6).map(a => ({
     kind: 'agent',
     label: a.name,
     sub: `${a.role}${isAgentOOO?.(a.name) ? ' · OOO' : ''}`,
