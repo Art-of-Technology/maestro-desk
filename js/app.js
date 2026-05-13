@@ -36,6 +36,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   insertMention, mentionDropdownKey,
 } from './tickets/mentions.js';
+import { loadDraft, saveDraft, clearDraft } from './tickets/drafts.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let FILTER_STATUS = 'all';
@@ -45,7 +46,6 @@ let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
 let REPORT_TF = '30d';
-let COMPOSE_TAB = 'reply';
 let CUST_TAB = 'all';
 let AI_MESSAGES = [];
 
@@ -1310,13 +1310,6 @@ function prevNextTicket(dir) {
   if (next) openTicket(next.id);
 }
 
-function getDraftKey(id) { return `draft:${id}:${COMPOSE_TAB}`; }
-function loadDraft(id)   { return localStorage.getItem(getDraftKey(id)) || ''; }
-function saveDraft(id, value) {
-  if (value && value.length) localStorage.setItem(getDraftKey(id), value);
-  else localStorage.removeItem(getDraftKey(id));
-}
-function clearDraft(id) { localStorage.removeItem(getDraftKey(id)); }
 
 function onComposeInput(id) {
   const el = document.getElementById('compose-' + id);
