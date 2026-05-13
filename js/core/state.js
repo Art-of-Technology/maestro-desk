@@ -27,6 +27,7 @@ let CUSTOMER_SELECTED = null;
 let KB_SELECTED = null;
 let TAG_SELECTED = null;
 let INBOX_SELECTED_ID = null;
+let WF_SELECTED = null;
 let SETTINGS_TAB = 'profile';
 let LAYOUTS_TAB = 'ticket';
 let ACT_FILTER_ENTITY = 'all';
