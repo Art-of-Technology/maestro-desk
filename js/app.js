@@ -1,12 +1,7 @@
 // ─── State ───────────────────────────────────────────────────────────────────
 let SESSION = null;
-let CURRENT_PAGE = 'dashboard';
 let CURRENT_TICKET = null;
 let FILTER_STATUS = 'all';
-let FILTER_CATEGORY = 'all';
-let FILTER_PRIORITY = 'all';
-let FILTER_AGENT = 'all';
-let FILTER_QUERY = '';
 let FILTER_VIEW = 'all';
 let TICKET_GROUP_BY = 'none';
 const TICKET_SELECTED_IDS = new Set();
@@ -2608,7 +2603,6 @@ function ntApplyTemplate(id) {
 
 // ─── Ticket Templates page ───────────────────────────────────────────────────
 let TT_QUERY = '';
-let TT_FILTER_CAT = 'all';
 
 function renderTicketTemplates() {
   const admin = isAdmin();
@@ -2747,18 +2741,6 @@ function ttDelete(id) {
 
 // ─── Customers ────────────────────────────────────────────────────────────────
 // ─── Customer table column state ─────────────────────────────────────────────
-const BASE_COLUMNS = [
-  {id:'id',label:'Customer ID',fixed:true},
-  {id:'name',label:'Name',fixed:true},
-  {id:'username',label:'Username',fixed:false},
-  {id:'brand',label:'Brand',fixed:false},
-  {id:'vip',label:'VIP',fixed:false},
-  {id:'jurisdiction',label:'Jurisdiction',fixed:false},
-  {id:'consent',label:'Consent',fixed:false},
-  {id:'kyc',label:'KYC',fixed:false},
-];
-let CUST_COLUMNS = BASE_COLUMNS.map(c=>({...c,visible:true}));
-let CUST_DRAG_COL = null;
 
 function getCustColumns() {
   const customCols = CUSTOM_FIELDS.map(f=>({id:'cf_'+f.id,label:f.label,fixed:false,isCustom:true,cfId:f.id}));
@@ -2856,7 +2838,6 @@ let CUST_VIP_FILTER = 'all';
 let CUST_BRAND_FILTER = 'all';
 let CUST_VIEW_FILTER = 'all';
 let CUST_GROUP_BY = 'none';
-let CUSTOMER_SELECTED = null;
 const CUSTOMER_SELECTED_IDS = new Set();
 
 function applyCustFilters() {
@@ -3651,7 +3632,6 @@ function gsOpenAllResults(q) {
 
 // ─── Full search results page ────────────────────────────────────────────────
 let SEARCH_PAGE_QUERY = '';
-let SEARCH_PAGE_FILTER = 'all';
 
 function renderSearchResults() {
   const ql = SEARCH_PAGE_QUERY.toLowerCase().trim();
@@ -4056,7 +4036,6 @@ function renderNotificationsPage() {
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
-let SETTINGS_TAB = 'profile';
 let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true };
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
 if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
@@ -4468,7 +4447,6 @@ function setAIKey(v)   { AI_API_KEY = v.trim(); localStorage.setItem('ai_api_key
 function setAIModel(v) { AI_MODEL = v;          localStorage.setItem('ai_model', AI_MODEL); }
 
 // ─── Knowledge Base ──────────────────────────────────────────────────────────
-let KB_SELECTED = null;
 let KB_QUERY = '';
 let KB_FILTER_CAT = 'all';
 
@@ -5720,7 +5698,6 @@ function renderDashboard() {
 }
 
 // ─── Channels ────────────────────────────────────────────────────────────────
-let CH_FILTER = 'all';
 
 const CH_TYPES = [
   { v:'email',   l:'Email',     icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 3.5L7 8l5.5-4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
@@ -6142,8 +6119,6 @@ function renderChannels() {
 }
 
 // ─── Activity log ────────────────────────────────────────────────────────────
-let ACT_FILTER_TYPE = 'all';
-let ACT_FILTER_ENTITY = 'all';
 let ACT_QUERY = '';
 
 function getAllActivity() {
@@ -6493,9 +6468,6 @@ function renderPortalProfile(cust) {
 }
 
 // ─── Inbox (incoming email triage) ──────────────────────────────────────────
-let INBOX_SELECTED_ID = null;
-let INBOX_FILTER_CHANNEL = 'all';
-let INBOX_FILTER_STATUS  = 'new';
 
 function dismissEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
@@ -7155,7 +7127,6 @@ function renderReports() {
 let AGENT_FILTER_ROLE = 'all';
 let AGENT_FILTER_STATUS = 'all';
 let AGENT_QUERY = '';
-let AGENT_SELECTED = null;
 
 function getAgentStats(name) {
   const tickets = TICKETS.filter(t => t.agent === name);
@@ -7891,8 +7862,6 @@ const WF_ACTION_PRESETS = [
 ];
 
 // ─── CSAT surveys ────────────────────────────────────────────────────────────
-let CSAT_FILTER_SCORE = 'all';
-let CSAT_FILTER_AGENT = 'all';
 
 function csatStarString(n) {
   const score = Math.max(0, Math.min(5, parseInt(n, 10) || 0));
@@ -8122,7 +8091,6 @@ function renderCSAT() {
 }
 
 // ─── Macros ──────────────────────────────────────────────────────────────────
-let MACRO_FILTER_QUERY = '';
 
 function macNextId() {
   const max = Math.max(0, ...MACROS.map(m => parseInt((m.id||'').split('-')[1] || '0', 10)));
@@ -8432,7 +8400,6 @@ function renderMacros() {
 }
 
 // ─── Assignment rules ───────────────────────────────────────────────────────
-let AR_FILTER = 'all';
 
 function arNextId() {
   const max = Math.max(0, ...ASSIGN_RULES.map(r => parseInt((r.id||'').split('-')[1] || '0', 10)));
@@ -8928,7 +8895,6 @@ function renderBusinessHours() {
 }
 
 // ─── SLA policies ────────────────────────────────────────────────────────────
-let SLA_FILTER = 'all';
 
 function fmtSLAMinutes(min) {
   if (!min || min < 1) return '—';
@@ -9368,7 +9334,6 @@ function wfDelete(id) {
 // ─── Tags ────────────────────────────────────────────────────────────────────
 let TAG_FILTER_TYPE = 'all';
 let TAG_QUERY = '';
-let TAG_SELECTED = null;
 const TAG_SELECTED_NAMES = new Set();
 let TAG_SORT_COL = 'count';
 let TAG_SORT_DIR = -1;
@@ -10230,7 +10195,6 @@ function submitCreate() {
 // ─── Modal/panel stubs (referenced by inline onclick) ────────────────────────
 // ─── Response templates page ─────────────────────────────────────────────────
 let TPL_QUERY = '';
-let TPL_FILTER_CAT = 'all';
 
 function renderTemplates() {
   const admin = isAdmin();
@@ -10426,7 +10390,6 @@ function showCSVModal() {
 // are key info that the schema can't function without — we still render them
 // in the UI but disable the Required toggle so admins can't accidentally
 // turn off something the rest of the app depends on.
-let LAYOUTS_TAB = 'ticket';
 const FIELD_LAYOUTS = {
   ticket: [
     { key:'subject',    label:'Subject',          locked:true,  required:true,  visible:true },
@@ -10534,7 +10497,6 @@ function renderLayouts() {
 }
 
 // ─── Custom Fields manager ───────────────────────────────────────────────────
-let CF_FILTER_ENTITY = 'all';
 
 const CF_TYPES = [
   { v:'text',    l:'Text' },
@@ -10712,3 +10674,290 @@ function showNewCustomerModal() {
     closeModal(); refreshCustTable(CUSTOMERS);
   }, 'Create');
 }
+
+// ─── Window bridge ─────────────────────────────────────────────────────────────
+// Inline HTML attribute handlers (onclick="foo()") look up identifiers via the
+// window scope chain, which does not see ES-module-scoped declarations. This
+// block re-exposes every function called from HTML onto window so the existing
+// inline handlers keep working after the <script type="module"> switch.
+// Generated from `comm -12 handler-calls top-level-fns`. When functions move
+// into per-feature modules later, their entries here are deleted.
+Object.assign(window, {
+  acceptAITag,
+  acceptAllAITags,
+  actGotoEntity,
+  actSetQuery,
+  addAgentToRolePrompt,
+  addCustomerNote,
+  addMockAttachment,
+  addPermissionPrompt,
+  addRolePrompt,
+  agentNew,
+  agentSetQuery,
+  agentSetRole,
+  agentSetStatus,
+  aiAction,
+  aiClear,
+  aiInputKey,
+  aiSend,
+  aiToggleSource,
+  aiUsePrompt,
+  arDelete,
+  arEdit,
+  arModeChanged,
+  arNew,
+  arToggle,
+  bhAddHoliday,
+  bhRemoveHoliday,
+  bhSetDayEnabled,
+  bhSetDayTime,
+  bhSetEnabled,
+  bulkAddTag,
+  bulkApplyAssignmentRules,
+  bulkAssignTickets,
+  bulkDeleteCustomers,
+  bulkDeleteTags,
+  bulkDeleteTickets,
+  bulkExportTickets,
+  bulkRunMacro,
+  bulkSetCustConsent,
+  bulkSetCustVIP,
+  bulkSetPriority,
+  bulkSetStatus,
+  bulkSetTagType,
+  bulkSnoozeTickets,
+  cfDelete,
+  cfEdit,
+  cfFormToggleOptions,
+  cfNew,
+  chDelete,
+  chEdit,
+  chNew,
+  chToggle,
+  changeTicketAgent,
+  changeTicketPriority,
+  changeTicketStatus,
+  clearAgentOOO,
+  clearAllNotifications,
+  clearCustSelection,
+  clearTagSelection,
+  clearTicketSelection,
+  clearTicketSummary,
+  closeAgentDetail,
+  closeCustomerProfile,
+  closeKBArticle,
+  closeModal,
+  closeNotifAndGo,
+  closeRoleAgents,
+  closeTagDetail,
+  closeWfDetail,
+  convertEmailToTicket,
+  convertTagType,
+  copyAIMessage,
+  copyTxResult,
+  csatHover,
+  csatPick,
+  custSetBrand,
+  custSetVIP,
+  deleteAgentPrompt,
+  deleteCustomerNote,
+  deleteRolePrompt,
+  dismissEmail,
+  dismissNotif,
+  dropCustCol,
+  duplicateWf,
+  exportCustomerList,
+  exportReport,
+  exportTicketList,
+  filterCustomers,
+  globalSearch,
+  gsGo,
+  gsKey,
+  gsOpenAllResults,
+  hideMessageTranslation,
+  insertMacro,
+  insertMention,
+  insertVar,
+  kbDeleteArticle,
+  kbEditArticle,
+  kbNewArticle,
+  kbSetCat,
+  kbSetQuery,
+  login,
+  logout,
+  macAddStep,
+  macDelete,
+  macEdit,
+  macNew,
+  macRemoveStep,
+  macStepKindChange,
+  markAllNotifRead,
+  markAllNotifReadAndRender,
+  markNotifRead,
+  markSpamEmail,
+  mergeTagPrompt,
+  nav,
+  navTo,
+  newAIConv,
+  notifPageSetRead,
+  notifPageSetType,
+  ntApplyTemplate,
+  onComposeInput,
+  openAgentDetail,
+  openAgentFromDash,
+  openCSATSurveyModal,
+  openChannel,
+  openCustomerModal,
+  openCustomerProfile,
+  openKBArticle,
+  openKBFromDash,
+  openNotification,
+  openNotificationFromPage,
+  openRoleAgents,
+  openTagDetail,
+  openTicket,
+  openWfDetail,
+  portalCreateTicket,
+  portalExit,
+  portalNav,
+  portalOpenTicket,
+  portalSendReply,
+  portalSetCustomer,
+  prevNextTicket,
+  profileMenuGo,
+  qsSetActive,
+  quickStatus,
+  quickSwitcherInput,
+  quickSwitcherKey,
+  quickSwitcherPick,
+  reassignAgent,
+  refreshTicketKbSuggestions,
+  removeAttachment,
+  removeTimeEntry,
+  renameRolePrompt,
+  renderPage,
+  requestCSAT,
+  resetAllCollapsedSections,
+  resetWidgetLayout,
+  restoreEmail,
+  runAssignmentRulesOnTicket,
+  runTranslator,
+  searchPageSetQuery,
+  selectAIConv,
+  sendCompose,
+  sendComposeAnd,
+  setAIKey,
+  setAIModel,
+  setAgentActive,
+  setAgentFilter,
+  setAgentPreferredLang,
+  setComposeTab,
+  setCustGroupBy,
+  setCustView,
+  setCustomerLanguage,
+  setKbCfg,
+  setLayoutFieldFlag,
+  setReportTF,
+  setSettingsTab,
+  setStatusFilter,
+  setTagSort,
+  setTheme,
+  setTicketGroupBy,
+  setTicketQuery,
+  setTicketView,
+  setWidgetChart,
+  showAgentOOOModal,
+  showApplyMacroModal,
+  showAttachPanel,
+  showAuthPanel,
+  showCSVModal,
+  showColumnPanel,
+  showCustomerGDPR,
+  showGDPRModal,
+  showLinkTicketModal,
+  showLogTimeModal,
+  showMacroPanel,
+  showManageFieldsModal,
+  showManageWidgetsModal,
+  showMergeCustomerModal,
+  showMergeTicketModal,
+  showNewCustomerModal,
+  showNewTicketModal,
+  showSentTextModal,
+  showSnoozeModal,
+  slaDelete,
+  slaEdit,
+  slaNew,
+  slaToggle,
+  sortTickets,
+  ssoLogin,
+  submitCreate,
+  submitForgot,
+  submitLogin,
+  submitSupport,
+  summarizeTicket,
+  tagDelete,
+  tagEdit,
+  tagNew,
+  tagSetQuery,
+  tagSetType,
+  testKbConnection,
+  toggleAIMenu,
+  toggleAllCustomers,
+  toggleAllTags,
+  toggleAllTickets,
+  toggleAutoTranslateReplies,
+  toggleCustSelected,
+  toggleFAQ,
+  toggleKBFeatured,
+  toggleNotifPref,
+  toggleNotifications,
+  togglePassword,
+  togglePermission,
+  toggleProfileMenu,
+  toggleQuickSwitcher,
+  toggleSendMenu,
+  toggleTagSelected,
+  toggleThreadTranslate,
+  toggleTicketSelected,
+  toggleWatch,
+  tplDelete,
+  tplDuplicate,
+  tplEdit,
+  tplNew,
+  tplSetQuery,
+  translateMessage,
+  ttDelete,
+  ttDuplicate,
+  ttEdit,
+  ttNew,
+  ttSetQuery,
+  unlinkTicket,
+  unmergeCustomer,
+  unmergeTicket,
+  unsnoozeTicket,
+  updateCustomField,
+  updateProfileInitials,
+  updateProfileName,
+  updatePwStrength,
+  useFollowUp,
+  voteKB,
+  wfDelete,
+  wfEdit,
+  wfNew,
+  wfRunNow,
+  wfSetFilter,
+  wfSetQuery,
+  wfToggle,
+  whApplyTemplate,
+  whDelete,
+  whEdit,
+  whNew,
+  whTestFire,
+  whToggle,
+  widgetDragDrop,
+  widgetDragEnd,
+  widgetDragLeave,
+  widgetDragOver,
+  widgetDragStart,
+});
