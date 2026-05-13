@@ -1,4 +1,5 @@
 import { THEME, applyTheme, setTheme } from './core/theme.js';
+import { AI_API_KEY, AI_MODEL, setAIKey, setAIModel, callClaude } from './ai/client.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let SESSION = null;
@@ -1084,23 +1085,11 @@ async function summarizeTicket(ticketId) {
   }).join('\n\n');
   const prompt = `Ticket ${t.id} · ${t.subject}\nCustomer: ${cust ? cust.first + ' ' + cust.last : t.customerId}\nStatus: ${t.status} · Priority: ${t.priority} · Category: ${t.category}\n\n${transcript}\n\nSummarise the conversation for an agent inheriting this ticket. Reply with strict JSON only, in this shape:\n{\n  "tldr": "one or two sentences capturing the gist",\n  "issue": "what the customer needs in 8-15 words",\n  "done": "what's been done so far in 8-15 words",\n  "next": "the most likely next action the agent should take in 8-15 words"\n}\nDo not include any prose outside the JSON.`;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 600,
-        system: 'You produce concise, agent-friendly handoff summaries for support tickets. Output strict JSON only.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
+    const { text: raw } = await callClaude({
+      system: 'You produce concise, agent-friendly handoff summaries for support tickets. Output strict JSON only.',
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 600,
     });
-    const d = await res.json();
-    const raw = d.content?.find(c => c.type === 'text')?.text;
     let parsed = null;
     try {
       const trimmed = (raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -1135,24 +1124,12 @@ async function translateText(text, targetLang) {
   if (!AI_API_KEY) return { error: 'No Claude API key configured. Add one in Settings → AI Assistant.' };
   if (!text || !text.trim()) return { error: 'No text to translate.' };
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-        'x-api-key': AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, polish it lightly for clarity.`,
-        messages: [{ role: 'user', content: text }],
-      })
+    const { text: translation, error } = await callClaude({
+      system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, polish it lightly for clarity.`,
+      messages: [{ role: 'user', content: text }],
+      maxTokens: 1000,
     });
-    const d = await res.json();
-    const translation = d.content?.find(c => c.type === 'text')?.text;
-    return translation ? { translation } : { error: d.error?.message || 'Could not translate.' };
+    return translation ? { translation } : { error: error || 'Could not translate.' };
   } catch (e) {
     return { error: 'Translation failed: ' + (e?.message || 'network error') };
   }
@@ -1182,24 +1159,12 @@ async function detectLanguage(text) {
   const sample = String(text || '').slice(0, 600);
   if (!sample.trim()) return null;
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-        'x-api-key': AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 30,
-        system: 'Identify the language of the text. Reply with ONLY the English name of the language using its common form (e.g. "French", "Japanese", "Spanish", "Mandarin Chinese", "English"). Nothing else — no punctuation, no explanation.',
-        messages: [{ role: 'user', content: sample }],
-      })
+    const { text } = await callClaude({
+      system: 'Identify the language of the text. Reply with ONLY the English name of the language using its common form (e.g. "French", "Japanese", "Spanish", "Mandarin Chinese", "English"). Nothing else — no punctuation, no explanation.',
+      messages: [{ role: 'user', content: sample }],
+      maxTokens: 30,
     });
-    const d = await res.json();
-    const out = (d.content?.find(c => c.type === 'text')?.text || '').trim();
-    return out || null;
+    return (text || '').trim() || null;
   } catch {
     return null;
   }
@@ -2382,22 +2347,12 @@ async function aiAction(id, action) {
   }
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-        'x-api-key': AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL || 'claude-sonnet-4-6', max_tokens: 800,
-        system: systemMsg,
-        messages: [{ role: 'user', content: userMsg }]
-      })
+    const { text, error } = await callClaude({
+      system: systemMsg,
+      messages: [{ role: 'user', content: userMsg }],
+      maxTokens: 800,
     });
-    const d = await res.json();
-    const txt = d.content?.find(c => c.type === 'text')?.text || d.error?.message;
+    const txt = text || error;
     if (txt) el.value = txt;
   } catch {
     el.value = el.value || 'AI unavailable. Please type your reply.';
@@ -4017,8 +3972,6 @@ function renderNotificationsPage() {
 let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true };
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
 if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
-let AI_API_KEY = localStorage.getItem('ai_api_key') || '';
-let AI_MODEL = localStorage.getItem('ai_model') || 'claude-sonnet-4-6';
 let AGENT_PREFERRED_LANG = localStorage.getItem('agent_preferred_lang') || 'English';
 
 // ─── Third-party KB integration ─────────────────────────────────────────────
@@ -4421,8 +4374,6 @@ function setAgentPreferredLang(v) {
   }
 }
 
-function setAIKey(v)   { AI_API_KEY = v.trim(); localStorage.setItem('ai_api_key', AI_API_KEY); }
-function setAIModel(v) { AI_MODEL = v;          localStorage.setItem('ai_model', AI_MODEL); }
 
 // ─── Knowledge Base ──────────────────────────────────────────────────────────
 let KB_QUERY = '';
@@ -7783,25 +7734,12 @@ async function aiSend() {
     .map(m => ({ role: m.r === 'user' ? 'user' : 'assistant', content: m.t }));
 
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type':'application/json',
-        'x-api-key': AI_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: AI_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        system: `You are an AI analyst embedded in a service desk app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
-        messages: conv,
-      })
+    const { text, error } = await callClaude({
+      system: `You are an AI analyst embedded in a service desk app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
+      messages: conv,
+      maxTokens: 1024,
     });
-    const d = await res.json();
-    const reply = d.content?.find(c => c.type === 'text')?.text
-      || d.error?.message
-      || 'Could not generate a response.';
+    const reply = text || error || 'Could not generate a response.';
     AI_MESSAGES.push({r:'ai', t:reply});
   } catch (e) {
     AI_MESSAGES.push({r:'ai', t:'AI unavailable: ' + (e?.message || 'network error')});
