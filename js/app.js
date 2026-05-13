@@ -1,3 +1,5 @@
+import { THEME, applyTheme, setTheme } from './core/theme.js';
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let SESSION = null;
 let CURRENT_TICKET = null;
@@ -13,30 +15,6 @@ let REPORT_TF = '30d';
 let COMPOSE_TAB = 'reply';
 let CUST_TAB = 'all';
 let AI_MESSAGES = [];
-
-// ─── Theme ────────────────────────────────────────────────────────────────────
-let THEME = localStorage.getItem('theme') || 'system';
-
-function applyTheme(t) {
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const useDark = t === 'dark' || (t === 'system' && prefersDark);
-  document.documentElement.classList.toggle('light', !useDark);
-}
-
-function setTheme(t) {
-  THEME = t;
-  localStorage.setItem('theme', t);
-  applyTheme(t);
-}
-
-// Listen for system preference changes
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (THEME === 'system') applyTheme('system');
-});
-
-// Apply on load
-applyTheme(THEME);
-
 
 function login(role, name, initials) {
   SESSION = {role, name, initials};
