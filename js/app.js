@@ -37,6 +37,7 @@ import {
   insertMention, mentionDropdownKey,
 } from './tickets/mentions.js';
 import { loadDraft, saveDraft, clearDraft } from './tickets/drafts.js';
+import { logTicketEvent, getTicketEvents } from './core/activity-log.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 let FILTER_STATUS = 'all';
@@ -1214,24 +1215,6 @@ function removeAttachment(id, idx) {
   if (t && t.attachments) t.attachments.splice(idx, 1);
   showAttachPanel(id);
 }
-function logTicketEvent(ticketId, type, details) {
-  const t = TICKETS.find(x => x.id === ticketId);
-  if (!t) return;
-  if (!t.events) t.events = [];
-  t.events.unshift({
-    type,
-    details,
-    author: SESSION?.name || 'System',
-    ts: new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }),
-  });
-}
-
-function getTicketEvents(t) {
-  const seeded = [];
-  if (t.created) seeded.push({ type: 'system', details: 'Ticket created', author: 'System', ts: t.created });
-  return (t.events || []).concat(seeded);
-}
-
 function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
