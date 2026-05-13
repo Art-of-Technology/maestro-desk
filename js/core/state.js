@@ -14,6 +14,7 @@
 // setter-shims needed from inline handlers, no import declarations needed.
 let CURRENT_PAGE = 'dashboard';
 let CURRENT_TICKET = null;
+let AI_THINKING = false;
 let FILTER_CATEGORY = 'all';
 let FILTER_PRIORITY = 'all';
 let FILTER_AGENT = 'all';
