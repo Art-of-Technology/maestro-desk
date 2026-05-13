@@ -15,6 +15,7 @@
 let SESSION = null;
 let CURRENT_PAGE = 'dashboard';
 let CURRENT_TICKET = null;
+const TICKET_SELECTED_IDS = new Set();
 let AI_THINKING = false;
 let FILTER_CATEGORY = 'all';
 let FILTER_PRIORITY = 'all';
