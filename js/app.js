@@ -75,6 +75,12 @@ import {
   whNew, whEdit, whApplyTemplate, whToggle, whDelete, whTestFire,
 } from './webhooks/index.js';
 import {
+  renderWorkflows, renderWfDetail,
+  openWfDetail, closeWfDetail, duplicateWf,
+  wfSetFilter, wfSetQuery, wfToggle, wfRunNow,
+  wfNew, wfEdit, wfDelete,
+} from './workflows/index.js';
+import {
   bhSetEnabled, bhSetDayEnabled, bhSetDayTime,
   bhAddHoliday, bhRemoveHoliday, renderBusinessHours,
 } from './core/business-hours.js';
@@ -5232,33 +5238,6 @@ function agentNew() {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
-
-// ─── Workflows ───────────────────────────────────────────────────────────────
-let WF_FILTER = 'all';
-let WF_QUERY = '';
-
-const WF_TRIGGER_PRESETS = [
-  'Ticket created',
-  'Status changed',
-  'Status changed to Resolved',
-  'Priority changed',
-  'Priority = Urgent',
-  'Category = GDPR',
-  'Age > 72h',
-  'Last updated > 7d',
-  'CSAT < 3',
-];
-
-const WF_ACTION_PRESETS = [
-  'Assign to Senior Agent',
-  'Set status = Resolved',
-  'Set priority = High',
-  'Add tag: urgent',
-  'Notify Manager',
-  'Notify DPO',
-  'Send email to customer',
-  'Send satisfaction survey email',
-];
 
 // ─── CSAT surveys ────────────────────────────────────────────────────────────
 

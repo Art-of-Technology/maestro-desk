@@ -29,6 +29,8 @@ let KB_SELECTED = null;
 let TAG_SELECTED = null;
 let INBOX_SELECTED_ID = null;
 let WF_SELECTED = null;
+let WF_FILTER = 'all';
+let WF_QUERY = '';
 let SETTINGS_TAB = 'profile';
 let LAYOUTS_TAB = 'ticket';
 let ACT_FILTER_ENTITY = 'all';
@@ -44,7 +46,6 @@ let MACRO_FILTER_QUERY = '';
 let SEARCH_PAGE_FILTER = 'all';
 let SLA_FILTER = 'all';
 let TPL_FILTER_CAT = 'all';
-let TPL_QUERY = '';
 let TT_FILTER_CAT = 'all';
 const BASE_COLUMNS = [
   {id:'id',label:'Customer ID',fixed:true},
