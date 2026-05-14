@@ -75,6 +75,11 @@ import {
   whNew, whEdit, whApplyTemplate, whToggle, whDelete, whTestFire,
 } from './webhooks/index.js';
 import {
+  renderCustomFields,
+  cfNew, cfEdit, cfDelete, cfFormToggleOptions,
+  showManageFieldsModal,
+} from './custom-fields/index.js';
+import {
   renderRoles, openRoleAgents, closeRoleAgents,
   togglePermission, renameRolePrompt, deleteRolePrompt,
   addRolePrompt, addPermissionPrompt, addAgentToRolePrompt,
@@ -5514,167 +5519,6 @@ function renderLayouts() {
     </div>`;
 }
 
-// ─── Custom Fields manager ───────────────────────────────────────────────────
-
-const CF_TYPES = [
-  { v:'text',    l:'Text' },
-  { v:'number',  l:'Number' },
-  { v:'date',    l:'Date' },
-  { v:'select',  l:'Select (single)' },
-  { v:'boolean', l:'Boolean (yes/no)' },
-];
-
-function renderCustomFields() {
-  const admin = isAdmin();
-  let list = [...CUSTOM_FIELDS];
-  if (CF_FILTER_ENTITY !== 'all') list = list.filter(f => (f.entity || 'customer') === CF_FILTER_ENTITY);
-  const total = CUSTOM_FIELDS.length;
-  const byType = {};
-  CUSTOM_FIELDS.forEach(f => { byType[f.type] = (byType[f.type] || 0) + 1; });
-
-  const rows = list.map(f => {
-    const entity = f.entity || 'customer';
-    const def = f.defaultValue ?? '';
-    return `<tr>
-      <td class="bold">${f.id}</td>
-      <td style="font-weight:500;color:var(--ink)">${escHtml(f.label)}</td>
-      <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${escHtml(f.type)}</span></td>
-      <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${entity}</span></td>
-      <td style="font-size:12px;color:var(--ink2);font-family:'DM Mono',monospace">${def !== '' ? escHtml(String(def)) : '—'}</td>
-      <td style="text-align:center">${f.required ? '<span class="tag tag-gdpr" style="font-size:10px">required</span>' : '<span style="color:var(--ink4);font-size:11px">—</span>'}</td>
-      ${admin ? `<td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm" onclick="cfEdit('${escAttr(f.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="cfDelete('${escAttr(f.id)}')">Delete</button>
-      </td>` : ''}
-    </tr>`;
-  }).join('');
-
-  return `
-    <div class="page">
-      <div class="topbar">
-        <div class="tb-title">Custom Fields</div>
-        ${admin ? `<button class="btn btn-solid btn-sm" onclick="cfNew()">+ New Field</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
-      </div>
-      <div class="kpi-bar">
-        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Fields</div></div>
-        <div class="kpi"><div class="kpi-n c-blue">${CUSTOM_FIELDS.filter(f => (f.entity||'customer') === 'customer').length}</div><div class="kpi-l">On customers</div></div>
-        <div class="kpi"><div class="kpi-n c-purple">${CUSTOM_FIELDS.filter(f => (f.entity||'customer') === 'ticket').length}</div><div class="kpi-l">On tickets</div></div>
-        <div class="kpi"><div class="kpi-n c-amber">${CUSTOM_FIELDS.filter(f => f.required).length}</div><div class="kpi-l">Required</div></div>
-      </div>
-      <div class="filter-bar">
-        <span class="filter-label">Entity</span>
-        <select class="filter-select" onchange="CF_FILTER_ENTITY=this.value;renderPage('custom-fields')">
-          <option value="all"      ${CF_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
-          <option value="customer" ${CF_FILTER_ENTITY==='customer'?'selected':''}>Customer fields</option>
-          <option value="ticket"   ${CF_FILTER_ENTITY==='ticket'?'selected':''}>Ticket fields</option>
-        </select>
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
-      </div>
-      <div class="page-scroll">
-        <table class="tbl">
-          <thead><tr><th>ID</th><th>Label</th><th>Type</th><th>Entity</th><th>Default</th><th style="text-align:center">Required</th>${admin?'<th style="text-align:right">Actions</th>':''}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No custom fields defined</div><div class="empty-line"></div></div>` : ''}
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Customer fields render in the customer detail page (Custom fields card). Ticket fields are reserved for future ticket-detail integration. Select fields use a comma-separated <code style="font-family:'DM Mono',monospace;font-size:11px">options</code> list captured at edit time.</div>
-      </div>
-    </div>`;
-}
-
-function cfFormBody(f) {
-  const esc = s => String(s||'').replace(/"/g,'&quot;');
-  const optsCsv = f && Array.isArray(f.options) ? f.options.join(', ') : '';
-  return `
-    <div class="form-grid">
-      <div class="form-row"><label class="form-label">Label</label><input class="form-input" id="cf-label" value="${esc(f?.label)}" placeholder="e.g. Renewal Date"/></div>
-      <div class="form-row"><label class="form-label">Type</label>
-        <select class="form-input" id="cf-type" onchange="cfFormToggleOptions(this.value)">
-          ${CF_TYPES.map(t => `<option value="${t.v}" ${(f?.type||'text')===t.v?'selected':''}>${t.l}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-grid">
-      <div class="form-row"><label class="form-label">Entity</label>
-        <select class="form-input" id="cf-entity">
-          <option value="customer" ${(f?.entity||'customer')==='customer'?'selected':''}>Customer</option>
-          <option value="ticket"   ${f?.entity==='ticket'?'selected':''}>Ticket</option>
-        </select>
-      </div>
-      <div class="form-row"><label class="form-label">Default value</label><input class="form-input" id="cf-default" value="${esc(f?.defaultValue)}" placeholder="optional"/></div>
-    </div>
-    <div class="form-row" id="cf-options-row" style="display:${f?.type==='select'?'block':'none'}">
-      <label class="form-label">Options (comma-separated)</label>
-      <input class="form-input" id="cf-options" value="${esc(optsCsv)}" placeholder="e.g. Bronze, Silver, Gold, Platinum"/>
-    </div>
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
-      <span style="font-family:'Inter',sans-serif;font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3)">Required</span>
-      <label class="toggle"><input type="checkbox" id="cf-required" ${f?.required?'checked':''}><span class="toggle-slider"></span></label>
-    </div>`;
-}
-
-function cfFormToggleOptions(type) {
-  const row = document.getElementById('cf-options-row');
-  if (row) row.style.display = type === 'select' ? 'block' : 'none';
-}
-
-function cfReadForm() {
-  const label = document.getElementById('cf-label').value.trim();
-  const type = document.getElementById('cf-type').value;
-  const entity = document.getElementById('cf-entity').value;
-  const defaultValue = document.getElementById('cf-default').value;
-  const required = document.getElementById('cf-required').checked;
-  const options = type === 'select'
-    ? document.getElementById('cf-options').value.split(',').map(s => s.trim()).filter(Boolean)
-    : undefined;
-  return { label, type, entity, defaultValue, required, options };
-}
-
-function cfNextId() {
-  const max = Math.max(0, ...CUSTOM_FIELDS.map(x => parseInt((x.id || '').replace(/^cf/i, ''), 10) || 0));
-  return 'cf' + (max + 1);
-}
-
-function cfNew() {
-  if (!isAdmin()) return;
-  showModal('New custom field', cfFormBody(null), () => {
-    const data = cfReadForm();
-    if (!data.label) return;
-    const field = { id: cfNextId(), label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
-    if (data.options) field.options = data.options;
-    CUSTOM_FIELDS.unshift(field);
-    closeModal(); renderPage('custom-fields');
-  }, 'Create');
-}
-
-function cfEdit(id) {
-  if (!isAdmin()) return;
-  const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
-  showModal(`Edit ${f.id}`, cfFormBody(f), () => {
-    const data = cfReadForm();
-    if (!data.label) return;
-    f.label = data.label; f.type = data.type; f.entity = data.entity;
-    f.required = data.required; f.defaultValue = data.defaultValue;
-    if (data.options) f.options = data.options; else delete f.options;
-    closeModal(); renderPage('custom-fields');
-  }, 'Save');
-}
-
-function cfDelete(id) {
-  if (!isAdmin()) return;
-  const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
-  showModal('Delete custom field', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${escHtml(f.label)}</strong>? Existing values stored on customer / ticket records will become orphaned (not deleted).</div>`, () => {
-    const i = CUSTOM_FIELDS.findIndex(x => x.id === id);
-    if (i >= 0) CUSTOM_FIELDS.splice(i, 1);
-    closeModal(); renderPage('custom-fields');
-  }, 'Delete');
-}
-
-function showManageFieldsModal() {
-  showModal('Manage custom fields', `
-    ${CUSTOM_FIELDS.map(f => `<div class="ts-row"><span class="ts-key">${f.label}</span><span class="ts-val">${f.type}</span></div>`).join('')}
-    <div style="font-size:11px;color:var(--ink3);margin-top:14px">Custom fields appear as toggleable columns in the customer table.</div>
-  `, null, null);
-}
 function showNewCustomerModal() {
   showModal('New customer', `
     <div class="form-grid">
