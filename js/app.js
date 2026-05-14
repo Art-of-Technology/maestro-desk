@@ -74,6 +74,7 @@ import {
   fireWebhook, ticketPayload, renderWebhooks,
   whNew, whEdit, whApplyTemplate, whToggle, whDelete, whTestFire,
 } from './webhooks/index.js';
+import { toggleProfileMenu, profileMenuGo } from './profile-menu/index.js';
 import {
   SEARCH_PAGES, globalSearch, gsGo, gsKey, gsOpenAllResults,
   renderSearchResults, searchPageSetQuery,
@@ -2311,23 +2312,6 @@ document.addEventListener('mousedown', e => {
   });
 });
 
-function toggleProfileMenu() {
-  const dd = document.getElementById('profile-dropdown');
-  const btn = document.getElementById('profile-btn');
-  if (!dd) return;
-  if (dd.classList.contains('show')) { dd.classList.remove('show'); btn?.classList.remove('active'); }
-  else { dd.classList.add('show'); btn?.classList.add('active'); }
-}
-
-function profileMenuGo(action) {
-  document.getElementById('profile-dropdown')?.classList.remove('show');
-  document.getElementById('profile-btn')?.classList.remove('active');
-  if (action === 'profile')        { navTo('profile'); }
-  else if (action === 'settings')  { navTo('settings'); }
-  else if (action === 'help')      { navTo('help'); }
-  else if (action === 'translator'){ showTranslatorModal(''); }
-  else if (action === 'signout')   { logout(); }
-}
 
 
 // ─── Third-party KB integration ─────────────────────────────────────────────
