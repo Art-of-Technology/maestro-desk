@@ -36,6 +36,7 @@ let INBOX_SELECTED_ID = null;
 let WF_SELECTED = null;
 let WF_FILTER = 'all';
 let WF_QUERY = '';
+let ROLES_VIEW_AGENTS = null; // role name → show agents-in-role page; null → matrix
 let SETTINGS_TAB = 'profile';
 let LAYOUTS_TAB = 'ticket';
 let ACT_FILTER_ENTITY = 'all';
