@@ -145,6 +145,20 @@ export function businessMinutesBetween(startMs, endMs) {
 
 export const SLA_WARN_FRACTION = 0.7; // warn at 70 % of the window
 
+// Compact "Xm" / "Yh Zm" / "Nd Yh" formatter for SLA windows and elapsed
+// timers. Pure; used by both the SLA Policies config page and the ticket
+// sidebar's SLA progress strip.
+export function fmtSLAMinutes(min) {
+  if (!min || min < 1) return '—';
+  if (min < 60) return `${min}m`;
+  if (min < 1440) {
+    const h = Math.floor(min / 60), rest = min % 60;
+    return rest ? `${h}h ${rest}m` : `${h}h`;
+  }
+  const d = Math.floor(min / 1440), rest = min % 1440;
+  return rest ? `${d}d ${Math.round(rest/60)}h` : `${d}d`;
+}
+
 export function computeTicketSLA(t) {
   const policy = findMatchingSLAPolicy(t);
   const elapsedMin = ticketElapsedMinutes(t);
