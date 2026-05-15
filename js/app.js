@@ -3234,6 +3234,7 @@ Object.assign(window, {
   hideMentionDropdown,
   hideWidgetById,
   isAdmin,
+  isAgentOOO,
   KB_INTEGRATION,
   KB_TICKET_CACHE,
   linkTickets,
