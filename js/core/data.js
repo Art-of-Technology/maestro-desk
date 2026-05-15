@@ -120,6 +120,15 @@ const ASSIGN_RULES = [
 ];
 const ASSIGN_RULES_RR_INDEX = {};
 
+const CANNED_RESPONSES = [
+  { id:'TPL-001', name: 'Greeting',         category:'General',  text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
+  { id:'TPL-002', name: 'Need more info',   category:'Triage',   text: 'To help me debug this, could you share:\n\n- Steps to reproduce the issue\n- The exact error message you\'re seeing\n- A screenshot if possible' },
+  { id:'TPL-003', name: 'Escalating',       category:'Triage',   text: 'I\'m escalating this to our specialist team — you should hear back within the hour.' },
+  { id:'TPL-004', name: 'Resolution',       category:'General',  text: 'I\'ve resolved this for you. Please let me know if anything else needs attention.' },
+  { id:'TPL-005', name: 'Refund processed', category:'Billing',  text: 'Your refund has been processed and should appear in 3-5 business days. Apologies for any inconvenience.' },
+  { id:'TPL-006', name: 'CSAT request',     category:'General',  text: 'When you have a moment, we\'d appreciate your feedback on this ticket. Your rating helps us improve our support.' },
+];
+
 const TICKET_TEMPLATES = [
   {id:'TT-001', name:'Password reset request',         category:'Account',   priority:'normal', subject:'Password reset for [customer ID]',        body:'Customer is unable to log in after attempting a password reset. Please verify identity, unlock the account if necessary, and confirm the reset email has been delivered.'},
   {id:'TT-002', name:'Refund — duplicate charge',      category:'Billing',   priority:'high',   subject:'Duplicate charge — refund requested',     body:'Customer reports being charged twice for the same transaction. Verify in the payments system, raise a refund for the duplicate amount, and confirm via email when processed.'},

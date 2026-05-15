@@ -55,6 +55,7 @@ let MACRO_FILTER_QUERY = '';
 let SEARCH_PAGE_FILTER = 'all';
 let SLA_FILTER = 'all';
 let TPL_FILTER_CAT = 'all';
+let TPL_QUERY = '';
 let TT_FILTER_CAT = 'all';
 const BASE_COLUMNS = [
   {id:'id',label:'Customer ID',fixed:true},
