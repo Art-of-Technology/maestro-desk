@@ -14,12 +14,7 @@
 // the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, DASH_LAYOUT
 // come from core/state.js the same way.
 
-// Local copies of the categorical color maps. Originals are in app.js
-// (used by renderReports and renderCategoricalChart consumers); a future
-// extraction can dedupe these and the app.js / tags copies into a shared
-// `core/colors.js`.
-const STATUS_COLORS   = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
-const PRIORITY_COLORS = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
+import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 
 export function openAgentFromDash(name) { AGENT_SELECTED = name; window.navTo('agents'); }
 export function openKBFromDash(id)      { KB_SELECTED = id;      window.navTo('kb'); }

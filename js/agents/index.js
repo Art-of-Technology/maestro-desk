@@ -13,6 +13,8 @@
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
 // AGENT_SELECTED comes from state.js (both in global lex env).
 
+import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
+
 let AGENT_FILTER_ROLE = 'all';
 let AGENT_FILTER_STATUS = 'all';
 let AGENT_QUERY = '';
@@ -185,16 +187,13 @@ export function renderAgentDetail(name) {
   const admin = window.isAdmin();
   const allRoles = Object.keys(ROLES_MATRIX);
 
-  const STATUS_C = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
-  const PRIORITY_C = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
-
   const statusItems = Object.entries(d.byStatus).sort((a, b) => b[1] - a[1]);
   const statusMax = Math.max(...statusItems.map(i => i[1]), 1);
-  const statusBars = statusItems.map(([k, v]) => agentBarRow(k, v, statusMax, STATUS_C[k] || 'var(--purple)')).join('') || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:6px 0">—</div>';
+  const statusBars = statusItems.map(([k, v]) => agentBarRow(k, v, statusMax, STATUS_COLORS[k] || 'var(--purple)')).join('') || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:6px 0">—</div>';
 
   const priItems = ['urgent','high','normal','low'].filter(p => d.byPriority[p]).map(p => [p, d.byPriority[p]]);
   const priMax = Math.max(...priItems.map(i => i[1]), 1);
-  const priBars = priItems.map(([k, v]) => agentBarRow(k, v, priMax, PRIORITY_C[k])).join('') || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:6px 0">—</div>';
+  const priBars = priItems.map(([k, v]) => agentBarRow(k, v, priMax, PRIORITY_COLORS[k])).join('') || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:6px 0">—</div>';
 
   const catItems = Object.entries(d.byCategory).sort((a, b) => b[1] - a[1]);
   const catMax = Math.max(...catItems.map(i => i[1]), 1);

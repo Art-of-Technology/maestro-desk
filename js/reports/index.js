@@ -14,10 +14,7 @@
 import { renderWidgetGrid } from '../core/widget-shell.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
 
-// Local copies of the categorical color maps. Originals are duplicated in
-// `tags/` and `dashboard/`; a future `core/colors.js` PR can dedupe.
-const STATUS_COLORS   = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
-const PRIORITY_COLORS = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
+import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 
 // Timeframe filter — only the Reports page reads or writes this, so it
 // stays module-local rather than going to core/state.js.

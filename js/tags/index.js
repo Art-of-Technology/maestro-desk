@@ -12,11 +12,7 @@
 // TAG_SORT_COL, TAG_SORT_DIR, CUSTOMER_SELECTED come from core/state.js
 // the same way.
 
-// Local copies of the categorical color maps used by the per-tag breakdown
-// charts. The originals still live in app.js (renderReports / dashboards);
-// when those pages get extracted we can dedupe into a shared module.
-const STATUS_COLORS   = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
-const PRIORITY_COLORS = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
+import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 
 export function renderTags() {
   if (TAG_SELECTED) return renderTagDetail(TAG_SELECTED);
