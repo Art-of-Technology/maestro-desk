@@ -138,6 +138,7 @@ import {
   renderRoles, openRoleAgents, closeRoleAgents,
   togglePermission, renameRolePrompt, deleteRolePrompt,
   addRolePrompt, addPermissionPrompt, addAgentToRolePrompt,
+  reassignAgent, setAgentActive, deleteAgentPrompt,
 } from './roles/index.js';
 import {
   renderWorkflows,
