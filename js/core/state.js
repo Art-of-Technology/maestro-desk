@@ -26,6 +26,11 @@ let FILTER_QUERY = '';
 let AGENT_SELECTED = null;
 let CUSTOMER_SELECTED = null;
 const CUSTOMER_SELECTED_IDS = new Set();
+// Dashboard layout — null until first renderDashboard runs and hydrates it
+// from localStorage. Lives here so the widget-shell handlers in app.js and
+// the dashboard module both share one binding (both reassign on reset and
+// reorder).
+let DASH_LAYOUT = null;
 let KB_SELECTED = null;
 let TAG_SELECTED = null;
 let TAG_FILTER_TYPE = 'all';
