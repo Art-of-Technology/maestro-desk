@@ -7,8 +7,8 @@
 // it's shared with the Reports page.
 //
 // External reaches (interim, via window): escAttr, escHtml, navTo,
-// renderCategoricalChart, renderWidgetGrid, loadLayout, computeReportStats
-// — all still in app.js.
+// renderCategoricalChart, renderWidgetGrid (from core/widget-shell.js,
+// re-bridged through app.js), computeReportStats — all still in app.js.
 //
 // TICKETS, AGENTS, WORKFLOWS, KB_ARTICLES, CUSTOMERS come from data.js via
 // the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, DASH_LAYOUT
