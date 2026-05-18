@@ -22,20 +22,33 @@ export function showGDPRModal(id) {
 
 export function openCustomerModal(custId) {
   const c = CUSTOMERS.find(x => x.id === custId); if (!c) return;
-  showModal(`${c.first} ${c.last}`, `
-    <div class="ts-row"><span class="ts-key">Customer ID</span><span class="ts-val">${c.id}</span></div>
-    <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${c.email}</span></div>
-    <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${c.mobile}</span></div>
-    <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${c.brand}</span></div>
-    <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span></div>
-    <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${c.jurisdiction}</span></div>
-    <div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${c.kyc}</span></div>
-    <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${c.since}</span></div>
+  const esc = window.escHtml;
+  const vipRaw = c.vip || '';
+  showModal(`${esc(c.first + ' ' + c.last)}`, `
+    <div class="ts-row"><span class="ts-key">Customer ID</span><span class="ts-val">${esc(c.id)}</span></div>
+    <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${esc(c.email || '')}</span></div>
+    <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${esc(c.mobile || '')}</span></div>
+    <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${esc(c.brand || '')}</span></div>
+    <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${esc(vipRaw.toLowerCase())}">${esc(vipRaw)}</span></div>
+    <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${esc(c.jurisdiction || '')}</span></div>
+    <div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${esc(c.kyc || '')}</span></div>
+    <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${esc(c.since || '')}</span></div>
   `, null, null);
 }
 
 export function showCSVModal() {
   showModal('CSV import', `<div class="attach-zone">Drop a CSV file or click to upload</div><div style="font-size:11px;color:var(--ink3);margin-top:10px">Expected columns: id, first, last, email, brand, vip, jurisdiction</div>`, () => closeModal(), 'Import');
+}
+
+// Allocate the next M-prefixed customer id by scanning the max numeric
+// suffix among existing CUSTOMERS rows. Using CUSTOMERS.length collides
+// once any customer has been deleted, which the table supports.
+function nextCustomerId() {
+  const maxN = CUSTOMERS.reduce((m, c) => {
+    const n = parseInt(String(c.id || '').replace(/^M/, ''), 10);
+    return Number.isFinite(n) && n > m ? n : m;
+  }, 0);
+  return 'M' + String(maxN + 1).padStart(3, '0');
 }
 
 export function showNewCustomerModal() {
@@ -45,13 +58,17 @@ export function showNewCustomerModal() {
       <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="nc-last"/></div>
     </div>
     <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="nc-email" type="email"/></div>
-    <div class="form-row"><label class="form-label">Brand</label><input class="form-input" id="nc-brand"/></div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Brand</label><input class="form-input" id="nc-brand"/></div>
+      <div class="form-row"><label class="form-label">Jurisdiction</label><input class="form-input" id="nc-jurisdiction" placeholder="UK"/></div>
+    </div>
   `, () => {
     const first = document.getElementById('nc-first').value.trim();
     const last  = document.getElementById('nc-last').value.trim();
     if (!first || !last) return;
-    const id = 'M' + String(CUSTOMERS.length + 1).padStart(3,'0');
-    CUSTOMERS.push({id,first,last,username:(first[0]+last).toLowerCase(),email:document.getElementById('nc-email').value,mobile:'',brand:document.getElementById('nc-brand').value,vip:'Bronze',jurisdiction:'UK',consent:true,kyc:'Pending',since:new Date().toISOString().slice(0,10),bo:'',custom:{}});
+    const id = nextCustomerId();
+    const jurisdiction = document.getElementById('nc-jurisdiction').value.trim() || 'UK';
+    CUSTOMERS.push({id,first,last,username:(first[0]+last).toLowerCase(),email:document.getElementById('nc-email').value,mobile:'',brand:document.getElementById('nc-brand').value,vip:'Bronze',jurisdiction,consent:true,kyc:'Pending',since:new Date().toISOString().slice(0,10),bo:'',custom:{}});
     closeModal(); refreshCustTable(CUSTOMERS);
   }, 'Create');
 }
