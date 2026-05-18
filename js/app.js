@@ -83,6 +83,7 @@ import {
   COLLAPSED_SECTIONS,
   applyCollapsibleHeaders, resetAllCollapsedSections,
 } from './core/collapsible.js';
+import './core/dismiss.js';
 import { renderProfile } from './profile/index.js';
 import {
   renderAgents, renderAgentDetail,
@@ -328,30 +329,6 @@ function updateNavBadges() {
   }
   refreshNotifBadge();
 }
-
-
-
-
-
-document.addEventListener('mousedown', e => {
-  const wrap = document.querySelector('.gs-wrap');
-  const results = document.getElementById('gs-results');
-  if (wrap && results && !wrap.contains(e.target)) results.classList.remove('show');
-  const notifWrap = document.querySelector('.notif-wrap');
-  const notifDD = document.getElementById('notif-dropdown');
-  if (notifWrap && notifDD && !notifWrap.contains(e.target)) notifDD.classList.remove('show');
-  const profileWrap = document.querySelector('.profile-wrap');
-  const profileDD = document.getElementById('profile-dropdown');
-  if (profileWrap && profileDD && !profileWrap.contains(e.target)) {
-    profileDD.classList.remove('show');
-    document.getElementById('profile-btn')?.classList.remove('active');
-  }
-  document.querySelectorAll('.comp-menu').forEach(menu => {
-    if (menu.style.display === 'block' && !menu.parentElement.contains(e.target)) {
-      menu.style.display = 'none';
-    }
-  });
-});
 
 // ─── App-wide navigation helpers ─────────────────────────────────────────────
 // navTo + focusGlobalSearch + the / and ⌘K keydown listeners live here.
