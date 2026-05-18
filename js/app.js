@@ -227,6 +227,63 @@ import {
   csatHover, csatPick, submitCSAT, renderCSAT,
 } from './tickets/csat.js';
 
+// ─── Namespace imports (window-bridge use only) ────────────────────────────────
+// Every module re-exposed on window for inline on*= handlers gets a namespace
+// import here. The bridge below spreads each namespace, so the explicit
+// per-function list (~318 entries) is gone — bun dedupes the duplicate
+// imports at bundle time.
+import * as Theme from './core/theme.js';
+import * as AIClient from './ai/client.js';
+import * as Summarize from './ai/summarize.js';
+import * as Translate from './ai/translate.js';
+import * as AIReply from './ai/reply.js';
+import * as TimeTracking from './tickets/time-tracking.js';
+import * as Snooze from './tickets/snooze.js';
+import * as SLA from './tickets/sla.js';
+import * as SLAPolicies from './tickets/sla-policies.js';
+import * as Linked from './tickets/linked.js';
+import * as Mentions from './tickets/mentions.js';
+import * as Drafts from './tickets/drafts.js';
+import * as ActivityLog from './core/activity-log.js';
+import * as MacrosMod from './tickets/macros.js';
+import * as AttachmentsMod from './tickets/attachments.js';
+import * as AIPage from './ai/page.js';
+import * as Portal from './portal/preview.js';
+import * as InboxMod from './inbox/index.js';
+import * as ChannelsMod from './channels/index.js';
+import * as WebhooksMod from './webhooks/index.js';
+import * as KBIntegration from './kb-integration/index.js';
+import * as ModalMod from './core/modal.js';
+import * as CollapsibleMod from './core/collapsible.js';
+import * as KeybindingsMod from './core/keybindings.js';
+import * as ProfileMod from './profile/index.js';
+import * as AgentsMod from './agents/index.js';
+import * as ProfileMenuMod from './profile-menu/index.js';
+import * as GlobalSearchMod from './global-search/index.js';
+import * as QuickSwitcherMod from './quick-switcher/index.js';
+import * as AuthMod from './auth/index.js';
+import * as TicketTemplatesMod from './ticket-templates/index.js';
+import * as NotificationsMod from './notifications/index.js';
+import * as KBMod from './kb/index.js';
+import * as HelpMod from './help/index.js';
+import * as SettingsMod from './settings/index.js';
+import * as LayoutsMod from './layouts/index.js';
+import * as CustomFieldsMod from './custom-fields/index.js';
+import * as RolesMod from './roles/index.js';
+import * as WorkflowsMod from './workflows/index.js';
+import * as TagsMod from './tags/index.js';
+import * as CustomersMod from './customers/index.js';
+import * as CustomerModals from './customers/modals.js';
+import * as DashboardMod from './dashboard/index.js';
+import * as TicketsList from './tickets/list.js';
+import * as TicketDetail from './tickets/detail.js';
+import * as WidgetShell from './core/widget-shell.js';
+import * as ReportsMod from './reports/index.js';
+import * as BusinessHoursMod from './core/business-hours.js';
+import * as AssignmentRulesMod from './tickets/assignment-rules.js';
+import * as TemplatesMod from './tickets/templates.js';
+import * as CSATMod from './tickets/csat.js';
+
 function login(role, name, initials) {
   SESSION = {role, name, initials};
   document.getElementById('auth-screen').style.display = 'none';
@@ -382,337 +439,33 @@ function isAdmin() { return SESSION?.role === 'Admin'; }
 function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 
 // ─── Window bridge ─────────────────────────────────────────────────────────────
-// Re-exposes module-scope functions onto window. Two reasons an entry exists:
+// Re-exposes module-scope functions onto window for inline on*= handlers
+// (which resolve identifiers via the global scope and don't see ES-module
+// bindings). Each feature module is spread in as a whole namespace below —
+// any of its exports becomes available on window. The named imports above
+// remain for app.js's own use; bun dedupes them at bundle time.
 //
-//   1. The function is called from an inline HTML attribute handler
-//      (onclick="foo()"). Those handlers look up identifiers via the window
-//      scope chain, which does not see ES-module-scoped declarations.
+// App.js-local fns (login/logout/nav/renderPage/updateNavBadges and the
+// app-wide utilities fmtMinutes/escHtml/escAttr/isAdmin) get explicit
+// entries because they aren't owned by any feature module.
 //
-//   2. The function is a utility (showModal, escHtml, …) called from
-//      already-extracted feature modules via `window.X()` while it still
-//      lives in app.js. Each one gets a proper import once the owning
-//      module is also extracted.
-//
-// The initial list was generated from `comm -12 handler-calls top-level-fns`.
-// Entries get deleted as functions move into per-feature modules; cross-
-// module entries get deleted as their owners are also modularised.
-Object.assign(window, {
-  acceptAITag,
-  acceptAllAITags,
-  actGotoEntity,
-  actSetQuery,
-  addAgentToRolePrompt,
-  addCustomerNote,
-  addMockAttachment,
-  addPermissionPrompt,
-  addRolePrompt,
-  agentNew,
-  agentSetQuery,
-  agentSetRole,
-  agentSetStatus,
-  aiAction,
-  aiClear,
-  aiInputKey,
-  aiSend,
-  aiToggleSource,
-  aiUsePrompt,
-  arDelete,
-  arEdit,
-  arModeChanged,
-  arNew,
-  arToggle,
-  bhAddHoliday,
-  bhRemoveHoliday,
-  bhSetDayEnabled,
-  bhSetDayTime,
-  bhSetEnabled,
-  bulkAddTag,
-  bulkApplyAssignmentRules,
-  bulkAssignTickets,
-  bulkDeleteCustomers,
-  bulkDeleteTags,
-  bulkDeleteTickets,
-  bulkExportTickets,
-  bulkRunMacro,
-  bulkSetCustConsent,
-  bulkSetCustVIP,
-  bulkSetPriority,
-  bulkSetStatus,
-  bulkSetTagType,
-  bulkSnoozeTickets,
-  cfDelete,
-  cfEdit,
-  cfFormToggleOptions,
-  cfNew,
-  chDelete,
-  chEdit,
-  chNew,
-  chToggle,
-  changeTicketAgent,
-  changeTicketPriority,
-  changeTicketStatus,
-  clearAgentOOO,
-  clearAllNotifications,
-  clearCustSelection,
-  clearTagSelection,
-  clearTicketSelection,
-  clearTicketSummary,
-  closeAgentDetail,
-  closeCustomerProfile,
-  closeKBArticle,
-  addTicketTag,
-  applyAssignmentRules,
-  buildKbQuery,
-  closeModal,
-  COLLAPSED_SECTIONS,
-  DASH_WIDGETS,
-  DEFAULT_DASH_LAYOUT,
-  DEFAULT_REPORT_LAYOUT,
-  deleteAIConv,
-  escAttr,
-  escHtml,
-  fetchKbArticles,
-  fireWebhook,
-  fmtMinutes,
-  hideMentionDropdown,
-  hideWidgetById,
-  isAdmin,
-  isAgentOOO,
-  KB_INTEGRATION,
-  KB_TICKET_CACHE,
-  linkTickets,
-  logTicketEvent,
-  mentionDropdownKey,
-  mergeCustomers,
-  mergeTags,
-  mergeTickets,
-  refreshCustTable,
-  refreshNotifBadge,
-  refreshTicketSLA,
-  removeTicketTag,
-  runMacro,
-  saveKbIntegration,
-  showModal,
-  showWidgetById,
-  showWidgetMenu,
-  snoozePresetIso,
-  ticketPayload,
-  updateNavBadges,
-  closeNotifAndGo,
-  closeRoleAgents,
-  closeTagDetail,
-  closeWfDetail,
-  convertEmailToTicket,
-  computeReportStats,
-  convertTagType,
-  copyAIMessage,
-  copyTxResult,
-  csatHover,
-  csatPick,
-  custSetBrand,
-  custSetVIP,
-  deleteAgentPrompt,
-  deleteCustomerNote,
-  deleteRolePrompt,
-  dismissEmail,
-  dismissNotif,
-  dropCustCol,
-  duplicateWf,
-  exportCustomerList,
-  exportReport,
-  exportTicketList,
-  filterCustomers,
-  focusGlobalSearch,
-  globalSearch,
-  gsGo,
-  gsKey,
-  gsOpenAllResults,
-  hideMessageTranslation,
-  insertMacro,
-  insertMention,
-  insertVar,
-  kbDeleteArticle,
-  kbEditArticle,
-  kbNewArticle,
-  kbSetCat,
-  kbSetQuery,
-  login,
-  logout,
-  macAddStep,
-  macDelete,
-  macEdit,
-  macNew,
-  macRemoveStep,
-  macStepKindChange,
-  markAllNotifRead,
-  markAllNotifReadAndRender,
-  markNotifRead,
-  markSpamEmail,
-  mergeTagPrompt,
-  nav,
-  navTo,
-  newAIConv,
-  notifPageSetRead,
-  notifPageSetType,
-  ntApplyTemplate,
-  onComposeInput,
-  openAgentDetail,
-  openAgentFromDash,
-  openCSATSurveyModal,
-  openChannel,
-  openCustomerModal,
-  openCustomerProfile,
-  openKBArticle,
-  openKBFromDash,
-  openNotification,
-  openNotificationFromPage,
-  openRoleAgents,
-  openTagDetail,
-  openTicket,
-  openWfDetail,
-  portalCreateTicket,
-  portalExit,
-  portalNav,
-  portalOpenTicket,
-  portalSendReply,
-  portalSetCustomer,
-  prevNextTicket,
-  profileMenuGo,
-  qsSetActive,
-  quickStatus,
-  quickSwitcherInput,
-  quickSwitcherKey,
-  quickSwitcherPick,
-  reassignAgent,
-  refreshTicketKbSuggestions,
-  removeAttachment,
-  removeTimeEntry,
-  renameRolePrompt,
-  renderPage,
-  renderWidgetGrid,
-  REPORT_WIDGETS,
-  requestCSAT,
-  resetAllCollapsedSections,
-  resetWidgetLayout,
-  restoreEmail,
-  runAssignmentRulesOnTicket,
-  runTranslator,
-  searchPageSetQuery,
-  selectAIConv,
-  sendCompose,
-  sendComposeAnd,
-  setAIKey,
-  setAIModel,
-  setAgentActive,
-  setAgentFilter,
-  setAgentPreferredLang,
-  setComposeTab,
-  setCustGroupBy,
-  setCustView,
-  setCustomerLanguage,
-  setKbCfg,
-  setLayoutFieldFlag,
-  setReportTF,
-  setSettingsTab,
-  setStatusFilter,
-  setTagSort,
-  setTheme,
-  setTicketGroupBy,
-  setTicketQuery,
-  setTicketView,
-  setWidgetChart,
-  showAgentOOOModal,
-  showApplyMacroModal,
-  showAttachPanel,
-  showAuthPanel,
-  showCSVModal,
-  showColumnPanel,
-  showCustomerGDPR,
-  showGDPRModal,
-  showLinkTicketModal,
-  showLogTimeModal,
-  showMacroPanel,
-  showManageFieldsModal,
-  showManageWidgetsModal,
-  showMergeCustomerModal,
-  showMergeTicketModal,
-  showNewCustomerModal,
-  showNewTicketModal,
-  showSentTextModal,
-  showSnoozeModal,
-  slaDelete,
-  slaEdit,
-  slaNew,
-  slaToggle,
-  sortTickets,
-  ssoLogin,
-  submitCreate,
-  submitForgot,
-  submitLogin,
-  submitSupport,
-  summarizeTicket,
-  tagDelete,
-  tagEdit,
-  tagNew,
-  tagSetQuery,
-  tagSetType,
-  testKbConnection,
-  toggleAIMenu,
-  toggleAllCustomers,
-  toggleAllTags,
-  toggleAllTickets,
-  toggleAutoTranslateReplies,
-  toggleCustSelected,
-  toggleFAQ,
-  toggleKBFeatured,
-  toggleNotifPref,
-  toggleNotifications,
-  togglePassword,
-  togglePermission,
-  toggleProfileMenu,
-  toggleQuickSwitcher,
-  toggleSendMenu,
-  toggleTagSelected,
-  toggleThreadTranslate,
-  toggleTicketSelected,
-  toggleWatch,
-  tplDelete,
-  tplDuplicate,
-  tplEdit,
-  tplNew,
-  tplSetQuery,
-  translateMessage,
-  ttDelete,
-  ttDuplicate,
-  ttEdit,
-  ttNew,
-  ttSetQuery,
-  unlinkTicket,
-  unmergeCustomer,
-  unmergeTicket,
-  unsnoozeTicket,
-  updateCustomField,
-  updateProfileInitials,
-  updateProfileName,
-  updatePwStrength,
-  useFollowUp,
-  voteKB,
-  wfDelete,
-  wfEdit,
-  wfNew,
-  wfRunNow,
-  wfSetFilter,
-  wfSetQuery,
-  wfToggle,
-  whApplyTemplate,
-  whDelete,
-  whEdit,
-  whNew,
-  whTestFire,
-  whToggle,
-  widgetDragDrop,
-  widgetDragEnd,
-  widgetDragLeave,
-  widgetDragOver,
-  widgetDragStart,
-});
+// To kill a bridge entry: stop calling it from inline on*= handlers. To
+// retire a whole module from the bridge: confirm no on*= handlers reference
+// any of its exports, then drop the namespace spread.
+Object.assign(
+  window,
+  { login, logout, nav, renderPage, updateNavBadges,
+    fmtMinutes, escHtml, escAttr, isAdmin },
+  Theme, AIClient, Summarize, Translate, AIReply,
+  TimeTracking, Snooze, SLA, SLAPolicies, Linked, Mentions, Drafts,
+  ActivityLog, MacrosMod, AttachmentsMod, AIPage, Portal,
+  InboxMod, ChannelsMod, WebhooksMod, KBIntegration,
+  ModalMod, CollapsibleMod, KeybindingsMod,
+  ProfileMod, AgentsMod, ProfileMenuMod, GlobalSearchMod, QuickSwitcherMod,
+  AuthMod, TicketTemplatesMod, NotificationsMod, KBMod, HelpMod,
+  SettingsMod, LayoutsMod, CustomFieldsMod, RolesMod, WorkflowsMod,
+  TagsMod, CustomersMod, CustomerModals, DashboardMod,
+  TicketsList, TicketDetail, WidgetShell, ReportsMod,
+  BusinessHoursMod, AssignmentRulesMod, TemplatesMod, CSATMod,
+);
+
