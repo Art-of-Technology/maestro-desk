@@ -3,18 +3,19 @@
 // renderers (recent activity, today, status, priority, SLA health, agent
 // load, AI tags, workflows, KB, volume trend, top customers, personal,
 // CSAT). The widget shell that hosts these tiles (drag/drop, hide/show,
-// chart-type switcher, layout persistence) still lives in app.js because
-// it's shared with the Reports page.
+// chart-type switcher, layout persistence) lives in `core/widget-shell.js`
+// and is shared with the Reports page.
 //
 // External reaches (interim, via window): escAttr, escHtml, navTo,
-// renderCategoricalChart, renderWidgetGrid (from core/widget-shell.js,
-// re-bridged through app.js), computeReportStats — all still in app.js.
+// renderCategoricalChart — all still in app.js.
 //
 // TICKETS, AGENTS, WORKFLOWS, KB_ARTICLES, CUSTOMERS come from data.js via
 // the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, DASH_LAYOUT
 // come from core/state.js the same way.
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
+import { renderWidgetGrid } from '../core/widget-shell.js';
+import { computeReportStats } from '../reports/index.js';
 
 export function openAgentFromDash(name) { AGENT_SELECTED = name; window.navTo('agents'); }
 export function openKBFromDash(id)      { KB_SELECTED = id;      window.navTo('kb'); }
@@ -327,7 +328,7 @@ export const DEFAULT_DASH_LAYOUT = { order: DASH_WIDGETS.map(w => w.id), hidden:
 export function renderDashboard() {
   // DASH_LAYOUT (in core/state.js) is hydrated at startup by app.js. Both
   // this module and the widget-shell handlers in app.js share that binding.
-  const stats = window.computeReportStats(TICKETS);
+  const stats = computeReportStats(TICKETS);
   const open = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
   const pending = TICKETS.filter(t => t.status === 'pending').length;
   const gdpr = TICKETS.filter(t => t.status === 'gdpr').length;
@@ -353,7 +354,7 @@ export function renderDashboard() {
         <div class="kpi"><div class="kpi-n c-green">${stats.resolved}</div><div class="kpi-l">Resolved</div></div>
       </div>
       <div class="page-scroll">
-        ${window.renderWidgetGrid('dash', 'dash-grid-12', DASH_WIDGETS, DASH_LAYOUT, stats)}
+        ${renderWidgetGrid('dash', 'dash-grid-12', DASH_WIDGETS, DASH_LAYOUT, stats)}
       </div>
     </div>`;
 }

@@ -222,9 +222,6 @@ import {
   csatHover, csatPick, submitCSAT, renderCSAT,
 } from './tickets/csat.js';
 
-// ─── State ───────────────────────────────────────────────────────────────────
-let CUST_TAB = 'all';
-
 function login(role, name, initials) {
   SESSION = {role, name, initials};
   document.getElementById('auth-screen').style.display = 'none';

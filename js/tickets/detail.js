@@ -58,6 +58,10 @@ import { ticketCSATBlock } from './csat.js';
 export function openTicket(id) {
   CURRENT_TICKET = id;
   const t = TICKETS.find(x => x.id === id);
+  // Bad ticket IDs can reach here from stale notifications, deep-links
+  // pasted from chat, or external modules calling window.openTicket after
+  // a delete/merge. Fall back to the list so the page doesn't blank out.
+  if (!t) { CURRENT_TICKET = null; return window.renderPage('tickets'); }
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
   const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
   const snoozeBanner = (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) ? `
