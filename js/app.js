@@ -49,11 +49,7 @@ import {
   macNew, macEdit, macDelete, renderMacros,
 } from './tickets/macros.js';
 import { addMockAttachment, removeAttachment, showAttachPanel } from './tickets/attachments.js';
-import {
-  newAIConv, selectAIConv, deleteAIConv,
-  copyAIMessage, useFollowUp, renderAI, initAI,
-  aiToggleSource, aiUsePrompt, aiClear, aiInputKey, aiSend,
-} from './ai/page.js';
+import { renderAI, initAI } from './ai/page.js';
 import {
   portalSetCustomer, portalExit, portalNav, portalOpenTicket,
   portalSendReply, portalCreateTicket, renderPortal,
@@ -203,7 +199,6 @@ import * as Linked from './tickets/linked.js';
 import * as Mentions from './tickets/mentions.js';
 import * as Macros from './tickets/macros.js';
 import * as Attachments from './tickets/attachments.js';
-import * as AIPage from './ai/page.js';
 import * as Portal from './portal/preview.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
@@ -408,7 +403,7 @@ Object.assign(
     submitLogin, submitForgot, submitCreate, updatePwStrength },
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, Linked, Mentions,
-  Macros, Attachments, AIPage, Portal,
+  Macros, Attachments, Portal,
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,

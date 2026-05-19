@@ -16,11 +16,19 @@
 // + CURRENT_TICKET also come from state.js via the global lexical env;
 // TICKETS / CUSTOMERS / AGENTS / KB_ARTICLES from data.js the same way.
 //
+// Click handlers route through core/event-delegation.js as `data-action`.
+// The textarea keydown handler is wired programmatically inside renderAI
+// after innerHTML rebuild (keydown is sparse — 3 callsites in 2 modules —
+// not worth a fifth dispatcher event type).
+//
 // External reaches (interim, via window): escHtml — still defined inside
 // app.js for now. Once core/dom.js extracts the escapers, this becomes a
-// proper import.
+// proper import. navTo and setSettingsTab are direct ES imports.
 
 import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';
+import { registerActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
+import { setSettingsTab } from '../settings/index.js';
 
 let AI_CONTEXT_SOURCES = { tickets:true, customers:false, agents:false, kb:false };
 const AI_PROMPT_CARDS = [
@@ -113,7 +121,7 @@ function syncCurrentAIConv() {
   }
 }
 
-export function newAIConv() {
+function newAIConv() {
   const id = 'ai-' + Date.now();
   AI_CONVERSATIONS.unshift({ id, title: 'New chat', messages: [], createdAt: Date.now() });
   AI_CURRENT_ID = id;
@@ -122,7 +130,7 @@ export function newAIConv() {
   window.renderPage('ai');
 }
 
-export function selectAIConv(id) {
+function selectAIConv(id) {
   AI_CURRENT_ID = id;
   const c = getCurrentAIConv();
   AI_MESSAGES = c ? [...(c.messages || [])] : [];
@@ -130,7 +138,7 @@ export function selectAIConv(id) {
   window.renderPage('ai');
 }
 
-export function deleteAIConv(id) {
+function deleteAIConv(id) {
   const i = AI_CONVERSATIONS.findIndex(c => c.id === id);
   if (i < 0) return;
   AI_CONVERSATIONS.splice(i, 1);
@@ -143,7 +151,7 @@ export function deleteAIConv(id) {
   window.renderPage('ai');
 }
 
-export function copyAIMessage(idx) {
+function copyAIMessage(idx) {
   const m = AI_MESSAGES[idx];
   if (!m) return;
   navigator.clipboard?.writeText(m.t).then(() => {
@@ -156,7 +164,7 @@ export function copyAIMessage(idx) {
   });
 }
 
-export function useFollowUp(text) {
+function useFollowUp(text) {
   const input = document.getElementById('ai-input');
   if (input) { input.value = text; input.focus(); }
 }
@@ -169,8 +177,8 @@ export function renderAI() {
     {k:'agents',    l:`Agents · ${AGENTS.length}`},
     {k:'kb',        l:`KB · ${KB_ARTICLES.length}`},
   ];
-  const chips = sources.map(s => `<span class="source-chip ${AI_CONTEXT_SOURCES[s.k]?'on':''}" onclick="aiToggleSource('${s.k}')" style="cursor:pointer">${s.l}</span>`).join('');
-  const noKeyMsg = AI_API_KEY ? '' : ` Add a Claude API key in <span class="link" onclick="navTo('settings');setSettingsTab('ai')">Settings → AI Assistant</span> to get started.`;
+  const chips = sources.map(s => `<span class="source-chip ${AI_CONTEXT_SOURCES[s.k]?'on':''}" data-action="ai.toggleSource" data-source="${s.k}" style="cursor:pointer">${s.l}</span>`).join('');
+  const noKeyMsg = AI_API_KEY ? '' : ` Add a Claude API key in <span class="link" data-action="ai.gotoSettingsAi">Settings → AI Assistant</span> to get started.`;
 
   const msgs = AI_MESSAGES.map((m, i) => {
     const body = m.r === 'user'
@@ -180,7 +188,7 @@ export function renderAI() {
       <div class="ai-msg ai-msg-${m.r==='user'?'user':'ai'}">
         <div class="ai-msg-from">${m.r==='user' ? window.escHtml(SESSION?.name||'You') : 'AI Assistant'}</div>
         ${body}
-        ${m.r === 'ai' ? `<button class="ai-msg-copy" id="ai-copy-${i}" onclick="copyAIMessage(${i})">Copy</button>` : ''}
+        ${m.r === 'ai' ? `<button class="ai-msg-copy" id="ai-copy-${i}" data-action="ai.copyMessage" data-idx="${i}">Copy</button>` : ''}
       </div>`;
   }).join('');
 
@@ -194,15 +202,15 @@ export function renderAI() {
   const showFollowUps = last && last.r === 'ai' && !AI_THINKING;
   const followUpsHtml = showFollowUps ? `
     <div class="ai-followups">
-      ${AI_FOLLOWUPS.map(f => `<span class="ai-followup" onclick="useFollowUp(${JSON.stringify(f)})">${f}</span>`).join('')}
+      ${AI_FOLLOWUPS.map(f => `<span class="ai-followup" data-action="ai.useFollowUp" data-text="${window.escAttr(f)}">${f}</span>`).join('')}
     </div>` : '';
 
   const sortedConvs = [...AI_CONVERSATIONS].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
   const convList = sortedConvs.length
     ? sortedConvs.map(c => `
-        <div class="ai-conv-item ${c.id===AI_CURRENT_ID?'active':''}" onclick="selectAIConv('${window.escAttr(c.id)}')">
+        <div class="ai-conv-item ${c.id===AI_CURRENT_ID?'active':''}" data-action="ai.selectConv" data-id="${window.escAttr(c.id)}">
           <div class="ai-conv-title" title="${window.escHtml(c.title)}">${window.escHtml(c.title)}</div>
-          <button class="ai-conv-del" onclick="event.stopPropagation();deleteAIConv('${window.escAttr(c.id)}')" title="Delete">×</button>
+          <button class="ai-conv-del" data-action="ai.deleteConv" data-id="${window.escAttr(c.id)}" title="Delete">×</button>
         </div>`).join('')
     : '<div class="ai-conv-empty">No conversations yet — send a message to start one.</div>';
 
@@ -210,7 +218,7 @@ export function renderAI() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">AI Intelligence</div>
-        ${AI_MESSAGES.length ? `<button class="btn btn-sm" onclick="aiClear()">Clear chat</button>` : ''}
+        ${AI_MESSAGES.length ? `<button class="btn btn-sm" data-action="ai.clear">Clear chat</button>` : ''}
         <span style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--amber)'};font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;margin-left:auto">
           <span style="width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor"></span>
           ${AI_API_KEY ? `${AI_MODEL || 'claude-sonnet-4-6'}` : 'No API key'}
@@ -219,7 +227,7 @@ export function renderAI() {
       <div class="ai-layout">
         <aside class="ai-sidebar">
           <div class="ai-sidebar-header">
-            <button class="btn btn-solid btn-sm" onclick="newAIConv()" style="width:100%;justify-content:center">+ New chat</button>
+            <button class="btn btn-solid btn-sm" data-action="ai.newConv" style="width:100%;justify-content:center">+ New chat</button>
           </div>
           <div class="ai-conv-list">${convList}</div>
         </aside>
@@ -236,37 +244,37 @@ export function renderAI() {
                 <div style="font-size:13px;color:var(--ink3);margin-bottom:28px">Ask about your workspace data — tickets, customers, agents or knowledge base.${noKeyMsg}</div>
               </div>
               <div class="prompt-cards" style="justify-content:center;padding:0">
-                ${AI_PROMPT_CARDS.map(p => `<div class="prompt-card" onclick="aiUsePrompt(${JSON.stringify(p)})">${p}</div>`).join('')}
+                ${AI_PROMPT_CARDS.map(p => `<div class="prompt-card" data-action="ai.usePrompt" data-text="${window.escAttr(p)}">${p}</div>`).join('')}
               </div>
             </div>
           ` : `<div class="ai-chat" id="ai-chat">${msgs}${thinkingMsg}</div>${followUpsHtml}`}
           <div class="ai-input-row">
-            <textarea id="ai-input" placeholder="${AI_API_KEY?'Ask about your workspace… (Enter to send, Shift+Enter for new line)':'Add an API key in Settings → AI Assistant to chat'}" style="flex:1;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:9px 12px;resize:none;outline:none;height:46px" onkeydown="aiInputKey(event)" ${AI_THINKING?'disabled':''}></textarea>
-            <button class="btn btn-solid" onclick="aiSend()" ${AI_THINKING?'disabled':''}>${AI_THINKING?'…':'Send'}</button>
+            <textarea id="ai-input" placeholder="${AI_API_KEY?'Ask about your workspace… (Enter to send, Shift+Enter for new line)':'Add an API key in Settings → AI Assistant to chat'}" style="flex:1;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:9px 12px;resize:none;outline:none;height:46px" ${AI_THINKING?'disabled':''}></textarea>
+            <button class="btn btn-solid" data-action="ai.send" ${AI_THINKING?'disabled':''}>${AI_THINKING?'…':'Send'}</button>
           </div>
         </div>
       </div>
     </div>`;
 }
 
-export function aiToggleSource(k) {
+function aiToggleSource(k) {
   AI_CONTEXT_SOURCES[k] = !AI_CONTEXT_SOURCES[k];
   window.renderPage('ai');
 }
 
-export function aiUsePrompt(p) {
+function aiUsePrompt(p) {
   const input = document.getElementById('ai-input');
   if (input) { input.value = p; input.focus(); }
 }
 
-export function aiClear() {
+function aiClear() {
   AI_MESSAGES = [];
   const c = getCurrentAIConv();
   if (c) { c.messages = []; saveAIConversations(); }
   window.renderPage('ai');
 }
 
-export function aiInputKey(e) {
+function aiInputKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     aiSend();
@@ -304,7 +312,7 @@ function buildAIContext() {
   return parts.length ? parts.join('\n\n') : 'No workspace data context selected.';
 }
 
-export async function aiSend() {
+async function aiSend() {
   if (AI_THINKING) return;
   const input = document.getElementById('ai-input');
   const text = input?.value.trim();
@@ -348,5 +356,21 @@ export async function aiSend() {
 export function initAI() {
   scrollAIBottom();
   const input = document.getElementById('ai-input');
-  if (input && !AI_THINKING) input.focus();
+  if (input) {
+    input.addEventListener('keydown', aiInputKey);
+    if (!AI_THINKING) input.focus();
+  }
 }
+
+registerActions({
+  'ai.toggleSource':    (ds) => aiToggleSource(ds.source),
+  'ai.gotoSettingsAi':  () => { navTo('settings'); setSettingsTab('ai'); },
+  'ai.copyMessage':     (ds) => copyAIMessage(parseInt(ds.idx, 10)),
+  'ai.useFollowUp':     (ds) => useFollowUp(ds.text),
+  'ai.selectConv':      (ds) => selectAIConv(ds.id),
+  'ai.deleteConv':      (ds) => deleteAIConv(ds.id),
+  'ai.clear':           () => aiClear(),
+  'ai.newConv':         () => newAIConv(),
+  'ai.usePrompt':       (ds) => aiUsePrompt(ds.text),
+  'ai.send':            () => aiSend(),
+});

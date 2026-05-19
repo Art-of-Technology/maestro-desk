@@ -13,7 +13,6 @@ const modules = [
   ['Mentions',               '../js/tickets/mentions.js'],
   ['Macros',                 '../js/tickets/macros.js'],
   ['Attachments',            '../js/tickets/attachments.js'],
-  ['AIPage',                 '../js/ai/page.js'],
   ['Portal',                 '../js/portal/preview.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
   ['Modal',                  '../js/core/modal.js'],
