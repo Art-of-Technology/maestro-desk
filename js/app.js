@@ -84,6 +84,7 @@ import {
   applyCollapsibleHeaders, resetAllCollapsedSections,
 } from './core/collapsible.js';
 import './core/dismiss.js';
+import './core/event-delegation.js';
 import { navTo, focusGlobalSearch } from './core/keybindings.js';
 import { renderProfile } from './profile/index.js';
 import {
@@ -121,7 +122,7 @@ import {
   kbSetQuery, kbSetCat, openKBArticle, closeKBArticle,
   kbNewArticle, kbEditArticle, kbDeleteArticle,
 } from './kb/index.js';
-import { renderHelp, toggleFAQ, submitSupport } from './help/index.js';
+import { renderHelp } from './help/index.js';
 import {
   renderSettings, setSettingsTab,
   updateProfileName, updateProfileInitials,
@@ -265,7 +266,6 @@ import * as Auth from './auth/index.js';
 import * as TicketTemplates from './ticket-templates/index.js';
 import * as Notifications from './notifications/index.js';
 import * as KB from './kb/index.js';
-import * as Help from './help/index.js';
 import * as Settings from './settings/index.js';
 import * as Layouts from './layouts/index.js';
 import * as CustomFields from './custom-fields/index.js';
@@ -462,7 +462,7 @@ Object.assign(
   Inbox, Channels, Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
   Profile, Agents, ProfileMenu, GlobalSearch, QuickSwitcher,
-  Auth, TicketTemplates, Notifications, KB, Help,
+  Auth, TicketTemplates, Notifications, KB,
   Settings, Layouts, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail, WidgetShell, Reports,

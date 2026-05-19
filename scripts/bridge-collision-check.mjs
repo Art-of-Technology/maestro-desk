@@ -35,7 +35,6 @@ const modules = [
   ['TicketTemplates',        '../js/ticket-templates/index.js'],
   ['Notifications',          '../js/notifications/index.js'],
   ['KB',                     '../js/kb/index.js'],
-  ['Help',                   '../js/help/index.js'],
   ['Settings',               '../js/settings/index.js'],
   ['Layouts',                '../js/layouts/index.js'],
   ['CustomFields',           '../js/custom-fields/index.js'],

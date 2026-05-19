@@ -3,11 +3,15 @@
 // flows), Keyboard shortcuts, FAQ (accordion), and Contact support
 // (mock form — no network send).
 //
-// External reaches (interim, via window): renderPage — still in app.js.
-// Inline onclick handlers in rendered templates reach navTo,
-// focusGlobalSearch, setSettingsTab via the window bridge.
+// Click handlers are routed via core/event-delegation.js using
+// `data-action="help.*"` — no inline onclick, no window bridge entry.
+// `renderHelp` is called by the router in app.js as a direct ES import.
 //
 // SESSION comes from core/state.js via the global lexical env.
+
+import { registerActions } from '../core/event-delegation.js';
+import { navTo, focusGlobalSearch } from '../core/keybindings.js';
+import { setSettingsTab } from '../settings/index.js';
 
 const HELP_FAQ_OPEN = new Set();
 
@@ -28,16 +32,16 @@ export function renderHelp() {
 
 function helpQuickStart() {
   const items = [
-    {t:'Manage tickets',     d:'Triage, reply, escalate or resolve customer requests',                    a:"navTo('tickets')"},
-    {t:'AI-assisted replies',d:'Add your Claude API key in Settings → AI to enable AI Draft',             a:"navTo('settings');setSettingsTab('ai')"},
-    {t:'Roles & permissions',d:'Define custom roles, assign agents, control access per area',             a:"navTo('roles')"},
-    {t:'Global search',      d:"Press / from anywhere to search tickets, customers, agents, and pages",   a:"focusGlobalSearch()"},
+    {t:'Manage tickets',     d:'Triage, reply, escalate or resolve customer requests',                    a:'help.gotoTickets'},
+    {t:'AI-assisted replies',d:'Add your Claude API key in Settings → AI to enable AI Draft',             a:'help.gotoSettingsAi'},
+    {t:'Roles & permissions',d:'Define custom roles, assign agents, control access per area',             a:'help.gotoRoles'},
+    {t:'Global search',      d:"Press / from anywhere to search tickets, customers, agents, and pages",   a:'help.focusSearch'},
   ];
   return `
     <div class="card">
       <div class="card-title">Quick start</div>
       <div class="help-quickstart">
-        ${items.map(i => `<div class="help-card" onclick="${i.a}"><div class="help-card-t">${i.t}</div><div class="help-card-d">${i.d}</div></div>`).join('')}
+        ${items.map(i => `<div class="help-card" data-action="${i.a}"><div class="help-card-t">${i.t}</div><div class="help-card-d">${i.d}</div></div>`).join('')}
       </div>
     </div>`;
 }
@@ -74,7 +78,7 @@ function helpFAQ() {
       <div style="margin-top:6px">
         ${faqs.map((f,i) => `
           <div class="help-faq-item">
-            <div class="help-faq-q" onclick="toggleFAQ(${i})">
+            <div class="help-faq-q" data-action="help.toggleFAQ" data-faq-idx="${i}">
               <span>${f.q}</span>
               <span class="help-faq-chev">${HELP_FAQ_OPEN.has(i)?'−':'+'}</span>
             </div>
@@ -84,7 +88,7 @@ function helpFAQ() {
     </div>`;
 }
 
-export function toggleFAQ(i) {
+function toggleFAQ(i) {
   if (HELP_FAQ_OPEN.has(i)) HELP_FAQ_OPEN.delete(i); else HELP_FAQ_OPEN.add(i);
   window.renderPage('help');
 }
@@ -109,13 +113,13 @@ function helpContact() {
       </div>
       <div class="form-row"><label class="form-label">Message</label><textarea class="form-input" id="sup-msg" placeholder="Describe what you need help with…" style="min-height:100px"></textarea></div>
       <div style="display:flex;gap:10px;align-items:center">
-        <button class="btn btn-solid" onclick="submitSupport()">Send message</button>
+        <button class="btn btn-solid" data-action="help.submitSupport">Send message</button>
         <span id="sup-confirm" style="font-size:11px;color:var(--green);font-family:'DM Mono',monospace;display:none">Message sent — we'll be in touch.</span>
       </div>
     </div>`;
 }
 
-export function submitSupport() {
+function submitSupport() {
   const name = document.getElementById('sup-name')?.value.trim();
   const msg  = document.getElementById('sup-msg')?.value.trim();
   if (!name || !msg) return;
@@ -123,3 +127,12 @@ export function submitSupport() {
   const c = document.getElementById('sup-confirm'); if (c) c.style.display = 'inline';
   setTimeout(() => { const el = document.getElementById('sup-confirm'); if (el) el.style.display = 'none'; }, 4000);
 }
+
+registerActions({
+  'help.gotoTickets':     () => navTo('tickets'),
+  'help.gotoSettingsAi':  () => { navTo('settings'); setSettingsTab('ai'); },
+  'help.gotoRoles':       () => navTo('roles'),
+  'help.focusSearch':     () => focusGlobalSearch(),
+  'help.toggleFAQ':       (ds) => toggleFAQ(parseInt(ds.faqIdx, 10)),
+  'help.submitSupport':   () => submitSupport(),
+});
