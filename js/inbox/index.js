@@ -9,15 +9,22 @@
 // ticket. The detail pane shows a contextual prompt to add the customer
 // first (or fall back to Tickets → + New Ticket with manual paste).
 //
+// Click/change handlers route through core/event-delegation.js as
+// `data-action="inbox.*"` / `data-change-action="inbox.*"`.
+//
 // External reaches (interim, via window): updateNavBadges, refreshTicketSLA,
-// fireWebhook, ticketPayload, applyAssignmentRules, openTicket, renderPage,
-// navTo, escHtml, escAttr — all still in app.js.
+// fireWebhook, ticketPayload, applyAssignmentRules, escHtml, escAttr — all
+// still in app.js. openTicket and navTo are direct ES imports.
 //
 // INBOX, TICKETS, CUSTOMERS, CHANNELS come from data.js; INBOX_SELECTED_ID,
 // INBOX_FILTER_STATUS, INBOX_FILTER_CHANNEL, CUSTOMER_SELECTED come from
 // state.js (the latter is mutated inline from the customer-match deep-link).
 
-export function dismissEmail(emailId) {
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { openTicket } from '../tickets/detail.js';
+import { navTo } from '../core/keybindings.js';
+
+function dismissEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
   e.status = 'dismissed';
@@ -27,7 +34,7 @@ export function dismissEmail(emailId) {
   window.renderPage('inbox');
 }
 
-export function markSpamEmail(emailId) {
+function markSpamEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
   e.status = 'spam';
@@ -37,7 +44,7 @@ export function markSpamEmail(emailId) {
   window.renderPage('inbox');
 }
 
-export function restoreEmail(emailId) {
+function restoreEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e || e.status === 'converted') return;
   e.status = 'new';
@@ -46,7 +53,7 @@ export function restoreEmail(emailId) {
   window.renderPage('inbox');
 }
 
-export function convertEmailToTicket(emailId) {
+function convertEmailToTicket(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
   const cust = CUSTOMERS.find(c => (c.email || '').toLowerCase() === (e.fromEmail || '').toLowerCase());
@@ -91,7 +98,7 @@ export function convertEmailToTicket(emailId) {
   e.convertedTicketId = newId;
   e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
   window.updateNavBadges();
-  window.openTicket(newId);
+  openTicket(newId);
 }
 
 export function renderInbox() {
@@ -122,7 +129,7 @@ export function renderInbox() {
     const isUnread = e.status === 'new';
     const cust = CUSTOMERS.find(c => (c.email || '').toLowerCase() === (e.fromEmail || '').toLowerCase());
     return `
-      <div class="inbox-row ${isSelected ? 'inbox-row-selected' : ''} ${isUnread ? 'inbox-row-unread' : 'inbox-row-read'}" onclick="INBOX_SELECTED_ID=${window.escHtml(JSON.stringify(e.id))};renderPage('inbox')">
+      <div class="inbox-row ${isSelected ? 'inbox-row-selected' : ''} ${isUnread ? 'inbox-row-unread' : 'inbox-row-read'}" data-action="inbox.select" data-email-id="${window.escAttr(e.id)}">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px">
           <span style="font-size:13px;color:var(--ink);${isUnread ? 'font-weight:600' : 'font-weight:400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${window.escHtml(e.from || 'Unknown')}</span>
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);flex-shrink:0">${window.escHtml(e.receivedAt || '')}</span>
@@ -153,21 +160,21 @@ export function renderInbox() {
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
             ${selected.status === 'new'
-              ? `<button class="btn btn-sm btn-solid" onclick="convertEmailToTicket('${window.escAttr(selected.id)}')">→ Convert to ticket</button>
-                 <button class="btn btn-sm" onclick="dismissEmail('${window.escAttr(selected.id)}')">Dismiss</button>
-                 <button class="btn btn-sm btn-danger" onclick="markSpamEmail('${window.escAttr(selected.id)}')">Spam</button>`
+              ? `<button class="btn btn-sm btn-solid" data-action="inbox.convert" data-email-id="${window.escAttr(selected.id)}">→ Convert to ticket</button>
+                 <button class="btn btn-sm" data-action="inbox.dismiss" data-email-id="${window.escAttr(selected.id)}">Dismiss</button>
+                 <button class="btn btn-sm btn-danger" data-action="inbox.spam" data-email-id="${window.escAttr(selected.id)}">Spam</button>`
               : selected.status === 'converted'
-                ? `<button class="btn btn-sm" onclick="openTicket('${window.escAttr(selected.convertedTicketId)}')">Open ${window.escHtml(selected.convertedTicketId)}</button>`
-                : `<button class="btn btn-sm" onclick="restoreEmail('${window.escAttr(selected.id)}')">Restore</button>`}
+                ? `<button class="btn btn-sm" data-action="inbox.openTicket" data-ticket-id="${window.escAttr(selected.convertedTicketId)}">Open ${window.escHtml(selected.convertedTicketId)}</button>`
+                : `<button class="btn btn-sm" data-action="inbox.restore" data-email-id="${window.escAttr(selected.id)}">Restore</button>`}
           </div>
         </div>
         ${cust ? `<div style="margin-bottom:14px;padding:10px 12px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:11px;color:var(--green);display:flex;gap:8px;align-items:center">
           <span style="font-weight:600">Customer matched</span>
-          <span class="link" onclick="CUSTOMER_SELECTED='${window.escAttr(cust.id)}';navTo('customers')" style="color:var(--green);font-weight:500">${window.escHtml(cust.first + ' ' + cust.last)}</span>
+          <span class="link" data-action="inbox.openCustomer" data-customer-id="${window.escAttr(cust.id)}" style="color:var(--green);font-weight:500">${window.escHtml(cust.first + ' ' + cust.last)}</span>
           <span class="vip-badge vip-${(cust.vip || '').toLowerCase()}" style="margin-left:auto">${window.escHtml(cust.vip || '')}</span>
         </div>` : `<div style="margin-bottom:14px;padding:10px 12px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:11px;color:var(--amber);display:flex;gap:8px;align-items:center">
           <span style="font-weight:600">No customer match</span>
-          <span style="color:var(--ink2);font-style:italic">${window.escHtml(selected.fromEmail || '')} isn't in the customer list — convert is blocked. Add the customer first via <span class="link" onclick="navTo('customers')" style="color:var(--amber);font-weight:500">Customers → + New Customer</span>.</span>
+          <span style="color:var(--ink2);font-style:italic">${window.escHtml(selected.fromEmail || '')} isn't in the customer list — convert is blocked. Add the customer first via <span class="link" data-action="inbox.gotoCustomers" style="color:var(--amber);font-weight:500">Customers → + New Customer</span>.</span>
         </div>`}
         <div style="font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:14px 16px">${window.escHtml(selected.body || '')}</div>
         ${isActed ? `<div style="margin-top:14px;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${selected.status} ${selected.actedAt ? '· ' + window.escHtml(selected.actedAt) : ''}</div>` : ''}
@@ -190,13 +197,13 @@ export function renderInbox() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Channel</span>
-        <select class="filter-select" onchange="INBOX_FILTER_CHANNEL=this.value;renderPage('inbox')">
+        <select class="filter-select" data-change-action="inbox.setFilterChannel">
           ${channelOpts.map(id => id === 'all'
             ? `<option value="all" ${INBOX_FILTER_CHANNEL==='all'?'selected':''}>All channels</option>`
             : `<option value="${window.escAttr(id)}" ${INBOX_FILTER_CHANNEL===id?'selected':''}>${window.escHtml(channelMap[id]?.name || id)}</option>`).join('')}
         </select>
         <span class="filter-label" style="margin-left:8px">Status</span>
-        <select class="filter-select" onchange="INBOX_FILTER_STATUS=this.value;renderPage('inbox')">
+        <select class="filter-select" data-change-action="inbox.setFilterStatus">
           <option value="new"       ${INBOX_FILTER_STATUS==='new'?'selected':''}>New (${newN})</option>
           <option value="converted" ${INBOX_FILTER_STATUS==='converted'?'selected':''}>Converted (${convN})</option>
           <option value="dismissed" ${INBOX_FILTER_STATUS==='dismissed'?'selected':''}>Dismissed (${dismN})</option>
@@ -215,3 +222,19 @@ export function renderInbox() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'inbox.select':         (ds) => { INBOX_SELECTED_ID = ds.emailId; window.renderPage('inbox'); },
+  'inbox.convert':        (ds) => convertEmailToTicket(ds.emailId),
+  'inbox.dismiss':        (ds) => dismissEmail(ds.emailId),
+  'inbox.spam':           (ds) => markSpamEmail(ds.emailId),
+  'inbox.restore':        (ds) => restoreEmail(ds.emailId),
+  'inbox.openTicket':     (ds) => openTicket(ds.ticketId),
+  'inbox.openCustomer':   (ds) => { CUSTOMER_SELECTED = ds.customerId; navTo('customers'); },
+  'inbox.gotoCustomers':  () => navTo('customers'),
+});
+
+registerChangeActions({
+  'inbox.setFilterChannel': (ds, el) => { INBOX_FILTER_CHANNEL = el.value; window.renderPage('inbox'); },
+  'inbox.setFilterStatus':  (ds, el) => { INBOX_FILTER_STATUS  = el.value; window.renderPage('inbox'); },
+});

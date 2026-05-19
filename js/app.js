@@ -62,10 +62,7 @@ import {
   portalSetCustomer, portalExit, portalNav, portalOpenTicket,
   portalSendReply, portalCreateTicket, renderPortal,
 } from './portal/preview.js';
-import {
-  dismissEmail, markSpamEmail, restoreEmail,
-  convertEmailToTicket, renderInbox,
-} from './inbox/index.js';
+import { renderInbox } from './inbox/index.js';
 import { renderChannels } from './channels/index.js';
 import {
   fireWebhook, ticketPayload, renderWebhooks,
@@ -243,7 +240,6 @@ import * as Macros from './tickets/macros.js';
 import * as Attachments from './tickets/attachments.js';
 import * as AIPage from './ai/page.js';
 import * as Portal from './portal/preview.js';
-import * as Inbox from './inbox/index.js';
 import * as Webhooks from './webhooks/index.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
@@ -450,7 +446,7 @@ Object.assign(
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, SLA, SLAPolicies, Linked, Mentions, Drafts,
   ActivityLog, Macros, Attachments, AIPage, Portal,
-  Inbox, Webhooks, KBIntegration,
+  Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
   Profile, Agents, ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, Notifications, KB,
