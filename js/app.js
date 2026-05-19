@@ -98,15 +98,7 @@ import {
 } from './custom-fields/index.js';
 import { renderRoles } from './roles/index.js';
 import { renderWorkflows } from './workflows/index.js';
-import {
-  renderTags, setTagSort,
-  openTagDetail, closeTagDetail,
-  toggleTagSelected, toggleAllTags, clearTagSelection,
-  bulkSetTagType, bulkDeleteTags,
-  convertTagType, mergeTagPrompt, mergeTags,
-  tagSetType, tagSetQuery,
-  tagNew, tagEdit, tagDelete,
-} from './tags/index.js';
+import { renderTags } from './tags/index.js';
 import {
   renderCustomers,
   showColumnPanel, dropCustCol, refreshCustTable,
@@ -184,7 +176,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomFields from './custom-fields/index.js';
-import * as Tags from './tags/index.js';
 import * as Customers from './customers/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
@@ -381,7 +372,7 @@ Object.assign(
   Modal, Collapsible, Keybindings,
   GlobalSearch,
   Settings, CustomFields,
-  Tags, Customers, CustomerModals, Dashboard,
+  Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,
 );

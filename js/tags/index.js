@@ -4,8 +4,15 @@
 // tickets using it), and CRUD with normalization, merge, and AI-or-Manual
 // type conversion.
 //
+// Click/change/input/mousedown handlers route through
+// core/event-delegation.js. Pure-style onmouseover/onmouseout hover
+// effects on the merge-target + ticket-row cards stay inline (per the
+// PR #105 rule — they're `this.style.X = Y` only).
+// `renderTags` is the only export consumed (app.js router).
+//
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage, openTicket, navTo — all still in app.js.
+// showModal, closeModal, renderPage — all still in app.js.
+// openTicket and navTo are direct ES imports.
 //
 // TAG_LIBRARY, TICKETS, CUSTOMERS come from data.js via the global lexical
 // env; TAG_SELECTED, TAG_FILTER_TYPE, TAG_QUERY, TAG_SELECTED_NAMES,
@@ -13,6 +20,9 @@
 // the same way.
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
+import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from '../tickets/detail.js';
 
 export function renderTags() {
   if (TAG_SELECTED) return renderTagDetail(TAG_SELECTED);
@@ -36,9 +46,9 @@ export function renderTags() {
       : 'var(--ink4)';
     const checked = TAG_SELECTED_NAMES.has(t.tag);
     return `
-      <tr style="cursor:pointer${checked?';background:var(--purple-lt)':''}" onclick="openTagDetail('${window.escAttr(t.tag)}')">
-        <td style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-          <input type="checkbox" ${checked?'checked':''} onchange="toggleTagSelected('${window.escAttr(t.tag)}')" style="cursor:pointer;accent-color:var(--purple)" />
+      <tr style="cursor:pointer${checked?';background:var(--purple-lt)':''}" data-action="tags.openDetail" data-tag="${window.escAttr(t.tag)}">
+        <td style="width:32px;padding-right:0" data-action="">
+          <input type="checkbox" ${checked?'checked':''} data-change-action="tags.toggleSelected" data-tag="${window.escAttr(t.tag)}" style="cursor:pointer;accent-color:var(--purple)" />
         </td>
         <td><span class="tag tag-neutral" style="font-size:11px">${t.tag}</span></td>
         <td>${t.type === 'ai'
@@ -51,11 +61,11 @@ export function renderTags() {
             <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden;max-width:160px"><div style="background:var(--purple);height:100%;width:${pct}%"></div></div>
           </div>
         </td>
-        ${admin ? `<td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
-          <button class="btn btn-sm" onclick="convertTagType('${window.escAttr(t.tag)}')" title="Convert AI ↔ Manual">${t.type==='ai'?'→ Manual':'→ AI'}</button>
-          <button class="btn btn-sm" onclick="mergeTagPrompt('${window.escAttr(t.tag)}')">Merge</button>
-          <button class="btn btn-sm" onclick="tagEdit('${window.escAttr(t.tag)}')">Edit</button>
-          <button class="btn btn-sm btn-danger" onclick="tagDelete('${window.escAttr(t.tag)}')">Delete</button>
+        ${admin ? `<td style="text-align:right;white-space:nowrap" data-action="">
+          <button class="btn btn-sm" data-action="tags.convertType" data-tag="${window.escAttr(t.tag)}" title="Convert AI ↔ Manual">${t.type==='ai'?'→ Manual':'→ AI'}</button>
+          <button class="btn btn-sm" data-action="tags.mergePrompt" data-tag="${window.escAttr(t.tag)}">Merge</button>
+          <button class="btn btn-sm" data-action="tags.edit" data-tag="${window.escAttr(t.tag)}">Edit</button>
+          <button class="btn btn-sm btn-danger" data-action="tags.delete" data-tag="${window.escAttr(t.tag)}">Delete</button>
         </td>` : ''}
       </tr>`;
   }).join('');
@@ -63,13 +73,13 @@ export function renderTags() {
   const bulkBar = TAG_SELECTED_NAMES.size > 0 ? `
     <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--purple);font-weight:600">${TAG_SELECTED_NAMES.size} selected</span>
-      <select class="filter-select" onchange="bulkSetTagType(this.value)">
+      <select class="filter-select" data-change-action="tags.bulkSetType">
         <option value="">Set type…</option>
         <option value="manual">Manual</option>
         <option value="ai">AI-suggested</option>
       </select>
-      <button class="btn btn-sm btn-danger" onclick="bulkDeleteTags()">Delete</button>
-      <button class="btn btn-sm" onclick="clearTagSelection()" style="margin-left:auto">Clear selection</button>
+      <button class="btn btn-sm btn-danger" data-action="tags.bulkDelete">Delete</button>
+      <button class="btn btn-sm" data-action="tags.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
   return `
@@ -77,7 +87,7 @@ export function renderTags() {
       <div class="topbar">
         <div class="tb-title">Tags</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" onclick="tagNew()">+ New Tag</button>`
+          ? `<button class="btn btn-solid btn-sm" data-action="tags.new">+ New Tag</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -89,8 +99,8 @@ export function renderTags() {
       ${bulkBar}
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="tag-search" placeholder="Search tags…" style="width:200px" value="${TAG_QUERY}" oninput="tagSetQuery(this.value)"/>
-        <select class="filter-select" onchange="tagSetType(this.value)">
+        <input class="filter-select" id="tag-search" placeholder="Search tags…" style="width:200px" value="${TAG_QUERY}" data-input-action="tags.setQuery"/>
+        <select class="filter-select" data-change-action="tags.setType">
           <option value="all"    ${TAG_FILTER_TYPE==='all'?'selected':''}>All types</option>
           <option value="manual" ${TAG_FILTER_TYPE==='manual'?'selected':''}>Manual</option>
           <option value="ai"     ${TAG_FILTER_TYPE==='ai'?'selected':''}>AI-suggested</option>
@@ -100,13 +110,13 @@ export function renderTags() {
       <div style="flex:1;overflow-y:auto">
         <table class="tbl">
           <thead><tr>
-            <th style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-              <input type="checkbox" ${allSelected?'checked':''} onchange="toggleAllTags()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+            <th style="width:32px;padding-right:0" data-action="">
+              <input type="checkbox" ${allSelected?'checked':''} data-change-action="tags.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
             </th>
-            <th onclick="setTagSort('tag')" style="cursor:pointer;user-select:none">Tag${sortIndicator('tag')}</th>
-            <th onclick="setTagSort('type')" style="cursor:pointer;user-select:none">Type${sortIndicator('type')}</th>
-            <th onclick="setTagSort('conf')" style="cursor:pointer;user-select:none">Confidence${sortIndicator('conf')}</th>
-            <th onclick="setTagSort('count')" style="cursor:pointer;user-select:none">Usage${sortIndicator('count')}</th>
+            <th data-action="tags.setSort" data-col="tag" style="cursor:pointer;user-select:none">Tag${sortIndicator('tag')}</th>
+            <th data-action="tags.setSort" data-col="type" style="cursor:pointer;user-select:none">Type${sortIndicator('type')}</th>
+            <th data-action="tags.setSort" data-col="conf" style="cursor:pointer;user-select:none">Confidence${sortIndicator('conf')}</th>
+            <th data-action="tags.setSort" data-col="count" style="cursor:pointer;user-select:none">Usage${sortIndicator('count')}</th>
             ${admin ? '<th style="text-align:right">Actions</th>' : ''}
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -133,30 +143,30 @@ function applyTagFilters() {
   return list;
 }
 
-export function setTagSort(col) {
+function setTagSort(col) {
   if (TAG_SORT_COL === col) TAG_SORT_DIR *= -1;
   else { TAG_SORT_COL = col; TAG_SORT_DIR = col === 'tag' ? 1 : -1; }
   window.renderPage('tags');
 }
 
-export function openTagDetail(tag) { TAG_SELECTED = tag; window.renderPage('tags'); }
-export function closeTagDetail()   { TAG_SELECTED = null; window.renderPage('tags'); }
+function openTagDetail(tag) { TAG_SELECTED = tag; window.renderPage('tags'); }
+function closeTagDetail()   { TAG_SELECTED = null; window.renderPage('tags'); }
 
-export function toggleTagSelected(tag) {
+function toggleTagSelected(tag) {
   if (TAG_SELECTED_NAMES.has(tag)) TAG_SELECTED_NAMES.delete(tag);
   else TAG_SELECTED_NAMES.add(tag);
   window.renderPage('tags');
 }
-export function toggleAllTags() {
+function toggleAllTags() {
   const ids = applyTagFilters().map(t => t.tag);
   const all = ids.length > 0 && ids.every(id => TAG_SELECTED_NAMES.has(id));
   if (all) ids.forEach(id => TAG_SELECTED_NAMES.delete(id));
   else ids.forEach(id => TAG_SELECTED_NAMES.add(id));
   window.renderPage('tags');
 }
-export function clearTagSelection() { TAG_SELECTED_NAMES.clear(); window.renderPage('tags'); }
+function clearTagSelection() { TAG_SELECTED_NAMES.clear(); window.renderPage('tags'); }
 
-export function bulkSetTagType(v) {
+function bulkSetTagType(v) {
   if (!window.isAdmin() || !v || TAG_SELECTED_NAMES.size === 0) return;
   TAG_LIBRARY.forEach(t => {
     if (TAG_SELECTED_NAMES.has(t.tag)) {
@@ -168,7 +178,7 @@ export function bulkSetTagType(v) {
   TAG_SELECTED_NAMES.clear();
   window.renderPage('tags');
 }
-export function bulkDeleteTags() {
+function bulkDeleteTags() {
   if (!window.isAdmin()) return;
   const n = TAG_SELECTED_NAMES.size;
   if (n === 0) return;
@@ -187,7 +197,7 @@ export function bulkDeleteTags() {
   }, 'Delete');
 }
 
-export function convertTagType(tagName) {
+function convertTagType(tagName) {
   if (!window.isAdmin()) return;
   const t = TAG_LIBRARY.find(x => x.tag === tagName);
   if (!t) return;
@@ -196,14 +206,14 @@ export function convertTagType(tagName) {
   window.renderPage('tags');
 }
 
-export function mergeTagPrompt(sourceName) {
+function mergeTagPrompt(sourceName) {
   if (!window.isAdmin()) return;
   const candidates = TAG_LIBRARY.filter(t => t.tag !== sourceName);
   window.showModal(`Merge "${sourceName}" into…`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">All tickets using <strong style="color:var(--ink)">${sourceName}</strong> will be re-tagged with the target. The source tag will be deleted.</div>
     <div style="max-height:380px;overflow-y:auto">
       ${candidates.length ? candidates.map(t => `
-        <div onmousedown="closeModal();mergeTags('${window.escAttr(sourceName)}','${window.escAttr(t.tag)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+        <div data-mousedown-action="tags.mergeFromModal" data-source="${window.escAttr(sourceName)}" data-target="${window.escAttr(t.tag)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
           <span class="tag tag-neutral" style="font-size:11px">${t.tag}</span>
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-left:auto">${t.count} use${t.count===1?'':'s'}</span>
         </div>`).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No other tags to merge into</div>'}
@@ -211,7 +221,7 @@ export function mergeTagPrompt(sourceName) {
   `, null, null);
 }
 
-export function mergeTags(sourceName, targetName) {
+function mergeTags(sourceName, targetName) {
   const source = TAG_LIBRARY.find(x => x.tag === sourceName);
   const target = TAG_LIBRARY.find(x => x.tag === targetName);
   if (!source || !target) return;
@@ -269,7 +279,7 @@ function renderTagDetail(tagName) {
 
   const topCustRows = topCustomers.length ? topCustomers.map(({ cust, count }) => {
     const max = topCustomers[0].count;
-    return `<div onclick="CUSTOMER_SELECTED='${window.escAttr(cust.id)}';navTo('customers')" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
+    return `<div data-action="tags.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
       <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
       <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${(count/max)*100}%"></div></div>
@@ -279,7 +289,7 @@ function renderTagDetail(tagName) {
 
   const ticketRows = using.map(tk => {
     const cust = CUSTOMERS.find(c => c.id === tk.customerId);
-    return `<tr onclick="openTicket('${window.escAttr(tk.id)}')" style="cursor:pointer">
+    return `<tr data-action="tags.openTicket" data-ticket-id="${window.escAttr(tk.id)}" style="cursor:pointer">
       <td class="bold">${tk.id}</td>
       <td>${cust ? cust.first + ' ' + cust.last : '—'}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${tk.subject}</td>
@@ -293,14 +303,14 @@ function renderTagDetail(tagName) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="closeTagDetail()">Tags</span>
+          <span data-action="tags.closeDetail">Tags</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${tagName}</span>
           ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
-            <button class="btn btn-sm" onclick="convertTagType('${window.escAttr(tagName)}')">${t.type==='ai'?'Convert to manual':'Convert to AI'}</button>
-            <button class="btn btn-sm" onclick="mergeTagPrompt('${window.escAttr(tagName)}')">Merge…</button>
-            <button class="btn btn-sm" onclick="tagEdit('${window.escAttr(tagName)}')">Edit</button>
-            <button class="btn btn-sm btn-danger" onclick="tagDelete('${window.escAttr(tagName)}')">Delete</button>
+            <button class="btn btn-sm" data-action="tags.convertType" data-tag="${window.escAttr(tagName)}">${t.type==='ai'?'Convert to manual':'Convert to AI'}</button>
+            <button class="btn btn-sm" data-action="tags.mergePrompt" data-tag="${window.escAttr(tagName)}">Merge…</button>
+            <button class="btn btn-sm" data-action="tags.edit" data-tag="${window.escAttr(tagName)}">Edit</button>
+            <button class="btn btn-sm btn-danger" data-action="tags.delete" data-tag="${window.escAttr(tagName)}">Delete</button>
           </span>` : ''}
         </div>
       </div>
@@ -348,8 +358,8 @@ function renderTagDetail(tagName) {
     </div>`;
 }
 
-export function tagSetType(v) { TAG_FILTER_TYPE = v; window.renderPage('tags'); }
-export function tagSetQuery(v) {
+function tagSetType(v) { TAG_FILTER_TYPE = v; window.renderPage('tags'); }
+function tagSetQuery(v) {
   TAG_QUERY = v;
   window.renderPage('tags');
   const input = document.getElementById('tag-search');
@@ -359,7 +369,7 @@ export function tagSetQuery(v) {
 // Reads aren't currently called from anywhere — kept for parity with the
 // historical "show usage in a modal" entry point. Safe to delete if no
 // caller appears.
-export function tagShowUsage(tagName) {
+function tagShowUsage(tagName) {
   const using = TICKETS.filter(t =>
     (t.tags || []).includes(tagName) ||
     (t.aiTags || []).some(at => at.tag === tagName)
@@ -367,7 +377,7 @@ export function tagShowUsage(tagName) {
   const def = TAG_LIBRARY.find(t => t.tag === tagName);
   const items = using.length
     ? using.map(t => `
-        <div onmousedown="closeModal();openTicket('${window.escAttr(t.id)}')" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+        <div data-mousedown-action="tags.openTicketFromModal" data-ticket-id="${window.escAttr(t.id)}" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
           <span class="tag tag-${t.status}" style="font-size:10px">${t.status}</span>
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${t.id}</span>
           <span style="flex:1;font-size:13px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.subject}</span>
@@ -388,7 +398,7 @@ function tagFormBody(t) {
   return `
     <div class="form-row"><label class="form-label">Tag name</label><input class="form-input" id="tag-name" value="${esc(t?.tag)}" placeholder="lowercase-with-dashes"/></div>
     <div class="form-row"><label class="form-label">Type</label>
-      <select class="form-input" id="tag-type" onchange="document.getElementById('tag-conf-row').style.display = this.value === 'ai' ? 'block' : 'none'">
+      <select class="form-input" id="tag-type" data-change-action="tags.toggleConfRow">
         <option value="manual" ${(!t || t.type==='manual')?'selected':''}>Manual</option>
         <option value="ai"     ${t?.type==='ai'?'selected':''}>AI-suggested</option>
       </select>
@@ -403,7 +413,7 @@ function normalizeTagName(s) {
   return String(s).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-export function tagNew() {
+function tagNew() {
   if (!window.isAdmin()) return;
   window.showModal('New tag', tagFormBody(null), () => {
     const name = normalizeTagName(document.getElementById('tag-name').value);
@@ -415,7 +425,7 @@ export function tagNew() {
   }, 'Create');
 }
 
-export function tagEdit(name) {
+function tagEdit(name) {
   if (!window.isAdmin()) return;
   const t = TAG_LIBRARY.find(x => x.tag === name); if (!t) return;
   window.showModal(`Edit tag`, tagFormBody(t), () => {
@@ -435,7 +445,7 @@ export function tagEdit(name) {
   }, 'Save');
 }
 
-export function tagDelete(name) {
+function tagDelete(name) {
   if (!window.isAdmin()) return;
   const t = TAG_LIBRARY.find(x => x.tag === name); if (!t) return;
   const inUse = TICKETS.filter(tk => (tk.tags||[]).includes(name) || (tk.aiTags||[]).some(at => at.tag === name)).length;
@@ -449,3 +459,44 @@ export function tagDelete(name) {
     window.closeModal(); window.renderPage('tags');
   }, 'Delete');
 }
+
+registerActions({
+  'tags.openDetail':     (ds) => openTagDetail(ds.tag),
+  'tags.closeDetail':    () => closeTagDetail(),
+  'tags.setSort':        (ds) => setTagSort(ds.col),
+  'tags.bulkDelete':     () => bulkDeleteTags(),
+  'tags.clearSelection': () => clearTagSelection(),
+  'tags.new':            () => tagNew(),
+  'tags.edit':           (ds) => tagEdit(ds.tag),
+  'tags.delete':         (ds) => tagDelete(ds.tag),
+  'tags.convertType':    (ds) => convertTagType(ds.tag),
+  'tags.mergePrompt':    (ds) => mergeTagPrompt(ds.tag),
+  'tags.openTicket':     (ds) => openTicket(ds.ticketId),
+  'tags.openCustomer':   (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+});
+
+registerChangeActions({
+  'tags.toggleSelected': (ds) => toggleTagSelected(ds.tag),
+  'tags.toggleAll':      () => toggleAllTags(),
+  'tags.bulkSetType':    (ds, el) => bulkSetTagType(el.value),
+  'tags.setType':        (ds, el) => tagSetType(el.value),
+  // Form-internal: show/hide the confidence row when type switches between
+  // AI and Manual. Pure DOM tweak with no module-state side effects.
+  'tags.toggleConfRow':  (ds, el) => {
+    const row = document.getElementById('tag-conf-row');
+    if (row) row.style.display = el.value === 'ai' ? 'block' : 'none';
+  },
+});
+
+registerInputActions({
+  'tags.setQuery': (ds, el) => tagSetQuery(el.value),
+});
+
+registerMousedownActions({
+  // Mousedown-with-close-modal pattern: pick a target in a modal, close
+  // it, then dispatch the action. Uses mousedown (not click) so the
+  // action fires before core/dismiss.js's mousedown listener sees the
+  // outside-click and tries to clean up.
+  'tags.mergeFromModal':      (ds) => { window.closeModal(); mergeTags(ds.source, ds.target); },
+  'tags.openTicketFromModal': (ds) => { window.closeModal(); openTicket(ds.ticketId); },
+});
