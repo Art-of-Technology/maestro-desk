@@ -41,7 +41,6 @@ const modules = [
   ['TicketsList',            '../js/tickets/list.js'],
   ['TicketDetail',           '../js/tickets/detail.js'],
   ['WidgetShell',            '../js/core/widget-shell.js'],
-  ['Reports',                '../js/reports/index.js'],
   ['BusinessHours',          '../js/core/business-hours.js'],
   ['AssignmentRules',        '../js/tickets/assignment-rules.js'],
   ['Templates',              '../js/tickets/templates.js'],
