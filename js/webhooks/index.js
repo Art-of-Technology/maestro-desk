@@ -6,11 +6,19 @@
 // log surfaces the cause. For integrators we recommend a relay (workflow tool
 // or serverless function) that bridges browser → real endpoint.
 //
+// Click/change handlers on the Webhooks page route through
+// core/event-delegation.js. The exported API surface is the public
+// helpers used by other modules: `fireWebhook` and `ticketPayload`
+// (called from tickets/csat.js + tickets/detail.js via direct ES
+// imports) and `renderWebhooks` (the router).
+//
 // External reaches (interim, via window): isAdmin, showModal, closeModal,
 // renderPage, escHtml, escAttr — all still in app.js.
 //
 // CURRENT_PAGE comes from state.js; CUSTOMERS from data.js (both in global
 // lex env, so direct refs work from the module).
+
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 const WEBHOOK_EVENT_TYPES = [
   { v:'ticket.created',   l:'Ticket created' },
@@ -119,11 +127,11 @@ export function ticketPayload(t) {
   };
 }
 
-export function whNew() {
+function whNew() {
   if (!window.isAdmin()) return;
   whFormModal(null);
 }
-export function whEdit(id) {
+function whEdit(id) {
   if (!window.isAdmin()) return;
   const h = WEBHOOKS.find(x => x.id === id);
   if (h) whFormModal(h);
@@ -185,7 +193,7 @@ const WEBHOOK_TEMPLATES = [
     note:'Free request inspector for quickly verifying delivery shape. Replace the UUID with your test endpoint.' },
 ];
 
-export function whApplyTemplate(idOrNull) {
+function whApplyTemplate(idOrNull) {
   if (!idOrNull) return;
   const tpl = WEBHOOK_TEMPLATES.find(t => t.id === idOrNull);
   if (!tpl) return;
@@ -209,7 +217,7 @@ function whFormModal(h) {
   window.showModal(h ? `Edit webhook · ${h.id}` : 'New webhook', `
     ${!h ? `<div class="form-row">
       <label class="form-label">Start from a template (optional)</label>
-      <select class="form-input" id="wh-template" onchange="whApplyTemplate(this.value)">
+      <select class="form-input" id="wh-template" data-change-action="webhooks.applyTemplate">
         <option value="">— Blank webhook —</option>
         ${templateOptions}
       </select>
@@ -240,12 +248,12 @@ function whFormModal(h) {
     window.closeModal(); window.renderPage('webhooks');
   }, h ? 'Save' : 'Create');
 }
-export function whToggle(id, active) {
+function whToggle(id, active) {
   if (!window.isAdmin()) return;
   const h = WEBHOOKS.find(x => x.id === id);
   if (h) { h.active = !!active; saveWebhooks(); }
 }
-export function whDelete(id) {
+function whDelete(id) {
   if (!window.isAdmin()) return;
   const h = WEBHOOKS.find(x => x.id === id); if (!h) return;
   window.showModal('Delete webhook', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(h.name)}</strong>? Past deliveries will be lost.</div>`, () => {
@@ -255,7 +263,7 @@ export function whDelete(id) {
     window.closeModal(); window.renderPage('webhooks');
   }, 'Delete');
 }
-export async function whTestFire(id) {
+async function whTestFire(id) {
   const h = WEBHOOKS.find(x => x.id === id);
   if (!h) return;
   // Test-fire bypasses the active/subscribed filters and goes through the
@@ -287,14 +295,14 @@ export function renderWebhooks() {
       <td>${h.lastStatus === 'success' ? '<span style="color:var(--green);font-weight:500">●</span> ok' : h.lastStatus === 'failure' ? '<span style="color:var(--red);font-weight:500">●</span> failed' : '<span style="color:var(--ink3)">—</span>'}</td>
       <td style="text-align:center">
         <label class="toggle">
-          <input type="checkbox" ${h.active?'checked':''} ${admin?'':'disabled'} onchange="whToggle('${window.escAttr(h.id)}',this.checked)">
+          <input type="checkbox" ${h.active?'checked':''} ${admin?'':'disabled'} data-change-action="webhooks.toggle" data-hook-id="${window.escAttr(h.id)}">
           <span class="toggle-slider"></span>
         </label>
       </td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm" onclick="whTestFire('${window.escAttr(h.id)}')">Test</button>
-        <button class="btn btn-sm" onclick="whEdit('${window.escAttr(h.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="whDelete('${window.escAttr(h.id)}')">Delete</button>
+        <button class="btn btn-sm" data-action="webhooks.testFire" data-hook-id="${window.escAttr(h.id)}">Test</button>
+        <button class="btn btn-sm" data-action="webhooks.edit" data-hook-id="${window.escAttr(h.id)}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-action="webhooks.delete" data-hook-id="${window.escAttr(h.id)}">Delete</button>
       </td>` : ''}
     </tr>`).join('');
 
@@ -312,7 +320,7 @@ export function renderWebhooks() {
       <div class="topbar">
         <div class="tb-title">Webhooks</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" onclick="whNew()">+ New Webhook</button>`
+          ? `<button class="btn btn-solid btn-sm" data-action="webhooks.new">+ New Webhook</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -338,3 +346,15 @@ export function renderWebhooks() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'webhooks.new':      () => whNew(),
+  'webhooks.edit':     (ds) => whEdit(ds.hookId),
+  'webhooks.delete':   (ds) => whDelete(ds.hookId),
+  'webhooks.testFire': (ds) => whTestFire(ds.hookId),
+});
+
+registerChangeActions({
+  'webhooks.toggle':        (ds, el) => whToggle(ds.hookId, el.checked),
+  'webhooks.applyTemplate': (ds, el) => whApplyTemplate(el.value),
+});

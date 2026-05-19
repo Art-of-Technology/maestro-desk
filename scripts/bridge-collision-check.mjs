@@ -17,7 +17,6 @@ const modules = [
   ['Attachments',            '../js/tickets/attachments.js'],
   ['AIPage',                 '../js/ai/page.js'],
   ['Portal',                 '../js/portal/preview.js'],
-  ['Webhooks',               '../js/webhooks/index.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
   ['Modal',                  '../js/core/modal.js'],
   ['Collapsible',            '../js/core/collapsible.js'],
