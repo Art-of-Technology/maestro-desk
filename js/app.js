@@ -187,9 +187,7 @@ import {
   showWidgetMenu, showManageWidgetsModal,
 } from './core/widget-shell.js';
 import {
-  renderReports, computeReportStats,
-  setReportTF, exportReport,
-  REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
+  renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
 } from './reports/index.js';
 import {
   bhSetEnabled, bhSetDayEnabled, bhSetDayTime,
@@ -253,7 +251,6 @@ import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import * as WidgetShell from './core/widget-shell.js';
-import * as Reports from './reports/index.js';
 import * as BusinessHours from './core/business-hours.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 import * as Templates from './tickets/templates.js';
@@ -441,7 +438,7 @@ Object.assign(
   Auth, TicketTemplates, KB,
   Settings, Layouts, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
-  TicketsList, TicketDetail, WidgetShell, Reports,
+  TicketsList, TicketDetail, WidgetShell,
   BusinessHours, AssignmentRules, Templates, CSAT,
 );
 

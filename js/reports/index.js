@@ -5,6 +5,11 @@
 // imported by app.js for the startup layout-hydration block alongside
 // DASH_WIDGETS / DEFAULT_DASH_LAYOUT.
 //
+// Click + change handlers route through core/event-delegation.js. No
+// inline `on*=` references remain. No external module reaches into
+// this module's window-bridged functions — the only external consumer
+// (dashboard/index.js) uses a direct ES import for computeReportStats.
+//
 // External reaches (interim, via window): escHtml, fmtMinutes, renderPage
 // — still in app.js.
 //
@@ -14,6 +19,7 @@
 import { renderWidgetGrid } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 
@@ -21,7 +27,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 // stays module-local rather than going to core/state.js.
 let REPORT_TF = '30d';
 
-export function setReportTF(v) { REPORT_TF = v; window.renderPage('reports'); }
+function setReportTF(v) { REPORT_TF = v; window.renderPage('reports'); }
 
 function getReportTickets() {
   if (REPORT_TF === 'all') return TICKETS.slice();
@@ -161,7 +167,7 @@ export const REPORT_WIDGETS = [
 
 export const DEFAULT_REPORT_LAYOUT = { order: REPORT_WIDGETS.map(w => w.id), hidden: [], charts: {} };
 
-export function exportReport() {
+function exportReport() {
   const tickets = getReportTickets();
   const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT','Time logged','Time billable'];
   const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '', window.fmtMinutes(ticketTotalMinutes(t)), window.fmtMinutes(ticketBillableMinutes(t))]);
@@ -182,13 +188,13 @@ export function renderReports() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Reports</div>
-        <select class="filter-select" onchange="setReportTF(this.value)">
+        <select class="filter-select" data-change-action="reports.setTF">
           <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
           <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>
           <option value="90d" ${tf==='90d'?'selected':''}>Last 90 days</option>
           <option value="all" ${tf==='all'?'selected':''}>All time</option>
         </select>
-        <button class="btn btn-sm" onclick="exportReport()">Export CSV</button>
+        <button class="btn btn-sm" data-action="reports.export">Export CSV</button>
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${s.total}</div><div class="kpi-l">Total tickets</div></div>
@@ -202,3 +208,11 @@ export function renderReports() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'reports.export': () => exportReport(),
+});
+
+registerChangeActions({
+  'reports.setTF': (ds, el) => setReportTF(el.value),
+});
