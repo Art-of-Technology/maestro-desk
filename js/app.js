@@ -184,10 +184,7 @@ import {
 import {
   renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
 } from './reports/index.js';
-import {
-  bhSetEnabled, bhSetDayEnabled, bhSetDayTime,
-  bhAddHoliday, bhRemoveHoliday, renderBusinessHours,
-} from './core/business-hours.js';
+import { renderBusinessHours } from './core/business-hours.js';
 import {
   isAgentOOO, showAgentOOOModal, clearAgentOOO,
   applyAssignmentRules, runAssignmentRulesOnTicket, bulkApplyAssignmentRules,
@@ -243,7 +240,6 @@ import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import * as WidgetShell from './core/widget-shell.js';
-import * as BusinessHours from './core/business-hours.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 import * as Templates from './tickets/templates.js';
 import * as CSAT from './tickets/csat.js';
@@ -431,6 +427,6 @@ Object.assign(
   Settings, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail, WidgetShell,
-  BusinessHours, AssignmentRules, Templates, CSAT,
+  AssignmentRules, Templates, CSAT,
 );
 
