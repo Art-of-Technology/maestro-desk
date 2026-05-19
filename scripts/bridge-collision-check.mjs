@@ -9,7 +9,6 @@ const modules = [
   ['AIReply',                '../js/ai/reply.js'],
   ['TimeTracking',           '../js/tickets/time-tracking.js'],
   ['Snooze',                 '../js/tickets/snooze.js'],
-  ['SLA',                    '../js/tickets/sla.js'],
   ['Linked',                 '../js/tickets/linked.js'],
   ['Mentions',               '../js/tickets/mentions.js'],
   ['Macros',                 '../js/tickets/macros.js'],

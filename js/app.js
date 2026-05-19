@@ -202,7 +202,6 @@ import * as Translate from './ai/translate.js';
 import * as AIReply from './ai/reply.js';
 import * as TimeTracking from './tickets/time-tracking.js';
 import * as Snooze from './tickets/snooze.js';
-import * as SLA from './tickets/sla.js';
 import * as Linked from './tickets/linked.js';
 import * as Mentions from './tickets/mentions.js';
 import * as Macros from './tickets/macros.js';
@@ -412,7 +411,7 @@ Object.assign(
     showAuthPanel, togglePassword, ssoLogin,
     submitLogin, submitForgot, submitCreate, updatePwStrength },
   Theme, AIClient, Summarize, Translate, AIReply,
-  TimeTracking, Snooze, SLA, Linked, Mentions,
+  TimeTracking, Snooze, Linked, Mentions,
   Macros, Attachments, AIPage, Portal,
   KBIntegration,
   Modal, Collapsible, Keybindings,

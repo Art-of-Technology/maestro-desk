@@ -12,9 +12,9 @@
 // Click/change handlers route through core/event-delegation.js as
 // `data-action="inbox.*"` / `data-change-action="inbox.*"`.
 //
-// External reaches (interim, via window): updateNavBadges, refreshTicketSLA,
+// External reaches (interim, via window): updateNavBadges,
 // fireWebhook, ticketPayload, applyAssignmentRules, escHtml, escAttr — all
-// still in app.js. openTicket and navTo are direct ES imports.
+// still in app.js. openTicket, navTo, refreshTicketSLA are direct ES imports.
 //
 // INBOX, TICKETS, CUSTOMERS, CHANNELS come from data.js; INBOX_SELECTED_ID,
 // INBOX_FILTER_STATUS, INBOX_FILTER_CHANNEL, CUSTOMER_SELECTED come from
@@ -23,6 +23,7 @@
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { navTo } from '../core/keybindings.js';
+import { refreshTicketSLA } from '../tickets/sla.js';
 
 function dismissEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
@@ -92,7 +93,7 @@ function convertEmailToTicket(emailId) {
   };
   TICKETS.unshift(newT);
   if (!newT.agent && typeof window.applyAssignmentRules === 'function') window.applyAssignmentRules(newT);
-  window.refreshTicketSLA(newT);
+  refreshTicketSLA(newT);
   window.fireWebhook('ticket.created', { ...window.ticketPayload(newT), source: 'inbox', emailId: e.id });
   e.status = 'converted';
   e.convertedTicketId = newId;

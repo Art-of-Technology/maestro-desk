@@ -12,10 +12,12 @@
 //
 // External reaches (interim, via window): logTicketEvent (TODO: switch
 // to import from core/activity-log.js as a follow-on cleanup),
-// refreshTicketSLA, updateNavBadges, fireWebhook, ticketPayload,
+// updateNavBadges, fireWebhook, ticketPayload,
 // applyAssignmentRules, renderPage, navTo, escHtml, escAttr — all
-// still in app.js. TICKETS, CUSTOMERS, KB_ARTICLES from data.js via
-// global lexical env.
+// still in app.js. refreshTicketSLA is a direct ES import.
+// TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
+
+import { refreshTicketSLA } from '../tickets/sla.js';
 
 let PORTAL_CUSTOMER_ID = null;
 let PORTAL_VIEW = 'tickets';
@@ -66,7 +68,7 @@ export function portalSendReply(ticketId) {
   if (t.status === 'resolved') {
     window.logTicketEvent(ticketId, 'status', `Status: resolved → open (customer reply via portal)`);
     t.status = 'open';
-    window.refreshTicketSLA(t);
+    refreshTicketSLA(t);
     window.updateNavBadges();
   }
   window.renderPage('portal');
@@ -92,7 +94,7 @@ export function portalCreateTicket() {
   };
   TICKETS.unshift(newT);
   if (typeof window.applyAssignmentRules === 'function') window.applyAssignmentRules(newT);
-  window.refreshTicketSLA(newT);
+  refreshTicketSLA(newT);
   window.fireWebhook('ticket.created', window.ticketPayload(newT));
   window.updateNavBadges();
   PORTAL_TICKET_ID = newId;

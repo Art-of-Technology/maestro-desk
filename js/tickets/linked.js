@@ -12,7 +12,10 @@
 //
 // External reaches (interim, via window): escAttr, escHtml, showModal,
 // closeModal, logTicketEvent, openTicket, renderPage, updateNavBadges,
-// refreshTicketSLA, fireWebhook, ticketPayload — all still in app.js.
+// fireWebhook, ticketPayload — all still in app.js. refreshTicketSLA
+// is a direct ES import.
+
+import { refreshTicketSLA } from './sla.js';
 
 export function linkTickets(id, otherId) {
   const t = TICKETS.find(x => x.id === id);
@@ -88,7 +91,7 @@ export function mergeTickets(srcId, primaryId) {
     src._statusBeforeMerge = src.status;
     window.logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
     src.status = 'resolved';
-    window.refreshTicketSLA(src);
+    refreshTicketSLA(src);
   }
   window.logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
   window.logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
@@ -115,7 +118,7 @@ export function unmergeTicket(srcId) {
   if (src.status === 'resolved' && src.status !== restored) {
     window.logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
     src.status = restored;
-    window.refreshTicketSLA(src);
+    refreshTicketSLA(src);
   }
   delete src._statusBeforeMerge;
   window.logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
