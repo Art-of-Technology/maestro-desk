@@ -20,7 +20,6 @@ const modules = [
   ['AIPage',                 '../js/ai/page.js'],
   ['Portal',                 '../js/portal/preview.js'],
   ['Inbox',                  '../js/inbox/index.js'],
-  ['Channels',               '../js/channels/index.js'],
   ['Webhooks',               '../js/webhooks/index.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
   ['Modal',                  '../js/core/modal.js'],

@@ -66,10 +66,7 @@ import {
   dismissEmail, markSpamEmail, restoreEmail,
   convertEmailToTicket, renderInbox,
 } from './inbox/index.js';
-import {
-  renderChannels, openChannel,
-  chToggle, chNew, chEdit, chDelete,
-} from './channels/index.js';
+import { renderChannels } from './channels/index.js';
 import {
   fireWebhook, ticketPayload, renderWebhooks,
   whNew, whEdit, whApplyTemplate, whToggle, whDelete, whTestFire,
@@ -247,7 +244,6 @@ import * as Attachments from './tickets/attachments.js';
 import * as AIPage from './ai/page.js';
 import * as Portal from './portal/preview.js';
 import * as Inbox from './inbox/index.js';
-import * as Channels from './channels/index.js';
 import * as Webhooks from './webhooks/index.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
@@ -454,7 +450,7 @@ Object.assign(
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, SLA, SLAPolicies, Linked, Mentions, Drafts,
   ActivityLog, Macros, Attachments, AIPage, Portal,
-  Inbox, Channels, Webhooks, KBIntegration,
+  Inbox, Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
   Profile, Agents, ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, Notifications, KB,

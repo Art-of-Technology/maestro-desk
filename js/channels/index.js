@@ -5,23 +5,29 @@
 // edit / delete and toggle active state from the list, or click a row for the
 // read-only detail view.
 //
+// Click/change handlers route through core/event-delegation.js as
+// `data-action="ch.*"` / `data-change-action="ch.*"`. The toggle and
+// actions cells use `data-action=""` to absorb row-click bubbling.
+//
 // External reaches (interim, via window): showModal, closeModal, isAdmin,
 // renderPage, escHtml, escAttr — all still in app.js.
 //
 // CHANNELS, TICKETS, AGENTS come from data.js; CH_FILTER comes from state.js.
 
-export const CH_TYPES = [
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+
+const CH_TYPES = [
   { v:'email',   l:'Email',     icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 3.5L7 8l5.5-4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
   { v:'webform', l:'Web form',  icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="2" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M3 5h8M3 7.5h8M3 10h5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>' },
   { v:'chat',    l:'Chat',      icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3h10v6H7l-3 3v-3H2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>' },
   { v:'api',     l:'API',       icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3l-3 4 3 4M9 3l3 4-3 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
 ];
 
-export function chTypeIcon(t) {
+function chTypeIcon(t) {
   const meta = CH_TYPES.find(x => x.v === t) || CH_TYPES[0];
   return meta.icon;
 }
-export function chTypeLabel(t) {
+function chTypeLabel(t) {
   const meta = CH_TYPES.find(x => x.v === t);
   return meta ? meta.l : t;
 }
@@ -38,7 +44,7 @@ export function renderChannels() {
   const types = new Set(CHANNELS.map(c => c.type)).size;
 
   const rows = list.map(c => `
-    <tr onclick="openChannel('${window.escAttr(c.id)}')" style="cursor:pointer">
+    <tr data-action="ch.open" data-ch-id="${window.escAttr(c.id)}" style="cursor:pointer">
       <td class="bold">${c.id}</td>
       <td>
         <div style="display:flex;align-items:center;gap:8px">
@@ -50,12 +56,12 @@ export function renderChannels() {
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink2);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(c.address)}</td>
       <td style="font-size:12px;color:var(--ink2)">${c.defaultCategory === 'all' ? '<span style="color:var(--ink3)">Any</span>' : window.escHtml(c.defaultCategory)}${c.defaultAgent ? ` · ${window.escHtml(c.defaultAgent)}` : ''}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${c.volume30d || 0}</td>
-      <td style="text-align:center" onclick="event.stopPropagation()">
-        <label class="toggle"><input type="checkbox" ${c.status==='active'?'checked':''} ${admin?'':'disabled'} onchange="chToggle('${window.escAttr(c.id)}',this.checked)"><span class="toggle-slider"></span></label>
+      <td style="text-align:center" data-action="">
+        <label class="toggle"><input type="checkbox" ${c.status==='active'?'checked':''} ${admin?'':'disabled'} data-change-action="ch.toggle" data-ch-id="${window.escAttr(c.id)}"><span class="toggle-slider"></span></label>
       </td>
-      ${admin ? `<td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
-        <button class="btn btn-sm" onclick="chEdit('${window.escAttr(c.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="chDelete('${window.escAttr(c.id)}')">Delete</button>
+      ${admin ? `<td style="text-align:right;white-space:nowrap" data-action="">
+        <button class="btn btn-sm" data-action="ch.edit" data-ch-id="${window.escAttr(c.id)}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-action="ch.delete" data-ch-id="${window.escAttr(c.id)}">Delete</button>
       </td>` : ''}
     </tr>`).join('');
 
@@ -63,7 +69,7 @@ export function renderChannels() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Channels</div>
-        ${admin ? `<button class="btn btn-solid btn-sm" onclick="chNew()">+ New Channel</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
+        ${admin ? `<button class="btn btn-solid btn-sm" data-action="ch.new">+ New Channel</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Channels</div></div>
@@ -73,7 +79,7 @@ export function renderChannels() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <select class="filter-select" onchange="CH_FILTER=this.value;renderPage('channels')">
+        <select class="filter-select" data-change-action="ch.setFilter">
           <option value="all"      ${CH_FILTER==='all'?'selected':''}>All channels</option>
           <option value="active"   ${CH_FILTER==='active'?'selected':''}>Active</option>
           <option value="inactive" ${CH_FILTER==='inactive'?'selected':''}>Inactive</option>
@@ -95,7 +101,7 @@ export function renderChannels() {
     </div>`;
 }
 
-export function openChannel(id) {
+function openChannel(id) {
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
   window.showModal(`${c.name} (${c.id})`, `
     <div class="form-grid">
@@ -112,7 +118,7 @@ export function openChannel(id) {
   `, null, null);
 }
 
-export function chToggle(id, active) {
+function chToggle(id, active) {
   if (!window.isAdmin()) return;
   const c = CHANNELS.find(x => x.id === id);
   if (c) c.status = active ? 'active' : 'inactive';
@@ -151,7 +157,7 @@ function chNextId() {
   return 'CH-' + String(max + 1).padStart(3, '0');
 }
 
-export function chNew() {
+function chNew() {
   if (!window.isAdmin()) return;
   window.showModal('New channel', chFormBody(null), () => {
     const name = document.getElementById('ch-name').value.trim();
@@ -170,7 +176,7 @@ export function chNew() {
   }, 'Create');
 }
 
-export function chEdit(id) {
+function chEdit(id) {
   if (!window.isAdmin()) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
   window.showModal(`Edit ${c.id}`, chFormBody(c), () => {
@@ -188,7 +194,7 @@ export function chEdit(id) {
   }, 'Save');
 }
 
-export function chDelete(id) {
+function chDelete(id) {
   if (!window.isAdmin()) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
   window.showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Inbound tickets attributed to this channel will lose the channel reference.</div>`, () => {
@@ -197,3 +203,15 @@ export function chDelete(id) {
     window.closeModal(); window.renderPage('channels');
   }, 'Delete');
 }
+
+registerActions({
+  'ch.open':   (ds) => openChannel(ds.chId),
+  'ch.new':    () => chNew(),
+  'ch.edit':   (ds) => chEdit(ds.chId),
+  'ch.delete': (ds) => chDelete(ds.chId),
+});
+
+registerChangeActions({
+  'ch.toggle':    (ds, el) => chToggle(ds.chId, el.checked),
+  'ch.setFilter': (ds, el) => { CH_FILTER = el.value; window.renderPage('channels'); },
+});
