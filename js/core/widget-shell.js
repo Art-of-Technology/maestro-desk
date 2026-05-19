@@ -5,6 +5,12 @@
 // per-widget chart choice) persist in localStorage so each agent's
 // customisations stick across reloads.
 //
+// Click + change handlers route through core/event-delegation.js. Drag
+// events (dragstart/end/over/leave/drop) are handled by a module-internal
+// document-level dispatcher at the bottom of this file — drag is sparse
+// (only this module uses it across the whole codebase), so it lives here
+// rather than in the shared harness.
+//
 // External reaches (interim, via window): escAttr, escHtml, renderPage —
 // app.js utilities. DASH_WIDGETS / DEFAULT_DASH_LAYOUT come from
 // `js/dashboard/index.js` (re-bridged through app.js); REPORT_WIDGETS /
@@ -14,6 +20,7 @@
 // app.js (top-level hydration + reports renderers) share one binding.
 
 import { showModal, closeModal } from './modal.js';
+import { registerActions, registerChangeActions } from './event-delegation.js';
 
 export function loadLayout(key, fallback) {
   // Always deep-clone the fallback so any mutation through the returned
@@ -34,7 +41,7 @@ export function loadLayout(key, fallback) {
     };
   } catch (e) { return cloneFallback(); }
 }
-export function saveLayout(key, layout) {
+function saveLayout(key, layout) {
   // Quota errors (private mode / disk full) shouldn't crash the page. Log so
   // a developer can see it in console, but let the in-memory layout keep
   // working for the rest of the session.
@@ -68,26 +75,19 @@ function widgetChrome(scope, w, innerHtml, chartType) {
   } else if (w.span) {
     spanClass = w.span;
   }
-  // scope and widget id flow into inline onclick attributes; escAttr neutralises
-  // single quotes so a malicious id can't close the JS string and inject code.
-  // Today every id is machine-generated, but defense-in-depth keeps the layout
-  // engine safe against future widgets sourced from user input.
+  // scope and widget id ride on data-* attributes; escAttr neutralises any
+  // quotes to keep the attribute string well-formed.
   const sid = window.escAttr(scope);
   const wid = window.escAttr(w.id);
-  const chartMenu = (w.charts && w.charts.length > 1) ? `<button title="Chart type" onclick="event.stopPropagation();showWidgetMenu(this,'${sid}','${wid}','chart')">📊</button>` : '';
+  const chartMenu = (w.charts && w.charts.length > 1) ? `<button title="Chart type" data-action="widget.showChartMenu" data-widget-scope="${sid}" data-widget-id="${wid}">📊</button>` : '';
   return `
-    <div class="widget card ${window.escAttr(spanClass)}" data-widget-scope="${sid}" data-widget-id="${wid}" draggable="true"
-         ondragstart="widgetDragStart(event,'${sid}','${wid}')"
-         ondragend="widgetDragEnd(event)"
-         ondragover="widgetDragOver(event,'${sid}','${wid}')"
-         ondragleave="widgetDragLeave(event)"
-         ondrop="widgetDragDrop(event,'${sid}','${wid}')">
+    <div class="widget card ${window.escAttr(spanClass)}" data-widget-scope="${sid}" data-widget-id="${wid}" draggable="true">
       <div class="widget-head" title="Drag to reorder">
         <span class="widget-handle">⋮⋮</span>
         <span class="widget-title">${window.escHtml(w.title)}${chartType ? ` · <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink3);font-style:italic">${window.escHtml(chartType)}</span>` : ''}</span>
         <div class="widget-actions">
           ${chartMenu}
-          <button title="Hide widget" onclick="event.stopPropagation();hideWidgetById('${sid}','${wid}')">×</button>
+          <button title="Hide widget" data-action="widget.hide" data-widget-scope="${sid}" data-widget-id="${wid}">×</button>
         </div>
       </div>
       <div class="widget-body">${body}</div>
@@ -105,46 +105,48 @@ export function renderWidgetGrid(scope, gridClass, widgets, layout, stats) {
   return `
     <div class="${gridClass}" data-widget-scope="${scope}">${cards}</div>
     <div style="margin-top:14px;display:flex;justify-content:flex-end">
-      <button class="btn btn-sm" onclick="showManageWidgetsModal('${scope}')">⚙ Manage widgets${hiddenN ? ` · ${hiddenN} hidden` : ''}</button>
+      <button class="btn btn-sm" data-action="widget.openManage" data-widget-scope="${window.escAttr(scope)}">⚙ Manage widgets${hiddenN ? ` · ${hiddenN} hidden` : ''}</button>
     </div>`;
 }
 
 let _widgetDragging = null;
-export function widgetDragStart(ev, scope, id) {
-  _widgetDragging = { scope, id };
-  ev.target.classList.add('dragging');
+function widgetDragStart(ev, widget) {
+  _widgetDragging = { scope: widget.dataset.widgetScope, id: widget.dataset.widgetId };
+  widget.classList.add('dragging');
   ev.dataTransfer.effectAllowed = 'move';
   // Some browsers require setData() to actually start a drag.
-  try { ev.dataTransfer.setData('text/plain', id); } catch(e) {}
+  try { ev.dataTransfer.setData('text/plain', _widgetDragging.id); } catch(e) {}
 }
-export function widgetDragEnd(ev) {
-  ev.target.classList.remove('dragging');
+function widgetDragEnd(_ev, widget) {
+  widget.classList.remove('dragging');
   document.querySelectorAll('.widget.drop-target-before,.widget.drop-target-after').forEach(el => {
     el.classList.remove('drop-target-before','drop-target-after');
   });
   _widgetDragging = null;
 }
-export function widgetDragOver(ev, scope, id) {
+function widgetDragOver(ev, widget) {
+  const scope = widget.dataset.widgetScope;
+  const id    = widget.dataset.widgetId;
   if (!_widgetDragging || _widgetDragging.scope !== scope) return;
   if (_widgetDragging.id === id) return;
   ev.preventDefault();
   ev.dataTransfer.dropEffect = 'move';
-  const target = ev.currentTarget;
-  const rect = target.getBoundingClientRect();
+  const rect = widget.getBoundingClientRect();
   const before = (ev.clientX - rect.left) < rect.width / 2;
-  target.classList.toggle('drop-target-before', before);
-  target.classList.toggle('drop-target-after', !before);
+  widget.classList.toggle('drop-target-before', before);
+  widget.classList.toggle('drop-target-after', !before);
 }
-export function widgetDragLeave(ev) {
-  ev.currentTarget.classList.remove('drop-target-before','drop-target-after');
+function widgetDragLeave(_ev, widget) {
+  widget.classList.remove('drop-target-before','drop-target-after');
 }
-export function widgetDragDrop(ev, scope, targetId) {
+function widgetDragDrop(ev, widget) {
+  const scope    = widget.dataset.widgetScope;
+  const targetId = widget.dataset.widgetId;
   if (!_widgetDragging || _widgetDragging.scope !== scope) return;
   ev.preventDefault();
-  const target = ev.currentTarget;
-  const rect = target.getBoundingClientRect();
+  const rect = widget.getBoundingClientRect();
   const before = (ev.clientX - rect.left) < rect.width / 2;
-  target.classList.remove('drop-target-before','drop-target-after');
+  widget.classList.remove('drop-target-before','drop-target-after');
   reorderWidget(scope, _widgetDragging.id, targetId, before);
 }
 
@@ -161,19 +163,19 @@ function reorderWidget(scope, srcId, targetId, before) {
   window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
 
-export function hideWidgetById(scope, id) {
+function hideWidgetById(scope, id) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   if (!layout.hidden.includes(id)) layout.hidden.push(id);
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
   window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
-export function showWidgetById(scope, id) {
+function showWidgetById(scope, id) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   layout.hidden = layout.hidden.filter(x => x !== id);
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
   window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
-export function setWidgetChart(scope, id, chartType) {
+function setWidgetChart(scope, id, chartType) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   layout.charts = layout.charts || {};
   layout.charts[id] = chartType;
@@ -181,7 +183,7 @@ export function setWidgetChart(scope, id, chartType) {
   document.querySelectorAll('.widget-menu').forEach(el => el.remove());
   window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
-export function resetWidgetLayout(scope) {
+function resetWidgetLayout(scope) {
   const isDash = scope === 'dash';
   const src = isDash ? window.DEFAULT_DASH_LAYOUT : window.DEFAULT_REPORT_LAYOUT;
   const layout = { order: [...src.order], hidden: [...src.hidden], charts: { ...src.charts } };
@@ -191,7 +193,7 @@ export function resetWidgetLayout(scope) {
   window.renderPage(isDash ? 'dashboard' : 'reports');
 }
 
-export function showWidgetMenu(anchor, scope, id, kind) {
+function showWidgetMenu(anchor, scope, id, kind) {
   document.querySelectorAll('.widget-menu').forEach(el => el.remove());
   const widgets = scope === 'dash' ? window.DASH_WIDGETS : window.REPORT_WIDGETS;
   const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
@@ -202,7 +204,7 @@ export function showWidgetMenu(anchor, scope, id, kind) {
   menu.className = 'widget-menu';
   menu.innerHTML = `
     <div class="widget-menu-head">Chart type</div>
-    ${w.charts.map(c => `<div class="widget-menu-item ${c===current?'active':''}" onclick="setWidgetChart('${scope}','${id}','${c}')">${c === current ? '✓' : '·'} ${window.escHtml(c)}</div>`).join('')}`;
+    ${w.charts.map(c => `<div class="widget-menu-item ${c===current?'active':''}" data-action="widget.setChart" data-widget-scope="${window.escAttr(scope)}" data-widget-id="${window.escAttr(id)}" data-chart="${window.escAttr(c)}">${c === current ? '✓' : '·'} ${window.escHtml(c)}</div>`).join('')}`;
   document.body.appendChild(menu);
   const r = anchor.getBoundingClientRect();
   menu.style.top = `${r.bottom + 4}px`;
@@ -214,7 +216,7 @@ export function showWidgetMenu(anchor, scope, id, kind) {
   }, 0);
 }
 
-export function showManageWidgetsModal(scope) {
+function showManageWidgetsModal(scope) {
   const widgets = scope === 'dash' ? window.DASH_WIDGETS : window.REPORT_WIDGETS;
   const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   const body = widgets.map(w => {
@@ -226,7 +228,7 @@ export function showManageWidgetsModal(scope) {
           <div style="font-size:11px;color:var(--ink3);margin-top:2px;font-family:'DM Mono',monospace">${window.escHtml(w.id)}</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" ${visible?'checked':''} onchange="this.checked ? showWidgetById('${scope}','${w.id}') : hideWidgetById('${scope}','${w.id}')">
+          <input type="checkbox" ${visible?'checked':''} data-change-action="widget.toggleVisible" data-widget-scope="${window.escAttr(scope)}" data-widget-id="${window.escAttr(w.id)}">
           <span class="toggle-slider"></span>
         </label>
       </div>`;
@@ -235,7 +237,36 @@ export function showManageWidgetsModal(scope) {
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Toggle a widget off to remove it from the layout. Drag the widget headers on the page to rearrange. Order and visibility are saved per browser.</div>
     ${body}
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule);text-align:right">
-      <button class="btn btn-sm btn-danger" onclick="resetWidgetLayout('${scope}')">Reset to default</button>
+      <button class="btn btn-sm btn-danger" data-action="widget.reset" data-widget-scope="${window.escAttr(scope)}">Reset to default</button>
     </div>
   `, null, null);
 }
+
+registerActions({
+  'widget.showChartMenu': (ds, el) => showWidgetMenu(el, ds.widgetScope, ds.widgetId, 'chart'),
+  'widget.hide':          (ds) => hideWidgetById(ds.widgetScope, ds.widgetId),
+  'widget.openManage':    (ds) => showManageWidgetsModal(ds.widgetScope),
+  'widget.setChart':      (ds) => setWidgetChart(ds.widgetScope, ds.widgetId, ds.chart),
+  'widget.reset':         (ds) => resetWidgetLayout(ds.widgetScope),
+});
+
+registerChangeActions({
+  'widget.toggleVisible': (ds, el) => {
+    if (el.checked) showWidgetById(ds.widgetScope, ds.widgetId);
+    else            hideWidgetById(ds.widgetScope, ds.widgetId);
+  },
+});
+
+// ─── Drag-and-drop dispatcher ────────────────────────────────────────────────
+// Drag events fire on the widget element (it carries draggable="true"). We
+// delegate from the document so the widget HTML stays declarative —
+// closest('.widget[draggable="true"]') resolves which widget the event is
+// for; its data-widget-scope/data-widget-id attrs carry the routing keys.
+// Module-internal (not in core/event-delegation.js) because drag is only
+// used here.
+function _dragTarget(e) { return e.target.closest('.widget[draggable="true"]'); }
+document.addEventListener('dragstart', e => { const w = _dragTarget(e); if (w) widgetDragStart(e, w); });
+document.addEventListener('dragend',   e => { const w = _dragTarget(e); if (w) widgetDragEnd(e, w); });
+document.addEventListener('dragover',  e => { const w = _dragTarget(e); if (w) widgetDragOver(e, w); });
+document.addEventListener('dragleave', e => { const w = _dragTarget(e); if (w) widgetDragLeave(e, w); });
+document.addEventListener('drop',      e => { const w = _dragTarget(e); if (w) widgetDragDrop(e, w); });

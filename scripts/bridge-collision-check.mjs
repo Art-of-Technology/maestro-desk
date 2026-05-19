@@ -29,7 +29,6 @@ const modules = [
   ['Dashboard',              '../js/dashboard/index.js'],
   ['TicketsList',            '../js/tickets/list.js'],
   ['TicketDetail',           '../js/tickets/detail.js'],
-  ['WidgetShell',            '../js/core/widget-shell.js'],
   ['AssignmentRules',        '../js/tickets/assignment-rules.js'],
 ];
 

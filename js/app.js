@@ -161,12 +161,7 @@ import {
   sendComposeAnd, sendCompose, showSentTextModal,
   showNewTicketModal, ntApplyTemplate,
 } from './tickets/detail.js';
-import {
-  loadLayout, reconcileLayout, renderWidgetGrid,
-  widgetDragStart, widgetDragEnd, widgetDragOver, widgetDragLeave, widgetDragDrop,
-  hideWidgetById, showWidgetById, setWidgetChart, resetWidgetLayout,
-  showWidgetMenu, showManageWidgetsModal,
-} from './core/widget-shell.js';
+import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import {
   renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
 } from './reports/index.js';
@@ -211,7 +206,6 @@ import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
-import * as WidgetShell from './core/widget-shell.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 
 function login(role, name, initials) {
@@ -404,7 +398,7 @@ Object.assign(
   GlobalSearch,
   Settings, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
-  TicketsList, TicketDetail, WidgetShell,
+  TicketsList, TicketDetail,
   AssignmentRules,
 );
 
