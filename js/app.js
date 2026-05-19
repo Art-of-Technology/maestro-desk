@@ -98,10 +98,6 @@ import {
   renderSearchResults, searchPageSetQuery,
 } from './global-search/index.js';
 import {
-  toggleQuickSwitcher, qsSetActive,
-  quickSwitcherInput, quickSwitcherKey, quickSwitcherPick,
-} from './quick-switcher/index.js';
-import {
   showAuthPanel, togglePassword, ssoLogin,
   submitLogin, submitForgot, submitCreate, updatePwStrength,
 } from './auth/index.js';
@@ -261,7 +257,6 @@ import * as Profile from './profile/index.js';
 import * as Agents from './agents/index.js';
 import * as ProfileMenu from './profile-menu/index.js';
 import * as GlobalSearch from './global-search/index.js';
-import * as QuickSwitcher from './quick-switcher/index.js';
 import * as Auth from './auth/index.js';
 import * as TicketTemplates from './ticket-templates/index.js';
 import * as Notifications from './notifications/index.js';
@@ -461,7 +456,7 @@ Object.assign(
   ActivityLog, Macros, Attachments, AIPage, Portal,
   Inbox, Channels, Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
-  Profile, Agents, ProfileMenu, GlobalSearch, QuickSwitcher,
+  Profile, Agents, ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, Notifications, KB,
   Settings, Layouts, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,

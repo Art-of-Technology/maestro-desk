@@ -4,8 +4,14 @@
 // active result, Esc dismisses. Designed to be the fastest path through the
 // app for an agent who knows what they're looking for.
 //
-// The Cmd+K / Ctrl+K trigger lives in app.js's global keydown listener,
-// which calls the imported toggleQuickSwitcher(true).
+// The Cmd+K / Ctrl+K trigger lives in core/keybindings.js, which imports
+// toggleQuickSwitcher directly. No other module reaches into this one.
+//
+// Click handlers (pick a row, dismiss via backdrop) route through
+// core/event-delegation.js as `data-action="qs.*"`. Input/keydown on the
+// text field and mouseenter on each row are wired programmatically after
+// renderQuickSwitcher() rebuilds the overlay — too dynamic for delegation,
+// not worth a per-event harness extension.
 //
 // External reaches (interim, via window): escHtml, navTo, openTicket,
 // isAgentOOO, SEARCH_PAGES — all still in app.js (SEARCH_PAGES is bridged
@@ -14,6 +20,8 @@
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES come from data.js via the global
 // lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from
 // core/state.js the same way.
+
+import { registerActions } from '../core/event-delegation.js';
 
 let QS_OPEN = false;
 let QS_QUERY = '';
@@ -101,10 +109,7 @@ function renderQuickSwitcher() {
       flatIdx++;
       const active = flatIdx === QS_ACTIVE_INDEX;
       const icon = { page:'⌘', ticket:'⊕', customer:'☻', agent:'★', kb:'⚙' }[item.kind] || '·';
-      // flatIdx is a counter integer — safe to inline. Hover updates the
-      // active row via class swap (qsSetActive) instead of a full rebuild
-      // so DOM thrash on mouse movement is eliminated.
-      return `<div class="qs-item ${active?'qs-active':''}" data-idx="${flatIdx}" onclick="quickSwitcherPick(${flatIdx})" onmouseenter="qsSetActive(${flatIdx})">
+      return `<div class="qs-item ${active?'qs-active':''}" data-idx="${flatIdx}" data-action="qs.pick">
         <span class="qs-kind">${icon}</span>
         <span class="qs-text">
           <span class="qs-label">${window.escHtml(item.label)}</span>
@@ -116,22 +121,32 @@ function renderQuickSwitcher() {
   `).join('');
   const empty = flat.length === 0 ? `<div class="qs-empty">No matches. Try different keywords.</div>` : '';
   root.innerHTML = `
-    <div class="qs-backdrop" onclick="toggleQuickSwitcher(false)"></div>
+    <div class="qs-backdrop" data-action="qs.close"></div>
     <div class="qs-shell" role="dialog" aria-label="Quick switcher">
       <div class="qs-head">
-        <input id="qs-input" class="qs-input" placeholder="Jump to a ticket, customer, agent, KB article, or page…" value="${window.escHtml(QS_QUERY)}"
-               oninput="quickSwitcherInput(this.value)"
-               onkeydown="quickSwitcherKey(event)"
-               autocomplete="off"/>
+        <input id="qs-input" class="qs-input" placeholder="Jump to a ticket, customer, agent, KB article, or page…" value="${window.escHtml(QS_QUERY)}" autocomplete="off"/>
         <span class="qs-hint">↑↓ navigate · ↵ open · esc close</span>
       </div>
       <div class="qs-list" id="qs-list">${groupsHtml}${empty}</div>
     </div>`;
+
+  // Wire the events that don't go through data-action delegation:
+  //  - input/keydown on the single text field
+  //  - mouseenter on each row (non-bubbling; cheaper to bind per-row than
+  //    delegate via mouseover with target-walking)
+  const input = root.querySelector('#qs-input');
+  if (input) {
+    input.addEventListener('input', e => quickSwitcherInput(e.target.value));
+    input.addEventListener('keydown', quickSwitcherKey);
+  }
+  root.querySelectorAll('.qs-item').forEach((el, i) => {
+    el.addEventListener('mouseenter', () => qsSetActive(i));
+  });
 }
 
 // Swap the qs-active class without rebuilding the overlay. Called from
 // hover (often, fast) and keyboard navigation; cheap class toggles only.
-export function qsSetActive(idx) {
+function qsSetActive(idx) {
   QS_ACTIVE_INDEX = idx;
   const items = document.querySelectorAll('#quick-switcher .qs-item');
   items.forEach((el, i) => {
@@ -145,14 +160,14 @@ export function qsSetActive(idx) {
   if (active) active.scrollIntoView({ block: 'nearest' });
 }
 
-export function quickSwitcherInput(v) {
+function quickSwitcherInput(v) {
   QS_QUERY = v;
   QS_ACTIVE_INDEX = 0;
   QS_RESULTS = quickSwitcherSearch(v);
   renderQuickSwitcher();
 }
 
-export function quickSwitcherKey(e) {
+function quickSwitcherKey(e) {
   const flat = quickSwitcherFlatItems();
   if (e.key === 'Escape') { e.preventDefault(); toggleQuickSwitcher(false); return; }
   if (!flat.length) return;
@@ -161,7 +176,7 @@ export function quickSwitcherKey(e) {
   if (e.key === 'Enter')     { e.preventDefault(); quickSwitcherPick(QS_ACTIVE_INDEX); return; }
 }
 
-export function quickSwitcherPick(idx) {
+function quickSwitcherPick(idx) {
   const item = quickSwitcherFlatItems()[idx];
   if (!item) return;
   toggleQuickSwitcher(false);
@@ -171,3 +186,8 @@ export function quickSwitcherPick(idx) {
   else if (item.kind === 'agent')    { AGENT_SELECTED = item.payload.agentName; window.navTo('agents'); }
   else if (item.kind === 'kb')       { KB_SELECTED = item.payload.kbId; window.navTo('kb'); }
 }
+
+registerActions({
+  'qs.pick':  (ds) => quickSwitcherPick(parseInt(ds.idx, 10)),
+  'qs.close': () => toggleQuickSwitcher(false),
+});

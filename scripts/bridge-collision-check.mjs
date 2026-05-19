@@ -30,7 +30,6 @@ const modules = [
   ['Agents',                 '../js/agents/index.js'],
   ['ProfileMenu',            '../js/profile-menu/index.js'],
   ['GlobalSearch',           '../js/global-search/index.js'],
-  ['QuickSwitcher',          '../js/quick-switcher/index.js'],
   ['Auth',                   '../js/auth/index.js'],
   ['TicketTemplates',        '../js/ticket-templates/index.js'],
   ['Notifications',          '../js/notifications/index.js'],
