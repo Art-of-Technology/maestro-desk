@@ -20,7 +20,6 @@ const modules = [
   ['GlobalSearch',           '../js/global-search/index.js'],
   ['Settings',               '../js/settings/index.js'],
   ['CustomFields',           '../js/custom-fields/index.js'],
-  ['Roles',                  '../js/roles/index.js'],
   ['Workflows',              '../js/workflows/index.js'],
   ['Tags',                   '../js/tags/index.js'],
   ['Customers',              '../js/customers/index.js'],
