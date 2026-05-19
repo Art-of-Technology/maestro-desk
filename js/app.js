@@ -60,10 +60,7 @@ import {
 } from './portal/preview.js';
 import { renderInbox } from './inbox/index.js';
 import { renderChannels } from './channels/index.js';
-import {
-  fireWebhook, ticketPayload, renderWebhooks,
-  whNew, whEdit, whApplyTemplate, whToggle, whDelete, whTestFire,
-} from './webhooks/index.js';
+import { fireWebhook, ticketPayload, renderWebhooks } from './webhooks/index.js';
 import {
   KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration,
   fetchKbArticles, buildKbQuery, refreshTicketKbSuggestions,
@@ -219,7 +216,6 @@ import * as Macros from './tickets/macros.js';
 import * as Attachments from './tickets/attachments.js';
 import * as AIPage from './ai/page.js';
 import * as Portal from './portal/preview.js';
-import * as Webhooks from './webhooks/index.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
@@ -420,7 +416,7 @@ Object.assign(
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, SLA, Linked, Mentions, Drafts,
   Macros, Attachments, AIPage, Portal,
-  Webhooks, KBIntegration,
+  KBIntegration,
   Modal, Collapsible, Keybindings,
   ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, KB,
