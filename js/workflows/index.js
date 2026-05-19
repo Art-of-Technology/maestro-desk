@@ -4,11 +4,16 @@
 // them isn't wired up yet — Run now records a manual entry so admins can
 // validate the data shape and history pane.
 //
+// Click/change/input handlers route through core/event-delegation.js.
+// `renderWorkflows` is the only export consumed (app.js router).
+//
 // External reaches (interim, via window): isAdmin, escAttr, showModal,
 // closeModal, renderPage — all still in app.js.
 //
 // WORKFLOWS comes from data.js via the global lexical env; WF_SELECTED,
 // WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
+
+import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 const WF_TRIGGER_PRESETS = [
   'Ticket created',
@@ -50,24 +55,24 @@ export function renderWorkflows() {
   const totalRuns  = WORKFLOWS.reduce((a, w) => a + (w.runCount || 0), 0);
 
   const rows = list.map(w => `
-    <tr onclick="openWfDetail('${window.escAttr(w.id)}')" style="cursor:pointer">
+    <tr data-action="wf.open" data-wf-id="${window.escAttr(w.id)}" style="cursor:pointer">
       <td class="bold">${w.id}</td>
       <td style="font-weight:500;color:var(--ink)">${w.name}</td>
       <td style="font-size:12px;color:var(--ink2);max-width:240px">${w.trigger}</td>
       <td style="font-size:12px;color:var(--ink2);max-width:240px">${w.action}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${w.runCount || 0}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${w.lastRun || '—'}</td>
-      <td style="text-align:center" onclick="event.stopPropagation()">
+      <td style="text-align:center" data-action="">
         <label class="toggle">
-          <input type="checkbox" ${w.status==='active'?'checked':''} ${admin?'':'disabled'} onchange="wfToggle('${window.escAttr(w.id)}',this.checked)">
+          <input type="checkbox" ${w.status==='active'?'checked':''} ${admin?'':'disabled'} data-change-action="wf.toggle" data-wf-id="${window.escAttr(w.id)}">
           <span class="toggle-slider"></span>
         </label>
       </td>
-      ${admin ? `<td style="text-align:right;white-space:nowrap" onclick="event.stopPropagation()">
-        <button class="btn btn-sm" onclick="wfRunNow('${window.escAttr(w.id)}')" title="Simulate a run">Run</button>
-        <button class="btn btn-sm" onclick="duplicateWf('${window.escAttr(w.id)}')" title="Duplicate">Copy</button>
-        <button class="btn btn-sm" onclick="wfEdit('${window.escAttr(w.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="wfDelete('${window.escAttr(w.id)}')">Delete</button>
+      ${admin ? `<td style="text-align:right;white-space:nowrap" data-action="">
+        <button class="btn btn-sm" data-action="wf.run" data-wf-id="${window.escAttr(w.id)}" title="Simulate a run">Run</button>
+        <button class="btn btn-sm" data-action="wf.duplicate" data-wf-id="${window.escAttr(w.id)}" title="Duplicate">Copy</button>
+        <button class="btn btn-sm" data-action="wf.edit" data-wf-id="${window.escAttr(w.id)}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-action="wf.delete" data-wf-id="${window.escAttr(w.id)}">Delete</button>
       </td>` : ''}
     </tr>`).join('');
 
@@ -76,7 +81,7 @@ export function renderWorkflows() {
       <div class="topbar">
         <div class="tb-title">Workflows</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" onclick="wfNew()">+ New Workflow</button>`
+          ? `<button class="btn btn-solid btn-sm" data-action="wf.new">+ New Workflow</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -87,13 +92,13 @@ export function renderWorkflows() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="wf-search" placeholder="Search workflows…" style="width:240px" value="${WF_QUERY}" oninput="wfSetQuery(this.value)"/>
-        <select class="filter-select" onchange="wfSetFilter(this.value)">
+        <input class="filter-select" id="wf-search" placeholder="Search workflows…" style="width:240px" value="${WF_QUERY}" data-input-action="wf.setQuery"/>
+        <select class="filter-select" data-change-action="wf.setFilter">
           <option value="all"      ${WF_FILTER==='all'?'selected':''}>All workflows</option>
           <option value="active"   ${WF_FILTER==='active'?'selected':''}>Active</option>
           <option value="inactive" ${WF_FILTER==='inactive'?'selected':''}>Inactive</option>
         </select>
-        ${WF_QUERY?`<span class="filter-tag">"${WF_QUERY}"<span class="rm" onclick="wfSetQuery('')">×</span></span>`:''}
+        ${WF_QUERY?`<span class="filter-tag">"${WF_QUERY}"<span class="rm" data-action="wf.clearQuery">×</span></span>`:''}
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div style="flex:1;overflow-y:auto">
@@ -109,15 +114,15 @@ export function renderWorkflows() {
     </div>`;
 }
 
-export function wfSetFilter(v) { WF_FILTER = v; window.renderPage('workflows'); }
+function wfSetFilter(v) { WF_FILTER = v; window.renderPage('workflows'); }
 
-export function wfToggle(id, active) {
+function wfToggle(id, active) {
   if (!window.isAdmin()) return;
   const w = WORKFLOWS.find(x => x.id === id);
   if (w) w.status = active ? 'active' : 'inactive';
 }
 
-export function wfRunNow(id) {
+function wfRunNow(id) {
   if (!window.isAdmin()) return;
   const w = WORKFLOWS.find(x => x.id === id);
   if (!w) return;
@@ -133,7 +138,7 @@ export function wfRunNow(id) {
   window.renderPage('workflows');
 }
 
-export function duplicateWf(id) {
+function duplicateWf(id) {
   if (!window.isAdmin()) return;
   const orig = WORKFLOWS.find(x => x.id === id);
   if (!orig) return;
@@ -151,9 +156,9 @@ export function duplicateWf(id) {
   window.renderPage('workflows');
 }
 
-export function openWfDetail(id) { WF_SELECTED = id; window.renderPage('workflows'); }
-export function closeWfDetail()  { WF_SELECTED = null; window.renderPage('workflows'); }
-export function wfSetQuery(q) {
+function openWfDetail(id) { WF_SELECTED = id; window.renderPage('workflows'); }
+function closeWfDetail()  { WF_SELECTED = null; window.renderPage('workflows'); }
+function wfSetQuery(q) {
   WF_QUERY = q;
   window.renderPage('workflows');
   const input = document.getElementById('wf-search');
@@ -169,14 +174,14 @@ function renderWfDetail(id) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="closeWfDetail()">Workflows</span>
+          <span data-action="wf.close">Workflows</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${w.name}</span>
           ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
-            <button class="btn btn-sm" onclick="wfRunNow('${window.escAttr(w.id)}')">Run now</button>
-            <button class="btn btn-sm" onclick="duplicateWf('${window.escAttr(w.id)}')">Duplicate</button>
-            <button class="btn btn-sm" onclick="wfEdit('${window.escAttr(w.id)}')">Edit</button>
-            <button class="btn btn-sm btn-danger" onclick="wfDelete('${window.escAttr(w.id)}')">Delete</button>
+            <button class="btn btn-sm" data-action="wf.run" data-wf-id="${window.escAttr(w.id)}">Run now</button>
+            <button class="btn btn-sm" data-action="wf.duplicate" data-wf-id="${window.escAttr(w.id)}">Duplicate</button>
+            <button class="btn btn-sm" data-action="wf.edit" data-wf-id="${window.escAttr(w.id)}">Edit</button>
+            <button class="btn btn-sm btn-danger" data-action="wf.delete" data-wf-id="${window.escAttr(w.id)}">Delete</button>
           </span>` : ''}
         </div>
       </div>
@@ -190,7 +195,7 @@ function renderWfDetail(id) {
             <div style="font-size:13px;color:var(--ink3);margin-top:6px">${w.id} · ${w.runCount || 0} run${w.runCount===1?'':'s'}${w.lastRun ? ' · last ' + w.lastRun : ''}</div>
           </div>
           ${admin
-            ? `<label class="toggle"><input type="checkbox" ${w.status==='active'?'checked':''} onchange="wfToggle('${window.escAttr(w.id)}',this.checked);renderPage('workflows')"><span class="toggle-slider"></span></label>`
+            ? `<label class="toggle"><input type="checkbox" ${w.status==='active'?'checked':''} data-change-action="wf.toggleAndRender" data-wf-id="${window.escAttr(w.id)}"><span class="toggle-slider"></span></label>`
             : `<span class="tag ${w.status==='active'?'tag-resolved':'tag-pending'}" style="text-transform:capitalize">${w.status}</span>`}
         </div>
 
@@ -248,7 +253,7 @@ function wfFormBody(w) {
     </div>`;
 }
 
-export function wfNew() {
+function wfNew() {
   if (!window.isAdmin()) return;
   window.showModal('New workflow', wfFormBody(null), () => {
     const name    = document.getElementById('wf-name').value.trim();
@@ -262,7 +267,7 @@ export function wfNew() {
   }, 'Create');
 }
 
-export function wfEdit(id) {
+function wfEdit(id) {
   if (!window.isAdmin()) return;
   const w = WORKFLOWS.find(x => x.id === id); if (!w) return;
   window.showModal(`Edit ${w.id}`, wfFormBody(w), () => {
@@ -277,7 +282,7 @@ export function wfEdit(id) {
   }, 'Save');
 }
 
-export function wfDelete(id) {
+function wfDelete(id) {
   if (!window.isAdmin()) return;
   const w = WORKFLOWS.find(x => x.id === id); if (!w) return;
   window.showModal('Delete workflow', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${w.name}</strong>? This cannot be undone.</div>`, () => {
@@ -286,3 +291,25 @@ export function wfDelete(id) {
     window.closeModal(); window.renderPage('workflows');
   }, 'Delete');
 }
+
+registerActions({
+  'wf.open':       (ds) => openWfDetail(ds.wfId),
+  'wf.close':      () => closeWfDetail(),
+  'wf.new':        () => wfNew(),
+  'wf.edit':       (ds) => wfEdit(ds.wfId),
+  'wf.delete':     (ds) => wfDelete(ds.wfId),
+  'wf.duplicate':  (ds) => duplicateWf(ds.wfId),
+  'wf.run':        (ds) => wfRunNow(ds.wfId),
+  'wf.clearQuery': () => wfSetQuery(''),
+});
+
+registerChangeActions({
+  'wf.toggle':          (ds, el) => wfToggle(ds.wfId, el.checked),
+  // Detail page also re-renders so workload counts + history update.
+  'wf.toggleAndRender': (ds, el) => { wfToggle(ds.wfId, el.checked); window.renderPage('workflows'); },
+  'wf.setFilter':       (ds, el) => wfSetFilter(el.value),
+});
+
+registerInputActions({
+  'wf.setQuery': (ds, el) => wfSetQuery(el.value),
+});

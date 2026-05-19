@@ -97,12 +97,7 @@ import {
   showManageFieldsModal,
 } from './custom-fields/index.js';
 import { renderRoles } from './roles/index.js';
-import {
-  renderWorkflows,
-  openWfDetail, closeWfDetail, duplicateWf,
-  wfSetFilter, wfSetQuery, wfToggle, wfRunNow,
-  wfNew, wfEdit, wfDelete,
-} from './workflows/index.js';
+import { renderWorkflows } from './workflows/index.js';
 import {
   renderTags, setTagSort,
   openTagDetail, closeTagDetail,
@@ -189,7 +184,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomFields from './custom-fields/index.js';
-import * as Workflows from './workflows/index.js';
 import * as Tags from './tags/index.js';
 import * as Customers from './customers/index.js';
 import * as CustomerModals from './customers/modals.js';
@@ -386,7 +380,7 @@ Object.assign(
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
-  Settings, CustomFields, Workflows,
+  Settings, CustomFields,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,
