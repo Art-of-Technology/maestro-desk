@@ -33,7 +33,6 @@ const modules = [
   ['TicketDetail',           '../js/tickets/detail.js'],
   ['WidgetShell',            '../js/core/widget-shell.js'],
   ['AssignmentRules',        '../js/tickets/assignment-rules.js'],
-  ['CSAT',                   '../js/tickets/csat.js'],
 ];
 
 // state.js + data.js are classic scripts that reference `document`/`localStorage`

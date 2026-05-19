@@ -6,8 +6,15 @@
 //   2. The CSAT Surveys config page — aggregate KPIs, score distribution,
 //      awaiting-response list, and per-ticket response table with filters.
 //
+// Click/change handlers route through core/event-delegation.js. The CSAT
+// survey modal's star-rating mouseover/mouseout handlers are bound
+// programmatically after showModal renders (mouseover delegation is a
+// can of worms not worth opening for one-off interactive UI; quick-switcher
+// uses the same per-render-bind pattern for its hover).
+//
 // External reaches (interim, via window): escHtml, escAttr, showModal,
-// closeModal, renderPage, openTicket, navTo — all still in app.js.
+// closeModal, renderPage — all still in app.js. openTicket and navTo
+// are direct ES imports.
 //
 // logTicketEvent is imported from core/activity-log.js; fireWebhook and
 // ticketPayload from webhooks/index.js — those are already extracted.
@@ -18,6 +25,9 @@
 
 import { logTicketEvent } from '../core/activity-log.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from './detail.js';
 
 function csatStarString(n) {
   const score = Math.max(0, Math.min(5, parseInt(n, 10) || 0));
@@ -47,20 +57,20 @@ export function ticketCSATBlock(t) {
       <div class="ts-section">
         <div class="ts-heading">CSAT survey</div>
         <div style="font-size:11px;color:var(--ink2);margin-bottom:8px">Sent ${window.escHtml(t.csatRequestedAt)} · awaiting response</div>
-        <button class="btn btn-sm" onclick="openCSATSurveyModal('${window.escAttr(t.id)}')">Preview customer view</button>
+        <button class="btn btn-sm" data-action="csat.openSurvey" data-ticket-id="${window.escAttr(t.id)}">Preview customer view</button>
       </div>`;
   }
   if (t.status === 'resolved') {
     return `
       <div class="ts-section">
         <div class="ts-heading">CSAT survey</div>
-        <button class="btn btn-sm" onclick="requestCSAT('${window.escAttr(t.id)}')">Send satisfaction survey</button>
+        <button class="btn btn-sm" data-action="csat.request" data-ticket-id="${window.escAttr(t.id)}">Send satisfaction survey</button>
       </div>`;
   }
   return '';
 }
 
-export function requestCSAT(id) {
+function requestCSAT(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   t.csatRequestedAt = new Date().toISOString().slice(0, 10);
@@ -69,7 +79,7 @@ export function requestCSAT(id) {
   openCSATSurveyModal(id);
 }
 
-export function openCSATSurveyModal(id) {
+function openCSATSurveyModal(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
@@ -80,7 +90,7 @@ export function openCSATSurveyModal(id) {
       <div style="font-size:13px;color:var(--ink);margin-bottom:4px">How would you rate your support experience?</div>
       <div style="font-size:11px;color:var(--ink3);margin-bottom:14px">"${window.escHtml(t.subject)}"</div>
       <div id="csat-stars" style="font-size:32px;letter-spacing:6px;cursor:pointer;user-select:none;color:var(--rule);font-weight:300">
-        ${[1,2,3,4,5].map(n => `<span data-score="${n}" onmouseover="csatHover(${n})" onmouseout="csatHover(0)" onclick="csatPick(${n})">★</span>`).join('')}
+        ${[1,2,3,4,5].map(n => `<span data-score="${n}" data-action="csat.pick">★</span>`).join('')}
       </div>
       <div id="csat-label" style="font-size:11px;color:var(--ink3);margin-top:10px;height:14px;font-family:'DM Mono',monospace"></div>
     </div>
@@ -101,10 +111,17 @@ export function openCSATSurveyModal(id) {
     }
     submitCSAT(ticketId, score, comment);
   }, 'Submit rating');
+  // Star-rating hover preview. mouseover/mouseout don't go through the
+  // dispatcher (only one module in the codebase needs them, and only
+  // inside this transient modal) — bind directly on each star span.
+  document.querySelectorAll('#csat-stars span').forEach(el => {
+    el.addEventListener('mouseover', () => csatHover(parseInt(el.dataset.score, 10)));
+    el.addEventListener('mouseout',  () => csatHover(0));
+  });
   if (initial) csatHover(initial);
 }
 
-export function csatHover(n) {
+function csatHover(n) {
   const stars = document.querySelectorAll('#csat-stars span');
   const picked = parseInt(document.getElementById('csat-pick')?.value || '0', 10);
   const show = n || picked;
@@ -117,13 +134,13 @@ export function csatHover(n) {
   if (label) label.textContent = labels[show] || '';
 }
 
-export function csatPick(n) {
+function csatPick(n) {
   const input = document.getElementById('csat-pick');
   if (input) input.value = String(n);
   csatHover(n);
 }
 
-export function submitCSAT(id, score, comment) {
+function submitCSAT(id, score, comment) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   const clamped = Math.max(1, Math.min(5, parseInt(score, 10)));
@@ -183,7 +200,7 @@ export function renderCSAT() {
       <td><span style="color:${color};letter-spacing:1px">${stars}</span> <span style="font-family:'DM Mono',monospace;font-size:11px;color:${color};font-weight:500">${t.csat}/5</span></td>
       <td style="color:var(--ink2);max-width:280px">${t.csatComment ? `<span style="font-style:italic">"${window.escHtml(t.csatComment)}"</span>` : '<span style="color:var(--ink3)">—</span>'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(t.csatSubmittedAt || '—')}</td>
-      <td style="text-align:right;white-space:nowrap"><button class="btn btn-sm" onclick="openTicket('${window.escAttr(t.id)}');navTo('tickets')">Open</button></td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn btn-sm" data-action="csat.openTicket" data-ticket-id="${window.escAttr(t.id)}">Open</button></td>
     </tr>`;
   }).join('');
 
@@ -194,7 +211,7 @@ export function renderCSAT() {
         <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:500">${window.escHtml(t.id)}</div>
         <div style="flex:1;font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(t.subject)}${cust ? ' · ' + window.escHtml(cust.first + ' ' + cust.last) : ''}</div>
         <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">sent ${window.escHtml(t.csatRequestedAt)}</div>
-        <button class="btn btn-sm" onclick="openCSATSurveyModal('${window.escAttr(t.id)}')">Open survey</button>
+        <button class="btn btn-sm" data-action="csat.openSurvey" data-ticket-id="${window.escAttr(t.id)}">Open survey</button>
       </div>`;
   }).join('');
 
@@ -224,12 +241,12 @@ export function renderCSAT() {
         </div>
         <div class="filter-bar">
           <span class="filter-label">Score</span>
-          <select class="filter-select" onchange="CSAT_FILTER_SCORE=this.value;renderPage('csat')">
+          <select class="filter-select" data-change-action="csat.setFilterScore">
             <option value="all" ${CSAT_FILTER_SCORE==='all'?'selected':''}>All</option>
             ${[5,4,3,2,1].map(n => `<option value="${n}" ${CSAT_FILTER_SCORE===String(n)?'selected':''}>${n} ★</option>`).join('')}
           </select>
           <span class="filter-label" style="margin-left:8px">Agent</span>
-          <select class="filter-select" onchange="CSAT_FILTER_AGENT=this.value;renderPage('csat')">
+          <select class="filter-select" data-change-action="csat.setFilterAgent">
             <option value="all" ${CSAT_FILTER_AGENT==='all'?'selected':''}>All</option>
             ${agentNames.map(a => `<option value="${window.escAttr(a)}" ${CSAT_FILTER_AGENT===a?'selected':''}>${window.escHtml(a)}</option>`).join('')}
           </select>
@@ -245,3 +262,15 @@ export function renderCSAT() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'csat.openSurvey': (ds) => openCSATSurveyModal(ds.ticketId),
+  'csat.request':    (ds) => requestCSAT(ds.ticketId),
+  'csat.pick':       (ds) => csatPick(parseInt(ds.score, 10)),
+  'csat.openTicket': (ds) => { openTicket(ds.ticketId); navTo('tickets'); },
+});
+
+registerChangeActions({
+  'csat.setFilterScore': (ds, el) => { CSAT_FILTER_SCORE = el.value; window.renderPage('csat'); },
+  'csat.setFilterAgent': (ds, el) => { CSAT_FILTER_AGENT = el.value; window.renderPage('csat'); },
+});
