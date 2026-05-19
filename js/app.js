@@ -185,10 +185,7 @@ import {
   arToggle, arModeChanged, arNew, arEdit, arDelete, renderAssignmentRules,
 } from './tickets/assignment-rules.js';
 import { renderTemplates } from './tickets/templates.js';
-import {
-  ticketCSATBlock, requestCSAT, openCSATSurveyModal,
-  csatHover, csatPick, submitCSAT, renderCSAT,
-} from './tickets/csat.js';
+import { renderCSAT } from './tickets/csat.js';
 
 // ─── Namespace imports (window-bridge use only) ────────────────────────────────
 // Every module re-exposed on window for inline on*= handlers gets a namespace
@@ -226,7 +223,6 @@ import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import * as WidgetShell from './core/widget-shell.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
-import * as CSAT from './tickets/csat.js';
 
 function login(role, name, initials) {
   SESSION = {role, name, initials};
@@ -420,6 +416,6 @@ Object.assign(
   Settings, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail, WidgetShell,
-  AssignmentRules, CSAT,
+  AssignmentRules,
 );
 
