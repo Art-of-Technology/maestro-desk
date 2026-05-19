@@ -40,9 +40,7 @@ import {
 } from './tickets/mentions.js';
 import { loadDraft, saveDraft, clearDraft } from './tickets/drafts.js';
 import {
-  logTicketEvent, getTicketEvents,
-  getAllActivity, ACT_KIND_META,
-  actSetQuery, actGotoEntity, renderActivityLog,
+  logTicketEvent, getTicketEvents, renderActivityLog,
 } from './core/activity-log.js';
 import {
   MACROS,
@@ -220,7 +218,6 @@ import * as SLA from './tickets/sla.js';
 import * as Linked from './tickets/linked.js';
 import * as Mentions from './tickets/mentions.js';
 import * as Drafts from './tickets/drafts.js';
-import * as ActivityLog from './core/activity-log.js';
 import * as Macros from './tickets/macros.js';
 import * as Attachments from './tickets/attachments.js';
 import * as AIPage from './ai/page.js';
@@ -426,7 +423,7 @@ Object.assign(
     toggleNotifications },
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, SLA, Linked, Mentions, Drafts,
-  ActivityLog, Macros, Attachments, AIPage, Portal,
+  Macros, Attachments, AIPage, Portal,
   Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
   ProfileMenu, GlobalSearch,

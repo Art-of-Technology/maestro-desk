@@ -9,9 +9,21 @@
 // every feature, and the read side is consumed by the Activity Log page
 // which aggregates from tickets + workflows + customer notes.
 //
+// Click/change/input handlers on the Activity Log page route through
+// core/event-delegation.js. No inline `on*=` references remain.
+// logTicketEvent, getTicketEvents, renderActivityLog stay exported —
+// the first two are reached by ~10 modules via direct ES import, and
+// renderActivityLog is called by app.js's router.
+//
 // SESSION and the page-state vars (ACT_FILTER_ENTITY, ACT_FILTER_TYPE,
 // CUSTOMER_SELECTED, WF_SELECTED) come from core/state.js via the
 // global lexical env.
+
+import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';
+import { navTo } from './keybindings.js';
+// openTicket is reached via window to avoid an activity-log↔tickets/detail
+// import cycle (detail.js imports getTicketEvents from here). detail.js is
+// still bridged; this can become a direct import once detail.js migrates.
 
 export function logTicketEvent(ticketId, type, details) {
   const t = TICKETS.find(x => x.id === ticketId);
@@ -39,7 +51,7 @@ export function getTicketEvents(t) {
 
 let ACT_QUERY = '';
 
-export function getAllActivity() {
+function getAllActivity() {
   const events = [];
   // Ticket events (status, priority, agent, tag, system)
   TICKETS.forEach(t => {
@@ -100,7 +112,7 @@ export function getAllActivity() {
   return events;
 }
 
-export const ACT_KIND_META = {
+const ACT_KIND_META = {
   status:   { label: 'Status',   color: 'var(--cyan)' },
   priority: { label: 'Priority', color: 'var(--amber)' },
   agent:    { label: 'Agent',    color: 'var(--purple)' },
@@ -111,17 +123,17 @@ export const ACT_KIND_META = {
   system:   { label: 'System',   color: 'var(--ink3)' },
 };
 
-export function actSetQuery(q) {
+function actSetQuery(q) {
   ACT_QUERY = q;
   window.renderPage('activity');
   const input = document.getElementById('act-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
 
-export function actGotoEntity(entity, id) {
+function actGotoEntity(entity, id) {
   if (entity === 'ticket')        window.openTicket(id);
-  else if (entity === 'customer') { CUSTOMER_SELECTED = id; window.navTo('customers'); }
-  else if (entity === 'workflow') { WF_SELECTED = id; window.navTo('workflows'); }
+  else if (entity === 'customer') { CUSTOMER_SELECTED = id; navTo('customers'); }
+  else if (entity === 'workflow') { WF_SELECTED = id; navTo('workflows'); }
 }
 
 export function renderActivityLog() {
@@ -146,7 +158,7 @@ export function renderActivityLog() {
 
   const rows = list.slice(0, 200).map(e => {
     const meta = ACT_KIND_META[e.kind] || ACT_KIND_META.system;
-    return `<tr onclick="actGotoEntity('${window.escAttr(e.entity)}','${window.escAttr(e.entityId)}')" style="cursor:pointer">
+    return `<tr data-action="activity.goto" data-entity="${window.escAttr(e.entity)}" data-entity-id="${window.escAttr(e.entityId)}" style="cursor:pointer">
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);white-space:nowrap">${window.escHtml(e.ts || '—')}</td>
       <td><span class="tag" style="font-size:10px;border:1px solid ${meta.color}40;color:${meta.color};background:${meta.color}15">${meta.label}</span></td>
       <td><span class="tag tag-neutral" style="font-size:10px;text-transform:capitalize">${window.escHtml(e.entity)}</span></td>
@@ -167,14 +179,14 @@ export function renderActivityLog() {
       </div>
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="act-search" placeholder="Search events…" style="width:240px" value="${ACT_QUERY}" oninput="actSetQuery(this.value)"/>
-        <select class="filter-select" onchange="ACT_FILTER_ENTITY=this.value;renderPage('activity')">
+        <input class="filter-select" id="act-search" placeholder="Search events…" style="width:240px" value="${ACT_QUERY}" data-input-action="activity.setQuery"/>
+        <select class="filter-select" data-change-action="activity.setFilterEntity">
           <option value="all"      ${ACT_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
           <option value="ticket"   ${ACT_FILTER_ENTITY==='ticket'?'selected':''}>Tickets</option>
           <option value="customer" ${ACT_FILTER_ENTITY==='customer'?'selected':''}>Customers</option>
           <option value="workflow" ${ACT_FILTER_ENTITY==='workflow'?'selected':''}>Workflows</option>
         </select>
-        <select class="filter-select" onchange="ACT_FILTER_TYPE=this.value;renderPage('activity')">
+        <select class="filter-select" data-change-action="activity.setFilterType">
           <option value="all"      ${ACT_FILTER_TYPE==='all'?'selected':''}>All types</option>
           ${Object.entries(ACT_KIND_META).map(([k, m]) => `<option value="${k}" ${ACT_FILTER_TYPE===k?'selected':''}>${m.label}</option>`).join('')}
         </select>
@@ -190,3 +202,16 @@ export function renderActivityLog() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'activity.goto': (ds) => actGotoEntity(ds.entity, ds.entityId),
+});
+
+registerChangeActions({
+  'activity.setFilterEntity': (ds, el) => { ACT_FILTER_ENTITY = el.value; window.renderPage('activity'); },
+  'activity.setFilterType':   (ds, el) => { ACT_FILTER_TYPE   = el.value; window.renderPage('activity'); },
+});
+
+registerInputActions({
+  'activity.setQuery': (ds, el) => actSetQuery(el.value),
+});

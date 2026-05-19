@@ -13,7 +13,6 @@ const modules = [
   ['Linked',                 '../js/tickets/linked.js'],
   ['Mentions',               '../js/tickets/mentions.js'],
   ['Drafts',                 '../js/tickets/drafts.js'],
-  ['ActivityLog',            '../js/core/activity-log.js'],
   ['Macros',                 '../js/tickets/macros.js'],
   ['Attachments',            '../js/tickets/attachments.js'],
   ['AIPage',                 '../js/ai/page.js'],
