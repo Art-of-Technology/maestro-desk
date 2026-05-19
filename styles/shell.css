@@ -119,9 +119,10 @@
 .auth-divider span{font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500;font-family:'Inter',sans-serif}
 .auth-divider-toggle{cursor:pointer;user-select:none;transition:color .12s}
 .auth-divider-toggle:hover span{color:var(--purple)}
-.auth-email-chev{display:inline-block;margin-left:4px;font-size:10px;transition:transform .15s}
+.auth-email-chev,.auth-demo-chev{display:inline-block;margin-left:4px;font-size:10px;transition:transform .15s}
 .auth-email-section:not(.email-collapsed) .auth-email-chev{transform:rotate(180deg)}
-.email-collapsed > *:not(.auth-divider){display:none}
+.auth-demo-section:not(.demo-collapsed) .auth-demo-chev{transform:rotate(180deg)}
+.email-collapsed > *:not(.auth-divider),.demo-collapsed > *:not(.auth-divider){display:none}
 .auth-remember{display:flex;align-items:center;justify-content:space-between;margin-top:6px;font-size:12px}
 .auth-check{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink2);font-size:12px}
 .auth-check input{accent-color:var(--purple);cursor:pointer}

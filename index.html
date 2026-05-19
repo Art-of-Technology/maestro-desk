@@ -61,20 +61,22 @@
         <div id="login-error" class="auth-error" style="display:none"></div>
       </div>
 
-      <div class="auth-divider"><span>or try the demo</span></div>
+      <div class="auth-demo-section demo-collapsed" id="auth-demo-section">
+        <div class="auth-divider auth-divider-toggle" onclick="document.getElementById('auth-demo-section').classList.toggle('demo-collapsed')"><span>or try the demo <span class="auth-demo-chev">▾</span></span></div>
 
-      <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
-        <div class="auth-account" onclick="login('Admin','Emma Clarke','EC')">
-          <div class="auth-account-av">EC</div>
-          <div><div class="auth-account-name">Emma Clarke</div><div class="auth-account-role">Admin · Full access</div></div>
-        </div>
-        <div class="auth-account" onclick="login('Senior Agent','James Webb','JW')">
-          <div class="auth-account-av">JW</div>
-          <div><div class="auth-account-name">James Webb</div><div class="auth-account-role">Senior Agent · Tickets + Customers</div></div>
-        </div>
-        <div class="auth-account" onclick="login('Read Only','Sofia Reyes','SR')">
-          <div class="auth-account-av">SR</div>
-          <div><div class="auth-account-name">Sofia Reyes</div><div class="auth-account-role">Read Only · View only</div></div>
+        <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
+          <div class="auth-account" onclick="login('Admin','Emma Clarke','EC')">
+            <div class="auth-account-av">EC</div>
+            <div><div class="auth-account-name">Emma Clarke</div><div class="auth-account-role">Admin · Full access</div></div>
+          </div>
+          <div class="auth-account" onclick="login('Senior Agent','James Webb','JW')">
+            <div class="auth-account-av">JW</div>
+            <div><div class="auth-account-name">James Webb</div><div class="auth-account-role">Senior Agent · Tickets + Customers</div></div>
+          </div>
+          <div class="auth-account" onclick="login('Read Only','Sofia Reyes','SR')">
+            <div class="auth-account-av">SR</div>
+            <div><div class="auth-account-name">Sofia Reyes</div><div class="auth-account-role">Read Only · View only</div></div>
+          </div>
         </div>
       </div>
 
