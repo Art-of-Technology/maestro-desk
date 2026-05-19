@@ -110,8 +110,7 @@ import {
   toggleNotifPref, setKbCfg, testKbConnection,
 } from './settings/index.js';
 import {
-  renderLayouts, setLayoutFieldFlag,
-  isFieldVisible, isFieldRequired,
+  renderLayouts, isFieldVisible, isFieldRequired,
 } from './layouts/index.js';
 import {
   renderCustomFields,
@@ -240,7 +239,6 @@ import * as Auth from './auth/index.js';
 import * as TicketTemplates from './ticket-templates/index.js';
 import * as KB from './kb/index.js';
 import * as Settings from './settings/index.js';
-import * as Layouts from './layouts/index.js';
 import * as CustomFields from './custom-fields/index.js';
 import * as Roles from './roles/index.js';
 import * as Workflows from './workflows/index.js';
@@ -436,7 +434,7 @@ Object.assign(
   Modal, Collapsible, Keybindings,
   ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, KB,
-  Settings, Layouts, CustomFields, Roles, Workflows,
+  Settings, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail, WidgetShell,
   BusinessHours, AssignmentRules, Templates, CSAT,

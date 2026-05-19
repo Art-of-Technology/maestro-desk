@@ -9,10 +9,18 @@
 // showNewTicketModal and renderCustomerDetail import them to gate fields
 // and validate on submit.
 //
+// Click/change handlers route through core/event-delegation.js. No
+// inline `on*=` references remain. No external module calls into this
+// module's exports from inline handlers — customers/index.js and
+// tickets/detail.js use `isFieldVisible` / `isFieldRequired` via
+// direct ES imports.
+//
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // renderPage — all still in app.js.
 //
 // LAYOUTS_TAB comes from core/state.js via the global lexical env.
+
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 const FIELD_LAYOUTS = {
   ticket: [
@@ -52,7 +60,7 @@ export function isFieldRequired(entity, key) {
   return f ? !!f.required : false;
 }
 
-export function setLayoutFieldFlag(entity, key, flag, val) {
+function setLayoutFieldFlag(entity, key, flag, val) {
   const f = getLayoutField(entity, key);
   if (!f || f.locked) return;
   // Locked fields must stay required + visible; non-locked fields can flip
@@ -81,14 +89,14 @@ export function renderLayouts() {
       </td>
       <td style="text-align:center">
         <label class="toggle">
-          <input type="checkbox" ${f.required?'checked':''} ${(!admin || f.locked)?'disabled':''} onchange="setLayoutFieldFlag('${window.escAttr(tab)}','${window.escAttr(f.key)}','required',this.checked)">
+          <input type="checkbox" ${f.required?'checked':''} ${(!admin || f.locked)?'disabled':''} data-change-action="layouts.setFieldFlag" data-tab="${window.escAttr(tab)}" data-key="${window.escAttr(f.key)}" data-flag="required">
           <span class="toggle-slider"></span>
         </label>
         ${f.locked ? '<div style="font-size:10px;color:var(--ink3);margin-top:2px;font-style:italic">locked</div>' : ''}
       </td>
       <td style="text-align:center">
         <label class="toggle">
-          <input type="checkbox" ${f.visible?'checked':''} ${(!admin || f.locked)?'disabled':''} onchange="setLayoutFieldFlag('${window.escAttr(tab)}','${window.escAttr(f.key)}','visible',this.checked)">
+          <input type="checkbox" ${f.visible?'checked':''} ${(!admin || f.locked)?'disabled':''} data-change-action="layouts.setFieldFlag" data-tab="${window.escAttr(tab)}" data-key="${window.escAttr(f.key)}" data-flag="visible">
           <span class="toggle-slider"></span>
         </label>
         ${f.locked ? '<div style="font-size:10px;color:var(--ink3);margin-top:2px;font-style:italic">locked</div>' : ''}
@@ -109,8 +117,8 @@ export function renderLayouts() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Apply to</span>
-        <span class="filter-tag" style="cursor:pointer;${tab==='ticket'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="LAYOUTS_TAB='ticket';renderPage('layouts')">Tickets</span>
-        <span class="filter-tag" style="cursor:pointer;${tab==='customer'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="LAYOUTS_TAB='customer';renderPage('layouts')">Customers</span>
+        <span class="filter-tag" style="cursor:pointer;${tab==='ticket'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="layouts.setTab" data-tab="ticket">Tickets</span>
+        <span class="filter-tag" style="cursor:pointer;${tab==='customer'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="layouts.setTab" data-tab="customer">Customers</span>
       </div>
       <div class="page-scroll">
         <table class="tbl">
@@ -121,3 +129,11 @@ export function renderLayouts() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'layouts.setTab': (ds) => { LAYOUTS_TAB = ds.tab; window.renderPage('layouts'); },
+});
+
+registerChangeActions({
+  'layouts.setFieldFlag': (ds, el) => setLayoutFieldFlag(ds.tab, ds.key, ds.flag, el.checked),
+});
