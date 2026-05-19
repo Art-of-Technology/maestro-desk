@@ -8,11 +8,25 @@
 // Not to be confused with `js/profile-menu/` — that's the top-bar avatar
 // dropdown. This module is the page rendered when you nav to "profile".
 //
-// External reaches (interim, via window): escAttr, escHtml, isAgentOOO —
-// all still in app.js.
+// Click handlers route through core/event-delegation.js as `data-action`.
+// The inline `onmouseover`/`onmouseout` hover effects stay as-is —
+// they're pure `this.style.X = Y` mutations with no module/bridge
+// dependency, so the migration doesn't need to touch them. Long-term
+// these should become CSS `:hover` rules across the codebase, but that's
+// an unrelated cleanup.
+//
+// External reaches (interim, via window): escAttr, escHtml, isAgentOOO,
+// logout — all still in app.js. Cross-module function calls are direct
+// ES imports.
 //
 // SESSION, TICKETS, AGENTS come from data.js / state.js (global lex env);
-// SETTINGS_TAB is read by the inline onclicks (also state.js).
+// SETTINGS_TAB is assigned inside the registered actions (also state.js).
+
+import { registerActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from '../tickets/detail.js';
+import { showAgentOOOModal } from '../tickets/assignment-rules.js';
+import { setTicketView } from '../tickets/list.js';
 
 export function renderProfile() {
   if (!SESSION) return '';
@@ -34,7 +48,7 @@ export function renderProfile() {
   const recent = myMessages.slice(-8).reverse();
 
   const openRows = open.slice(0, 5).map(t => `
-    <div onclick="openTicket('${window.escAttr(t.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+    <div data-action="profile.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <span class="tag tag-${t.status}" style="font-size:9px">${t.status}</span>
       <span class="tag tag-${t.priority}" style="font-size:9px">${t.priority}</span>
       <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${t.id}</span>
@@ -43,7 +57,7 @@ export function renderProfile() {
     </div>`).join('');
 
   const recentRows = recent.slice(0, 6).map(r => `
-    <div onclick="openTicket('${window.escAttr(r.ticketId)}')" style="padding:8px 4px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:12px;transition:background .1s" onmouseover="this.style.background='var(--off2)'" onmouseout="this.style.background='transparent'">
+    <div data-action="profile.openTicket" data-ticket-id="${window.escAttr(r.ticketId)}" style="padding:8px 4px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:12px;transition:background .1s" onmouseover="this.style.background='var(--off2)'" onmouseout="this.style.background='transparent'">
       <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
         <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${r.ticketId}</span>
         ${r.msg.r === 'note'
@@ -69,8 +83,8 @@ export function renderProfile() {
             <div style="font-size:11px;color:var(--ink3);margin-top:6px">Member since ${since}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn-sm" onclick="showAgentOOOModal('${window.escAttr(SESSION.name)}')">${window.isAgentOOO(SESSION.name) ? 'Edit OOO' : 'Set OOO'}</button>
-            <button class="btn btn-sm" onclick="SETTINGS_TAB='profile';navTo('settings')">Edit profile</button>
+            <button class="btn btn-sm" data-action="profile.editOOO">${window.isAgentOOO(SESSION.name) ? 'Edit OOO' : 'Set OOO'}</button>
+            <button class="btn btn-sm" data-action="profile.gotoSettings" data-tab="profile">Edit profile</button>
           </div>
         </div>
         ${window.isAgentOOO(SESSION.name) ? (() => {
@@ -96,7 +110,7 @@ export function renderProfile() {
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
               <div class="card-title" style="margin:0">Open tickets</div>
-              ${open.length ? `<span class="link" onclick="setTicketView('mine');navTo('tickets')" style="font-size:11px">All →</span>` : ''}
+              ${open.length ? `<span class="link" data-action="profile.gotoMyTickets" style="font-size:11px">All →</span>` : ''}
             </div>
             ${open.length ? openRows : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No open tickets — nice work.</div>'}
           </div>
@@ -114,12 +128,20 @@ export function renderProfile() {
           <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${email}</span></div>
           <div class="ts-row"><span class="ts-key">Member since</span><span class="ts-val">${since}</span></div>
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-            <button class="btn" onclick="SETTINGS_TAB='profile';navTo('settings')">Edit profile</button>
-            <button class="btn" onclick="SETTINGS_TAB='appearance';navTo('settings')">Appearance</button>
-            <button class="btn" onclick="SETTINGS_TAB='notifications';navTo('settings')">Notifications</button>
-            <button class="btn btn-danger" style="margin-left:auto" onclick="logout()">Sign out</button>
+            <button class="btn" data-action="profile.gotoSettings" data-tab="profile">Edit profile</button>
+            <button class="btn" data-action="profile.gotoSettings" data-tab="appearance">Appearance</button>
+            <button class="btn" data-action="profile.gotoSettings" data-tab="notifications">Notifications</button>
+            <button class="btn btn-danger" style="margin-left:auto" data-action="profile.logout">Sign out</button>
           </div>
         </div>
       </div>
     </div>`;
 }
+
+registerActions({
+  'profile.openTicket':     (ds) => openTicket(ds.ticketId),
+  'profile.editOOO':        () => showAgentOOOModal(SESSION.name),
+  'profile.gotoSettings':   (ds) => { SETTINGS_TAB = ds.tab; navTo('settings'); },
+  'profile.gotoMyTickets':  () => { setTicketView('mine'); navTo('tickets'); },
+  'profile.logout':         () => window.logout(),
+});

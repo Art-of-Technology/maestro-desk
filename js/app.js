@@ -240,7 +240,6 @@ import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
-import * as Profile from './profile/index.js';
 import * as Agents from './agents/index.js';
 import * as ProfileMenu from './profile-menu/index.js';
 import * as GlobalSearch from './global-search/index.js';
@@ -443,7 +442,7 @@ Object.assign(
   ActivityLog, Macros, Attachments, AIPage, Portal,
   Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
-  Profile, Agents, ProfileMenu, GlobalSearch,
+  Agents, ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, KB,
   Settings, Layouts, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,

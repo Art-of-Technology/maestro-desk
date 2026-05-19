@@ -24,7 +24,6 @@ const modules = [
   ['Modal',                  '../js/core/modal.js'],
   ['Collapsible',            '../js/core/collapsible.js'],
   ['Keybindings',            '../js/core/keybindings.js'],
-  ['Profile',                '../js/profile/index.js'],
   ['Agents',                 '../js/agents/index.js'],
   ['ProfileMenu',            '../js/profile-menu/index.js'],
   ['GlobalSearch',           '../js/global-search/index.js'],
