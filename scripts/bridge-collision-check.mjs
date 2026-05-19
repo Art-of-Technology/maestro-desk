@@ -20,7 +20,6 @@ const modules = [
   ['GlobalSearch',           '../js/global-search/index.js'],
   ['Settings',               '../js/settings/index.js'],
   ['CustomFields',           '../js/custom-fields/index.js'],
-  ['Customers',              '../js/customers/index.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
   ['Dashboard',              '../js/dashboard/index.js'],
   ['TicketsList',            '../js/tickets/list.js'],

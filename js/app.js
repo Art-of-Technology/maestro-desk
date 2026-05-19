@@ -99,18 +99,7 @@ import {
 import { renderRoles } from './roles/index.js';
 import { renderWorkflows } from './workflows/index.js';
 import { renderTags } from './tags/index.js';
-import {
-  renderCustomers,
-  showColumnPanel, dropCustCol, refreshCustTable,
-  setCustView, setCustGroupBy,
-  toggleCustSelected, toggleAllCustomers, clearCustSelection,
-  bulkSetCustVIP, bulkSetCustConsent, bulkDeleteCustomers,
-  exportCustomerList, filterCustomers, custSetVIP, custSetBrand,
-  openCustomerProfile, closeCustomerProfile,
-  addCustomerNote, deleteCustomerNote,
-  showMergeCustomerModal, mergeCustomers, unmergeCustomer,
-  updateCustomField, showCustomerGDPR,
-} from './customers/index.js';
+import { renderCustomers } from './customers/index.js';
 import {
   showGDPRModal, openCustomerModal, showCSVModal, showNewCustomerModal,
 } from './customers/modals.js';
@@ -176,7 +165,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomFields from './custom-fields/index.js';
-import * as Customers from './customers/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
@@ -372,7 +360,7 @@ Object.assign(
   Modal, Collapsible, Keybindings,
   GlobalSearch,
   Settings, CustomFields,
-  Customers, CustomerModals, Dashboard,
+  CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,
 );

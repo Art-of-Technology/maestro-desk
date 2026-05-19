@@ -5,9 +5,21 @@
 // un-merge bookkeeping lives at the bottom: tickets reassign with a stamp so
 // the reversal can restore them, and primary-record backfill is undoable.
 //
+// Click/change/input/mousedown handlers route through
+// core/event-delegation.js. Drag-to-reorder on the column headers uses
+// module-internal document-level listeners at the bottom of this file
+// (scoped via `closest('th[draggable="true"]')`; coexists with
+// widget-shell's drag dispatcher because the selectors disambiguate).
+// Pure-style onmouseover/onmouseout hover effects stay inline (PR #105
+// rule).
+//
 // External reaches (interim, via window): escAttr, escHtml, isAdmin,
-// renderPage, openTicket, showManageFieldsModal — all still in app.js.
-// showCSVModal / showNewCustomerModal moved to ./modals.js.
+// renderPage — all still in app.js. openTicket and
+// showManageFieldsModal are direct ES imports. showCSVModal /
+// showNewCustomerModal STAY as `window.X` to avoid worsening the
+// customers↔customers/modals.js ES-import cycle (modals.js already
+// imports refreshCustTable from this module). Will become direct
+// imports once customer-modals retires from the bridge.
 //
 // CUSTOMERS, TICKETS, CUSTOM_FIELDS, SESSION come from data.js / state.js via
 // the global lexical env; CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS,
@@ -16,6 +28,9 @@
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible } from '../layouts/index.js';
+import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
+import { openTicket } from '../tickets/detail.js';
+import { showManageFieldsModal } from '../custom-fields/index.js';
 
 // ─── Customer table column state ─────────────────────────────────────────────
 
@@ -45,9 +60,9 @@ function buildCustRows(list) {
   const cols = getCustColumns().filter(c=>c.visible);
   return list.map(c => {
     const checked = CUSTOMER_SELECTED_IDS.has(c.id);
-    return `<tr onclick="openCustomerProfile('${c.id}')" style="cursor:pointer${checked?';background:var(--purple-lt)':''}">
-      <td style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-        <input type="checkbox" ${checked?'checked':''} onchange="toggleCustSelected('${c.id}')" style="cursor:pointer;accent-color:var(--purple)" />
+    return `<tr data-action="cust.openProfile" data-cust-id="${window.escAttr(c.id)}" style="cursor:pointer${checked?';background:var(--purple-lt)':''}">
+      <td style="width:32px;padding-right:0" data-action="">
+        <input type="checkbox" ${checked?'checked':''} data-change-action="cust.toggleSelected" data-cust-id="${window.escAttr(c.id)}" style="cursor:pointer;accent-color:var(--purple)" />
       </td>
       ${cols.map(col=>custCellValue(c,col.id)).join('')}
     </tr>`;
@@ -58,13 +73,13 @@ function buildCustHeaders() {
   const cols = getCustColumns().filter(c=>c.visible);
   const ids = applyCustFilters().map(c => c.id);
   const allSelected = ids.length > 0 && ids.every(id => CUSTOMER_SELECTED_IDS.has(id));
-  const checkboxHeader = `<th style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-    <input type="checkbox" ${allSelected?'checked':''} onchange="toggleAllCustomers()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+  const checkboxHeader = `<th style="width:32px;padding-right:0" data-action="">
+    <input type="checkbox" ${allSelected?'checked':''} data-change-action="cust.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
   </th>`;
-  return checkboxHeader + cols.map((col,i)=>`<th draggable="true" ondragstart="CUST_DRAG_COL=${i}" ondragover="event.preventDefault()" ondrop="dropCustCol(${i})" style="cursor:grab;user-select:none;white-space:nowrap" title="Drag to reorder">${col.label} <span style="opacity:.3;font-size:10px">⠿</span></th>`).join('');
+  return checkboxHeader + cols.map((col,i)=>`<th draggable="true" data-col-idx="${i}" style="cursor:grab;user-select:none;white-space:nowrap" title="Drag to reorder">${col.label} <span style="opacity:.3;font-size:10px">⠿</span></th>`).join('');
 }
 
-export function dropCustCol(targetIdx) {
+function dropCustCol(targetIdx) {
   const vis = getCustColumns().filter(c=>c.visible);
   const all = getCustColumns();
   if(CUST_DRAG_COL===null||CUST_DRAG_COL===targetIdx) return;
@@ -89,7 +104,7 @@ export function refreshCustTable(list) {
   }
 }
 
-export function showColumnPanel() {
+function showColumnPanel() {
   const cols=getCustColumns();
   showModal('Manage columns', `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Toggle columns on/off. Drag column headers in the table to reorder.</div>
@@ -102,7 +117,7 @@ export function showColumnPanel() {
             ${col.fixed?`<span style="font-size:10px;color:var(--ink3)">(always shown)</span>`:''}
           </div>
           <label class="toggle">
-            <input type="checkbox" ${col.visible?'checked':''} ${col.fixed?'disabled':''} onchange="CUST_COLUMNS[${i}].visible=this.checked;refreshCustTable(CUSTOMERS)">
+            <input type="checkbox" ${col.visible?'checked':''} ${col.fixed?'disabled':''} data-change-action="cust.toggleCol" data-col-idx="${i}">
             <span class="toggle-slider"></span>
           </label>
         </div>`).join('')}
@@ -148,16 +163,16 @@ function groupCustomersBy(list, by) {
   return [...groups.entries()].map(([key, items]) => ({ key, items }));
 }
 
-export function setCustView(v) { CUST_VIEW_FILTER = v; window.renderPage('customers'); }
-export function setCustGroupBy(v) { CUST_GROUP_BY = v; window.renderPage('customers'); }
+function setCustView(v) { CUST_VIEW_FILTER = v; window.renderPage('customers'); }
+function setCustGroupBy(v) { CUST_GROUP_BY = v; window.renderPage('customers'); }
 
-export function toggleCustSelected(id) {
+function toggleCustSelected(id) {
   if (CUSTOMER_SELECTED_IDS.has(id)) CUSTOMER_SELECTED_IDS.delete(id);
   else CUSTOMER_SELECTED_IDS.add(id);
   window.renderPage('customers');
 }
 
-export function toggleAllCustomers() {
+function toggleAllCustomers() {
   const ids = applyCustFilters().map(c => c.id);
   const all = ids.length > 0 && ids.every(id => CUSTOMER_SELECTED_IDS.has(id));
   if (all) ids.forEach(id => CUSTOMER_SELECTED_IDS.delete(id));
@@ -165,21 +180,21 @@ export function toggleAllCustomers() {
   window.renderPage('customers');
 }
 
-export function clearCustSelection() { CUSTOMER_SELECTED_IDS.clear(); window.renderPage('customers'); }
+function clearCustSelection() { CUSTOMER_SELECTED_IDS.clear(); window.renderPage('customers'); }
 
-export function bulkSetCustVIP(v) {
+function bulkSetCustVIP(v) {
   if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
   CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.vip = v; });
   CUSTOMER_SELECTED_IDS.clear();
   window.renderPage('customers');
 }
-export function bulkSetCustConsent(v) {
+function bulkSetCustConsent(v) {
   if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
   CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.consent = v === 'yes'; });
   CUSTOMER_SELECTED_IDS.clear();
   window.renderPage('customers');
 }
-export function bulkDeleteCustomers() {
+function bulkDeleteCustomers() {
   const n = CUSTOMER_SELECTED_IDS.size;
   if (n === 0) return;
   showModal(`Delete ${n} customer${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> customer${n===1?'':'s'}? Tickets they own will be orphaned.</div>`, () => {
@@ -192,7 +207,7 @@ export function bulkDeleteCustomers() {
   }, 'Delete');
 }
 
-export function exportCustomerList() {
+function exportCustomerList() {
   const list = applyCustFilters();
   const headers = ['ID','First','Last','Username','Email','Mobile','Brand','VIP','Jurisdiction','Consent','KYC','Since'];
   const rows = list.map(c => [c.id, c.first, c.last, c.username, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.kyc, c.since]);
@@ -204,13 +219,13 @@ export function exportCustomerList() {
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
-export function filterCustomers(q) { CUST_QUERY = q; refreshCustTable(applyCustFilters()); refreshCustCounter(); }
+function filterCustomers(q) { CUST_QUERY = q; refreshCustTable(applyCustFilters()); refreshCustCounter(); }
 function refreshCustCounter() {
   const el = document.getElementById('cust-counter'); if (!el) return;
   el.textContent = `${applyCustFilters().length} of ${CUSTOMERS.length}`;
 }
-export function custSetVIP(v)   { CUST_VIP_FILTER = v;   window.renderPage('customers'); }
-export function custSetBrand(v) { CUST_BRAND_FILTER = v; window.renderPage('customers'); }
+function custSetVIP(v)   { CUST_VIP_FILTER = v;   window.renderPage('customers'); }
+function custSetBrand(v) { CUST_BRAND_FILTER = v; window.renderPage('customers'); }
 
 export function renderCustomers() {
   if (CUSTOMER_SELECTED) return renderCustomerDetail(CUSTOMER_SELECTED);
@@ -247,34 +262,34 @@ export function renderCustomers() {
   const bulkBar = CUSTOMER_SELECTED_IDS.size > 0 ? `
     <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--purple);font-weight:600">${CUSTOMER_SELECTED_IDS.size} selected</span>
-      <select class="filter-select" onchange="bulkSetCustVIP(this.value)">
+      <select class="filter-select" data-change-action="cust.bulkSetVIP">
         <option value="">Set VIP tier…</option>
         <option value="Platinum">Platinum</option>
         <option value="Gold">Gold</option>
         <option value="Silver">Silver</option>
         <option value="Bronze">Bronze</option>
       </select>
-      <select class="filter-select" onchange="bulkSetCustConsent(this.value)">
+      <select class="filter-select" data-change-action="cust.bulkSetConsent">
         <option value="">Set consent…</option>
         <option value="yes">Consent: Yes</option>
         <option value="no">Consent: No</option>
       </select>
-      <button class="btn btn-sm btn-danger" onclick="bulkDeleteCustomers()">Delete</button>
-      <button class="btn btn-sm" onclick="clearCustSelection()" style="margin-left:auto">Clear selection</button>
+      <button class="btn btn-sm btn-danger" data-action="cust.bulkDelete">Delete</button>
+      <button class="btn btn-sm" data-action="cust.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
   return `
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Customers</div>
-        <button class="btn btn-sm" onclick="showColumnPanel()">
+        <button class="btn btn-sm" data-action="cust.showColumnPanel">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="5" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1" width="2" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
           Columns
         </button>
-        <button class="btn btn-sm" onclick="showManageFieldsModal()">Fields</button>
-        <button class="btn btn-sm" onclick="showCSVModal()">CSV Import</button>
-        <button class="btn btn-sm" onclick="exportCustomerList()">Export CSV</button>
-        <button class="btn btn-sm btn-solid" onclick="showNewCustomerModal()">+ New Customer</button>
+        <button class="btn btn-sm" data-action="cust.manageFields">Fields</button>
+        <button class="btn btn-sm" data-action="cust.csvImport">CSV Import</button>
+        <button class="btn btn-sm" data-action="cust.export">Export CSV</button>
+        <button class="btn btn-sm btn-solid" data-action="cust.new">+ New Customer</button>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Customers</div></div>
@@ -286,19 +301,19 @@ export function renderCustomers() {
       ${bulkBar}
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${CUST_QUERY}" oninput="filterCustomers(this.value)"/>
-        <select class="filter-select" onchange="custSetVIP(this.value)">
+        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${CUST_QUERY}" data-input-action="cust.filter"/>
+        <select class="filter-select" data-change-action="cust.setVIP">
           <option value="all"      ${CUST_VIP_FILTER==='all'?'selected':''}>All VIP tiers</option>
           <option value="Platinum" ${CUST_VIP_FILTER==='Platinum'?'selected':''}>Platinum</option>
           <option value="Gold"     ${CUST_VIP_FILTER==='Gold'?'selected':''}>Gold</option>
           <option value="Silver"   ${CUST_VIP_FILTER==='Silver'?'selected':''}>Silver</option>
           <option value="Bronze"   ${CUST_VIP_FILTER==='Bronze'?'selected':''}>Bronze</option>
         </select>
-        <select class="filter-select" onchange="custSetBrand(this.value)">
+        <select class="filter-select" data-change-action="cust.setBrand">
           <option value="all" ${CUST_BRAND_FILTER==='all'?'selected':''}>All brands</option>
           ${brands.map(b => `<option value="${b}" ${CUST_BRAND_FILTER===b?'selected':''}>${b}</option>`).join('')}
         </select>
-        <select class="filter-select" onchange="setCustGroupBy(this.value)" title="Group rows">
+        <select class="filter-select" data-change-action="cust.setGroupBy" title="Group rows">
           <option value="none"         ${CUST_GROUP_BY==='none'?'selected':''}>No grouping</option>
           <option value="vip"          ${CUST_GROUP_BY==='vip'?'selected':''}>Group by VIP</option>
           <option value="brand"        ${CUST_GROUP_BY==='brand'?'selected':''}>Group by brand</option>
@@ -310,7 +325,7 @@ export function renderCustomers() {
       </div>
       <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
-        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="setCustView('${v.k}')">${v.l}</span>`).join('')}
+        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="cust.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
       </div>
       <div style="flex:1;overflow:auto">
         <table class="tbl" style="min-width:500px">
@@ -366,7 +381,7 @@ function getCustomerRisk(c) {
   return flags;
 }
 
-export function addCustomerNote(custId) {
+function addCustomerNote(custId) {
   showModal('Add internal note', `<div class="form-row"><label class="form-label">Note</label><textarea class="form-input" id="cn-text" style="min-height:120px;font-family:'Inter',sans-serif" placeholder="Context the team should know about this customer…"></textarea></div>`, () => {
     const text = document.getElementById('cn-text').value.trim();
     if (!text) return;
@@ -382,22 +397,22 @@ export function addCustomerNote(custId) {
   }, 'Add note');
 }
 
-export function deleteCustomerNote(custId, idx) {
+function deleteCustomerNote(custId, idx) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c || !c.notes) return;
   c.notes.splice(idx, 1);
   window.renderPage('customers');
 }
 
-export function openCustomerProfile(id) { CUSTOMER_SELECTED = id; window.renderPage('customers'); }
-export function closeCustomerProfile()  { CUSTOMER_SELECTED = null; window.renderPage('customers'); }
+function openCustomerProfile(id) { CUSTOMER_SELECTED = id; window.renderPage('customers'); }
+function closeCustomerProfile()  { CUSTOMER_SELECTED = null; window.renderPage('customers'); }
 
 // ─── Customer merge ─────────────────────────────────────────────────────────
 // Combines a duplicate customer record into a primary. Tickets reassign their
 // customerId, notes copy across, and missing profile fields are pulled from
 // the source if the primary's value was empty. Each affected ticket is tagged
 // with `preMergeCustomerId` so unmergeCustomer can reliably restore them.
-export function showMergeCustomerModal(custId) {
+function showMergeCustomerModal(custId) {
   const src = CUSTOMERS.find(x => x.id === custId);
   if (!src) return;
   if (src.mergedInto) { alert(`Already merged into ${src.mergedInto}.`); return; }
@@ -410,7 +425,7 @@ export function showMergeCustomerModal(custId) {
     return;
   }
   const card = c => `
-    <div onmousedown="closeModal();mergeCustomers('${window.escAttr(custId)}','${window.escAttr(c.id)}')" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+    <div data-mousedown-action="cust.mergeFromModal" data-source="${window.escAttr(custId)}" data-target="${window.escAttr(c.id)}" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(c.first + ' ' + c.last)}</div>
@@ -424,7 +439,7 @@ export function showMergeCustomerModal(custId) {
   `, null, null);
 }
 
-export function mergeCustomers(srcId, primaryId) {
+function mergeCustomers(srcId, primaryId) {
   if (srcId === primaryId) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   const primary = CUSTOMERS.find(x => x.id === primaryId);
@@ -478,7 +493,7 @@ export function mergeCustomers(srcId, primaryId) {
   window.renderPage('customers');
 }
 
-export function unmergeCustomer(srcId) {
+function unmergeCustomer(srcId) {
   const src = CUSTOMERS.find(x => x.id === srcId);
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
@@ -510,18 +525,18 @@ export function unmergeCustomer(srcId) {
   window.renderPage('customers');
 }
 
-export function updateCustomField(custId, fieldId, value) {
+function updateCustomField(custId, fieldId, value) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c) return;
   if (!c.custom) c.custom = {};
   c.custom[fieldId] = value;
 }
 
-export function showCustomerGDPR(custId) {
+function showCustomerGDPR(custId) {
   showModal('GDPR actions', `
-    <div class="gdpr-action"><div class="gdpr-action-title">Request erasure</div><div class="gdpr-action-desc">Permanently delete this customer's personal data under Article 17.</div><button class="btn btn-sm btn-danger" onclick="closeModal()">Request erasure</button></div>
-    <div class="gdpr-action"><div class="gdpr-action-title">Redact in-thread data</div><div class="gdpr-action-desc">Mask PII in this customer's ticket messages.</div><button class="btn btn-sm" onclick="closeModal()">Redact</button></div>
-    <div class="gdpr-action"><div class="gdpr-action-title">SAR export</div><div class="gdpr-action-desc">Export all data held about this customer.</div><button class="btn btn-sm" onclick="closeModal()">Export</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">Request erasure</div><div class="gdpr-action-desc">Permanently delete this customer's personal data under Article 17.</div><button class="btn btn-sm btn-danger" data-action="cust.closeGdpr">Request erasure</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">Redact in-thread data</div><div class="gdpr-action-desc">Mask PII in this customer's ticket messages.</div><button class="btn btn-sm" data-action="cust.closeGdpr">Redact</button></div>
+    <div class="gdpr-action"><div class="gdpr-action-title">SAR export</div><div class="gdpr-action-desc">Export all data held about this customer.</div><button class="btn btn-sm" data-action="cust.closeGdpr">Export</button></div>
   `, null, null);
 }
 
@@ -536,7 +551,7 @@ function renderCustomerDetail(custId) {
   const notes = c.notes || [];
 
   const ticketRows = s.tickets.map(t => `
-    <tr onclick="openTicket('${window.escAttr(t.id)}')" style="cursor:pointer">
+    <tr data-action="cust.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
       <td class="bold">${t.id}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${t.subject}</td>
       <td><span class="tag tag-${t.status}">${t.status}</span></td>
@@ -553,7 +568,7 @@ function renderCustomerDetail(custId) {
       <div class="form-row">
         <label class="form-label">${cf.label}</label>
         ${admin
-          ? `<input class="form-input" type="${inputType}" value="${String(val).replace(/"/g,'&quot;')}" oninput="updateCustomField('${window.escAttr(c.id)}','${cf.id}',this.value)"/>`
+          ? `<input class="form-input" type="${inputType}" value="${String(val).replace(/"/g,'&quot;')}" data-input-action="cust.updateField" data-cust-id="${window.escAttr(c.id)}" data-field-id="${window.escAttr(cf.id)}"/>`
           : `<div style="font-size:13px;color:var(--ink);padding:9px 12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);min-height:36px;display:flex;align-items:center">${val || '<span style="color:var(--ink3)">—</span>'}</div>`}
       </div>`;
   }).join('') || '<div style="color:var(--ink3);font-size:12px;padding:8px 0">No custom fields defined. Admins can add them via Manage Fields on the list view.</div>';
@@ -582,7 +597,7 @@ function renderCustomerDetail(custId) {
       <div class="card-title">Activity timeline</div>
       <div class="cust-timeline">
         ${activity.map(a => `
-          <div class="cust-timeline-item role-${a.role}" onclick="openTicket('${window.escAttr(a.ticketId)}')">
+          <div class="cust-timeline-item role-${a.role}" data-action="cust.openTicket" data-ticket-id="${window.escAttr(a.ticketId)}">
             <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
               <span style="font-size:11px;font-weight:600;color:var(--ink)">${a.from}</span>
               ${a.role === 'note' ? '<span class="note-mark">Note</span>' : a.role === 'ai' ? '<span class="ai-mark">AI</span>' : ''}
@@ -599,14 +614,14 @@ function renderCustomerDetail(custId) {
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Internal notes</div>
-        <button class="btn btn-sm" onclick="addCustomerNote('${window.escAttr(c.id)}')">+ Add note</button>
+        <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Add note</button>
       </div>
       ${notes.length ? notes.map((n, i) => `
         <div class="cust-note">
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
             <span style="font-size:11px;font-weight:600;color:var(--ink)">${n.author}</span>
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${n.ts}</span>
-            ${admin ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" onclick="deleteCustomerNote('${window.escAttr(c.id)}',${i})" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
+            ${admin ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
           </div>
           <div style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${n.text}</div>
         </div>
@@ -617,7 +632,7 @@ function renderCustomerDetail(custId) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="closeCustomerProfile()">Customers</span>
+          <span data-action="cust.closeProfile">Customers</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${c.first} ${c.last}</span>
         </div>
@@ -639,16 +654,16 @@ function renderCustomerDetail(custId) {
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
           <span style="color:var(--ink2)">→</span>
-          <span class="link" onclick="CUSTOMER_SELECTED='${window.escAttr(c.mergedInto)}';renderPage('customers')" style="color:var(--purple);font-weight:500">${window.escHtml(c.mergedInto)}</span>
+          <span class="link" data-action="cust.selectAndRender" data-cust-id="${window.escAttr(c.mergedInto)}" style="color:var(--purple);font-weight:500">${window.escHtml(c.mergedInto)}</span>
           <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${window.escHtml(c.mergedAt || '—')}</span>
-          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" onclick="unmergeCustomer('${window.escAttr(c.id)}')">Un-merge</button>` : ''}
+          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" data-action="cust.unmerge" data-cust-id="${window.escAttr(c.id)}">Un-merge</button>` : ''}
         </div>` : ''}
         ${(c.mergedFrom || []).length ? `<div class="card" style="margin-bottom:16px">
           <div class="card-title">Merged duplicates (${c.mergedFrom.length})</div>
           ${c.mergedFrom.map(mid => {
             const m = CUSTOMERS.find(x => x.id === mid);
             if (!m) return '';
-            return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--rule);cursor:pointer" onclick="CUSTOMER_SELECTED='${window.escAttr(mid)}';renderPage('customers')">
+            return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--rule);cursor:pointer" data-action="cust.selectAndRender" data-cust-id="${window.escAttr(mid)}">
               <div style="width:24px;height:24px;border-radius:50%;background:var(--ink);color:var(--w);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600">${window.escHtml((m.first[0]||'') + (m.last[0]||''))}</div>
               <div style="flex:1;min-width:0">
                 <div style="font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(m.first + ' ' + m.last)}</div>
@@ -666,10 +681,10 @@ function renderCustomerDetail(custId) {
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h2l1 2.5L3.5 5a8 8 0 0 0 3.5 3.5L8.5 7l2.5 1V11a1 1 0 0 1-1 1A9 9 0 0 1 1 2.5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
             Call
           </a>
-          <button class="btn btn-sm" onclick="addCustomerNote('${window.escAttr(c.id)}')">+ Note</button>
+          <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${c.bo ? `<a href="${c.bo}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : ''}
-          ${admin && !c.mergedInto ? `<button class="btn btn-sm" onclick="showMergeCustomerModal('${window.escAttr(c.id)}')">↩ Merge</button>` : ''}
-          <button class="btn btn-sm btn-danger" style="margin-left:auto" onclick="showCustomerGDPR('${window.escAttr(c.id)}')">GDPR</button>
+          ${admin && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
+          <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
         ${riskPanel}
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
@@ -712,3 +727,72 @@ function renderCustomerDetail(custId) {
       </div>
     </div>`;
 }
+
+registerActions({
+  // List + bulk actions
+  'cust.openProfile':     (ds) => openCustomerProfile(ds.custId),
+  'cust.closeProfile':    () => closeCustomerProfile(),
+  'cust.setView':         (ds) => setCustView(ds.view),
+  'cust.bulkDelete':      () => bulkDeleteCustomers(),
+  'cust.clearSelection':  () => clearCustSelection(),
+  'cust.showColumnPanel': () => showColumnPanel(),
+  'cust.manageFields':    () => showManageFieldsModal(),
+  // showCSVModal/showNewCustomerModal stay on window to avoid worsening
+  // the customers↔customers/modals.js ES-import cycle. See header.
+  'cust.csvImport':       () => window.showCSVModal(),
+  'cust.new':             () => window.showNewCustomerModal(),
+  'cust.export':          () => exportCustomerList(),
+  'cust.closeGdpr':       () => closeModal(),
+  // Detail-page actions
+  'cust.openTicket':      (ds) => openTicket(ds.ticketId),
+  'cust.addNote':         (ds) => addCustomerNote(ds.custId),
+  'cust.deleteNote':      (ds) => deleteCustomerNote(ds.custId, parseInt(ds.noteIdx, 10)),
+  'cust.unmerge':         (ds) => unmergeCustomer(ds.custId),
+  'cust.showMergeModal':  (ds) => showMergeCustomerModal(ds.custId),
+  'cust.showGdpr':        (ds) => showCustomerGDPR(ds.custId),
+  // Switch the active customer + re-render — used by the
+  // mergedInto link and the per-original-customer list items in the
+  // un-merge undo block.
+  'cust.selectAndRender': (ds) => { CUSTOMER_SELECTED = ds.custId; window.renderPage('customers'); },
+});
+
+registerChangeActions({
+  'cust.toggleSelected': (ds) => toggleCustSelected(ds.custId),
+  'cust.toggleAll':      () => toggleAllCustomers(),
+  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(CUSTOMERS); },
+  'cust.bulkSetVIP':     (ds, el) => bulkSetCustVIP(el.value),
+  'cust.bulkSetConsent': (ds, el) => bulkSetCustConsent(el.value),
+  'cust.setVIP':         (ds, el) => custSetVIP(el.value),
+  'cust.setBrand':       (ds, el) => custSetBrand(el.value),
+  'cust.setGroupBy':     (ds, el) => setCustGroupBy(el.value),
+});
+
+registerInputActions({
+  'cust.filter':      (ds, el) => filterCustomers(el.value),
+  'cust.updateField': (ds, el) => updateCustomField(ds.custId, ds.fieldId, el.value),
+});
+
+registerMousedownActions({
+  // Pick a primary in the merge modal: close it, then merge.
+  'cust.mergeFromModal': (ds) => { closeModal(); mergeCustomers(ds.source, ds.target); },
+});
+
+// ─── Column drag-and-drop dispatcher ─────────────────────────────────────────
+// Drag is sparse — only this module + widget-shell use it across the
+// codebase — so it lives here rather than in core/event-delegation.js. The
+// selector `th[draggable="true"]` disambiguates from widget-shell's
+// `.widget[draggable="true"]`, so both modules' document-level listeners
+// coexist without stepping on each other.
+function _dragTh(e) { return e.target.closest('th[draggable="true"]'); }
+document.addEventListener('dragstart', e => {
+  const th = _dragTh(e); if (!th) return;
+  CUST_DRAG_COL = parseInt(th.dataset.colIdx, 10);
+});
+document.addEventListener('dragover', e => {
+  const th = _dragTh(e); if (!th) return;
+  e.preventDefault();
+});
+document.addEventListener('drop', e => {
+  const th = _dragTh(e); if (!th) return;
+  dropCustCol(parseInt(th.dataset.colIdx, 10));
+});
