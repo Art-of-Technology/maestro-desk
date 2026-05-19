@@ -96,12 +96,7 @@ import {
   cfNew, cfEdit, cfDelete, cfFormToggleOptions,
   showManageFieldsModal,
 } from './custom-fields/index.js';
-import {
-  renderRoles, openRoleAgents, closeRoleAgents,
-  togglePermission, renameRolePrompt, deleteRolePrompt,
-  addRolePrompt, addPermissionPrompt, addAgentToRolePrompt,
-  reassignAgent, setAgentActive, deleteAgentPrompt,
-} from './roles/index.js';
+import { renderRoles } from './roles/index.js';
 import {
   renderWorkflows,
   openWfDetail, closeWfDetail, duplicateWf,
@@ -194,7 +189,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomFields from './custom-fields/index.js';
-import * as Roles from './roles/index.js';
 import * as Workflows from './workflows/index.js';
 import * as Tags from './tags/index.js';
 import * as Customers from './customers/index.js';
@@ -392,7 +386,7 @@ Object.assign(
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
-  Settings, CustomFields, Roles, Workflows,
+  Settings, CustomFields, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,

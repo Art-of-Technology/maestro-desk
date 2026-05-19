@@ -7,12 +7,22 @@
 // Admin role is protected: it can't be deleted, renamed, or stripped of the
 // "roles" permission (self-lockout guard).
 //
+// Click/change handlers route through core/event-delegation.js.
+// renderRoles is the only export consumed by app.js; reassignAgent,
+// setAgentActive, deleteAgentPrompt are also imported directly by
+// agents/index.js (the agent-detail page reuses them for the role
+// dropdown + activate/delete buttons).
+//
 // External reaches (interim, via window): isAdmin, escAttr, showModal,
-// closeModal, renderPage, openAgentFromDash — all still in app.js.
+// closeModal, renderPage — all still in app.js. openAgentFromDash is
+// a direct ES import from dashboard/index.js.
 //
 // AGENTS, TICKETS, ROLES_MATRIX, PERMISSIONS come from data.js via the
 // global lexical env; ROLES_VIEW_AGENTS, AGENT_SELECTED, CURRENT_PAGE,
 // SESSION come from core/state.js the same way.
+
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { openAgentFromDash } from '../dashboard/index.js';
 
 export function renderRoles() {
   if (ROLES_VIEW_AGENTS) return renderRoleAgentsPage(ROLES_VIEW_AGENTS);
@@ -25,14 +35,14 @@ export function renderRoles() {
       const v = !!ROLES_MATRIX[r][p.key];
       const lock = (r === 'Admin' && p.key === 'roles');
       if (admin && !lock) {
-        return `<td style="text-align:center"><label class="toggle"><input type="checkbox" ${v?'checked':''} onchange="togglePermission('${window.escAttr(r)}','${p.key}',this.checked)"><span class="toggle-slider"></span></label></td>`;
+        return `<td style="text-align:center"><label class="toggle"><input type="checkbox" ${v?'checked':''} data-change-action="roles.togglePerm" data-role="${window.escAttr(r)}" data-perm="${window.escAttr(p.key)}"><span class="toggle-slider"></span></label></td>`;
       }
       return `<td style="text-align:center;color:${v?'var(--green)':'var(--ink4)'};font-weight:500">${v?'✓':'—'}</td>`;
     }).join('');
-    const actions = admin ? `<td style="text-align:right;white-space:nowrap">${r==='Admin' ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" onclick="deleteRolePrompt('${window.escAttr(r)}')">Delete</button>`}</td>` : '';
+    const actions = admin ? `<td style="text-align:right;white-space:nowrap">${r==='Admin' ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
-      <td class="bold"><span class="link" onclick="openRoleAgents('${window.escAttr(r)}')">${r}</span></td>
-      <td style="text-align:center"><span class="link" onclick="openRoleAgents('${window.escAttr(r)}')">${count}</span></td>
+      <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
+      <td style="text-align:center"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${count}</span></td>
       ${cells}
       ${actions}
     </tr>`;
@@ -42,8 +52,8 @@ export function renderRoles() {
       <div class="topbar">
         <div class="tb-title">Roles & Permissions</div>
         ${admin
-          ? `<button class="btn btn-sm" onclick="addPermissionPrompt()">+ Permission</button>
-             <button class="btn btn-sm btn-solid" onclick="addRolePrompt()">+ Role</button>`
+          ? `<button class="btn btn-sm" data-action="roles.addPermission">+ Permission</button>
+             <button class="btn btn-sm btn-solid" data-action="roles.addRole">+ Role</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="page-scroll">
@@ -94,22 +104,22 @@ function renderRoleAgentsPage(role) {
     const open = TICKETS.filter(t => t.agent === a.name && (t.status === 'open' || t.status === 'escalated')).length;
     return `<tr>
       <td>
-        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="openAgentFromDash('${window.escAttr(a.name)}')">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" data-action="roles.openAgent" data-name="${window.escAttr(a.name)}">
           <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0;${a.active?'':'opacity:.5'}">${a.initials}</div>
           <span style="font-weight:500;color:var(--ink)">${a.name}</span>
         </div>
       </td>
       <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2)">${open}</td>
       <td>${admin
-        ? `<select class="filter-select" onchange="reassignAgent('${window.escAttr(a.name)}',this.value)">${otherRoleOpts}</select>`
+        ? `<select class="filter-select" data-change-action="roles.reassign" data-name="${window.escAttr(a.name)}">${otherRoleOpts}</select>`
         : a.role}
       </td>
       <td><span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span></td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
         ${a.active
-          ? `<button class="btn btn-sm" onclick="setAgentActive('${window.escAttr(a.name)}',false)">Deactivate</button>`
-          : `<button class="btn btn-sm" onclick="setAgentActive('${window.escAttr(a.name)}',true)">Activate</button>`}
-        <button class="btn btn-sm btn-danger" onclick="deleteAgentPrompt('${window.escAttr(a.name)}')">Delete</button>
+          ? `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
+          : `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`}
+        <button class="btn btn-sm btn-danger" data-action="roles.deleteAgent" data-name="${window.escAttr(a.name)}">Delete</button>
       </td>` : ''}
     </tr>`;
   }).join('');
@@ -120,7 +130,7 @@ function renderRoleAgentsPage(role) {
     return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);background:${v?'var(--purple-lt)':'var(--off2)'}">
       <div style="font-size:12.5px;color:${v?'var(--purple)':'var(--ink2)'};font-weight:${v?'500':'400'}">${p.label}</div>
       ${admin && !lock
-        ? `<label class="toggle"><input type="checkbox" ${v?'checked':''} onchange="togglePermission('${window.escAttr(role)}','${p.key}',this.checked);renderPage('roles')"><span class="toggle-slider"></span></label>`
+        ? `<label class="toggle"><input type="checkbox" ${v?'checked':''} data-change-action="roles.togglePermAndRender" data-role="${window.escAttr(role)}" data-perm="${window.escAttr(p.key)}"><span class="toggle-slider"></span></label>`
         : `<span style="font-size:11px;color:${v?'var(--green)':'var(--ink4)'};font-family:'DM Mono',monospace">${v?'✓':'—'}</span>`}
     </div>`;
   }).join('');
@@ -129,13 +139,13 @@ function renderRoleAgentsPage(role) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="closeRoleAgents()">Roles &amp; Permissions</span>
+          <span data-action="roles.closeAgents">Roles &amp; Permissions</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${role}</span>
           ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
-            ${role !== 'Admin' ? `<button class="btn btn-sm" onclick="renameRolePrompt('${window.escAttr(role)}')">Rename</button>` : ''}
-            <button class="btn btn-sm btn-solid" onclick="addAgentToRolePrompt('${window.escAttr(role)}')">+ Agent</button>
-            ${role !== 'Admin' ? `<button class="btn btn-sm btn-danger" onclick="deleteRolePrompt('${window.escAttr(role)}')">Delete role</button>` : ''}
+            ${role !== 'Admin' ? `<button class="btn btn-sm" data-action="roles.rename" data-role="${window.escAttr(role)}">Rename</button>` : ''}
+            <button class="btn btn-sm btn-solid" data-action="roles.addAgent" data-role="${window.escAttr(role)}">+ Agent</button>
+            ${role !== 'Admin' ? `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(role)}">Delete role</button>` : ''}
           </span>` : ''}
         </div>
       </div>
@@ -172,7 +182,7 @@ function renderRoleAgentsPage(role) {
         <div class="card" style="margin-bottom:16px">
           <div class="card-title">Workload distribution</div>
           ${memberLoad.map(m => `
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" onclick="openAgentFromDash('${window.escAttr(m.a.name)}')">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" data-action="roles.openAgent" data-name="${window.escAttr(m.a.name)}">
               <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;${m.a.active?'':'opacity:.5'}">${m.a.initials}</div>
               <div style="font-size:12px;color:var(--ink2);width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.a.name}</div>
               <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:${m.a.active?'var(--purple)':'var(--ink4)'};height:100%;width:${(m.open/maxLoad)*100}%"></div></div>
@@ -201,7 +211,7 @@ function renderRoleAgentsPage(role) {
     </div>`;
 }
 
-export function renameRolePrompt(oldName) {
+function renameRolePrompt(oldName) {
   if (!window.isAdmin() || oldName === 'Admin') return;
   window.showModal('Rename role', `
     <div class="form-row">
@@ -220,10 +230,10 @@ export function renameRolePrompt(oldName) {
   }, 'Rename');
 }
 
-export function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; window.renderPage('roles'); }
-export function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; window.renderPage('roles'); }
+function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; window.renderPage('roles'); }
+function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; window.renderPage('roles'); }
 
-export function togglePermission(role, perm, val) {
+function togglePermission(role, perm, val) {
   if (!window.isAdmin() || !ROLES_MATRIX[role]) return;
   ROLES_MATRIX[role][perm] = val;
 }
@@ -252,7 +262,7 @@ export function deleteAgentPrompt(name) {
   }, 'Delete');
 }
 
-export function addAgentToRolePrompt(role) {
+function addAgentToRolePrompt(role) {
   if (!window.isAdmin()) return;
   window.showModal(`Add agent to ${role}`, `
     <div class="form-grid">
@@ -269,7 +279,7 @@ export function addAgentToRolePrompt(role) {
   }, 'Add');
 }
 
-export function addRolePrompt() {
+function addRolePrompt() {
   if (!window.isAdmin()) return;
   window.showModal('New role', `
     <div class="form-row"><label class="form-label">Role name</label><input class="form-input" id="nr-name" placeholder="e.g. Compliance Officer"/></div>
@@ -290,7 +300,7 @@ export function addRolePrompt() {
   }, 'Create');
 }
 
-export function addPermissionPrompt() {
+function addPermissionPrompt() {
   if (!window.isAdmin()) return;
   window.showModal('New permission', `
     <div class="form-row"><label class="form-label">Display label</label><input class="form-input" id="np-label" placeholder="e.g. Billing Refunds"/></div>
@@ -307,7 +317,7 @@ export function addPermissionPrompt() {
   }, 'Add');
 }
 
-export function deleteRolePrompt(role) {
+function deleteRolePrompt(role) {
   if (!window.isAdmin() || role === 'Admin') return;
   const inUse = AGENTS.filter(a => a.role === role).length;
   if (inUse > 0) {
@@ -319,3 +329,24 @@ export function deleteRolePrompt(role) {
     window.closeModal(); window.renderPage('roles');
   }, 'Delete');
 }
+
+registerActions({
+  'roles.openAgents':    (ds) => openRoleAgents(ds.role),
+  'roles.closeAgents':   () => closeRoleAgents(),
+  'roles.addPermission': () => addPermissionPrompt(),
+  'roles.addRole':       () => addRolePrompt(),
+  'roles.deleteRole':    (ds) => deleteRolePrompt(ds.role),
+  'roles.rename':        (ds) => renameRolePrompt(ds.role),
+  'roles.addAgent':      (ds) => addAgentToRolePrompt(ds.role),
+  'roles.openAgent':     (ds) => openAgentFromDash(ds.name),
+  'roles.setActive':     (ds) => setAgentActive(ds.name, ds.active === 'true'),
+  'roles.deleteAgent':   (ds) => deleteAgentPrompt(ds.name),
+});
+
+registerChangeActions({
+  'roles.togglePerm':          (ds, el) => togglePermission(ds.role, ds.perm, el.checked),
+  // Same as togglePerm but re-renders the page — used in the role-detail
+  // view where other UI on the page reflects the current matrix state.
+  'roles.togglePermAndRender': (ds, el) => { togglePermission(ds.role, ds.perm, el.checked); window.renderPage('roles'); },
+  'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
+});
