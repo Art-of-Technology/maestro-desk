@@ -5,14 +5,19 @@
 // `onclick=`/`onchange=` handlers (which only resolve through window) so
 // feature modules don't need a namespace spread on the window bridge.
 //
-// Three event types are supported today:
+// Four event types are supported today:
 //   - click     via `data-action`           and `registerActions({...})`
 //   - change    via `data-change-action`    and `registerChangeActions({...})`
 //   - mousedown via `data-mousedown-action` and `registerMousedownActions({...})`
+//   - input     via `data-input-action`     and `registerInputActions({...})`
 //
 // mousedown is used for menus/dropdowns where the action should fire before
 // the click would, so the surrounding dismiss/blur logic (core/dismiss.js
 // also listens on mousedown) sees the menu in the right state.
+//
+// input fires on every keystroke / programmatic value change inside text
+// inputs and textareas. Handlers typically read `el.value` (not the
+// dataset) and update module state + trigger a re-render.
 //
 // Add more (input, keydown, ...) here only when more than one module needs
 // them. One-off cases are better served by direct addEventListener after
@@ -37,6 +42,7 @@
 const CLICK_ACTIONS     = Object.create(null);
 const CHANGE_ACTIONS    = Object.create(null);
 const MOUSEDOWN_ACTIONS = Object.create(null);
+const INPUT_ACTIONS     = Object.create(null);
 
 function registerInto(registry, attrName, map) {
   for (const name of Object.keys(map)) {
@@ -49,6 +55,7 @@ function registerInto(registry, attrName, map) {
 export function registerActions(map)           { registerInto(CLICK_ACTIONS,     'data-action',           map); }
 export function registerChangeActions(map)     { registerInto(CHANGE_ACTIONS,    'data-change-action',    map); }
 export function registerMousedownActions(map)  { registerInto(MOUSEDOWN_ACTIONS, 'data-mousedown-action', map); }
+export function registerInputActions(map)      { registerInto(INPUT_ACTIONS,     'data-input-action',     map); }
 
 function dispatch(registry, attr, e) {
   const el = e.target.closest(`[${attr}]`);
@@ -61,3 +68,4 @@ function dispatch(registry, attr, e) {
 document.addEventListener('click',     e => dispatch(CLICK_ACTIONS,     'data-action',           e));
 document.addEventListener('change',    e => dispatch(CHANGE_ACTIONS,    'data-change-action',    e));
 document.addEventListener('mousedown', e => dispatch(MOUSEDOWN_ACTIONS, 'data-mousedown-action', e));
+document.addEventListener('input',     e => dispatch(INPUT_ACTIONS,     'data-input-action',     e));

@@ -3,17 +3,27 @@
 // detail view (stats, charts, recent activity, assigned tickets). Admins can
 // add new agents here; role changes / activate-deactivate / delete still go
 // through the shared helpers (reassignAgent, setAgentActive, deleteAgentPrompt)
-// that live in app.js because the Roles page calls them too.
+// that live in roles/index.js because the Roles page calls them too.
+//
+// Click/change/input handlers route through core/event-delegation.js
+// (`data-action` / `data-change-action` / `data-input-action`). The two
+// onmouseover/onmouseout hover handlers in the recent-activity rows stay
+// inline — pure `this.style.X = Y`, no module dep.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage, showModal, closeModal, fmtMinutes, isAgentOOO,
-// reassignAgent, setAgentActive, deleteAgentPrompt, showAgentOOOModal,
-// openTicket — all still in app.js.
+// renderPage, showModal, closeModal, fmtMinutes, isAgentOOO — all still
+// in app.js. navTo, openTicket, showAgentOOOModal, reassignAgent,
+// setAgentActive, deleteAgentPrompt are direct ES imports.
 //
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
-// AGENT_SELECTED comes from state.js (both in global lex env).
+// AGENT_SELECTED, CUSTOMER_SELECTED come from state.js (global lex env).
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
+import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from '../tickets/detail.js';
+import { showAgentOOOModal } from '../tickets/assignment-rules.js';
+import { reassignAgent, setAgentActive, deleteAgentPrompt } from '../roles/index.js';
 
 let AGENT_FILTER_ROLE = 'all';
 let AGENT_FILTER_STATUS = 'all';
@@ -58,7 +68,7 @@ export function renderAgents() {
     const s = getAgentStats(a.name);
     const ooo = window.isAgentOOO(a.name);
     return `
-      <div class="agent-card ${a.active?'':'inactive'}" onclick="openAgentDetail('${window.escAttr(a.name)}')">
+      <div class="agent-card ${a.active?'':'inactive'}" data-action="agents.openDetail" data-name="${window.escAttr(a.name)}">
         <div class="agent-card-head">
           <div class="agent-av">${a.initials}</div>
           <div style="flex:1;min-width:0">
@@ -81,7 +91,7 @@ export function renderAgents() {
       <div class="topbar">
         <div class="tb-title">Agents</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" onclick="agentNew()">+ Add Agent</button>`
+          ? `<button class="btn btn-solid btn-sm" data-action="agents.new">+ Add Agent</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -92,12 +102,12 @@ export function renderAgents() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${AGENT_QUERY}" oninput="agentSetQuery(this.value)"/>
-        <select class="filter-select" onchange="agentSetRole(this.value)">
+        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${AGENT_QUERY}" data-input-action="agents.setQuery"/>
+        <select class="filter-select" data-change-action="agents.setRoleFilter">
           <option value="all" ${AGENT_FILTER_ROLE==='all'?'selected':''}>All roles</option>
           ${allRoles.map(r => `<option value="${r}" ${AGENT_FILTER_ROLE===r?'selected':''}>${r}</option>`).join('')}
         </select>
-        <select class="filter-select" onchange="agentSetStatus(this.value)">
+        <select class="filter-select" data-change-action="agents.setStatusFilter">
           <option value="all"      ${AGENT_FILTER_STATUS==='all'?'selected':''}>All statuses</option>
           <option value="active"   ${AGENT_FILTER_STATUS==='active'?'selected':''}>Active</option>
           <option value="inactive" ${AGENT_FILTER_STATUS==='inactive'?'selected':''}>Inactive</option>
@@ -179,7 +189,7 @@ function agentBarRow(label, count, max, color) {
   </div>`;
 }
 
-export function renderAgentDetail(name) {
+function renderAgentDetail(name) {
   const a = AGENTS.find(x => x.name === name);
   if (!a) { AGENT_SELECTED = null; return renderAgents(); }
   const s = getAgentStats(name);
@@ -212,7 +222,7 @@ export function renderAgentDetail(name) {
 
   const topCustRows = d.topCustomers.length ? d.topCustomers.map(({ cust, count }) => {
     const pct = (count / d.topCustomers[0].count) * 100;
-    return `<div onclick="CUSTOMER_SELECTED='${window.escAttr(cust.id)}';navTo('customers')" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
+    return `<div data-action="agents.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
       <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
       <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
@@ -225,7 +235,7 @@ export function renderAgentDetail(name) {
     : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:8px 0">No tags used yet</div>';
 
   const recentRows = d.recent.length ? d.recent.map(r => `
-    <div onclick="openTicket('${window.escAttr(r.ticketId)}')" style="padding:8px 4px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:12px;transition:background .1s" onmouseover="this.style.background='var(--off2)'" onmouseout="this.style.background='transparent'">
+    <div data-action="agents.openTicket" data-ticket-id="${window.escAttr(r.ticketId)}" style="padding:8px 4px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:12px;transition:background .1s" onmouseover="this.style.background='var(--off2)'" onmouseout="this.style.background='transparent'">
       <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
         <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${r.ticketId}</span>
         ${r.role === 'note' ? '<span class="note-mark">Note</span>' : '<span style="font-size:9px;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Reply</span>'}
@@ -236,7 +246,7 @@ export function renderAgentDetail(name) {
 
   const ticketRows = s.tickets.map(t => {
     const cust = CUSTOMERS.find(c => c.id === t.customerId);
-    return `<tr onclick="openTicket('${window.escAttr(t.id)}')" style="cursor:pointer">
+    return `<tr data-action="agents.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
       <td class="bold">${t.id}</td>
       <td>${cust ? cust.first + ' ' + cust.last : '—'}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.subject}</td>
@@ -251,7 +261,7 @@ export function renderAgentDetail(name) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="closeAgentDetail()">Agents</span>
+          <span data-action="agents.closeDetail">Agents</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${a.name}</span>
         </div>
@@ -267,14 +277,14 @@ export function renderAgentDetail(name) {
             ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + window.escHtml(a.oooTo) : ''}</span>`
             : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>`}
           ${admin || (SESSION && SESSION.name === a.name) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            ${admin ? `<select class="filter-select" onchange="reassignAgent('${window.escAttr(a.name)}',this.value)" style="font-size:12px">
+            ${admin ? `<select class="filter-select" data-change-action="agents.reassign" data-name="${window.escAttr(a.name)}" style="font-size:12px">
               ${allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('')}
             </select>` : ''}
-            <button class="btn btn-sm" onclick="showAgentOOOModal('${window.escAttr(a.name)}')">${window.isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
+            <button class="btn btn-sm" data-action="agents.editOOO" data-name="${window.escAttr(a.name)}">${window.isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
             ${admin ? (a.active
-              ? `<button class="btn btn-sm" onclick="setAgentActive('${window.escAttr(a.name)}',false)">Deactivate</button>`
-              : `<button class="btn btn-sm" onclick="setAgentActive('${window.escAttr(a.name)}',true)">Activate</button>`) : ''}
-            ${admin ? `<button class="btn btn-sm btn-danger" onclick="deleteAgentPrompt('${window.escAttr(a.name)}')">Delete</button>` : ''}
+              ? `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
+              : `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`) : ''}
+            ${admin ? `<button class="btn btn-sm btn-danger" data-action="agents.delete" data-name="${window.escAttr(a.name)}">Delete</button>` : ''}
           </div>` : ''}
         </div>
         ${window.isAgentOOO(a.name) ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
@@ -340,18 +350,18 @@ export function renderAgentDetail(name) {
     </div>`;
 }
 
-export function openAgentDetail(name) { AGENT_SELECTED = name; window.renderPage('agents'); }
-export function closeAgentDetail()    { AGENT_SELECTED = null; window.renderPage('agents'); }
-export function agentSetRole(v)       { AGENT_FILTER_ROLE = v; window.renderPage('agents'); }
-export function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; window.renderPage('agents'); }
-export function agentSetQuery(v) {
+function openAgentDetail(name) { AGENT_SELECTED = name; window.renderPage('agents'); }
+function closeAgentDetail()    { AGENT_SELECTED = null; window.renderPage('agents'); }
+function agentSetRole(v)       { AGENT_FILTER_ROLE = v; window.renderPage('agents'); }
+function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; window.renderPage('agents'); }
+function agentSetQuery(v) {
   AGENT_QUERY = v;
   window.renderPage('agents');
   const input = document.getElementById('agent-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
 
-export function agentNew() {
+function agentNew() {
   if (!window.isAdmin()) return;
   const allRoles = Object.keys(ROLES_MATRIX);
   window.showModal('Add agent', `
@@ -372,3 +382,24 @@ export function agentNew() {
     window.closeModal(); window.renderPage('agents');
   }, 'Add');
 }
+
+registerActions({
+  'agents.openDetail':    (ds) => openAgentDetail(ds.name),
+  'agents.closeDetail':   () => closeAgentDetail(),
+  'agents.new':           () => agentNew(),
+  'agents.openCustomer':  (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+  'agents.openTicket':    (ds) => openTicket(ds.ticketId),
+  'agents.editOOO':       (ds) => showAgentOOOModal(ds.name),
+  'agents.setActive':     (ds) => setAgentActive(ds.name, ds.active === 'true'),
+  'agents.delete':        (ds) => deleteAgentPrompt(ds.name),
+});
+
+registerChangeActions({
+  'agents.setRoleFilter':   (ds, el) => agentSetRole(el.value),
+  'agents.setStatusFilter': (ds, el) => agentSetStatus(el.value),
+  'agents.reassign':        (ds, el) => reassignAgent(ds.name, el.value),
+});
+
+registerInputActions({
+  'agents.setQuery': (ds, el) => agentSetQuery(el.value),
+});

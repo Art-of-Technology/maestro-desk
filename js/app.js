@@ -81,11 +81,7 @@ import './core/dismiss.js';
 import './core/event-delegation.js';
 import { navTo, focusGlobalSearch } from './core/keybindings.js';
 import { renderProfile } from './profile/index.js';
-import {
-  renderAgents, renderAgentDetail,
-  openAgentDetail, closeAgentDetail,
-  agentSetRole, agentSetStatus, agentSetQuery, agentNew,
-} from './agents/index.js';
+import { renderAgents } from './agents/index.js';
 import { toggleProfileMenu, profileMenuGo } from './profile-menu/index.js';
 import {
   SEARCH_PAGES, globalSearch, gsGo, gsKey, gsOpenAllResults,
@@ -240,7 +236,6 @@ import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
-import * as Agents from './agents/index.js';
 import * as ProfileMenu from './profile-menu/index.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Auth from './auth/index.js';
@@ -442,7 +437,7 @@ Object.assign(
   ActivityLog, Macros, Attachments, AIPage, Portal,
   Webhooks, KBIntegration,
   Modal, Collapsible, Keybindings,
-  Agents, ProfileMenu, GlobalSearch,
+  ProfileMenu, GlobalSearch,
   Auth, TicketTemplates, KB,
   Settings, Layouts, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
