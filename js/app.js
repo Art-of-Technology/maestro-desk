@@ -84,10 +84,7 @@ import {
   showAuthPanel, togglePassword, ssoLogin,
   submitLogin, submitForgot, submitCreate, updatePwStrength,
 } from './auth/index.js';
-import {
-  renderTicketTemplates, ttSetQuery,
-  ttNew, ttEdit, ttDuplicate, ttDelete,
-} from './ticket-templates/index.js';
+import { renderTicketTemplates } from './ticket-templates/index.js';
 import {
   refreshNotifBadge, renderNotificationsPage, toggleNotifications,
 } from './notifications/index.js';
@@ -220,7 +217,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as ProfileMenu from './profile-menu/index.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Auth from './auth/index.js';
-import * as TicketTemplates from './ticket-templates/index.js';
 import * as KB from './kb/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomFields from './custom-fields/index.js';
@@ -415,7 +411,7 @@ Object.assign(
   KBIntegration,
   Modal, Collapsible, Keybindings,
   ProfileMenu, GlobalSearch,
-  Auth, TicketTemplates, KB,
+  Auth, KB,
   Settings, CustomFields, Roles, Workflows,
   Tags, Customers, CustomerModals, Dashboard,
   TicketsList, TicketDetail, WidgetShell,

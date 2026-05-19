@@ -24,7 +24,6 @@ const modules = [
   ['ProfileMenu',            '../js/profile-menu/index.js'],
   ['GlobalSearch',           '../js/global-search/index.js'],
   ['Auth',                   '../js/auth/index.js'],
-  ['TicketTemplates',        '../js/ticket-templates/index.js'],
   ['KB',                     '../js/kb/index.js'],
   ['Settings',               '../js/settings/index.js'],
   ['CustomFields',           '../js/custom-fields/index.js'],

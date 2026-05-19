@@ -5,11 +5,20 @@
 // ntApplyTemplate) because it's part of the new-ticket form, not this
 // Config page.
 //
+// Click/change/input handlers route through core/event-delegation.js.
+// `renderTicketTemplates` is the only export (the app.js router calls
+// it).
+//
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage, showNewTicketModal — all still in app.js.
+// showModal, closeModal, renderPage — all still in app.js.
+// showNewTicketModal is a direct ES import from tickets/detail.js
+// (no cycle — detail.js doesn't import from this module).
 //
 // TICKET_TEMPLATES and TICKETS come from data.js via the global lexical env;
 // TT_FILTER_CAT comes from core/state.js the same way.
+
+import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
+import { showNewTicketModal } from '../tickets/detail.js';
 
 let TT_QUERY = '';
 
@@ -32,11 +41,11 @@ export function renderTicketTemplates() {
       <td><span class="tag tag-${t.priority}" style="font-size:10px">${t.priority}</span></td>
       <td style="font-size:12px;color:var(--ink2);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(t.subject)}</td>
       <td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm btn-solid" onclick="showNewTicketModal('${window.escAttr(t.id)}')">Use</button>
+        <button class="btn btn-sm btn-solid" data-action="ticket-templates.use" data-tt-id="${window.escAttr(t.id)}">Use</button>
         ${admin ? `
-          <button class="btn btn-sm" onclick="ttEdit('${window.escAttr(t.id)}')">Edit</button>
-          <button class="btn btn-sm" onclick="ttDuplicate('${window.escAttr(t.id)}')">Copy</button>
-          <button class="btn btn-sm btn-danger" onclick="ttDelete('${window.escAttr(t.id)}')">Delete</button>` : ''}
+          <button class="btn btn-sm" data-action="ticket-templates.edit" data-tt-id="${window.escAttr(t.id)}">Edit</button>
+          <button class="btn btn-sm" data-action="ticket-templates.duplicate" data-tt-id="${window.escAttr(t.id)}">Copy</button>
+          <button class="btn btn-sm btn-danger" data-action="ticket-templates.delete" data-tt-id="${window.escAttr(t.id)}">Delete</button>` : ''}
       </td>
     </tr>`).join('');
 
@@ -44,7 +53,7 @@ export function renderTicketTemplates() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Ticket Templates</div>
-        ${admin ? `<button class="btn btn-solid btn-sm" onclick="ttNew()">+ New Template</button>` : ''}
+        ${admin ? `<button class="btn btn-solid btn-sm" data-action="ticket-templates.new">+ New Template</button>` : ''}
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Templates</div></div>
@@ -54,8 +63,8 @@ export function renderTicketTemplates() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${TT_QUERY}" oninput="ttSetQuery(this.value)" id="tt-search"/>
-        <select class="filter-select" onchange="TT_FILTER_CAT=this.value;renderPage('ticket-templates')">
+        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${TT_QUERY}" data-input-action="ticket-templates.setQuery" id="tt-search"/>
+        <select class="filter-select" data-change-action="ticket-templates.setFilterCat">
           <option value="all" ${TT_FILTER_CAT==='all'?'selected':''}>All categories</option>
           ${cats.map(c => `<option value="${c}" ${TT_FILTER_CAT===c?'selected':''}>${c}</option>`).join('')}
         </select>
@@ -72,7 +81,7 @@ export function renderTicketTemplates() {
     </div>`;
 }
 
-export function ttSetQuery(q) {
+function ttSetQuery(q) {
   TT_QUERY = q;
   window.renderPage('ticket-templates');
   const input = document.getElementById('tt-search');
@@ -102,7 +111,7 @@ function ttNextId() {
   return 'TT-' + String(max + 1).padStart(3, '0');
 }
 
-export function ttNew() {
+function ttNew() {
   if (!window.isAdmin()) return;
   window.showModal('New ticket template', ttFormBody(null), () => {
     const name = document.getElementById('tt-name').value.trim();
@@ -116,7 +125,7 @@ export function ttNew() {
   }, 'Create');
 }
 
-export function ttEdit(id) {
+function ttEdit(id) {
   if (!window.isAdmin()) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
   window.showModal(`Edit ${t.id}`, ttFormBody(t), () => {
@@ -131,14 +140,14 @@ export function ttEdit(id) {
   }, 'Save');
 }
 
-export function ttDuplicate(id) {
+function ttDuplicate(id) {
   if (!window.isAdmin()) return;
   const orig = TICKET_TEMPLATES.find(x => x.id === id); if (!orig) return;
   TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
   window.renderPage('ticket-templates');
 }
 
-export function ttDelete(id) {
+function ttDelete(id) {
   if (!window.isAdmin()) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
   window.showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, () => {
@@ -147,3 +156,19 @@ export function ttDelete(id) {
     window.closeModal(); window.renderPage('ticket-templates');
   }, 'Delete');
 }
+
+registerActions({
+  'ticket-templates.new':       () => ttNew(),
+  'ticket-templates.edit':      (ds) => ttEdit(ds.ttId),
+  'ticket-templates.duplicate': (ds) => ttDuplicate(ds.ttId),
+  'ticket-templates.delete':    (ds) => ttDelete(ds.ttId),
+  'ticket-templates.use':       (ds) => showNewTicketModal(ds.ttId),
+});
+
+registerChangeActions({
+  'ticket-templates.setFilterCat': (ds, el) => { TT_FILTER_CAT = el.value; window.renderPage('ticket-templates'); },
+});
+
+registerInputActions({
+  'ticket-templates.setQuery': (ds, el) => ttSetQuery(el.value),
+});
