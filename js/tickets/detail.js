@@ -54,6 +54,7 @@ import {
 import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
+import { runAssignmentRulesOnTicket } from './assignment-rules.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 export function openTicket(id) {
@@ -322,22 +323,22 @@ export function openTicket(id) {
       // Thread translation: show translation as the primary body when available
       if (threadOn && m.translatedFor === AGENT_PREFERRED_LANG && m.translation) {
         bodyText = m.translation;
-        bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">Translated from ${window.escHtml(t.detectedCustomerLang || 'auto')} → ${window.escHtml(AGENT_PREFERRED_LANG)} · <span class="link" onclick="hideMessageTranslation('${id}',${i})">show original</span></div>`;
+        bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">Translated from ${window.escHtml(t.detectedCustomerLang || 'auto')} → ${window.escHtml(AGENT_PREFERRED_LANG)} · <span class="link" data-action="td.hideTranslation" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">show original</span></div>`;
       } else if (m.translating) {
         translateBlock = '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule);font-size:11px;color:var(--purple);font-style:italic">Translating…</div>';
       } else if (m.translation) {
         translateBlock = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)">
           <div style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:4px">Translation</div>
           <div style="font-size:13px;color:var(--ink2);font-style:italic;line-height:1.55">${window.escHtml(m.translation)}</div>
-          <div style="margin-top:6px"><span class="link" style="font-size:11px" onclick="hideMessageTranslation('${id}',${i})">Hide translation</span></div>
+          <div style="margin-top:6px"><span class="link" style="font-size:11px" data-action="td.hideTranslation" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Hide translation</span></div>
         </div>`;
       } else {
-        translateBlock = `<div style="margin-top:6px"><span class="link" style="font-size:11px" onclick="translateMessage('${id}',${i})">Translate</span></div>`;
+        translateBlock = `<div style="margin-top:6px"><span class="link" style="font-size:11px" data-action="td.translateMsg" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Translate</span></div>`;
       }
     } else if ((m.r === 'agent' || m.r === 'note') && m.tOriginal) {
       // Agent reply that was auto-translated for the customer — show what the agent typed
       bodyText = m.tOriginal;
-      bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">→ Sent to customer in ${window.escHtml(m.translatedTo || 'their language')} · <span class="link" onclick="showSentTextModal('${window.escAttr(id)}',${i})">view sent text</span></div>`;
+      bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">→ Sent to customer in ${window.escHtml(m.translatedTo || 'their language')} · <span class="link" data-action="td.showSentText" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">view sent text</span></div>`;
     }
 
     const bodyHtml = m.r === 'note'
@@ -360,15 +361,15 @@ export function openTicket(id) {
   const threadBarHtml = `
     <div style="padding:8px 14px;border-bottom:1px solid var(--rule);background:var(--off2);display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px">
       <label class="auth-check" style="margin:0">
-        <input type="checkbox" ${threadOn?'checked':''} onchange="toggleThreadTranslate('${id}',this.checked)">
+        <input type="checkbox" ${threadOn?'checked':''} data-change-action="td.toggleThreadTranslate" data-ticket-id="${window.escAttr(id)}">
         <span>Translate thread to <strong style="color:var(--ink)">${window.escHtml(AGENT_PREFERRED_LANG)}</strong></span>
       </label>
       <span style="color:var(--rule2)">·</span>
       ${customerLangLabel}
-      ${(threadOn || t.autoTranslateReplies) ? `<select class="filter-select" onchange="setCustomerLanguage('${id}',this.value)" style="font-size:11px;padding:3px 8px"><option value="">— override —</option>${langOptions}</select>` : ''}
+      ${(threadOn || t.autoTranslateReplies) ? `<select class="filter-select" data-change-action="td.setCustomerLang" data-ticket-id="${window.escAttr(id)}" style="font-size:11px;padding:3px 8px"><option value="">— override —</option>${langOptions}</select>` : ''}
       <span style="color:var(--rule2)">·</span>
       <label class="auth-check" style="margin:0">
-        <input type="checkbox" ${t.autoTranslateReplies?'checked':''} onchange="toggleAutoTranslateReplies('${id}',this.checked)">
+        <input type="checkbox" ${t.autoTranslateReplies?'checked':''} data-change-action="td.toggleAutoTranslate" data-ticket-id="${window.escAttr(id)}">
         <span>Send replies in customer language</span>
       </label>
       ${!AI_API_KEY ? '<span style="margin-left:auto;color:var(--amber);font-family:\'DM Mono\',monospace;font-size:10px">Add API key in Settings → AI</span>' : ''}
@@ -379,23 +380,23 @@ export function openTicket(id) {
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span onclick="renderPage('tickets')">Tickets</span>
+          <span data-action="td.openTicketsList">Tickets</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${t.id}</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-            <button class="btn btn-sm" onclick="prevNextTicket(-1)">← Prev</button>
-            <button class="btn btn-sm" onclick="prevNextTicket(1)">Next →</button>
+            <button class="btn btn-sm" data-action="td.prev">← Prev</button>
+            <button class="btn btn-sm" data-action="td.next">Next →</button>
             <span style="width:1px;background:var(--rule);align-self:stretch;margin:0 4px"></span>
-            ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="summarizeTicket('${id}')" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
-            ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="showApplyMacroModal('${id}')" title="Apply a macro">⚡ Macro</button>`}
-            ${t.mergedInto ? '' : `<button class="btn btn-sm" onclick="runAssignmentRulesOnTicket('${id}')" title="Auto-assign by rules">⇄ Run rules</button>`}
-            ${t.status !== 'escalated' && t.status !== 'resolved' ? `<button class="btn btn-sm" onclick="quickStatus('${id}','escalated')">Escalate</button>` : ''}
+            ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
+            ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.macroModal" data-ticket-id="${window.escAttr(id)}" title="Apply a macro">⚡ Macro</button>`}
+            ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.runRules" data-ticket-id="${window.escAttr(id)}" title="Auto-assign by rules">⇄ Run rules</button>`}
+            ${t.status !== 'escalated' && t.status !== 'resolved' ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="escalated">Escalate</button>` : ''}
             ${t.status !== 'resolved' ? (t.snoozedUntil
-              ? `<button class="btn btn-sm" onclick="unsnoozeTicket('${id}')" title="Wake the ticket up now">💤 Wake up</button>`
-              : `<button class="btn btn-sm" onclick="showSnoozeModal('${id}')" title="Pause SLA until a chosen time">💤 Snooze</button>`) : ''}
+              ? `<button class="btn btn-sm" data-action="td.unsnooze" data-ticket-id="${window.escAttr(id)}" title="Wake the ticket up now">💤 Wake up</button>`
+              : `<button class="btn btn-sm" data-action="td.snooze" data-ticket-id="${window.escAttr(id)}" title="Pause SLA until a chosen time">💤 Snooze</button>`) : ''}
             ${t.status !== 'resolved'
-              ? `<button class="btn btn-sm btn-solid" onclick="quickStatus('${id}','resolved')">Resolve</button>`
-              : `<button class="btn btn-sm" onclick="quickStatus('${id}','open')">Reopen</button>`}
+              ? `<button class="btn btn-sm btn-solid" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="resolved">Resolve</button>`
+              : `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="open">Reopen</button>`}
           </span>
         </div>
       </div>
@@ -407,8 +408,8 @@ export function openTicket(id) {
           <span class="tag tag-${t.status}">${t.status}</span>
           <span class="tag tag-${t.priority}">${t.priority}</span>
           <span class="tag tag-neutral">${t.category}</span>
-          ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${tg}<span style="cursor:pointer;color:var(--ink3);font-weight:400" onclick="event.stopPropagation();removeTicketTag('${id}','${window.escAttr(tg)}')" title="Remove tag">×</span></span>`).join('')}
-          <input id="tag-add-${id}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase" onkeydown="if(event.key==='Enter'){event.preventDefault();addTicketTag('${id}',this.value)}"/>
+          ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${tg}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
+          <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase"/>
           <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="sla-${t.sla}">${t.sla.toUpperCase()}</span></span>
         </div>
       </div>
@@ -930,6 +931,7 @@ export function ntApplyTemplate(id) {
 registerActions({
   // Snooze + merge banners
   'td.unsnooze':       (ds) => unsnoozeTicket(ds.ticketId),
+  'td.snooze':         (ds) => showSnoozeModal(ds.ticketId),
   'td.unmerge':        (ds) => unmergeTicket(ds.ticketId),
   'td.openTicket':     (ds) => openTicket(ds.ticketId),
   // AI tags
@@ -956,10 +958,40 @@ registerActions({
   'td.gdprErasure':    () => alert('Erasure request initiated'),
   'td.gdprRedact':     () => alert('Data redacted'),
   'td.gdprExport':     () => alert('SAR export started'),
+  // Toolbar
+  'td.openTicketsList':() => window.renderPage('tickets'),
+  'td.prev':           () => prevNextTicket(-1),
+  'td.next':           () => prevNextTicket(1),
+  'td.macroModal':     (ds) => showApplyMacroModal(ds.ticketId),
+  'td.runRules':       (ds) => runAssignmentRulesOnTicket(ds.ticketId),
+  'td.quickStatus':    (ds) => quickStatus(ds.ticketId, ds.status),
+  // Tags row
+  'td.removeTag':      (ds) => removeTicketTag(ds.ticketId, ds.tag),
+  // Message thread
+  'td.hideTranslation':(ds) => hideMessageTranslation(ds.ticketId, parseInt(ds.msgIdx, 10)),
+  'td.translateMsg':   (ds) => translateMessage(ds.ticketId, parseInt(ds.msgIdx, 10)),
+  'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
 });
 
 registerChangeActions({
-  'td.setStatus':   (ds, el) => changeTicketStatus(ds.ticketId, el.value),
-  'td.setPriority': (ds, el) => changeTicketPriority(ds.ticketId, el.value),
-  'td.setAgent':    (ds, el) => changeTicketAgent(ds.ticketId, el.value),
+  'td.setStatus':            (ds, el) => changeTicketStatus(ds.ticketId, el.value),
+  'td.setPriority':          (ds, el) => changeTicketPriority(ds.ticketId, el.value),
+  'td.setAgent':             (ds, el) => changeTicketAgent(ds.ticketId, el.value),
+  'td.toggleThreadTranslate':(ds, el) => toggleThreadTranslate(ds.ticketId, el.checked),
+  'td.setCustomerLang':      (ds, el) => setCustomerLanguage(ds.ticketId, el.value),
+  'td.toggleAutoTranslate':  (ds, el) => toggleAutoTranslateReplies(ds.ticketId, el.checked),
+});
+
+// ─── Tag-add Enter-key handler ───────────────────────────────────────────────
+// One module-internal document-level keydown listener for the tag-add inputs.
+// Keydown delegation isn't worth a fifth dispatcher event type for this one
+// callsite (and one more in the compose textarea, handled separately).
+// Inputs that should respond carry `data-tag-add-id="<ticketId>"`; on Enter
+// the listener pulls the value + ticket id and adds the tag.
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || !el.dataset.tagAddId) return;
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  addTicketTag(el.dataset.tagAddId, el.value);
 });
