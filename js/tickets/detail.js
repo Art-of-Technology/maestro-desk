@@ -54,6 +54,7 @@ import {
 import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 export function openTicket(id) {
   CURRENT_TICKET = id;
@@ -70,16 +71,16 @@ export function openTicket(id) {
       <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3)">Snoozed</span>
       <span style="color:var(--ink2)">${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>
       ${t.snoozeReason ? `<span style="color:var(--ink3);font-style:italic">· ${window.escHtml(t.snoozeReason)}</span>` : ''}
-      <button class="btn btn-sm" style="margin-left:auto" onclick="unsnoozeTicket('${window.escAttr(t.id)}')">Wake up</button>
+      <button class="btn btn-sm" style="margin-left:auto" data-action="td.unsnooze" data-ticket-id="${window.escAttr(t.id)}">Wake up</button>
     </div>` : '';
   const mergedFromIds = (t.mergedFrom || []);
   const mergedBanner = t.mergedInto ? `
     <div style="margin:0 0 10px;padding:8px 12px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:8px">
       <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
       <span style="color:var(--ink2)">→</span>
-      <span class="link" onclick="openTicket('${window.escAttr(t.mergedInto)}')" style="color:var(--purple);font-weight:500">${window.escHtml(t.mergedInto)}</span>
+      <span class="link" data-action="td.openTicket" data-ticket-id="${window.escAttr(t.mergedInto)}" style="color:var(--purple);font-weight:500">${window.escHtml(t.mergedInto)}</span>
       <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${window.escHtml(t.mergedAt || '—')}</span>
-      <button class="btn btn-sm" style="margin-left:auto" onclick="unmergeTicket('${window.escAttr(t.id)}')">Un-merge</button>
+      <button class="btn btn-sm" style="margin-left:auto" data-action="td.unmerge" data-ticket-id="${window.escAttr(t.id)}">Un-merge</button>
     </div>` : '';
   const mergedFromBlock = mergedFromIds.length ? `
     <div class="ts-section">
@@ -89,7 +90,7 @@ export function openTicket(id) {
         if (!m) return '';
         return `
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid var(--rule)">
-            <div style="flex:1;min-width:0;cursor:pointer" onclick="openTicket('${window.escAttr(mid)}')">
+            <div style="flex:1;min-width:0;cursor:pointer" data-action="td.openTicket" data-ticket-id="${window.escAttr(mid)}">
               <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(m.subject)}</div>
               <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
                 <span class="tag" style="font-size:9px;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">merged</span>
@@ -110,9 +111,9 @@ export function openTicket(id) {
     <div class="ts-section">
       <div class="ts-heading">AI Tag Suggestions</div>
       <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-        ${pendingAITags.map(at=>`<span class="ai-tag-chip" onclick="acceptAITag('${id}','${at.tag}')">${at.tag} <span class="conf">${at.conf}%</span></span>`).join('')}
+        ${pendingAITags.map(at=>`<span class="ai-tag-chip" data-action="td.acceptAITag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(at.tag)}">${at.tag} <span class="conf">${at.conf}%</span></span>`).join('')}
       </div>
-      <button class="btn btn-sm" onclick="acceptAllAITags('${id}')">Accept all</button>
+      <button class="btn btn-sm" data-action="td.acceptAllAITags" data-ticket-id="${window.escAttr(id)}">Accept all</button>
     </div>` : '';
 
   const times = getTicketTimes(t);
@@ -123,7 +124,7 @@ export function openTicket(id) {
       <div class="ts-row"><span class="ts-key">Age</span><span class="ts-val">${times.age}</span></div>
       <div class="ts-row"><span class="ts-key">First response</span><span class="ts-val">${times.firstResp}</span></div>
       <div class="ts-row"><span class="ts-key">Last update</span><span class="ts-val">${times.lastUpdate}</span></div>
-      ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" onclick="showAttachPanel('${id}')">${t.attachments.length}</span></span></div>` : ''}
+      ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">${t.attachments.length}</span></span></div>` : ''}
     </div>`;
 
   // SLA evaluation block — computed live from policies + ticket timing.
@@ -139,8 +140,8 @@ export function openTicket(id) {
     <div class="ts-section">
       <div class="ts-heading">SLA${bhPaused ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink3);font-size:10px;font-style:italic;margin-left:4px">· paused (outside hours)</span>' : ''}</div>
       ${sla.policy ? `
-        <div class="ts-row"><span class="ts-key">Policy</span><span class="ts-val"><span class="link" onclick="navTo('sla')">${window.escHtml(sla.policy.name)}</span></span></div>
-        ${bhActive ? `<div class="ts-row"><span class="ts-key">Hours</span><span class="ts-val"><span class="link" onclick="navTo('business-hours')">Business hours</span></span></div>` : ''}
+        <div class="ts-row"><span class="ts-key">Policy</span><span class="ts-val"><span class="link" data-action="td.navTo" data-target="sla">${window.escHtml(sla.policy.name)}</span></span></div>
+        ${bhActive ? `<div class="ts-row"><span class="ts-key">Hours</span><span class="ts-val"><span class="link" data-action="td.navTo" data-target="business-hours">Business hours</span></span></div>` : ''}
         <div style="margin-top:10px">
           <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2)">
             <span>First response</span>
@@ -157,7 +158,7 @@ export function openTicket(id) {
           <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${fmtSLAMinutes(sla.elapsedMin)} elapsed · target ${fmtSLAMinutes(sla.policy.resolutionMin)}</div>
           ${slaBar(sla.elapsedMin, sla.policy.resolutionMin, sla.isResolved ? 'ok' : sla.resolutionStatus)}
         </div>
-      ` : `<div style="font-size:11px;color:var(--ink3);font-style:italic">No active policy matches this ticket. Configure one in <span class="link" onclick="navTo('sla')">SLA Policies</span>.</div>`}
+      ` : `<div style="font-size:11px;color:var(--ink3);font-style:italic">No active policy matches this ticket. Configure one in <span class="link" data-action="td.navTo" data-target="sla">SLA Policies</span>.</div>`}
     </div>`;
 
   const summarizing = t.aiSummary && t.aiSummary.summarizing;
@@ -172,8 +173,8 @@ export function openTicket(id) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ts-heading" style="margin:0">AI Summary${summaryStale ? '<span class="ts-stale-badge">stale</span>' : ''}</div>
         <span style="display:flex;gap:10px">
-          <span class="link" onclick="summarizeTicket('${window.escAttr(id)}')" style="font-size:11px">Refresh</span>
-          <span class="link" onclick="clearTicketSummary('${window.escAttr(id)}')" style="font-size:11px;color:var(--ink3)">×</span>
+          <span class="link" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" style="font-size:11px">Refresh</span>
+          <span class="link" data-action="td.clearSummary" data-ticket-id="${window.escAttr(id)}" style="font-size:11px;color:var(--ink3)">×</span>
         </span>
       </div>
       ${summary.error ? `<div style="font-size:11px;color:var(--red);font-style:italic">${window.escHtml(summary.error)}</div>` : `
@@ -197,7 +198,7 @@ export function openTicket(id) {
       <div class="ts-heading">Followers (${followers.length})</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <div style="display:flex;padding-left:6px">${followerAvatars || '<span style="font-size:11px;color:var(--ink3)">No followers yet</span>'}</div>
-        <button class="btn btn-sm" onclick="toggleWatch('${id}')">${watching ? 'Unfollow' : 'Follow'}</button>
+        <button class="btn btn-sm" data-action="td.toggleWatch" data-ticket-id="${window.escAttr(id)}">${watching ? 'Unfollow' : 'Follow'}</button>
       </div>
     </div>`;
 
@@ -206,7 +207,7 @@ export function openTicket(id) {
     <div class="ts-section">
       <div class="ts-heading">Suggested KB</div>
       ${kbSuggestions.map(a => `
-        <div onclick="KB_SELECTED='${window.escAttr(a.id)}';navTo('kb')" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
+        <div data-action="td.openKB" data-kb-id="${window.escAttr(a.id)}" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
           <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${a.category}</div>
           <div style="font-size:12px;color:var(--ink);font-weight:500;line-height:1.3">${a.title}</div>
         </div>`).join('')}
@@ -221,7 +222,7 @@ export function openTicket(id) {
     if (cache === undefined) setTimeout(() => refreshTicketKbSuggestions(t.id), 0);
     const head = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ts-heading" style="margin:0">External KB</div>
-        <span class="link" onclick="refreshTicketKbSuggestions('${window.escAttr(t.id)}')" style="font-size:11px">Refresh</span>
+        <span class="link" data-action="td.refreshKB" data-ticket-id="${window.escAttr(t.id)}" style="font-size:11px">Refresh</span>
       </div>`;
     let body = '';
     if (!cache || cache.loading) body = '<div style="font-size:11px;color:var(--ink3);font-style:italic">Searching your KB…</div>';
@@ -248,7 +249,7 @@ export function openTicket(id) {
     <div class="ts-section">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ts-heading" style="margin:0">Time logged${totalTimeMin ? ` · ${window.fmtMinutes(totalTimeMin)}` : ''}</div>
-        <span class="link" onclick="showLogTimeModal('${id}')" style="font-size:11px">+ Log time</span>
+        <span class="link" data-action="td.logTime" data-ticket-id="${window.escAttr(id)}" style="font-size:11px">+ Log time</span>
       </div>
       ${totalTimeMin ? `
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2);margin-bottom:8px">
@@ -262,7 +263,7 @@ export function openTicket(id) {
               ${e.note ? `<div style="font-size:11px;color:var(--ink2);font-style:italic;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"${window.escHtml(e.note)}"</div>` : ''}
               <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${window.escHtml(e.agent)} · ${window.escHtml(e.ts)}</div>
             </div>
-            <button onclick="removeTimeEntry(${window.escHtml(JSON.stringify(id))},${window.escHtml(JSON.stringify(e.id))})" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Remove entry">×</button>
+            <button data-action="td.removeTime" data-ticket-id="${window.escAttr(id)}" data-entry-id="${window.escAttr(e.id)}" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Remove entry">×</button>
           </div>`).join('')}
       ` : `<div style="font-size:11px;color:var(--ink3);text-align:center;padding:8px 0">No time logged yet</div>`}
     </div>`;
@@ -273,8 +274,8 @@ export function openTicket(id) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div class="ts-heading" style="margin:0">Linked tickets (${linkedIds.length})</div>
         <span style="display:flex;gap:10px">
-          <span class="link" onclick="showLinkTicketModal('${id}')" style="font-size:11px">+ Link</span>
-          ${t.mergedInto ? '' : `<span class="link" onclick="showMergeTicketModal('${id}')" style="font-size:11px">↩ Merge</span>`}
+          <span class="link" data-action="td.linkTicket" data-ticket-id="${window.escAttr(id)}" style="font-size:11px">+ Link</span>
+          ${t.mergedInto ? '' : `<span class="link" data-action="td.mergeTicket" data-ticket-id="${window.escAttr(id)}" style="font-size:11px">↩ Merge</span>`}
         </span>
       </div>
       ${linkedIds.length ? linkedIds.map(linkedId => {
@@ -282,14 +283,14 @@ export function openTicket(id) {
         if (!lt) return '';
         return `
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--rule)">
-            <div style="flex:1;min-width:0;cursor:pointer" onclick="openTicket('${window.escAttr(linkedId)}')">
+            <div style="flex:1;min-width:0;cursor:pointer" data-action="td.openTicket" data-ticket-id="${window.escAttr(linkedId)}">
               <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lt.subject}</div>
               <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
                 <span class="tag tag-${lt.status}" style="font-size:9px">${lt.status}</span>
                 <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(linkedId)}</span>
               </div>
             </div>
-            <button onclick="unlinkTicket('${window.escAttr(id)}','${window.escAttr(linkedId)}')" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;flex-shrink:0;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Unlink">×</button>
+            <button data-action="td.unlink" data-ticket-id="${window.escAttr(id)}" data-linked-id="${window.escAttr(linkedId)}" style="background:transparent;border:none;color:var(--ink3);cursor:pointer;font-size:14px;padding:4px 6px;flex-shrink:0;line-height:1" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Unlink">×</button>
           </div>`;
       }).join('') : '<div style="font-size:11px;color:var(--ink3);text-align:center;padding:8px 0">No linked tickets</div>'}
     </div>`;
@@ -477,7 +478,7 @@ export function openTicket(id) {
         </div>
         <div class="ticket-sidebar">
           ${cust?`
-          <div class="ts-section" style="cursor:pointer" onclick="openCustomerModal('${cust.id}')">
+          <div class="ts-section" style="cursor:pointer" data-action="td.openCustomer" data-cust-id="${window.escAttr(cust.id)}">
             <div class="ts-heading">Customer</div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
               <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
@@ -508,29 +509,29 @@ export function openTicket(id) {
           ${timeLogBlock}
           <div class="ts-section">
             <div class="ts-heading">Properties</div>
-            <select class="ts-select" onchange="changeTicketStatus('${id}',this.value)">
+            <select class="ts-select" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
               <option value="open" ${t.status==='open'?'selected':''}>Open</option>
               <option value="pending" ${t.status==='pending'?'selected':''}>Pending</option>
               <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
               <option value="gdpr" ${t.status==='gdpr'?'selected':''}>GDPR</option>
               <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
             </select>
-            <select class="ts-select" onchange="changeTicketPriority('${id}',this.value)">
+            <select class="ts-select" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
               <option value="urgent" ${t.priority==='urgent'?'selected':''}>Urgent</option>
               <option value="high" ${t.priority==='high'?'selected':''}>High</option>
               <option value="normal" ${t.priority==='normal'?'selected':''}>Normal</option>
               <option value="low" ${t.priority==='low'?'selected':''}>Low</option>
             </select>
-            <select class="ts-select" onchange="changeTicketAgent('${id}',this.value)">
+            <select class="ts-select" data-change-action="td.setAgent" data-ticket-id="${window.escAttr(id)}">
               ${AGENTS.map(a=>`<option value="${window.escAttr(a.name)}" ${t.agent===a.name?'selected':''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
             </select>
           </div>
           ${t.status==='gdpr'||t.category==='GDPR'?`
           <div class="ts-section">
             <div class="ts-heading">GDPR Actions</div>
-            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" onclick="alert('Erasure request initiated')">Request Erasure</button>
-            <button class="btn btn-sm" style="width:100%;margin-bottom:5px;justify-content:center" onclick="alert('Data redacted')">Redact Data</button>
-            <button class="btn btn-sm" style="width:100%;justify-content:center" onclick="alert('SAR export started')">SAR Export</button>
+            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprErasure">Request Erasure</button>
+            <button class="btn btn-sm" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprRedact">Redact Data</button>
+            <button class="btn btn-sm" style="width:100%;justify-content:center" data-action="td.gdprExport">SAR Export</button>
           </div>`:''}
           ${mergedFromBlock}
           ${linkedBlock}
@@ -538,7 +539,7 @@ export function openTicket(id) {
           <div class="ts-section">
             <div class="ts-heading">Other tickets (${otherTickets.length})</div>
             ${otherTickets.map(ot=>`
-              <div class="other-ticket" onclick="openTicket('${ot.id}')">
+              <div class="other-ticket" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}">
                 <div class="other-ticket-subj">${ot.subject}</div>
                 <span class="tag tag-${ot.status}">${ot.status}</span>
               </div>`).join('')}
@@ -913,3 +914,52 @@ export function ntApplyTemplate(id) {
   }
   if (pri && t.priority) pri.value = t.priority;
 }
+
+// ─── data-action registrations (sidebar) ─────────────────────────────────────
+// First slice of the detail.js event-delegation migration. Sidebar
+// handlers only — toolbar, tags row, message thread, and compose area
+// still use inline strings (follow-up PRs). Bridge namespace can't
+// retire until all three slices land.
+//
+// `td.*` action prefix avoids collisions with other modules. Most
+// handlers call locally-imported fns directly. `navTo` and the
+// customers/modals `openCustomerModal` go through `window` to avoid
+// adding new import edges in this PR; will move to direct imports in
+// the follow-up cleanup pass.
+
+registerActions({
+  // Snooze + merge banners
+  'td.unsnooze':       (ds) => unsnoozeTicket(ds.ticketId),
+  'td.unmerge':        (ds) => unmergeTicket(ds.ticketId),
+  'td.openTicket':     (ds) => openTicket(ds.ticketId),
+  // AI tags
+  'td.acceptAITag':    (ds) => acceptAITag(ds.ticketId, ds.tag),
+  'td.acceptAllAITags':(ds) => acceptAllAITags(ds.ticketId),
+  // Sidebar info rows / SLA / KB
+  'td.showAttach':     (ds) => showAttachPanel(ds.ticketId),
+  'td.navTo':          (ds) => window.navTo(ds.target),
+  'td.summarize':      (ds) => summarizeTicket(ds.ticketId),
+  'td.clearSummary':   (ds) => clearTicketSummary(ds.ticketId),
+  'td.toggleWatch':    (ds) => toggleWatch(ds.ticketId),
+  'td.openKB':         (ds) => { KB_SELECTED = ds.kbId; window.navTo('kb'); },
+  'td.refreshKB':      (ds) => refreshTicketKbSuggestions(ds.ticketId),
+  // Time tracking
+  'td.logTime':        (ds) => showLogTimeModal(ds.ticketId),
+  'td.removeTime':     (ds) => removeTimeEntry(ds.ticketId, ds.entryId),
+  // Linked tickets
+  'td.linkTicket':     (ds) => showLinkTicketModal(ds.ticketId),
+  'td.mergeTicket':    (ds) => showMergeTicketModal(ds.ticketId),
+  'td.unlink':         (ds) => unlinkTicket(ds.ticketId, ds.linkedId),
+  // Customer panel
+  'td.openCustomer':   (ds) => window.openCustomerModal(ds.custId),
+  // Per-ticket GDPR sidebar (stubs — same as the inline alerts they replace)
+  'td.gdprErasure':    () => alert('Erasure request initiated'),
+  'td.gdprRedact':     () => alert('Data redacted'),
+  'td.gdprExport':     () => alert('SAR export started'),
+});
+
+registerChangeActions({
+  'td.setStatus':   (ds, el) => changeTicketStatus(ds.ticketId, el.value),
+  'td.setPriority': (ds, el) => changeTicketPriority(ds.ticketId, el.value),
+  'td.setAgent':    (ds, el) => changeTicketAgent(ds.ticketId, el.value),
+});
