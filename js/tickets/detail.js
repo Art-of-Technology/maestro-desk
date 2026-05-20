@@ -55,7 +55,7 @@ import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
 import { runAssignmentRulesOnTicket } from './assignment-rules.js';
-import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 export function openTicket(id) {
   CURRENT_TICKET = id;
@@ -419,57 +419,57 @@ export function openTicket(id) {
           <div class="thread" id="thread-${id}">${msgsHtml}</div>
           <div class="composer">
             <div class="composer-tabs">
-              <div class="ctab ${COMPOSE_TAB==='reply'?'active':''}" onclick="setComposeTab('reply','${id}')">Reply</div>
-              <div class="ctab ${COMPOSE_TAB==='note'?'active':''}" onclick="setComposeTab('note','${id}')">Internal note</div>
+              <div class="ctab ${COMPOSE_TAB==='reply'?'active':''}" data-action="td.setComposeTab" data-ticket-id="${window.escAttr(id)}" data-tab="reply">Reply</div>
+              <div class="ctab ${COMPOSE_TAB==='note'?'active':''}" data-action="td.setComposeTab" data-ticket-id="${window.escAttr(id)}" data-tab="note">Internal note</div>
               <div style="margin-left:auto;display:flex;gap:4px;align-items:center;padding:0 12px">
                 <span style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-right:4px">Insert</span>
-                <button class="comp-var-btn" onclick="insertVar('${id}','{name}')" title="Customer first name">{name}</button>
-                <button class="comp-var-btn" onclick="insertVar('${id}','{ticket}')" title="Ticket ID">{ticket}</button>
-                <button class="comp-var-btn" onclick="insertVar('${id}','{brand}')" title="Customer brand">{brand}</button>
-                <button class="comp-var-btn" onclick="insertVar('${id}','{agent}')" title="Assigned agent">{agent}</button>
+                <button class="comp-var-btn" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{name}" title="Customer first name">{name}</button>
+                <button class="comp-var-btn" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{ticket}" title="Ticket ID">{ticket}</button>
+                <button class="comp-var-btn" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{brand}" title="Customer brand">{brand}</button>
+                <button class="comp-var-btn" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{agent}" title="Assigned agent">{agent}</button>
               </div>
             </div>
             <div class="composer-body">
-              <textarea class="compose-area" id="compose-${id}" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI…':'Add an internal note… type @ to mention an agent'}" oninput="onComposeInput('${id}')" onkeydown="if(mentionDropdownKey(event,'${id}'))return;" onblur="setTimeout(hideMentionDropdown,150)">${window.escHtml(loadDraft(id))}</textarea>
+              <textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="${COMPOSE_TAB==='reply'?'Write a reply or use AI…':'Add an internal note… type @ to mention an agent'}">${window.escHtml(loadDraft(id))}</textarea>
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
               </div>
               <div class="composer-foot">
                 <div class="composer-actions">
-                  <select class="filter-select" id="status-sel-${id}" onchange="changeTicketStatus('${id}',this.value)">
+                  <select class="filter-select" id="status-sel-${id}" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
                     <option value="open" ${t.status==='open'?'selected':''}>Open</option>
                     <option value="pending" ${t.status==='pending'?'selected':''}>Pending</option>
                     <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
                     <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
                   </select>
-                  <button class="btn btn-sm" onclick="showMacroPanel('${id}')">Macros</button>
-                  <button class="btn btn-sm" onclick="showAttachPanel('${id}')">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
-                  <button class="btn btn-sm btn-danger" onclick="showGDPRModal('${id}')">GDPR</button>
+                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Macros</button>
+                  <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
+                  <button class="btn btn-sm btn-danger" data-action="td.gdprModal" data-ticket-id="${window.escAttr(id)}">GDPR</button>
                   <div class="thinking" id="thinking-${id}"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>&nbsp;working</div>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center">
                   ${COMPOSE_TAB==='reply' ? `
                   <div style="position:relative;display:inline-block">
-                    <button class="btn btn-sm" onclick="toggleAIMenu('${id}')">AI ▾</button>
+                    <button class="btn btn-sm" data-action="td.toggleAIMenu" data-ticket-id="${window.escAttr(id)}">AI ▾</button>
                     <div id="ai-menu-${id}" class="comp-menu">
-                      <div class="comp-menu-item" onclick="aiAction('${id}','draft')">Draft reply</div>
-                      ${KB_INTEGRATION.enabled ? `<div class="comp-menu-item" onclick="aiAction('${id}','kb-reply')" title="Draft a reply grounded in your external KB">Draft reply with KB</div>` : ''}
-                      <div class="comp-menu-item" onclick="aiAction('${id}','improve')">Improve writing</div>
-                      <div class="comp-menu-item" onclick="aiAction('${id}','shorten')">Shorten</div>
-                      <div class="comp-menu-item" onclick="aiAction('${id}','lengthen')">Add detail</div>
-                      <div class="comp-menu-item" onclick="aiAction('${id}','friendly')">Friendlier tone</div>
-                      <div class="comp-menu-item" onclick="aiAction('${id}','formal')">More formal</div>
-                      <div class="comp-menu-item" onclick="aiAction('${id}','translate')">Translate to English</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="draft">Draft reply</div>
+                      ${KB_INTEGRATION.enabled ? `<div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="kb-reply" title="Draft a reply grounded in your external KB">Draft reply with KB</div>` : ''}
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="improve">Improve writing</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="shorten">Shorten</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="lengthen">Add detail</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="friendly">Friendlier tone</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="formal">More formal</div>
+                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="translate">Translate to English</div>
                     </div>
                   </div>` : ''}
                   <div style="position:relative;display:inline-flex">
-                    <button class="btn btn-sm btn-solid" style="border-radius:var(--r) 0 0 var(--r);border-right:1px solid rgba(255,255,255,0.25)" onclick="sendCompose('${id}')">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
-                    <button class="btn btn-sm btn-solid" style="border-radius:0 var(--r) var(--r) 0;padding:5px 8px" onclick="toggleSendMenu('${id}')" title="More send options">▾</button>
+                    <button class="btn btn-sm btn-solid" style="border-radius:var(--r) 0 0 var(--r);border-right:1px solid rgba(255,255,255,0.25)" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
+                    <button class="btn btn-sm btn-solid" style="border-radius:0 var(--r) var(--r) 0;padding:5px 8px" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
-                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','resolved')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</div>
-                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','pending')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</div>
-                      <div class="comp-menu-item" onclick="sendComposeAnd('${id}','escalated')">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</div>
+                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</div>
+                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</div>
+                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</div>
                     </div>
                   </div>
                 </div>
@@ -551,7 +551,7 @@ export function openTicket(id) {
     </div>`;
 }
 
-export function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
+function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
 
 function getTicketTimes(t) {
   const msgs = t.msgs || [];
@@ -594,7 +594,7 @@ function getSuggestedKB(t) {
   return scored.map(s => s.a);
 }
 
-export function toggleWatch(id) {
+function toggleWatch(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || !SESSION) return;
   if (!t.followers) t.followers = [];
@@ -636,7 +636,7 @@ export function changeTicketStatus(id, val) {
   if (val === 'escalated')  fireWebhook('ticket.escalated', ticketPayload(t));
   if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
 }
-export function quickStatus(id, val) { changeTicketStatus(id, val); }
+function quickStatus(id, val) { changeTicketStatus(id, val); }
 export function addTicketTag(id, raw) {
   const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   if (!tag) return;
@@ -651,7 +651,7 @@ export function addTicketTag(id, raw) {
   }
   openTicket(id);
 }
-export function removeTicketTag(id, tag) {
+function removeTicketTag(id, tag) {
   const t = TICKETS.find(x => x.id === id); if (!t) return;
   if ((t.tags || []).includes(tag)) {
     logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
@@ -680,18 +680,18 @@ export function changeTicketAgent(id, val) {
   fireWebhook('ticket.assigned', { ...ticketPayload(t), previousAgent: old });
 }
 
-export function acceptAITag(ticketId, tagName) {
+function acceptAITag(ticketId, tagName) {
   const t = TICKETS.find(x=>x.id===ticketId);
   const at = t.aiTags.find(x=>x.tag===tagName);
   if(at) { at.accepted=true; t.tags.push(tagName); }
   openTicket(ticketId);
 }
-export function acceptAllAITags(ticketId) {
+function acceptAllAITags(ticketId) {
   const t = TICKETS.find(x=>x.id===ticketId);
   t.aiTags.forEach(at => { if(!at.accepted){ at.accepted=true; t.tags.push(at.tag); } });
   openTicket(ticketId);
 }
-export function prevNextTicket(dir) {
+function prevNextTicket(dir) {
   const idx = TICKETS.findIndex(t => t.id === CURRENT_TICKET);
   const next = TICKETS[idx + dir];
   if (next) openTicket(next.id);
@@ -711,7 +711,7 @@ export function onComposeInput(id) {
 }
 
 
-export function insertVar(id, token) {
+function insertVar(id, token) {
   const t = TICKETS.find(x => x.id === id);
   const cust = t ? CUSTOMERS.find(c => c.id === t.customerId) : null;
   let val = token;
@@ -730,29 +730,29 @@ export function insertVar(id, token) {
   onComposeInput(id);
 }
 
-export function toggleAIMenu(id) {
+function toggleAIMenu(id) {
   const m = document.getElementById('ai-menu-' + id);
   if (!m) return;
   document.getElementById('send-menu-' + id)?.style.setProperty('display', 'none');
   m.style.display = m.style.display === 'block' ? 'none' : 'block';
 }
-export function hideAIMenu(id)  { const m = document.getElementById('ai-menu-'   + id); if (m) m.style.display = 'none'; }
-export function toggleSendMenu(id) {
+function hideAIMenu(id)  { const m = document.getElementById('ai-menu-'   + id); if (m) m.style.display = 'none'; }
+function toggleSendMenu(id) {
   const m = document.getElementById('send-menu-' + id);
   if (!m) return;
   document.getElementById('ai-menu-' + id)?.style.setProperty('display', 'none');
   m.style.display = m.style.display === 'block' ? 'none' : 'block';
 }
-export function hideSendMenu(id) { const m = document.getElementById('send-menu-' + id); if (m) m.style.display = 'none'; }
+function hideSendMenu(id) { const m = document.getElementById('send-menu-' + id); if (m) m.style.display = 'none'; }
 
-export function sendComposeAnd(id, status) {
+function sendComposeAnd(id, status) {
   hideSendMenu(id);
   sendCompose(id);
   changeTicketStatus(id, status);
   if (CURRENT_TICKET === id) openTicket(id);
 }
 
-export function showSentTextModal(ticketId, msgIdx) {
+function showSentTextModal(ticketId, msgIdx) {
   const t = TICKETS.find(x => x.id === ticketId);
   const m = t && t.msgs && t.msgs[msgIdx];
   if (!m) return;
@@ -761,7 +761,7 @@ export function showSentTextModal(ticketId, msgIdx) {
     null, null);
 }
 
-export async function sendCompose(id) {
+async function sendCompose(id) {
   const el = document.getElementById(`compose-${id}`);
   const txt = el.value.trim(); if (!txt) return;
   const t = TICKETS.find(x => x.id === id);
@@ -843,7 +843,7 @@ export function showNewTicketModal(templateId) {
     ${TICKET_TEMPLATES.length ? `
     <div class="form-row">
       <label class="form-label">Start from template (optional)</label>
-      <select class="form-input" id="nt-template" onchange="ntApplyTemplate(this.value)">
+      <select class="form-input" id="nt-template" data-change-action="td.ntApplyTemplate">
         <option value="">— Blank ticket —</option>
         ${tplOptions}
       </select>
@@ -897,7 +897,7 @@ export function showNewTicketModal(templateId) {
   }, 'Create Ticket');
 }
 
-export function ntApplyTemplate(id) {
+function ntApplyTemplate(id) {
   const t = id ? TICKET_TEMPLATES.find(x => x.id === id) : null;
   const subj = document.getElementById('nt-subj');
   const cat  = document.getElementById('nt-cat');
@@ -971,6 +971,19 @@ registerActions({
   'td.hideTranslation':(ds) => hideMessageTranslation(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.translateMsg':   (ds) => translateMessage(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
+  // Compose area
+  'td.setComposeTab':  (ds) => setComposeTab(ds.tab, ds.ticketId),
+  'td.insertVar':      (ds) => insertVar(ds.ticketId, ds.token),
+  'td.macroPanel':     (ds) => showMacroPanel(ds.ticketId),
+  // GDPR modal lives in customers/modals.js — kept on window to avoid
+  // a detail↔customers/modals↔customers/index cycle (the customers/index
+  // → detail edge from PR #127 already exists).
+  'td.gdprModal':      (ds) => window.showGDPRModal(ds.ticketId),
+  'td.toggleAIMenu':   (ds) => toggleAIMenu(ds.ticketId),
+  'td.aiAction':       (ds) => aiAction(ds.ticketId, ds.verb),
+  'td.send':           (ds) => sendCompose(ds.ticketId),
+  'td.toggleSendMenu': (ds) => toggleSendMenu(ds.ticketId),
+  'td.sendAnd':        (ds) => sendComposeAnd(ds.ticketId, ds.status),
 });
 
 registerChangeActions({
@@ -980,18 +993,43 @@ registerChangeActions({
   'td.toggleThreadTranslate':(ds, el) => toggleThreadTranslate(ds.ticketId, el.checked),
   'td.setCustomerLang':      (ds, el) => setCustomerLanguage(ds.ticketId, el.value),
   'td.toggleAutoTranslate':  (ds, el) => toggleAutoTranslateReplies(ds.ticketId, el.checked),
+  'td.ntApplyTemplate':      (ds, el) => ntApplyTemplate(el.value),
 });
 
-// ─── Tag-add Enter-key handler ───────────────────────────────────────────────
-// One module-internal document-level keydown listener for the tag-add inputs.
-// Keydown delegation isn't worth a fifth dispatcher event type for this one
-// callsite (and one more in the compose textarea, handled separately).
-// Inputs that should respond carry `data-tag-add-id="<ticketId>"`; on Enter
-// the listener pulls the value + ticket id and adds the tag.
+registerInputActions({
+  'td.composeInput': (ds) => onComposeInput(ds.ticketId),
+});
+
+// ─── Module-internal keydown + focusout dispatch ─────────────────────────────
+// Two events the shared harness doesn't dispatch — sparse callsites that
+// don't justify extending the harness. Both are document-level listeners
+// that route by element class/dataset.
+//
+//  - keydown: tag-add input (Enter adds the tag); compose textarea (the
+//    `@` mention dropdown's arrow-key navigation, handled by mentions.js).
+//  - focusout: compose textarea (when focus leaves, schedule a hide of the
+//    mention dropdown — needed because `blur` doesn't bubble so a document
+//    listener on `blur` wouldn't fire; `focusout` is the bubbling counterpart).
 document.addEventListener('keydown', e => {
   const el = e.target;
-  if (!(el instanceof HTMLInputElement) || !el.dataset.tagAddId) return;
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  addTicketTag(el.dataset.tagAddId, el.value);
+  // Tag-add input (slice 2)
+  if (el instanceof HTMLInputElement && el.dataset.tagAddId) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    addTicketTag(el.dataset.tagAddId, el.value);
+    return;
+  }
+  // Compose textarea mention-dropdown navigation
+  if (el instanceof HTMLTextAreaElement && el.classList.contains('compose-area') && el.dataset.ticketId) {
+    mentionDropdownKey(e, el.dataset.ticketId);
+  }
+});
+
+document.addEventListener('focusout', e => {
+  const el = e.target;
+  if (el instanceof HTMLTextAreaElement && el.classList.contains('compose-area')) {
+    // Delay so a click on a mention-dropdown item lands before the dropdown
+    // hides. Matches the original inline `onblur="setTimeout(hide, 150)"`.
+    setTimeout(hideMentionDropdown, 150);
+  }
 });

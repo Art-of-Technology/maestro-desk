@@ -117,18 +117,6 @@ import {
   bulkAddTag, bulkExportTickets, bulkDeleteTickets,
   exportTicketList,
 } from './tickets/list.js';
-import {
-  openTicket, setComposeTab,
-  toggleWatch, insertMacro,
-  changeTicketStatus, quickStatus,
-  addTicketTag, removeTicketTag,
-  changeTicketPriority, changeTicketAgent,
-  acceptAITag, acceptAllAITags, prevNextTicket,
-  onComposeInput, insertVar,
-  toggleAIMenu, hideAIMenu, toggleSendMenu, hideSendMenu,
-  sendComposeAnd, sendCompose, showSentTextModal,
-  showNewTicketModal, ntApplyTemplate,
-} from './tickets/detail.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import {
   renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
