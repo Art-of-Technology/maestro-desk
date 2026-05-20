@@ -21,9 +21,11 @@
 
 import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';
 import { navTo } from './keybindings.js';
-// openTicket is reached via window to avoid an activity-log↔tickets/detail
-// import cycle (detail.js imports getTicketEvents from here). detail.js is
-// still bridged; this can become a direct import once detail.js migrates.
+// openTicket → direct import despite the activity-log↔tickets/detail cycle
+// (detail.js imports getTicketEvents from here). ES modules tolerate the
+// cycle because openTicket is only used inside the closure of actGotoEntity.
+// Was via `window.openTicket` until PR #131 (lift TicketDetail window callers).
+import { openTicket } from '../tickets/detail.js';
 
 export function logTicketEvent(ticketId, type, details) {
   const t = TICKETS.find(x => x.id === ticketId);
@@ -131,7 +133,7 @@ function actSetQuery(q) {
 }
 
 function actGotoEntity(entity, id) {
-  if (entity === 'ticket')        window.openTicket(id);
+  if (entity === 'ticket')        openTicket(id);
   else if (entity === 'customer') { CUSTOMER_SELECTED = id; navTo('customers'); }
   else if (entity === 'workflow') { WF_SELECTED = id; navTo('workflows'); }
 }

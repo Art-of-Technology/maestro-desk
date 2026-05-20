@@ -5,11 +5,12 @@
 // arrive.
 //
 // CURRENT_TICKET is read from core/state.js via the global lexical env.
-// openTicket() is reached through window — it still lives in app.js as a
-// bridged function. Once tickets/detail.js is its own module, that goes
-// from `window.openTicket(id)` to a proper import.
+// openTicket comes from tickets/detail.js as a direct import; the cycle
+// (detail → ai/summarize → detail) is tolerated by ES modules because the
+// binding is only used inside the closure of summarizeTicket / clearTicketSummary.
 
 import { AI_API_KEY, callClaude } from './client.js';
+import { openTicket } from '../tickets/detail.js';
 
 export async function summarizeTicket(ticketId) {
   if (!AI_API_KEY) { alert('No Claude API key configured. Add one in Settings → AI Assistant.'); return; }
@@ -18,7 +19,7 @@ export async function summarizeTicket(ticketId) {
   const msgs = t.msgs || [];
   if (!msgs.length) { alert('Nothing to summarise yet — this ticket has no messages.'); return; }
   t.aiSummary = { ...(t.aiSummary || {}), summarizing: true };
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
   // Compose a compact transcript. Skip internal notes by default — the summary
   // is meant for the customer-facing thread; agents who want notes included
   // can re-summarise after the next reply.
@@ -54,12 +55,12 @@ export async function summarizeTicket(ticketId) {
   } catch (e) {
     t.aiSummary = { error: 'AI request failed: ' + (e?.message || 'network error'), generatedAt: new Date().toISOString() };
   }
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function clearTicketSummary(ticketId) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t) return;
   delete t.aiSummary;
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
