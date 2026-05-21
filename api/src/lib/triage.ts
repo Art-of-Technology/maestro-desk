@@ -166,7 +166,9 @@ Call record_triage now with the complete result.`;
 export interface TriageInput {
   ticketId: string;
   workspaceId: string;
-  userId: string;
+  // null = system-triggered (e.g. auto-triage from inbound webhook). Schema
+  // has user_id nullable on ai_usage_log specifically for this case.
+  userId: string | null;
   sb: SupabaseClient;
 }
 
@@ -472,7 +474,7 @@ async function logUsage(args: {
   sb: SupabaseClient;
   workspaceId: string;
   ticketId: string;
-  userId: string;
+  userId: string | null;
   action: string;
   model: string;
   usage: Anthropic.Usage;

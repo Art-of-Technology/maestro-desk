@@ -1,0 +1,12 @@
+{
+  "MessageID": "test-001",
+  "Date": "Thu, 21 May 2026 14:32:00 +0000",
+  "From": "Jane Customer <jane.customer@example.com>",
+  "FromName": "Jane Customer",
+  "FromFull": { "Email": "jane.customer@example.com", "Name": "Jane Customer" },
+  "ToFull": [{ "Email": "fake-hash@inbound.postmarkapp.com" }],
+  "Subject": "Can't reset my password",
+  "TextBody": "Hi,\n\nI tried clicking the password reset link in the email you sent me but it says 'token expired'. I never got around to clicking it until just now, about 2 hours after I requested it. Can you send me a new one?\n\nJane",
+  "StrippedTextReply": "Hi,\n\nI tried clicking the password reset link in the email you sent me but it says 'token expired'. I never got around to clicking it until just now, about 2 hours after I requested it. Can you send me a new one?\n\nJane",
+  "HtmlBody": "<p>Hi,</p><p>I tried clicking the password reset link in the email you sent me but it says 'token expired'...</p>"
+}
