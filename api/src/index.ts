@@ -6,6 +6,7 @@ import { env } from './lib/env.ts';
 import { health } from './routes/health.ts';
 import { me } from './routes/me.ts';
 import { tickets } from './routes/tickets.ts';
+import { triage } from './routes/triage.ts';
 
 const app = new Hono();
 
@@ -19,13 +20,17 @@ app.use('*', cors({
 app.route('/api/v1/health', health);
 app.route('/api/v1/me', me);
 app.route('/api/v1/tickets', tickets);
+app.route('/api/v1/tickets/:id/triage', triage);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
     return err.getResponse();
   }
+  // Log the full error server-side; return message-only to the client (no stack).
+  // Stack traces in API responses are a leak vector — keep them in the log.
   console.error('Unhandled error:', err);
-  return c.json({ error: 'Internal server error' }, 500);
+  const message = err instanceof Error ? err.message : String(err);
+  return c.json({ error: 'Internal server error', detail: message }, 500);
 });
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
