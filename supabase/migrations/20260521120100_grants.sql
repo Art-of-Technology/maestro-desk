@@ -1,3 +1,12 @@
+-- Idempotent role-creation guard for the `service_role` role — the earlier
+-- RLS migration set up `anon` and `authenticated` guards but missed
+-- service_role, which the grants below assume. No-op on real Supabase
+-- (service_role is pre-created); only fires for local PG validation.
+do $$ begin
+  create role service_role nologin bypassrls;
+exception when duplicate_object then null;
+end $$;
+
 -- Postgres-level GRANTs for the Supabase-managed roles.
 --
 -- Discovered necessary 2026-05-21 when the test script hit "permission denied

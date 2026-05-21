@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { requireAuth } from '../middleware/auth.ts';
 import { triageTicket, TriageError } from '../lib/triage.ts';
+import { BudgetExceededError } from '../lib/budget.ts';
 
 export const triage = new Hono();
 
@@ -24,6 +25,15 @@ triage.post('/', async (c) => {
     });
     return c.json(result);
   } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      return c.json(
+        {
+          error: 'AI budget exhausted for this workspace',
+          balance_micro: err.balanceMicro,
+        },
+        402,
+      );
+    }
     if (err instanceof TriageError) {
       return c.json({ error: err.message }, err.status as 400 | 404 | 500 | 502);
     }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { anthropic, computeCostMicro } from './anthropic.ts';
+import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.ts';
 
 const MODEL = 'claude-sonnet-4-6';
 
@@ -180,6 +181,9 @@ export interface TriageResult {
     duration_ms: number;
     model: string;
   };
+  budget: {
+    balance_after_micro: number | null;  // null if deduct failed (logged server-side)
+  };
 }
 
 export class TriageError extends Error {
@@ -190,6 +194,30 @@ export class TriageError extends Error {
 
 export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   const { ticketId, workspaceId, userId, sb } = input;
+
+  // 0. Budget gate — refuse cheaply before doing any work. Log the blocked
+  //    attempt so we have telemetry on how often this fires.
+  try {
+    await assertHasBudget(sb, workspaceId);
+  } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      await sb.from('ai_usage_log').insert({
+        workspace_id: workspaceId,
+        ticket_id: ticketId,
+        user_id: userId,
+        action: 'triage_blocked_no_budget',
+        model: MODEL,
+        input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        output_tokens: 0,
+        cost_usd_micro: 0,
+        duration_ms: 0,
+        request_id: null,
+      });
+    }
+    throw err;
+  }
 
   // 1. Load the ticket + thread + customer in parallel with the lookups.
   const [ticketRes, lookups] = await Promise.all([
@@ -230,31 +258,46 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   });
   const durationMs = Date.now() - startedAt;
 
+  // Compute the cost once — used by logUsage, deductBudget, and the response.
+  // Failure paths still pay Anthropic (tokens were spent) so they deduct too.
+  const costMicro = computeCostMicro(MODEL, {
+    input_tokens: response.usage.input_tokens,
+    cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
+    cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
+    output_tokens: response.usage.output_tokens,
+  });
+
   // 4. Extract + validate the tool call.
   const toolUseBlock = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'record_triage',
   );
   if (!toolUseBlock) {
-    await logUsage({
-      sb, workspaceId, ticketId, userId,
-      action: 'triage_failed_no_tool_use',
-      model: MODEL,
-      usage: response.usage,
-      durationMs,
-      requestId: response.id,
-    });
+    await Promise.all([
+      logUsage({
+        sb, workspaceId, ticketId, userId,
+        action: 'triage_failed_no_tool_use',
+        model: MODEL,
+        usage: response.usage,
+        durationMs,
+        requestId: response.id,
+      }),
+      deductBudget(sb, workspaceId, costMicro),
+    ]);
     throw new TriageError('Model did not call record_triage', 502);
   }
   const parsed = TriageOutput.safeParse(toolUseBlock.input);
   if (!parsed.success) {
-    await logUsage({
-      sb, workspaceId, ticketId, userId,
-      action: 'triage_failed_schema',
-      model: MODEL,
-      usage: response.usage,
-      durationMs,
-      requestId: response.id,
-    });
+    await Promise.all([
+      logUsage({
+        sb, workspaceId, ticketId, userId,
+        action: 'triage_failed_schema',
+        model: MODEL,
+        usage: response.usage,
+        durationMs,
+        requestId: response.id,
+      }),
+      deductBudget(sb, workspaceId, costMicro),
+    ]);
     throw new TriageError(
       `Triage output failed schema: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
       502,
@@ -271,8 +314,8 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     triage.priority_key = ticketRes.current_priority_key ?? 'normal';
   }
 
-  // 6. Persist in parallel: update ticket + replace AI tags + log usage.
-  await Promise.all([
+  // 6. Persist in parallel: update ticket + replace AI tags + log usage + deduct budget.
+  const [, , , balanceAfterMicro] = await Promise.all([
     persistTicketTriage(sb, ticketId, workspaceId, triage),
     persistAITags(sb, ticketId, workspaceId, triage.tags),
     logUsage({
@@ -283,6 +326,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
       durationMs,
       requestId: response.id,
     }),
+    deductBudget(sb, workspaceId, costMicro),
   ]);
 
   return {
@@ -292,14 +336,12 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
       cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
       output_tokens: response.usage.output_tokens,
-      cost_usd_micro: computeCostMicro(MODEL, {
-        input_tokens: response.usage.input_tokens,
-        cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
-        cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
-        output_tokens: response.usage.output_tokens,
-      }),
+      cost_usd_micro: costMicro,
       duration_ms: durationMs,
       model: MODEL,
+    },
+    budget: {
+      balance_after_micro: balanceAfterMicro,
     },
   };
 }
