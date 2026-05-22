@@ -116,3 +116,81 @@ export async function deleteDomain(id: number): Promise<void> {
 export function isFullyVerified(d: PostmarkDomain): boolean {
   return d.DKIMVerified && d.ReturnPathDomainVerified;
 }
+
+// ─── DNS recommendations ─────────────────────────────────────────────────
+//
+// Returns the full set of DNS records a brand owner should add to their
+// domain for both authentication (DKIM, Return-Path — Postmark verifies
+// these) and best-practice deliverability (SPF, DMARC — Postmark doesn't
+// verify these but receiving providers heavily weight them).
+//
+// Why all four matter for inbox placement:
+//   - DKIM signs each outbound message; receivers re-verify the signature
+//     against the published TXT record. Missing/invalid DKIM is the single
+//     biggest junk-folder trigger.
+//   - Return-Path lets Postmark process bounces. Required for SPF alignment
+//     (the envelope-from must be on a domain the brand controls).
+//   - SPF authorizes Postmark's sending IPs. Gmail and Outlook treat SPF
+//     misalignment as a strong spam signal.
+//   - DMARC ties SPF + DKIM together with a policy. Recommended even with
+//     p=none (monitoring) — providers like Gmail are starting to require it.
+//
+// SPF + DMARC are static templates (same value for every domain Postmark
+// hosts) so they're hardcoded here. DKIM + Return-Path come from Postmark's
+// per-domain provisioning response.
+
+export interface DnsRecommendation {
+  type: 'TXT' | 'CNAME';
+  host: string;
+  value: string;
+  priority: 'required' | 'recommended';
+  why: string;
+}
+
+export interface DnsRecommendations {
+  dkim:        DnsRecommendation;
+  return_path: DnsRecommendation;
+  spf:         DnsRecommendation;
+  dmarc:       DnsRecommendation;
+}
+
+export function dnsRecommendations(d: PostmarkDomain): DnsRecommendations {
+  return {
+    dkim: {
+      type: 'TXT',
+      host: d.DKIMHost,
+      value: d.DKIMTextValue,
+      priority: 'required',
+      why: 'Cryptographically signs outbound mail so receivers can verify it came from your domain. Missing DKIM is the biggest single junk-folder trigger.',
+    },
+    return_path: {
+      type: 'CNAME',
+      host: d.ReturnPathDomain,
+      value: d.ReturnPathDomainCNAMEValue,
+      priority: 'required',
+      why: 'Routes bounce notifications to Postmark and provides SPF alignment with the From address. Required.',
+    },
+    spf: {
+      type: 'TXT',
+      host: d.Name,
+      // Postmark's published SPF include. ~all = softfail (mail still
+      // accepted but flagged). Switch to -all only after watching DMARC
+      // reports confirm no legitimate mail is unauthenticated.
+      value: 'v=spf1 a mx include:spf.mtasv.net ~all',
+      priority: 'recommended',
+      why: 'Authorizes Postmark to send on behalf of your domain. Gmail and Outlook weight SPF heavily for inbox placement.',
+    },
+    dmarc: {
+      type: 'TXT',
+      host: `_dmarc.${d.Name}`,
+      // p=none (monitoring) is the safe starting policy — receivers report
+      // but don't quarantine. Tighten to p=quarantine or p=reject once the
+      // brand has watched DMARC reports for ~2 weeks and confirmed no
+      // legitimate mail is misaligned. rua=mailto:rua@dmarc.postmarkapp.com
+      // sends aggregate reports to Postmark's free DMARC monitoring.
+      value: 'v=DMARC1; p=none; pct=100; rua=mailto:rua@dmarc.postmarkapp.com',
+      priority: 'recommended',
+      why: 'Tells receivers what to do with mail that fails SPF/DKIM and where to send reports. Start with p=none (monitoring), tighten after watching reports.',
+    },
+  };
+}

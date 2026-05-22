@@ -4,10 +4,10 @@ import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.t
 import {
   createDomain as pmCreateDomain,
   deleteDomain as pmDeleteDomain,
-  getDomain as pmGetDomain,
   verifyDomain as pmVerifyDomain,
   isFullyVerified,
   isPostmarkAccountConfigured,
+  dnsRecommendations,
   PostmarkAccountError,
   PostmarkAccountNotConfiguredError,
   type PostmarkDomain,
@@ -268,15 +268,6 @@ god.patch('/brands/:id', async (c) => {
 // postmark_domain_id stays null and outbound mail won't have proper DKIM.
 // Hitting the verify endpoint later will trigger creation if missing.
 
-const DnsSetup = (d: PostmarkDomain) => ({
-  dkim: { type: 'TXT', host: d.DKIMHost, value: d.DKIMTextValue },
-  return_path: {
-    type: 'CNAME',
-    host: d.ReturnPathDomain,
-    value: d.ReturnPathDomainCNAMEValue,
-  },
-});
-
 const AddDomain = z.object({ domain: Domain });
 
 // POST /api/v1/god/brands/:id/domains — add + provision a sender domain.
@@ -348,7 +339,7 @@ god.post('/brands/:id/domains', async (c) => {
 
   return c.json({
     domain: { ...row, postmark_domain_id: postmarkDomain?.ID ? String(postmarkDomain.ID) : null },
-    dns_setup: postmarkDomain ? DnsSetup(postmarkDomain) : null,
+    dns_setup: postmarkDomain ? dnsRecommendations(postmarkDomain) : null,
     postmark_configured: isPostmarkAccountConfigured(),
     postmark_error: postmarkError,
   }, 201);
@@ -427,7 +418,7 @@ god.post('/brands/:id/domains/:domainId/verify', async (c) => {
     fully_verified: fullyVerified,
     dkim_verified: pmDomain.DKIMVerified,
     return_path_verified: pmDomain.ReturnPathDomainVerified,
-    dns_setup: DnsSetup(pmDomain),
+    dns_setup: dnsRecommendations(pmDomain),
   });
 });
 
