@@ -9,6 +9,11 @@ const Env = z.object({
   // https://<tunnel-host>/api/v1/webhooks/postmark/inbound?secret=<value>
   // (URL-embedded Basic Auth is rejected by Postmark's URL validator.)
   POSTMARK_INBOUND_SECRET: z.string().min(16),
+  // Outbound — Server API Token from Postmark (Settings → API Tokens).
+  // Verified sender address (Sender Signatures or domain-verified).
+  // Auto-reply is skipped at runtime if either is empty.
+  POSTMARK_SERVER_TOKEN: z.string().default(''),
+  POSTMARK_OUTBOUND_FROM: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 

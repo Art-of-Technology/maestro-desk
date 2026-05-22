@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { parseFrom, pickBody, type PostmarkInbound } from './postmark.ts';
+import { extractMessageId, parseFrom, pickBody, type PostmarkInbound } from './postmark.ts';
 import { triageTicket } from './triage.ts';
 import { BudgetExceededError } from './budget.ts';
 
@@ -101,14 +101,17 @@ export async function processInboundEmail(args: {
     .single();
   if (tErr) throw new Error(`Ticket create failed: ${tErr.message}`);
 
-  // 3. First message from the email body.
+  // 3. First message from the email body. Capture the RFC Message-ID so we
+  //    can thread our reply via In-Reply-To when auto-reply fires.
   const authorLabel = name?.trim() || email;
+  const externalMessageId = extractMessageId(payload);
   const { error: mErr } = await sb.from('ticket_messages').insert({
     workspace_id: workspaceId,
     ticket_id: newTicket.id,
     role: 'customer',
     author_label: authorLabel,
     body,
+    external_message_id: externalMessageId,
   });
   if (mErr) throw new Error(`Message create failed: ${mErr.message}`);
 

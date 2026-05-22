@@ -367,7 +367,9 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
         model: MODEL,
         workspaceName: lookups.workspaceName,
       });
-      autoReply = { decision, posted: post.posted, message_id: post.message_id };
+      autoReply = post.posted
+        ? { decision, posted: true, message_id: post.message_id }
+        : { decision, posted: false };
     } catch (err) {
       console.error('[triage] auto-reply post failed:', err);
       // Decision was eligible but posting failed; surface so callers know.

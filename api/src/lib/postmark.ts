@@ -30,6 +30,9 @@ export const PostmarkInbound = z
     ToFull: z
       .array(z.object({ Email: z.string() }))
       .optional(),                                // the address it was sent to (our inbound addr)
+    Headers: z
+      .array(z.object({ Name: z.string(), Value: z.string() }))
+      .optional(),                                // full RFC headers; we read Message-ID for threading
   })
   .passthrough();
 
@@ -85,4 +88,15 @@ export function pickBody(payload: PostmarkInbound): string {
     payload.HtmlBody?.trim() ||
     '(empty body)'
   );
+}
+
+/**
+ * Pull the RFC 5322 Message-ID header out of Postmark's headers array.
+ * Used as In-Reply-To when we send our reply back so the customer's mail
+ * client threads it under the original. Returns null if the header is
+ * missing (some senders omit it; we just lose threading for that message).
+ */
+export function extractMessageId(payload: PostmarkInbound): string | null {
+  const h = payload.Headers?.find((h) => h.Name.toLowerCase() === 'message-id');
+  return h?.Value?.trim() || null;
 }
