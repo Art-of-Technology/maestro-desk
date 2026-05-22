@@ -9,6 +9,8 @@ import { tickets } from './routes/tickets.ts';
 import { triage } from './routes/triage.ts';
 import { webhooks } from './routes/webhooks.ts';
 import { god } from './routes/god.ts';
+import { whoami } from './routes/whoami.ts';
+import { config } from './routes/config.ts';
 
 const app = new Hono();
 
@@ -20,7 +22,9 @@ app.use('*', cors({
 }));
 
 app.route('/api/v1/health', health);
+app.route('/api/v1/config', config);
 app.route('/api/v1/me', me);
+app.route('/api/v1/whoami', whoami);
 app.route('/api/v1/tickets', tickets);
 app.route('/api/v1/tickets/:id/triage', triage);
 app.route('/api/v1/webhooks', webhooks);

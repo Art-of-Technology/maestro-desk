@@ -1,0 +1,313 @@
+// God panel — platform-admin UI for managing white-label brands.
+//
+// First real-API surface in the SPA. Talks to /api/v1/god/* (gated by
+// requirePlatformAdmin on the server). Auth is the standard Bearer-JWT
+// flow set up by core/auth-client + core/api-client.
+//
+// Views:
+//   - List: every non-system brand with quick stats + suspend toggle.
+//   - Detail: single brand with full config, domains, ticket/member counts.
+// New-brand creation lives in a separate module (PR G); this one is
+// browse + edit only.
+//
+// State management:
+//   The renderPage hook in app.js is synchronous, but the god panel
+//   needs async fetches. Pattern: renderGod() returns a loading state
+//   immediately and kicks off a fetch that calls reRender() when done.
+//   Subsequent calls (e.g. after switching brands) reuse the cached list
+//   when fresh and refresh detail on demand.
+//
+// All actions wire through core/event-delegation (data-action="god.X").
+
+import { apiGet, apiPatch } from '../core/api-client.js';
+import { registerActions } from '../core/event-delegation.js';
+
+// ─── State ────────────────────────────────────────────────────────────────
+
+const STATE = {
+  view: 'list',          // 'list' | 'detail'
+  brandsLoading: false,
+  brands: [],
+  brandsError: null,
+  selectedId: null,
+  detail: null,          // { brand, domains, counts }
+  detailLoading: false,
+  detailError: null,
+  actionPending: false,  // true while a suspend/update is in flight
+};
+
+// ─── Entry point (called from app.js renderPage) ──────────────────────────
+
+export function renderGod() {
+  // First render → kick off the list fetch.
+  if (!STATE.brandsLoading && STATE.brands.length === 0 && !STATE.brandsError) {
+    refreshList();
+  }
+  return renderHtml();
+}
+
+function reRender() {
+  const main = document.getElementById('main-area');
+  if (main && document.body.dataset.currentPage === 'god') {
+    main.innerHTML = renderHtml();
+  } else if (main) {
+    // Page was changed — drop our pending render.
+  }
+}
+
+// ─── HTML ─────────────────────────────────────────────────────────────────
+
+function renderHtml() {
+  return `
+    <div class="page">
+      <div class="topbar">
+        <div class="tb-title">Platform · Brands</div>
+        <div class="tb-actions">
+          <button class="btn btn-ghost" data-action="god.refresh" ${STATE.brandsLoading ? 'disabled' : ''}>
+            ${STATE.brandsLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+      </div>
+      <div class="page-scroll">
+        ${STATE.view === 'list' ? renderList() : renderDetail()}
+      </div>
+    </div>`;
+}
+
+function renderList() {
+  if (STATE.brandsError) {
+    return errorBanner(STATE.brandsError, 'god.refresh');
+  }
+  if (STATE.brandsLoading && STATE.brands.length === 0) {
+    return `<div class="card"><div style="padding:24px;color:var(--ink3)">Loading brands…</div></div>`;
+  }
+  if (STATE.brands.length === 0) {
+    return `
+      <div class="card" style="max-width:520px;margin:40px auto;text-align:center">
+        <div class="card-title" style="margin-bottom:10px">No brands yet</div>
+        <div style="font-size:13px;color:var(--ink3);line-height:1.6">
+          Use the brand-creation wizard or POST /api/v1/god/brands to provision the first one.
+        </div>
+      </div>`;
+  }
+  return `
+    <div class="card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Brand</th><th>Slug</th><th>Plan</th><th>AI credits</th><th>Status</th><th>Created</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${STATE.brands.map(brandRow).join('')}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function brandRow(b) {
+  const status = b.suspended_at
+    ? `<span class="badge badge-red">Suspended</span>`
+    : `<span class="badge badge-green">Active</span>`;
+  return `
+    <tr>
+      <td>
+        <a class="link" href="javascript:void(0)" data-action="god.openBrand" data-id="${b.id}">
+          ${escAttr(b.name)}
+        </a>
+      </td>
+      <td><code>${escAttr(b.slug)}</code></td>
+      <td>${escAttr(b.plan)}</td>
+      <td>${fmtMicroUsd(b.ai_credits_micro)}</td>
+      <td>${status}</td>
+      <td>${fmtDate(b.created_at)}</td>
+      <td style="text-align:right">
+        ${b.suspended_at
+          ? `<button class="btn btn-sm" data-action="god.unsuspend" data-id="${b.id}" ${STATE.actionPending ? 'disabled' : ''}>Unsuspend</button>`
+          : `<button class="btn btn-sm btn-danger" data-action="god.suspend" data-id="${b.id}" ${STATE.actionPending ? 'disabled' : ''}>Suspend</button>`}
+      </td>
+    </tr>`;
+}
+
+function renderDetail() {
+  if (STATE.detailError) {
+    return `
+      <div style="margin-bottom:12px">
+        <button class="btn btn-ghost btn-sm" data-action="god.backToList">← Back to brands</button>
+      </div>
+      ${errorBanner(STATE.detailError, 'god.refreshDetail')}`;
+  }
+  if (STATE.detailLoading || !STATE.detail) {
+    return `<div class="card"><div style="padding:24px;color:var(--ink3)">Loading…</div></div>`;
+  }
+  const { brand, domains, counts } = STATE.detail;
+  return `
+    <div style="margin-bottom:12px">
+      <button class="btn btn-ghost btn-sm" data-action="god.backToList">← Back to brands</button>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">${escAttr(brand.name)}</div>
+      <div class="grid-2">
+        <div><div class="label">Slug</div><div><code>${escAttr(brand.slug)}</code></div></div>
+        <div><div class="label">Plan</div><div>${escAttr(brand.plan)}</div></div>
+        <div><div class="label">Created</div><div>${fmtDate(brand.created_at)}</div></div>
+        <div><div class="label">Status</div><div>
+          ${brand.suspended_at
+            ? `<span class="badge badge-red">Suspended ${fmtDate(brand.suspended_at)}</span>`
+            : `<span class="badge badge-green">Active</span>`}
+        </div></div>
+        <div><div class="label">AI credits</div><div>${fmtMicroUsd(brand.ai_credits_micro)}</div></div>
+        <div><div class="label">Auto-reply</div><div>${fmtAutoReply(brand)}</div></div>
+        <div><div class="label">Display name</div><div>${escAttr(brand.support_email_display_name || '— (falls back to brand name)')}</div></div>
+        <div><div class="label">Primary colour</div><div>
+          ${brand.primary_color
+            ? `<span style="display:inline-block;width:14px;height:14px;background:${escAttr(brand.primary_color)};vertical-align:middle;border-radius:3px;border:1px solid var(--line)"></span>
+               <code style="margin-left:6px">${escAttr(brand.primary_color)}</code>`
+            : '— (uses Maestro default)'}
+        </div></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px">
+        ${brand.suspended_at
+          ? `<button class="btn" data-action="god.unsuspend" data-id="${brand.id}" ${STATE.actionPending ? 'disabled' : ''}>Unsuspend brand</button>`
+          : `<button class="btn btn-danger" data-action="god.suspend" data-id="${brand.id}" ${STATE.actionPending ? 'disabled' : ''}>Suspend brand</button>`}
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Email domains (${domains.length})</div>
+      ${domains.length === 0
+        ? `<div style="color:var(--ink3);font-size:13px">No domains configured yet. Brand can't receive or send mail until at least one is added + verified.</div>`
+        : `<table class="table">
+            <thead><tr><th>Domain</th><th>Verified</th><th>Postmark ID</th><th>Added</th></tr></thead>
+            <tbody>
+              ${domains.map((d) => `
+                <tr>
+                  <td><code>${escAttr(d.domain)}</code></td>
+                  <td>${d.verified_at
+                    ? `<span class="badge badge-green">Verified ${fmtDate(d.verified_at)}</span>`
+                    : `<span class="badge badge-amber">Pending</span>`}</td>
+                  <td>${d.postmark_domain_id ? `<code>${escAttr(d.postmark_domain_id)}</code>` : '— (not provisioned)'}</td>
+                  <td>${fmtDate(d.created_at)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`}
+      <div style="margin-top:10px;font-size:12px;color:var(--ink3)">
+        Domain management UI lands in a follow-up. For now use POST /api/v1/god/brands/${brand.id}/domains.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Activity</div>
+      <div class="grid-2">
+        <div><div class="label">Tickets</div><div style="font-size:22px;font-weight:600">${counts.tickets}</div></div>
+        <div><div class="label">Members</div><div style="font-size:22px;font-weight:600">${counts.members}</div></div>
+      </div>
+    </div>`;
+}
+
+function errorBanner(err, retryAction) {
+  return `
+    <div class="card" style="border-left:3px solid var(--red);padding:16px">
+      <div style="color:var(--red);font-weight:600;margin-bottom:6px">Error</div>
+      <div style="font-size:13px;color:var(--ink2);margin-bottom:10px">${escAttr(err)}</div>
+      <button class="btn btn-sm" data-action="${retryAction}">Retry</button>
+    </div>`;
+}
+
+// ─── Data loaders ─────────────────────────────────────────────────────────
+
+async function refreshList() {
+  STATE.brandsLoading = true;
+  STATE.brandsError = null;
+  reRender();
+  try {
+    const res = await apiGet('/api/v1/god/brands');
+    STATE.brands = res.brands || [];
+  } catch (err) {
+    STATE.brandsError = err.message || 'Failed to load brands';
+  } finally {
+    STATE.brandsLoading = false;
+    reRender();
+  }
+}
+
+async function refreshDetail(brandId) {
+  STATE.detailLoading = true;
+  STATE.detailError = null;
+  reRender();
+  try {
+    STATE.detail = await apiGet(`/api/v1/god/brands/${brandId}`);
+  } catch (err) {
+    STATE.detailError = err.message || 'Failed to load brand';
+  } finally {
+    STATE.detailLoading = false;
+    reRender();
+  }
+}
+
+async function setSuspended(brandId, suspend) {
+  STATE.actionPending = true;
+  reRender();
+  try {
+    const res = await apiPatch(`/api/v1/god/brands/${brandId}`, {
+      suspended_at: suspend ? 'now' : null,
+    });
+    // Update list cache.
+    const idx = STATE.brands.findIndex((b) => b.id === brandId);
+    if (idx >= 0) STATE.brands[idx] = { ...STATE.brands[idx], suspended_at: res.brand.suspended_at };
+    // Update detail cache if viewing this brand.
+    if (STATE.detail?.brand?.id === brandId) STATE.detail.brand = res.brand;
+  } catch (err) {
+    alert(`Failed: ${err.message || err}`);
+  } finally {
+    STATE.actionPending = false;
+    reRender();
+  }
+}
+
+// ─── Action handlers ──────────────────────────────────────────────────────
+
+registerActions({
+  'god.refresh':       () => refreshList(),
+  'god.refreshDetail': () => STATE.selectedId && refreshDetail(STATE.selectedId),
+  'god.openBrand':     (ds) => {
+    STATE.selectedId = ds.id;
+    STATE.view = 'detail';
+    STATE.detail = null;
+    refreshDetail(ds.id);
+  },
+  'god.backToList': () => {
+    STATE.view = 'list';
+    STATE.detail = null;
+    STATE.selectedId = null;
+    reRender();
+  },
+  'god.suspend':   (ds) => setSuspended(ds.id, true),
+  'god.unsuspend': (ds) => setSuspended(ds.id, false),
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function escAttr(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function fmtMicroUsd(micro) {
+  if (micro == null) return '—';
+  const usd = micro / 1_000_000;
+  return `$${usd.toFixed(2)}`;
+}
+
+function fmtAutoReply(b) {
+  if (b.auto_reply_min_confidence == null) return 'Disabled';
+  const cats = (b.auto_reply_categories || []).join(', ') || '— (no categories whitelisted)';
+  return `≥${b.auto_reply_min_confidence}% confidence · ${cats}`;
+}

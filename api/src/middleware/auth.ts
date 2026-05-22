@@ -63,3 +63,24 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   c.set('sb', supabaseAdmin);
   await next();
 };
+
+// Like requireAuth but without the workspace requirement — verifies the JWT
+// and attaches userId + sb to context, nothing more. Used for endpoints
+// that operate on the caller's identity rather than a specific workspace
+// (e.g. GET /whoami, the platform-admin boot-up call in the SPA).
+export const requireAuthOnly: MiddlewareHandler = async (c, next) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    throw new HTTPException(401, { message: 'Missing bearer token' });
+  }
+  const jwt = authHeader.slice('Bearer '.length);
+
+  const { data, error } = await supabaseAdmin.auth.getUser(jwt);
+  if (error || !data.user) {
+    throw new HTTPException(401, { message: 'Invalid token' });
+  }
+
+  c.set('userId', data.user.id);
+  c.set('sb', supabaseAdmin);
+  await next();
+};

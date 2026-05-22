@@ -12,12 +12,12 @@
 // outside that subtree.
 
 export function showAuthPanel(panel) {
-  ['login','forgot','create'].forEach(p => {
+  ['login','forgot','create','platform-admin'].forEach(p => {
     const el = document.getElementById('auth-'+p);
     if (el) el.style.display = p === panel ? 'block' : 'none';
   });
   // Clear stale error/confirmation messages
-  ['login-error','create-error','create-confirm','forgot-confirm'].forEach(id => {
+  ['login-error','create-error','create-confirm','forgot-confirm','pa-error'].forEach(id => {
     const el = document.getElementById(id); if (el) el.style.display = 'none';
   });
 }
