@@ -8,6 +8,7 @@ import { me } from './routes/me.ts';
 import { tickets } from './routes/tickets.ts';
 import { triage } from './routes/triage.ts';
 import { webhooks } from './routes/webhooks.ts';
+import { god } from './routes/god.ts';
 
 const app = new Hono();
 
@@ -23,6 +24,7 @@ app.route('/api/v1/me', me);
 app.route('/api/v1/tickets', tickets);
 app.route('/api/v1/tickets/:id/triage', triage);
 app.route('/api/v1/webhooks', webhooks);
+app.route('/api/v1/god', god);
 
 app.onError((err, c) => {
   if (err instanceof HTTPException) {
