@@ -256,6 +256,115 @@ god.patch('/brands/:id', async (c) => {
   return c.json({ brand });
 });
 
+// ─── Owner invite ──────────────────────────────────────────────────────────
+//
+// Invites a user as Admin of a brand. Uses Supabase's generateLink (not
+// inviteUserByEmail) so we get a copy-paste magic link back instead of
+// relying on SMTP being configured — the operator can paste it into Slack
+// / email / wherever rather than depending on Supabase's mail delivery.
+//
+// On success: creates (or finds) the auth.users row, upserts public.users,
+// inserts workspace_members with the brand's Admin role. Idempotent — re-
+// calling generates a fresh link but leaves DB state stable.
+
+const InviteOwner = z.object({ email: z.string().email() });
+
+function deriveNameFromEmail(email: string): { name: string; initials: string } {
+  const local = email.split('@')[0] || 'user';
+  const parts = local.split(/[._-]+/).filter(Boolean);
+  const cap = (w: string) => (w ? w[0].toUpperCase() + w.slice(1) : '');
+  const first = cap(parts[0]) || 'User';
+  const last = cap(parts[1] ?? '');
+  const name = [first, last].filter(Boolean).join(' ');
+  const initials = ((first[0] ?? '') + (last[0] ?? '')).toUpperCase() || first.slice(0, 2).toUpperCase();
+  return { name, initials };
+}
+
+god.post('/brands/:id/invite', async (c) => {
+  const sb = c.get('sb');
+  const actorUserId = c.get('userId');
+  const brandId = c.req.param('id');
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = InviteOwner.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const email = parsed.data.email.toLowerCase();
+
+  // 1. Verify brand + grab the Admin role id.
+  const { data: brand, error: bErr } = await sb
+    .from('workspaces')
+    .select('id, name, is_unrouted_bucket')
+    .eq('id', brandId)
+    .maybeSingle();
+  if (bErr) return c.json({ error: bErr.message }, 500);
+  if (!brand) return c.json({ error: 'Brand not found' }, 404);
+  if (brand.is_unrouted_bucket) return c.json({ error: 'Cannot invite to system workspace' }, 403);
+
+  const { data: adminRole, error: rErr } = await sb
+    .from('roles')
+    .select('id')
+    .eq('workspace_id', brandId)
+    .eq('is_admin', true)
+    .maybeSingle();
+  if (rErr) return c.json({ error: rErr.message }, 500);
+  if (!adminRole) return c.json({ error: 'Admin role missing on brand — provisioning corrupted' }, 500);
+
+  // 2. Generate an invite link. Supabase creates the auth.users row if it
+  // doesn't exist; if it does, the existing row is reused. Either way we
+  // get a usable user_id back.
+  const { data: linkData, error: lErr } = await sb.auth.admin.generateLink({
+    type: 'invite',
+    email,
+  });
+  if (lErr || !linkData?.user) {
+    return c.json({ error: lErr?.message ?? 'Invite-link generation failed' }, 502);
+  }
+  const authUserId = linkData.user.id;
+  const inviteLink = linkData.properties?.action_link ?? null;
+
+  // 3. Upsert public.users — the FK target for workspace_members. Name +
+  // initials are heuristic from the email local-part; the user can update
+  // them via the profile screen once they sign in.
+  const { name, initials } = deriveNameFromEmail(email);
+  const { error: uErr } = await sb
+    .from('users')
+    .upsert(
+      { id: authUserId, email, name, initials },
+      { onConflict: 'id', ignoreDuplicates: false },
+    );
+  if (uErr) return c.json({ error: `users upsert failed: ${uErr.message}` }, 500);
+
+  // 4. Upsert workspace_members — composite PK (workspace_id, user_id)
+  // makes the upsert idempotent. If the user was previously a member with
+  // a different role, this PROMOTES them to Admin — intentional, since the
+  // operator explicitly invited them as owner.
+  const { error: mErr } = await sb
+    .from('workspace_members')
+    .upsert(
+      {
+        workspace_id: brandId,
+        user_id: authUserId,
+        role_id: adminRole.id,
+        active: true,
+      },
+      { onConflict: 'workspace_id,user_id', ignoreDuplicates: false },
+    );
+  if (mErr) return c.json({ error: `workspace_members upsert failed: ${mErr.message}` }, 500);
+
+  await writeAudit(sb, {
+    workspaceId: brandId,
+    actorUserId,
+    action: 'brand.owner_invited',
+    targetType: 'workspace',
+    targetId: brandId,
+    metadata: { email, invited_user_id: authUserId },
+  });
+
+  return c.json({ user_id: authUserId, email, invite_link: inviteLink }, 201);
+});
+
 // ─── Domain provisioning ───────────────────────────────────────────────────
 //
 // Adding a domain to a brand is a two-system operation: we write a local

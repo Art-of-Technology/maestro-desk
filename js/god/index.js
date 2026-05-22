@@ -19,13 +19,14 @@
 //
 // All actions wire through core/event-delegation (data-action="god.X").
 
-import { apiGet, apiPatch } from '../core/api-client.js';
-import { registerActions } from '../core/event-delegation.js';
+import { apiGet, apiPatch, apiPost, apiDelete } from '../core/api-client.js';
+import { registerActions, registerInputActions } from '../core/event-delegation.js';
+import { renderNewBrand, resetForm as resetNewBrandForm, setOnClose as setNewBrandOnClose } from './new-brand.js';
 
 // ─── State ────────────────────────────────────────────────────────────────
 
 const STATE = {
-  view: 'list',          // 'list' | 'detail'
+  view: 'list',          // 'list' | 'detail' | 'new-brand'
   brandsLoading: false,
   brands: [],
   brandsError: null,
@@ -34,26 +35,39 @@ const STATE = {
   detailLoading: false,
   detailError: null,
   actionPending: false,  // true while a suspend/update is in flight
+  // Inline add-domain form state on detail view
+  addDomainInput: '',
+  addDomainPending: false,
+  addDomainError: null,
+  addDomainResult: null, // last successful add { domain, dns_setup }
+  // Per-domain action state (verifying / deleting / verify result)
+  domainAction: {}, // { [domainId]: { pending: bool, error: string|null, dns: {} | null } }
 };
 
 // ─── Entry point (called from app.js renderPage) ──────────────────────────
 
 export function renderGod() {
   // First render → kick off the list fetch.
-  if (!STATE.brandsLoading && STATE.brands.length === 0 && !STATE.brandsError) {
+  if (!STATE.brandsLoading && STATE.brands.length === 0 && !STATE.brandsError && STATE.view === 'list') {
     refreshList();
   }
+  document.body.dataset.godView = STATE.view;
+  if (STATE.view === 'new-brand') return renderNewBrand();
   return renderHtml();
 }
 
 function reRender() {
   const main = document.getElementById('main-area');
-  if (main && document.body.dataset.currentPage === 'god') {
-    main.innerHTML = renderHtml();
-  } else if (main) {
-    // Page was changed — drop our pending render.
-  }
+  if (!main || document.body.dataset.currentPage !== 'god') return;
+  document.body.dataset.godView = STATE.view;
+  main.innerHTML = STATE.view === 'new-brand' ? renderNewBrand() : renderHtml();
 }
+
+// New-brand form calls this when the user cancels/abandons it.
+setNewBrandOnClose(() => {
+  STATE.view = 'list';
+  reRender();
+});
 
 // ─── HTML ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +80,7 @@ function renderHtml() {
           <button class="btn btn-ghost" data-action="god.refresh" ${STATE.brandsLoading ? 'disabled' : ''}>
             ${STATE.brandsLoading ? 'Loading…' : 'Refresh'}
           </button>
+          <button class="btn btn-solid" data-action="god.newBrand">+ New brand</button>
         </div>
       </div>
       <div class="page-scroll">
@@ -177,24 +192,15 @@ function renderDetail() {
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">Email domains (${domains.length})</div>
       ${domains.length === 0
-        ? `<div style="color:var(--ink3);font-size:13px">No domains configured yet. Brand can't receive or send mail until at least one is added + verified.</div>`
-        : `<table class="table">
-            <thead><tr><th>Domain</th><th>Verified</th><th>Postmark ID</th><th>Added</th></tr></thead>
+        ? `<div style="color:var(--ink3);font-size:13px;margin-bottom:12px">No domains configured yet. Brand can't receive or send mail until at least one is added + verified.</div>`
+        : `<table class="table" style="margin-bottom:12px">
+            <thead><tr><th>Domain</th><th>Verified</th><th>Postmark ID</th><th>Added</th><th></th></tr></thead>
             <tbody>
-              ${domains.map((d) => `
-                <tr>
-                  <td><code>${escAttr(d.domain)}</code></td>
-                  <td>${d.verified_at
-                    ? `<span class="badge badge-green">Verified ${fmtDate(d.verified_at)}</span>`
-                    : `<span class="badge badge-amber">Pending</span>`}</td>
-                  <td>${d.postmark_domain_id ? `<code>${escAttr(d.postmark_domain_id)}</code>` : '— (not provisioned)'}</td>
-                  <td>${fmtDate(d.created_at)}</td>
-                </tr>`).join('')}
+              ${domains.map((d) => renderDomainRow(brand.id, d)).join('')}
             </tbody>
           </table>`}
-      <div style="margin-top:10px;font-size:12px;color:var(--ink3)">
-        Domain management UI lands in a follow-up. For now use POST /api/v1/god/brands/${brand.id}/domains.
-      </div>
+      ${renderAddDomainForm(brand.id)}
+      ${STATE.addDomainResult ? renderAddDomainResult(STATE.addDomainResult) : ''}
     </div>
 
     <div class="card">
@@ -213,6 +219,80 @@ function errorBanner(err, retryAction) {
       <div style="font-size:13px;color:var(--ink2);margin-bottom:10px">${escAttr(err)}</div>
       <button class="btn btn-sm" data-action="${retryAction}">Retry</button>
     </div>`;
+}
+
+// ─── Domain row + inline forms ────────────────────────────────────────────
+
+function renderDomainRow(brandId, d) {
+  const act = STATE.domainAction[d.id] || {};
+  const pending = act.pending ? 'disabled' : '';
+  return `
+    <tr>
+      <td><code>${escAttr(d.domain)}</code></td>
+      <td>${d.verified_at
+        ? `<span class="badge badge-green">Verified ${fmtDate(d.verified_at)}</span>`
+        : `<span class="badge badge-amber">Pending</span>`}</td>
+      <td>${d.postmark_domain_id ? `<code>${escAttr(d.postmark_domain_id)}</code>` : '— (not provisioned)'}</td>
+      <td>${fmtDate(d.created_at)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        ${d.verified_at
+          ? ''
+          : `<button class="btn btn-sm" data-action="god.verifyDomain" data-brand="${escAttr(brandId)}" data-id="${escAttr(d.id)}" ${pending}>
+              ${act.pending ? 'Verifying…' : 'Verify'}
+            </button>`}
+        <button class="btn btn-sm btn-danger" data-action="god.removeDomain" data-brand="${escAttr(brandId)}" data-id="${escAttr(d.id)}" data-domain="${escAttr(d.domain)}" ${pending}>Remove</button>
+      </td>
+    </tr>
+    ${act.error ? `<tr><td colspan="5" style="color:var(--red);font-size:12px;padding-top:0">${escAttr(act.error)}</td></tr>` : ''}
+    ${act.dns ? `<tr><td colspan="5" style="padding-top:0">${renderDnsTable(act.dns)}</td></tr>` : ''}`;
+}
+
+function renderAddDomainForm(brandId) {
+  const disabled = STATE.addDomainPending ? 'disabled' : '';
+  return `
+    <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:8px">
+      <input class="form-input" placeholder="acme.com" value="${escAttr(STATE.addDomainInput)}" data-input-action="god.addDomainInput" style="flex:1" ${disabled}/>
+      <button class="btn" data-action="god.addDomain" data-brand="${escAttr(brandId)}" ${disabled}>
+        ${STATE.addDomainPending ? 'Adding…' : 'Add domain'}
+      </button>
+    </div>
+    ${STATE.addDomainError
+      ? `<div style="color:var(--red);font-size:12px;margin-bottom:8px">${escAttr(STATE.addDomainError)}</div>`
+      : ''}`;
+}
+
+function renderAddDomainResult(result) {
+  return `
+    <div style="border-left:3px solid var(--green);padding:8px 12px;margin-top:10px">
+      <div style="font-size:13px;color:var(--ink2);margin-bottom:6px">
+        Added <code>${escAttr(result.domain.domain)}</code>. ${result.dns_setup ? 'DNS records below — share with the brand owner.' : 'No DNS records returned (Postmark not configured).'}
+      </div>
+      ${result.dns_setup ? renderDnsTable(result.dns_setup) : ''}
+    </div>`;
+}
+
+function renderDnsTable(dns) {
+  return `
+    <table class="table" style="font-family:'DM Mono',monospace;font-size:11px;margin-top:6px">
+      <thead><tr><th>Type</th><th>Host</th><th>Value</th><th>Priority</th></tr></thead>
+      <tbody>
+        ${dnsRow('DKIM',         dns.dkim)}
+        ${dnsRow('Return-Path',  dns.return_path)}
+        ${dnsRow('SPF',          dns.spf)}
+        ${dnsRow('DMARC',        dns.dmarc)}
+      </tbody>
+    </table>`;
+}
+
+function dnsRow(label, rec) {
+  const priColor = rec.priority === 'required' ? 'var(--red)' : 'var(--amber)';
+  return `
+    <tr>
+      <td>${escAttr(rec.type)} <span style="color:var(--ink3);font-size:10px">(${escAttr(label)})</span></td>
+      <td>${escAttr(rec.host)}</td>
+      <td style="word-break:break-all">${escAttr(rec.value)}</td>
+      <td><span style="color:${priColor}">${escAttr(rec.priority)}</span></td>
+    </tr>`;
 }
 
 // ─── Data loaders ─────────────────────────────────────────────────────────
@@ -271,21 +351,119 @@ async function setSuspended(brandId, suspend) {
 registerActions({
   'god.refresh':       () => refreshList(),
   'god.refreshDetail': () => STATE.selectedId && refreshDetail(STATE.selectedId),
-  'god.openBrand':     (ds) => {
-    STATE.selectedId = ds.id;
-    STATE.view = 'detail';
-    STATE.detail = null;
-    refreshDetail(ds.id);
-  },
+  'god.openBrand':     (ds) => openBrand(ds.id),
   'god.backToList': () => {
     STATE.view = 'list';
     STATE.detail = null;
     STATE.selectedId = null;
+    STATE.addDomainInput = '';
+    STATE.addDomainError = null;
+    STATE.addDomainResult = null;
+    STATE.domainAction = {};
     reRender();
   },
   'god.suspend':   (ds) => setSuspended(ds.id, true),
   'god.unsuspend': (ds) => setSuspended(ds.id, false),
+  // New-brand wizard
+  'god.newBrand': () => {
+    resetNewBrandForm();
+    STATE.view = 'new-brand';
+    reRender();
+  },
+  'god.openCreatedBrand': (ds) => {
+    resetNewBrandForm();
+    // Refresh list so the new brand appears, then jump to detail.
+    STATE.brands = [];
+    openBrand(ds.id);
+  },
+  // Add-domain + verify + remove on the detail view
+  'god.addDomain':    (ds) => addDomain(ds.brand),
+  'god.verifyDomain': (ds) => verifyDomain(ds.brand, ds.id),
+  'god.removeDomain': (ds) => removeDomain(ds.brand, ds.id, ds.domain),
 });
+
+registerInputActions({
+  'god.addDomainInput': (_ds, el) => { STATE.addDomainInput = el.value; },
+});
+
+function openBrand(id) {
+  STATE.selectedId = id;
+  STATE.view = 'detail';
+  STATE.detail = null;
+  STATE.addDomainInput = '';
+  STATE.addDomainError = null;
+  STATE.addDomainResult = null;
+  STATE.domainAction = {};
+  refreshDetail(id);
+}
+
+// ─── Domain mutations ─────────────────────────────────────────────────────
+
+async function addDomain(brandId) {
+  const domain = (STATE.addDomainInput || '').trim().toLowerCase();
+  if (!domain) {
+    STATE.addDomainError = 'Enter a domain.';
+    reRender();
+    return;
+  }
+  if (!domain.includes('.')) {
+    STATE.addDomainError = 'Domain must contain a dot.';
+    reRender();
+    return;
+  }
+
+  STATE.addDomainPending = true;
+  STATE.addDomainError = null;
+  reRender();
+  try {
+    const res = await apiPost(`/api/v1/god/brands/${brandId}/domains`, { domain });
+    STATE.addDomainResult = res;
+    STATE.addDomainInput = '';
+    // Refresh detail to pick up the new domain in the table.
+    await refreshDetail(brandId);
+  } catch (err) {
+    STATE.addDomainError = err?.message || 'Add domain failed';
+  } finally {
+    STATE.addDomainPending = false;
+    reRender();
+  }
+}
+
+async function verifyDomain(brandId, domainId) {
+  STATE.domainAction[domainId] = { pending: true, error: null, dns: null };
+  reRender();
+  try {
+    const res = await apiPost(`/api/v1/god/brands/${brandId}/domains/${domainId}/verify`);
+    // Update the in-place row state so verified status flips immediately
+    // if both DKIM + Return-Path resolved. The detail refresh below also
+    // catches the verified_at stamp.
+    STATE.domainAction[domainId] = {
+      pending: false,
+      error: res.fully_verified ? null : 'Still pending — DNS may not have propagated yet.',
+      dns: res.dns_setup,
+    };
+    if (res.fully_verified) await refreshDetail(brandId);
+  } catch (err) {
+    STATE.domainAction[domainId] = { pending: false, error: err?.message || 'Verify failed', dns: null };
+  } finally {
+    reRender();
+  }
+}
+
+async function removeDomain(brandId, domainId, domainStr) {
+  if (!confirm(`Remove domain ${domainStr}? This deletes it from Postmark too.`)) return;
+  STATE.domainAction[domainId] = { pending: true, error: null, dns: null };
+  reRender();
+  try {
+    await apiDelete(`/api/v1/god/brands/${brandId}/domains/${domainId}`);
+    delete STATE.domainAction[domainId];
+    await refreshDetail(brandId);
+  } catch (err) {
+    STATE.domainAction[domainId] = { pending: false, error: err?.message || 'Remove failed', dns: null };
+  } finally {
+    reRender();
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
