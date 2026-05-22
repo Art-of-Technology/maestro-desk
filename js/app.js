@@ -83,6 +83,10 @@ import {
 } from './notifications/index.js';
 import { renderKB } from './kb/index.js';
 import { renderHelp } from './help/index.js';
+import { renderGod } from './god/index.js';
+import {
+  showPlatformAdminLogin, submitPlatformAdminLogin, autoResumePlatformAdmin,
+} from './auth/platform-admin.js';
 import {
   renderSettings, setSettingsTab,
   updateProfileName, updateProfileInitials,
@@ -240,7 +244,9 @@ function renderPage(page) {
     help:          renderHelp,
     notifications: renderNotificationsPage,
     profile:       renderProfile,
+    god:           renderGod,
   };
+  document.body.dataset.currentPage = page;
   if (pages[page]) main.innerHTML = pages[page]();
   if (page === 'ai') initAI();
   if (page === 'tickets') initTicketsPage();
@@ -340,7 +346,9 @@ Object.assign(
     toggleNotifications,
     toggleProfileMenu, profileMenuGo,
     showAuthPanel, togglePassword, ssoLogin,
-    submitLogin, submitForgot, submitCreate, updatePwStrength },
+    submitLogin, submitForgot, submitCreate, updatePwStrength,
+    // Platform admin sign-in panel — onclick handlers in static index.html
+    showPlatformAdminLogin, submitPlatformAdminLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
   TimeTracking, Snooze, Linked, Mentions,
   Macros, Attachments,
@@ -352,4 +360,12 @@ Object.assign(
   TicketsList, TicketDetail,
   AssignmentRules,
 );
+
+// ─── Startup: resume a platform-admin session if one is in sessionStorage ───
+// If a JWT survived from a previous tab session and still identifies a
+// platform admin, jump straight into the god panel — no re-login. Other
+// auth flows (demo personas) stay on the auth screen.
+autoResumePlatformAdmin().catch((err) => {
+  console.warn('[startup] auto-resume failed:', err);
+});
 

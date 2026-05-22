@@ -13,7 +13,7 @@ me.get('/', async (c) => {
 
   const { data: user, error: uErr } = await supabaseAdmin
     .from('users')
-    .select('id, email, name, initials')
+    .select('id, email, name, initials, is_platform_admin')
     .eq('id', userId)
     .single();
   if (uErr) return c.json({ error: uErr.message }, 500);

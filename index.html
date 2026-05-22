@@ -81,6 +81,24 @@
       </div>
 
       <div class="auth-link" onclick="showAuthPanel('create')" style="margin-top:14px">Don't have an account? Create one</div>
+      <div class="auth-link" onclick="showPlatformAdminLogin()" style="margin-top:6px;font-size:12px;color:var(--ink3)">Platform admin sign-in →</div>
+    </div>
+    <!-- Platform admin login panel (real Supabase auth) -->
+    <div id="auth-platform-admin" style="display:none">
+      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
+      <div class="auth-back" onclick="showAuthPanel('login')">← Back to sign in</div>
+      <div class="auth-title">Platform admin</div>
+      <div class="auth-sub" style="margin-bottom:18px">Sign in to manage white-label brands.</div>
+      <div class="form-row">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="pa-email" type="email" placeholder="you@example.com" autocomplete="username"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="pa-password" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitPlatformAdminLogin()"/>
+      </div>
+      <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" id="pa-submit" onclick="submitPlatformAdminLogin()">Sign in</button>
+      <div id="pa-error" class="auth-error" style="display:none;margin-top:12px"></div>
     </div>
     <!-- Forgot password panel -->
     <div id="auth-forgot" style="display:none">
@@ -254,6 +272,10 @@
         <div class="sb-item" onclick="nav('help',this)">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5.2c0-1 .7-1.7 1.6-1.7s1.6.7 1.6 1.6c0 .9-1.6 1-1.6 2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6.5" cy="9.5" r=".7" fill="currentColor"/></svg>
           <span class="sb-lbl">Help & Support</span>
+        </div>
+        <div class="sb-item" onclick="nav('god',this)" id="nav-god" style="display:none">
+          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M6.5 1.5l5 2v4c0 2.5-2 4.5-5 5.5C3.5 12 1.5 10 1.5 7.5v-4l5-2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.5 6.5l1.5 1.5L9 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="sb-lbl">Platform · Brands</span>
         </div>
       </div>
     </nav>
