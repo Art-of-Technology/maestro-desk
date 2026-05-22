@@ -66,9 +66,16 @@ export async function processInboundEmail(args: {
   } else {
     // Stub customer — name parsed from From header if present, no other PII.
     // Agents can fill in mobile/brand/VIP-tier later via the UI.
+    //
+    // Race window: two webhook retries for the same NEW sender both miss the
+    // lookup above and try to insert. The (workspace_id, email) unique
+    // constraint guarantees one wins; the loser hits PG 23505. On that
+    // specific error, re-query for the row the winner just created and use
+    // that customer_id instead of failing the whole webhook (Postmark would
+    // otherwise retry up to 10 times). Any other DB error still bubbles.
     const [firstName, ...rest] = (name ?? email.split('@')[0]).split(/\s+/);
     const lastName = rest.join(' ') || null;
-    const { data: newCustomer, error: ncErr } = await sb
+    const insert = await sb
       .from('customers')
       .insert({
         workspace_id: workspaceId,
@@ -79,9 +86,29 @@ export async function processInboundEmail(args: {
       })
       .select('id')
       .single();
-    if (ncErr) throw new Error(`Customer create failed: ${ncErr.message}`);
-    customerId = newCustomer.id;
-    isNewCustomer = true;
+    if (insert.error) {
+      if (insert.error.code === '23505') {
+        const winner = await sb
+          .from('customers')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .eq('email', email)
+          .is('deleted_at', null)
+          .maybeSingle();
+        if (winner.error || !winner.data) {
+          throw new Error(
+            `Customer race recovery failed: ${winner.error?.message ?? 'row not visible after unique violation'}`,
+          );
+        }
+        customerId = winner.data.id;
+        // isNewCustomer stays false — the other request created it.
+      } else {
+        throw new Error(`Customer create failed: ${insert.error.message}`);
+      }
+    } else {
+      customerId = insert.data.id;
+      isNewCustomer = true;
+    }
   }
 
   // 2. Create the ticket. Status/priority/category are best-guess defaults;
