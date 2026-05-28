@@ -19,6 +19,23 @@
 
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { showNewTicketModal } from '../tickets/detail.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+
+function ttApiBacked() {
+  return TICKET_TEMPLATES.some((t) => t._uuid);
+}
+
+function ttMapResponse(r) {
+  return {
+    _uuid:    r.id,
+    id:       r.display_id,
+    name:     r.name,
+    category: r.category || '',
+    priority: r.priority_key || 'normal',
+    subject:  r.subject || '',
+    body:     r.body || '',
+  };
+}
 
 let TT_QUERY = '';
 
@@ -113,14 +130,21 @@ function ttNextId() {
 
 function ttNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New ticket template', ttFormBody(null), () => {
+  window.showModal('New ticket template', ttFormBody(null), async () => {
     const name = document.getElementById('tt-name').value.trim();
     const category = document.getElementById('tt-cat').value.trim() || 'General';
     const priority = document.getElementById('tt-pri').value;
     const subject = document.getElementById('tt-subj').value.trim();
     const body = document.getElementById('tt-body').value;
     if (!name || !subject) return;
-    TICKET_TEMPLATES.unshift({ id: ttNextId(), name, category, priority, subject, body });
+    if (ttApiBacked()) {
+      let resp;
+      try { resp = await apiPost('/api/v1/ticket-templates', { name, category, priority_key: priority, subject, body }); }
+      catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
+      TICKET_TEMPLATES.unshift(ttMapResponse(resp.ticket_template));
+    } else {
+      TICKET_TEMPLATES.unshift({ id: ttNextId(), name, category, priority, subject, body });
+    }
     window.closeModal(); window.renderPage('ticket-templates');
   }, 'Create');
 }
@@ -128,13 +152,17 @@ function ttNew() {
 function ttEdit(id) {
   if (!window.isAdmin()) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
-  window.showModal(`Edit ${t.id}`, ttFormBody(t), () => {
+  window.showModal(`Edit ${t.id}`, ttFormBody(t), async () => {
     const name = document.getElementById('tt-name').value.trim();
     const category = document.getElementById('tt-cat').value.trim() || 'General';
     const priority = document.getElementById('tt-pri').value;
     const subject = document.getElementById('tt-subj').value.trim();
     const body = document.getElementById('tt-body').value;
     if (!name || !subject) return;
+    if (t._uuid) {
+      try { await apiPatch(`/api/v1/ticket-templates/${t._uuid}`, { name, category, priority_key: priority, subject, body }); }
+      catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    }
     t.name = name; t.category = category; t.priority = priority; t.subject = subject; t.body = body;
     window.closeModal(); window.renderPage('ticket-templates');
   }, 'Save');
@@ -143,14 +171,27 @@ function ttEdit(id) {
 function ttDuplicate(id) {
   if (!window.isAdmin()) return;
   const orig = TICKET_TEMPLATES.find(x => x.id === id); if (!orig) return;
-  TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
-  window.renderPage('ticket-templates');
+  (async () => {
+    if (orig._uuid) {
+      let resp;
+      try { resp = await apiPost('/api/v1/ticket-templates', { name: orig.name + ' (copy)', category: orig.category, priority_key: orig.priority, subject: orig.subject, body: orig.body }); }
+      catch (err) { alert(`Couldn't duplicate: ${err?.message || err}`); return; }
+      TICKET_TEMPLATES.unshift(ttMapResponse(resp.ticket_template));
+    } else {
+      TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
+    }
+    window.renderPage('ticket-templates');
+  })();
 }
 
 function ttDelete(id) {
   if (!window.isAdmin()) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
-  window.showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, () => {
+  window.showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, async () => {
+    if (t._uuid) {
+      try { await apiDelete(`/api/v1/ticket-templates/${t._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = TICKET_TEMPLATES.findIndex(x => x.id === id);
     if (i >= 0) TICKET_TEMPLATES.splice(i, 1);
     window.closeModal(); window.renderPage('ticket-templates');

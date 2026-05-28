@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -29,6 +29,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/tags'),
     apiGet('/api/v1/kb-articles'),
     apiGet('/api/v1/canned-responses'),
+    apiGet('/api/v1/ticket-templates'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -41,6 +42,7 @@ export async function loadWorkspaceData() {
   const tagsRaw      = tagsRes.tags           || [];
   const kbRaw        = kbRes.articles         || [];
   const cannedRaw    = cannedRes.canned_responses || [];
+  const ttRaw        = ttRes.ticket_templates || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -227,6 +229,21 @@ export async function loadWorkspaceData() {
     text:     r.body || '',
   }));
   replaceInPlace(CANNED_RESPONSES, mappedCanned);
+
+  // ─── TICKET_TEMPLATES ──────────────────────────────────────────────────
+  // data.js uses `priority`; the server stores `priority_key`. Subject + body
+  // are nullable on the server (a template can be name-only) but the UI
+  // shows '' for them — normalise.
+  const mappedTt = ttRaw.map((t) => ({
+    _uuid:    t.id,
+    id:       t.display_id,
+    name:     t.name,
+    category: t.category || '',
+    priority: t.priority_key || 'normal',
+    subject:  t.subject || '',
+    body:     t.body || '',
+  }));
+  replaceInPlace(TICKET_TEMPLATES, mappedTt);
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.
