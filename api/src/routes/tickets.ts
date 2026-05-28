@@ -203,6 +203,101 @@ tickets.post('/:id/messages', async (c) => {
   return c.json({ message }, 201);
 });
 
+// ─── POST /:id/tags — add a manual tag ───────────────────────────────────
+//
+// Tag is normalised the same way the SPA used to (lowercase, hyphenated,
+// alphanumeric-only) so a value that round-trips through the API matches
+// what `data.js` set. On insert, also upsert into tag_library so the
+// workspace's tag catalogue stays in sync — kind='manual', no confidence.
+const PostTag = z.object({
+  tag: z.string().min(1).max(64),
+});
+
+function normaliseTag(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
+tickets.post('/:id/tags', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const ticketId = c.req.param('id');
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = PostTag.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const tag = normaliseTag(parsed.data.tag);
+  if (!tag) return c.json({ error: 'Tag is empty after normalisation' }, 400);
+
+  // Confirm ticket exists in this workspace.
+  const { data: ticket, error: tErr } = await sb
+    .from('tickets')
+    .select('id')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr) return c.json({ error: tErr.message }, 500);
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  // Idempotent — ON CONFLICT does nothing because (ticket_id, tag) is the PK.
+  const { error: insErr } = await sb
+    .from('ticket_tags')
+    .upsert(
+      { workspace_id: workspaceId, ticket_id: ticketId, tag },
+      { onConflict: 'ticket_id,tag', ignoreDuplicates: true },
+    );
+  if (insErr) return c.json({ error: insErr.message }, 500);
+
+  // Keep the workspace tag library populated. Best-effort — failure here
+  // shouldn't fail the request because the ticket_tags row already landed.
+  const { error: libErr } = await sb
+    .from('tag_library')
+    .upsert(
+      { workspace_id: workspaceId, tag, kind: 'manual' },
+      { onConflict: 'workspace_id,tag', ignoreDuplicates: true },
+    );
+  if (libErr) console.warn('[tickets] tag_library upsert failed:', libErr.message);
+
+  return c.json({ tag }, 201);
+});
+
+// ─── DELETE /:id/tags/:tag — remove a manual tag ─────────────────────────
+//
+// Tags are unique by (ticket_id, tag), so we route by URL. Returns 204
+// on success whether or not the tag was actually present (idempotent).
+tickets.delete('/:id/tags/:tag', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const ticketId = c.req.param('id');
+  const tag = normaliseTag(c.req.param('tag'));
+
+  // Workspace-scope check.
+  const { data: ticket, error: tErr } = await sb
+    .from('tickets')
+    .select('id')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr) return c.json({ error: tErr.message }, 500);
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  const { error: delErr } = await sb
+    .from('ticket_tags')
+    .delete()
+    .eq('ticket_id', ticketId)
+    .eq('tag', tag);
+  if (delErr) return c.json({ error: delErr.message }, 500);
+
+  return new Response(null, { status: 204 });
+});
+
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),
