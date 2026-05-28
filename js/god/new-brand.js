@@ -235,7 +235,7 @@ function renderDomainPanel(domain, dns_setup) {
         Send these to the brand owner. They paste into their DNS provider (Cloudflare, Route 53, etc.). After the records propagate
         (~5 min), open the brand and click "Verify" on the domain row.
       </div>
-      <table class="table" style="font-family:'DM Mono',monospace;font-size:11px">
+      <table class="tbl" style="font-family:'DM Mono',monospace;font-size:11px">
         <thead><tr><th>Type</th><th>Host</th><th>Value</th><th>Priority</th></tr></thead>
         <tbody>
           ${dnsRow('DKIM',         dns_setup.dkim)}
