@@ -14,6 +14,56 @@
 // CURRENT_TICKET, CURRENT_PAGE, AR_FILTER come from core/state.js the same way.
 
 import { logTicketEvent } from '../core/activity-log.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+
+function arApiBacked() {
+  return ASSIGN_RULES.some((r) => r._uuid);
+}
+
+// Resolve an agent display name → user UUID via the loaded AGENTS array.
+function userIdForAgent(name) {
+  return AGENTS.find((a) => a.name === name)?.userId || null;
+}
+
+// Map a client-shape assignment to the API payload (agent_user_id or
+// team_user_ids). Returns null if a required user can't be resolved
+// (caller surfaces the error to the user).
+function assignmentClientToApi(a) {
+  if (!a) return null;
+  if (a.mode === 'specific-agent') {
+    const uid = userIdForAgent(a.agent);
+    if (!uid) return null;
+    return { mode: 'specific-agent', agent_user_id: uid };
+  }
+  const teamIds = (a.team || []).map(userIdForAgent).filter(Boolean);
+  if (teamIds.length === 0) return null;
+  return { mode: a.mode, team_user_ids: teamIds };
+}
+
+function arMapResponse(r) {
+  // Build a userByUuid map locally for the single response.
+  const userByUuid = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
+  let assignment;
+  if (r.assignment?.mode === 'specific-agent') {
+    assignment = { mode: 'specific-agent', agent: userByUuid[r.assignment.agent_user_id]?.name || '' };
+  } else {
+    assignment = {
+      mode: r.assignment?.mode || 'round-robin',
+      team: (r.assignment?.team_user_ids || []).map((uid) => userByUuid[uid]?.name).filter(Boolean),
+    };
+  }
+  return {
+    _uuid:       r.id,
+    id:          r.display_id,
+    name:        r.name,
+    priority:    r.priority,
+    status:      r.status,
+    conditions:  r.conditions,
+    assignment,
+    matchCount:  r.match_count || 0,
+    lastMatchAt: r.last_match_at ? String(r.last_match_at).slice(0, 10) : null,
+  };
+}
 
 function arNextId() {
   const max = Math.max(0, ...ASSIGN_RULES.map(r => parseInt((r.id||'').split('-')[1] || '0', 10)));
@@ -183,10 +233,16 @@ export function bulkApplyAssignmentRules() {
   alert(matched ? `Assignment rules matched ${matched} ticket${matched===1?'':'s'}.` : 'No active rule matched any ticket in the selection.');
 }
 
-export function arToggle(id, active) {
+export async function arToggle(id, active) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id);
-  if (r) r.status = active ? 'active' : 'inactive';
+  if (!r) return;
+  const next = active ? 'active' : 'inactive';
+  if (r._uuid) {
+    try { await apiPatch(`/api/v1/assign-rules/${r._uuid}`, { status: next }); }
+    catch (err) { alert(`Couldn't toggle: ${err?.message || err}`); return; }
+  }
+  r.status = next;
 }
 
 function arConditionsSummary(c) {
@@ -285,12 +341,28 @@ function arReadForm() {
 
 export function arNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New assignment rule', arFormBody(null), () => {
+  window.showModal('New assignment rule', arFormBody(null), async () => {
     const data = arReadForm();
     if (!data.name) { alert('Name is required.'); return; }
     if (data.assignment.mode === 'specific-agent' && !data.assignment.agent) { alert('Pick an agent.'); return; }
     if (data.assignment.mode !== 'specific-agent' && !(data.assignment.team || []).length) { alert('Team is required.'); return; }
-    ASSIGN_RULES.push({ id: arNextId(), matchCount: 0, lastMatchAt: null, ...data });
+    if (arApiBacked()) {
+      const apiAssignment = assignmentClientToApi(data.assignment);
+      if (!apiAssignment) { alert('Could not resolve agent(s) to user IDs.'); return; }
+      let resp;
+      try {
+        resp = await apiPost('/api/v1/assign-rules', {
+          name:        data.name,
+          priority:    data.priority,
+          status:      data.status,
+          conditions:  data.conditions,
+          assignment:  apiAssignment,
+        });
+      } catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
+      ASSIGN_RULES.push(arMapResponse(resp.assign_rule));
+    } else {
+      ASSIGN_RULES.push({ id: arNextId(), matchCount: 0, lastMatchAt: null, ...data });
+    }
     window.closeModal(); window.renderPage('assignment-rules');
   }, 'Create');
 }
@@ -298,11 +370,24 @@ export function arNew() {
 export function arEdit(id) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
-  window.showModal('Edit rule · ' + r.id, arFormBody(r), () => {
+  window.showModal('Edit rule · ' + r.id, arFormBody(r), async () => {
     const data = arReadForm();
     if (!data.name) { alert('Name is required.'); return; }
     if (data.assignment.mode === 'specific-agent' && !data.assignment.agent) { alert('Pick an agent.'); return; }
     if (data.assignment.mode !== 'specific-agent' && !(data.assignment.team || []).length) { alert('Team is required.'); return; }
+    if (r._uuid) {
+      const apiAssignment = assignmentClientToApi(data.assignment);
+      if (!apiAssignment) { alert('Could not resolve agent(s) to user IDs.'); return; }
+      try {
+        await apiPatch(`/api/v1/assign-rules/${r._uuid}`, {
+          name:        data.name,
+          priority:    data.priority,
+          status:      data.status,
+          conditions:  data.conditions,
+          assignment:  apiAssignment,
+        });
+      } catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    }
     Object.assign(r, data);
     delete ASSIGN_RULES_RR_INDEX[r.id];
     window.closeModal(); window.renderPage('assignment-rules');
@@ -312,7 +397,11 @@ export function arEdit(id) {
 export function arDelete(id) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
-  window.showModal('Delete rule', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(r.name)}</strong>?</div>`, () => {
+  window.showModal('Delete rule', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(r.name)}</strong>?</div>`, async () => {
+    if (r._uuid) {
+      try { await apiDelete(`/api/v1/assign-rules/${r._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = ASSIGN_RULES.findIndex(x => x.id === id);
     if (i >= 0) ASSIGN_RULES.splice(i, 1);
     delete ASSIGN_RULES_RR_INDEX[id];
