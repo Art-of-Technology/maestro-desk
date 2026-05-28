@@ -107,7 +107,7 @@ function renderList() {
   }
   return `
     <div class="card">
-      <table class="table">
+      <table class="tbl">
         <thead>
           <tr>
             <th>Brand</th><th>Slug</th><th>Plan</th><th>AI credits</th><th>Status</th><th>Created</th><th></th>
@@ -193,7 +193,7 @@ function renderDetail() {
       <div class="card-title">Email domains (${domains.length})</div>
       ${domains.length === 0
         ? `<div style="color:var(--ink3);font-size:13px;margin-bottom:12px">No domains configured yet. Brand can't receive or send mail until at least one is added + verified.</div>`
-        : `<table class="table" style="margin-bottom:12px">
+        : `<table class="tbl" style="margin-bottom:12px">
             <thead><tr><th>Domain</th><th>Verified</th><th>Postmark ID</th><th>Added</th><th></th></tr></thead>
             <tbody>
               ${domains.map((d) => renderDomainRow(brand.id, d)).join('')}
@@ -273,7 +273,7 @@ function renderAddDomainResult(result) {
 
 function renderDnsTable(dns) {
   return `
-    <table class="table" style="font-family:'DM Mono',monospace;font-size:11px;margin-top:6px">
+    <table class="tbl" style="font-family:'DM Mono',monospace;font-size:11px;margin-top:6px">
       <thead><tr><th>Type</th><th>Host</th><th>Value</th><th>Priority</th></tr></thead>
       <tbody>
         ${dnsRow('DKIM',         dns.dkim)}
