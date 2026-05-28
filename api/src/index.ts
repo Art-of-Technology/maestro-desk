@@ -13,6 +13,8 @@ import { whoami } from './routes/whoami.ts';
 import { config } from './routes/config.ts';
 import { customers } from './routes/customers.ts';
 import { agents } from './routes/agents.ts';
+import { inbox } from './routes/inbox.ts';
+import { channels } from './routes/channels.ts';
 
 const app = new Hono();
 
@@ -31,6 +33,8 @@ app.route('/api/v1/tickets', tickets);
 app.route('/api/v1/tickets/:id/triage', triage);
 app.route('/api/v1/customers', customers);
 app.route('/api/v1/agents', agents);
+app.route('/api/v1/inbox', inbox);
+app.route('/api/v1/channels', channels);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 

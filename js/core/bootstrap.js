@@ -18,19 +18,24 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
+    apiGet('/api/v1/inbox'),
+    apiGet('/api/v1/channels'),
   ]);
 
   const customersRaw = customersRes.customers || [];
   const agentsRaw    = agentsRes.agents       || [];
   const ticketsRaw   = ticketsRes.tickets     || [];
+  const inboxRaw     = inboxRes.inbox         || [];
+  const channelsRaw  = channelsRes.channels   || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
   const userByUuid     = Object.fromEntries(agentsRaw.map((a) => [a.user_id, a.users]));
+  const channelByUuid  = Object.fromEntries(channelsRaw.map((c) => [c.id, c]));
 
   // ─── CUSTOMERS ──────────────────────────────────────────────────────────
   const mappedCustomers = customersRaw.map((c) => ({
@@ -84,6 +89,42 @@ export async function loadWorkspaceData() {
     timeEntries:     [],
   }));
   replaceInPlace(TICKETS, mappedTickets);
+
+  // ─── CHANNELS ───────────────────────────────────────────────────────────
+  // Map UUIDs to display_ids so the rest of the UI (which expects "CH-001"
+  // style ids) keeps matching. Stash the UUID in `_uuid` for future writes.
+  const mappedChannels = channelsRaw.map((c) => ({
+    _uuid:           c.id,
+    id:              c.display_id,
+    name:            c.name,
+    type:            c.type,
+    address:         c.address || '',
+    status:          c.status,
+    defaultCategory: c.default_category_key || 'all',
+    defaultAgent:    c.default_agent_name || '',
+    signature:       c.signature || '',
+    volume30d:       c.volume_30d || 0,
+  }));
+  replaceInPlace(CHANNELS, mappedChannels);
+
+  // ─── INBOX ──────────────────────────────────────────────────────────────
+  // inbox_messages has no display_id column, so the id stays a UUID — fine,
+  // the UI uses it only for row selection. channelId is mapped to the
+  // channel's display_id so the existing `CHANNELS.find(c => c.id === e.channelId)`
+  // pattern keeps working.
+  const mappedInbox = inboxRaw.map((e) => ({
+    _uuid:              e.id,
+    id:                 e.id,
+    channelId:          channelByUuid[e.channel_id]?.display_id || e.channel_id,
+    from:               e.from_name || '',
+    fromEmail:          e.from_email || '',
+    subject:            e.subject || '',
+    body:               e.body || '',
+    receivedAt:         fmtInboxDate(e.received_at),
+    status:             e.status,
+    convertedTicketId:  e.converted_ticket_display_id || null,
+  }));
+  replaceInPlace(INBOX, mappedInbox);
 }
 
 // Fetches the full detail (messages, tags, ai_tags, time_entries) for a
@@ -181,6 +222,16 @@ function fmtTime(iso) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return d.toTimeString().slice(0, 5);
+}
+
+// "YYYY-MM-DD HH:MM" — matches data.js's INBOX receivedAt shape.
+function fmtInboxDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const date = d.toISOString().slice(0, 10);
+  const time = d.toTimeString().slice(0, 5);
+  return `${date} ${time}`;
 }
 
 // "YYYY-MM-DD HH:MM" — matches data.js's time-entry ts shape.
