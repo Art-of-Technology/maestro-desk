@@ -14,7 +14,7 @@
 // WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
 
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
-import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 
 const WF_TRIGGER_PRESETS = [
   'Ticket created',
@@ -201,8 +201,50 @@ function unwrap(val) {
   return JSON.stringify(val);
 }
 
-function openWfDetail(id) { WF_SELECTED = id; window.renderPage('workflows'); }
-function closeWfDetail()  { WF_SELECTED = null; window.renderPage('workflows'); }
+function openWfDetail(id) {
+  WF_SELECTED = id;
+  // Fire-and-forget load of the run history for this workflow. The
+  // detail renders immediately with whatever's in w.history (usually
+  // empty for API-backed workflows on first open); when the fetch
+  // resolves, w.history is populated and we re-render if still on it.
+  const w = WORKFLOWS.find(x => x.id === id);
+  if (w?._uuid && !w._historyLoaded) {
+    loadWorkflowRuns(w).then(() => {
+      if (WF_SELECTED === id) window.renderPage('workflows');
+    }).catch(err => console.warn('[workflows] runs fetch failed:', err));
+  }
+  window.renderPage('workflows');
+}
+
+// Fetch + map workflow run history into the SPA's history shape
+// ({type, ticketId?, triggeredBy, ts}). Idempotent via _historyLoaded.
+async function loadWorkflowRuns(w) {
+  if (!w._uuid || w._historyLoaded) return;
+  const res = await apiGet(`/api/v1/workflows/${w._uuid}/runs`);
+  w.history = (res.runs || []).map((r) => ({
+    type:        r.kind,
+    ticketId:    r.ticket_display_id || null,
+    triggeredBy: r.triggered_by_name || 'System',
+    ts:          fmtWfRunTs(r.created_at),
+  }));
+  w._historyLoaded = true;
+}
+
+function fmtWfRunTs(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function closeWfDetail() {
+  // Reset the per-workflow history cache so the next open refetches.
+  // Cheap and keeps the view fresh; users mostly only revisit a workflow's
+  // history after firing it.
+  const w = WORKFLOWS.find(x => x.id === WF_SELECTED);
+  if (w) { w._historyLoaded = false; }
+  WF_SELECTED = null;
+  window.renderPage('workflows');
+}
 function wfSetQuery(q) {
   WF_QUERY = q;
   window.renderPage('workflows');
