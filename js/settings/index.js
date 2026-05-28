@@ -21,6 +21,18 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
+import { apiGet, apiPut, apiDelete } from '../core/api-client.js';
+
+// In-memory snapshot of the workspace's Slack integration, loaded lazily
+// when the Integrations tab is opened.
+let SLACK_INTEGRATION = null;
+let SLACK_LOADED = false;
+const SLACK_EVENTS = [
+  { k: 'ticket.created',   l: 'Ticket created' },
+  { k: 'ticket.resolved',  l: 'Ticket resolved' },
+  { k: 'ticket.escalated', l: 'Ticket escalated' },
+  { k: 'priority.urgent',  l: 'Priority set to urgent' },
+];
 
 // Module-scoped state for the Settings → Knowledge Base test panel. Kept off
 // `window` so it doesn't pollute the global namespace.
@@ -34,6 +46,7 @@ export function renderSettings() {
     {k:'ai',            l:'AI Assistant'},
     {k:'knowledge-base', l:'Knowledge Base'},
     {k:'language',      l:'Language'},
+    {k:'integrations',  l:'Integrations'},
   ];
   const tabbar = tabs.map(t => `<div class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" onclick="setSettingsTab('${t.k}')">${t.l}</div>`).join('');
   let panel = '';
@@ -43,6 +56,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'ai')            panel = settingsAI();
   else if (SETTINGS_TAB === 'knowledge-base') panel = settingsKnowledgeBase();
   else if (SETTINGS_TAB === 'language')      panel = settingsLanguage();
+  else if (SETTINGS_TAB === 'integrations')  panel = settingsIntegrations();
   return `
     <div class="page">
       <div class="topbar"><div class="tb-title">Settings</div></div>
@@ -310,4 +324,89 @@ function settingsLanguage() {
         ${AI_API_KEY ? `✓ Currently set to ${AGENT_PREFERRED_LANG}` : 'Add an API key in AI Assistant to enable detection and translation.'}
       </div>
     </div>`;
+}
+
+// ─── Integrations panel (Slack) ──────────────────────────────────────────
+function settingsIntegrations() {
+  // Lazy load on first paint; trigger a re-render when the fetch lands.
+  if (!SLACK_LOADED) {
+    SLACK_LOADED = true;
+    apiGet('/api/v1/integrations/slack')
+      .then((res) => { SLACK_INTEGRATION = res.integration; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] slack load failed:', err); });
+  }
+  const slack = SLACK_INTEGRATION;
+  const events = slack?.events || ['ticket.resolved', 'ticket.escalated'];
+  const checkbox = (k, l) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">
+      <input type="checkbox" id="slack-evt-${k}" ${events.includes(k) ? 'checked' : ''}/>
+      ${window.escHtml(l)}
+    </label>`;
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Slack</div>
+      <div class="settings-desc" style="margin-bottom:14px">
+        Post a message to a Slack channel when key ticket events fire.
+        Paste your Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:var(--purple)">incoming-webhook URL</a> — it's the secret, so treat it like a password.
+      </div>
+      <div class="form-row">
+        <label class="form-label">Webhook URL</label>
+        <input class="form-input" id="slack-url" type="url" value="${window.escAttr(slack?.webhook_url || '')}" placeholder="https://hooks.slack.com/services/..." autocomplete="off"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Channel override (optional)</label>
+        <input class="form-input" id="slack-channel" value="${window.escAttr(slack?.channel || '')}" placeholder="#support"/>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Leave blank to use the channel the webhook is bound to in Slack.</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Events</label>
+        ${SLACK_EVENTS.map((e) => checkbox(e.k, e.l)).join('')}
+      </div>
+      <div class="form-row" style="display:flex;align-items:center;gap:8px">
+        <label class="toggle"><input type="checkbox" id="slack-active" ${slack?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
+        <span style="font-size:13px;color:var(--ink2)">Active</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-solid btn-sm" onclick="saveSlackIntegration()">Save</button>
+        ${slack ? '<button class="btn btn-sm btn-danger" onclick="deleteSlackIntegration()">Disconnect</button>' : ''}
+        <span id="slack-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
+      </div>
+    </div>`;
+}
+
+export async function saveSlackIntegration() {
+  if (!window.isAdmin()) return;
+  const url     = document.getElementById('slack-url').value.trim();
+  const channel = document.getElementById('slack-channel').value.trim();
+  const active  = document.getElementById('slack-active').checked;
+  const events  = SLACK_EVENTS.filter((e) => document.getElementById(`slack-evt-${e.k}`)?.checked).map((e) => e.k);
+  const msg = document.getElementById('slack-msg');
+  if (!url) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
+  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPut('/api/v1/integrations/slack', {
+      webhook_url: url,
+      channel:     channel || null,
+      active,
+      events,
+    });
+    SLACK_INTEGRATION = res.integration;
+    msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+export async function deleteSlackIntegration() {
+  if (!window.isAdmin()) return;
+  if (!confirm('Disconnect Slack? Future ticket events won\'t notify until you reconnect.')) return;
+  try {
+    await apiDelete('/api/v1/integrations/slack');
+    SLACK_INTEGRATION = null;
+    window.renderPage('settings');
+  } catch (err) {
+    alert(`Couldn't disconnect: ${err?.message || err}`);
+  }
 }

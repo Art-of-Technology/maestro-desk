@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
 import { runWorkflowsForTicket } from '../lib/workflow-engine.ts';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.ts';
+import { notifySlack } from '../lib/slack-notify.ts';
 
 export const tickets = new Hono();
 
@@ -174,6 +175,24 @@ tickets.patch('/:id', async (c) => {
   // re-fetch below to return the canonical post-engine state.
   try { await runWorkflowsForTicket({ sb, workspaceId, ticketId, prevRow: existing }); }
   catch (err) { console.error('[workflow-engine] top-level failure:', err); }
+
+  // Slack notifications for the state transitions the workspace cares
+  // about. Fired AFTER the workflow engine so the Slack message reflects
+  // any engine-driven follow-up updates (e.g. assign_role).
+  const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
+  const priorityChanged = updates.priority_key !== undefined && updates.priority_key !== existing.priority_key;
+  if (statusChanged && updates.status_key === 'resolved') {
+    try { await notifySlack({ sb, workspaceId, event: 'ticket.resolved',  ticketId }); }
+    catch (err) { console.warn('[slack] notify resolved failed:', err); }
+  }
+  if (statusChanged && updates.status_key === 'escalated') {
+    try { await notifySlack({ sb, workspaceId, event: 'ticket.escalated', ticketId }); }
+    catch (err) { console.warn('[slack] notify escalated failed:', err); }
+  }
+  if (priorityChanged && updates.priority_key === 'urgent') {
+    try { await notifySlack({ sb, workspaceId, event: 'priority.urgent',  ticketId }); }
+    catch (err) { console.warn('[slack] notify urgent failed:', err); }
+  }
 
   const { data: updated, error: refetchErr } = await sb
     .from('tickets')
@@ -860,6 +879,10 @@ tickets.post('/', async (c) => {
   // creating agent); the engine may override that with a rule's pick.
   try { await applyAssignmentRules({ sb, workspaceId, ticketId: ticket.id }); }
   catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+
+  // Slack notification on creation.
+  try { await notifySlack({ sb, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  catch (err) { console.warn('[slack] notify created failed:', err); }
 
   return c.json({ ticket }, 201);
 });
