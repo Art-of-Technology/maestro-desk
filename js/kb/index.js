@@ -17,6 +17,23 @@
 
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+
+function kbApiBacked() {
+  return KB_ARTICLES.some((a) => a._uuid);
+}
+
+function mapKbResponse(a) {
+  return {
+    _uuid:    a.id,
+    id:       a.display_id,
+    title:    a.title,
+    category: a.category || '',
+    body:     a.body || '',
+    author:   a.author_name || 'Unknown',
+    updated:  (a.updated_at || '').slice(0, 10),
+  };
+}
 
 let KB_QUERY = '';
 let KB_FILTER_CAT = 'all';
@@ -274,13 +291,20 @@ function kbArticleForm(initial) {
 
 function kbNewArticle() {
   if (!window.isAdmin()) return;
-  window.showModal('New article', kbArticleForm(null), () => {
+  window.showModal('New article', kbArticleForm(null), async () => {
     const title = document.getElementById('kb-title').value.trim();
     const cat   = document.getElementById('kb-cat').value.trim() || 'Getting Started';
     const body  = document.getElementById('kb-body').value;
     if (!title || !body.trim()) return;
-    const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
-    KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+    if (kbApiBacked()) {
+      let resp;
+      try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body }); }
+      catch (err) { alert(`Couldn't publish: ${err?.message || err}`); return; }
+      KB_ARTICLES.unshift(mapKbResponse(resp.article));
+    } else {
+      const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
+      KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+    }
     window.closeModal(); window.renderPage('kb');
   }, 'Publish', true);
 }
@@ -288,11 +312,15 @@ function kbNewArticle() {
 function kbEditArticle(id) {
   if (!window.isAdmin()) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
-  window.showModal('Edit article', kbArticleForm(a), () => {
+  window.showModal('Edit article', kbArticleForm(a), async () => {
     const title = document.getElementById('kb-title').value.trim();
     const cat   = document.getElementById('kb-cat').value.trim() || a.category;
     const body  = document.getElementById('kb-body').value;
     if (!title || !body.trim()) return;
+    if (a._uuid) {
+      try { await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body }); }
+      catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    }
     a.title = title; a.category = cat; a.body = body;
     a.updated = new Date().toISOString().slice(0,10);
     window.closeModal(); window.renderPage('kb');
@@ -302,7 +330,11 @@ function kbEditArticle(id) {
 function kbDeleteArticle(id) {
   if (!window.isAdmin()) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
-  window.showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${a.title}</strong>? This cannot be undone.</div>`, () => {
+  window.showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${a.title}</strong>? This cannot be undone.</div>`, async () => {
+    if (a._uuid) {
+      try { await apiDelete(`/api/v1/kb-articles/${a._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = KB_ARTICLES.findIndex(x => x.id === id);
     if (i >= 0) KB_ARTICLES.splice(i, 1);
     KB_SELECTED = null;

@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -27,6 +27,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/workflows'),
     apiGet('/api/v1/sla-policies'),
     apiGet('/api/v1/tags'),
+    apiGet('/api/v1/kb-articles'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -37,6 +38,7 @@ export async function loadWorkspaceData() {
   const workflowsRaw = workflowsRes.workflows || [];
   const slaRaw       = slaRes.sla_policies    || [];
   const tagsRaw      = tagsRes.tags           || [];
+  const kbRaw        = kbRes.articles         || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -197,6 +199,20 @@ export async function loadWorkspaceData() {
     count: t.count || 0,
   }));
   replaceInPlace(TAG_LIBRARY, mappedTags);
+
+  // ─── KB_ARTICLES ────────────────────────────────────────────────────────
+  // updated_at is timestamptz; data.js used 'YYYY-MM-DD'. Keep that shape
+  // for the existing sort + display code that does localeCompare on it.
+  const mappedKb = kbRaw.map((a) => ({
+    _uuid:    a.id,
+    id:       a.display_id,
+    title:    a.title,
+    category: a.category || '',
+    body:     a.body || '',
+    author:   a.author_name || 'Unknown',
+    updated:  isoDate(a.updated_at),
+  }));
+  replaceInPlace(KB_ARTICLES, mappedKb);
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.
