@@ -13,6 +13,7 @@
 // TPL_FILTER_CAT and TPL_QUERY come from core/state.js the same way.
 
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 
 export function renderTemplates() {
   const admin = window.isAdmin();
@@ -106,14 +107,35 @@ function tplNextId() {
   return 'TPL-' + String(max + 1).padStart(3, '0');
 }
 
+function tplApiBacked() {
+  return CANNED_RESPONSES.some((t) => t._uuid);
+}
+
+function tplMapResponse(r) {
+  return {
+    _uuid:    r.id,
+    id:       r.display_id,
+    name:     r.name,
+    category: r.category || '',
+    text:     r.body || '',
+  };
+}
+
 function tplNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New template', tplFormBody(null), () => {
+  window.showModal('New template', tplFormBody(null), async () => {
     const name = document.getElementById('tpl-name').value.trim();
     const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
     const text = document.getElementById('tpl-text').value;
     if (!name || !text.trim()) return;
-    CANNED_RESPONSES.unshift({ id: tplNextId(), name, category:cat, text });
+    if (tplApiBacked()) {
+      let resp;
+      try { resp = await apiPost('/api/v1/canned-responses', { name, category: cat, body: text }); }
+      catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
+      CANNED_RESPONSES.unshift(tplMapResponse(resp.canned_response));
+    } else {
+      CANNED_RESPONSES.unshift({ id: tplNextId(), name, category:cat, text });
+    }
     window.closeModal(); window.renderPage('templates');
   }, 'Create');
 }
@@ -121,11 +143,15 @@ function tplNew() {
 function tplEdit(id) {
   if (!window.isAdmin()) return;
   const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
-  window.showModal(`Edit ${t.id}`, tplFormBody(t), () => {
+  window.showModal(`Edit ${t.id}`, tplFormBody(t), async () => {
     const name = document.getElementById('tpl-name').value.trim();
     const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
     const text = document.getElementById('tpl-text').value;
     if (!name || !text.trim()) return;
+    if (t._uuid) {
+      try { await apiPatch(`/api/v1/canned-responses/${t._uuid}`, { name, category: cat, body: text }); }
+      catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    }
     t.name = name; t.category = cat; t.text = text;
     window.closeModal(); window.renderPage('templates');
   }, 'Save');
@@ -134,14 +160,27 @@ function tplEdit(id) {
 function tplDuplicate(id) {
   if (!window.isAdmin()) return;
   const orig = CANNED_RESPONSES.find(x => x.id === id); if (!orig) return;
-  CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text });
-  window.renderPage('templates');
+  (async () => {
+    if (orig._uuid) {
+      let resp;
+      try { resp = await apiPost('/api/v1/canned-responses', { name: orig.name + ' (copy)', category: orig.category, body: orig.text }); }
+      catch (err) { alert(`Couldn't duplicate: ${err?.message || err}`); return; }
+      CANNED_RESPONSES.unshift(tplMapResponse(resp.canned_response));
+    } else {
+      CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text });
+    }
+    window.renderPage('templates');
+  })();
 }
 
 function tplDelete(id) {
   if (!window.isAdmin()) return;
   const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
-  window.showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, () => {
+  window.showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, async () => {
+    if (t._uuid) {
+      try { await apiDelete(`/api/v1/canned-responses/${t._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = CANNED_RESPONSES.findIndex(x => x.id === id);
     if (i >= 0) CANNED_RESPONSES.splice(i, 1);
     window.closeModal(); window.renderPage('templates');

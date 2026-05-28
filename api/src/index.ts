@@ -19,6 +19,7 @@ import { workflows } from './routes/workflows.ts';
 import { slaPolicies } from './routes/sla-policies.ts';
 import { tags } from './routes/tags.ts';
 import { kb } from './routes/kb.ts';
+import { cannedResponses } from './routes/canned-responses.ts';
 
 const app = new Hono();
 
@@ -43,6 +44,7 @@ app.route('/api/v1/workflows', workflows);
 app.route('/api/v1/sla-policies', slaPolicies);
 app.route('/api/v1/tags', tags);
 app.route('/api/v1/kb-articles', kb);
+app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 
