@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Help — loading...</title>
+  <style>
+    /* Self-contained styling so the public portal can be deployed
+       independently of the SPA's CSS. Tone-matches the SPA loosely
+       but avoids importing styles/* to keep this file portable. */
+    :root {
+      --bg:        #fafafa;
+      --card:      #ffffff;
+      --ink:       #18181b;
+      --ink2:      #52525b;
+      --ink3:      #71717a;
+      --rule:      #e5e7eb;
+      --rule2:     #d4d4d8;
+      --accent:    #8b5cf6;
+      --accent-lt: #ede9fe;
+      --red:       #dc2626;
+      --green:     #16a34a;
+      --radius:    8px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; font-size: 14px; line-height: 1.6; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+    .brand { font-weight: 600; font-size: 18px; color: var(--ink); }
+    .brand .sub { font-size: 12px; color: var(--ink3); font-weight: 400; margin-top: 2px; }
+    .card { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 20px; }
+    .card h2 { margin: 0 0 4px; font-size: 16px; }
+    .card .desc { font-size: 13px; color: var(--ink3); margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+    label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; font-weight: 500; }
+    input, textarea, select { width: 100%; padding: 9px 12px; border: 1px solid var(--rule2); border-radius: var(--radius); font: inherit; color: var(--ink); background: #fff; outline: none; }
+    input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-lt); }
+    textarea { min-height: 120px; resize: vertical; }
+    .form-row { margin-bottom: 14px; }
+    button { padding: 10px 18px; border: 0; border-radius: var(--radius); background: var(--accent); color: #fff; font: inherit; font-weight: 500; cursor: pointer; }
+    button:hover { filter: brightness(.95); }
+    button:disabled { opacity: .6; cursor: progress; }
+    .err { color: var(--red); font-size: 12px; margin-top: 8px; }
+    .ok  { background: #f0fdf4; border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: var(--radius); margin-top: 12px; font-size: 13px; }
+    .kb-list { display: flex; flex-direction: column; gap: 8px; }
+    .kb-row { display: block; padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
+    .kb-row:hover { border-color: var(--accent); }
+    .kb-title { font-weight: 500; }
+    .kb-meta  { font-size: 11px; color: var(--ink3); margin-top: 2px; }
+    .kb-cat   { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-lt); padding: 2px 8px; border-radius: 4px; margin-right: 6px; }
+    .kb-body-wrap { display: none; padding: 12px 14px; border: 1px solid var(--rule); border-top: none; border-radius: 0 0 var(--radius) var(--radius); white-space: pre-wrap; font-size: 13px; }
+    .kb-row.open + .kb-body-wrap { display: block; }
+    .empty { color: var(--ink3); font-size: 12px; font-style: italic; padding: 12px 0; }
+    .search { margin-bottom: 14px; }
+    footer { text-align: center; color: var(--ink3); font-size: 11px; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand">
+        <div id="ws-name">Loading...</div>
+        <div class="sub">Help &amp; support</div>
+      </div>
+    </header>
+
+    <div id="boot-err" class="err" style="display:none"></div>
+
+    <section class="card" id="card-kb">
+      <h2>Knowledge Base</h2>
+      <div class="desc">Search the help articles below. Many common questions are answered here.</div>
+      <div class="search">
+        <input id="kb-search" placeholder="Search articles..." autocomplete="off" />
+      </div>
+      <div id="kb-list" class="kb-list"></div>
+    </section>
+
+    <section class="card" id="card-form">
+      <h2>Submit a request</h2>
+      <div class="desc">Can't find the answer? Send us a message and we'll get back to you by email.</div>
+      <form id="ticket-form" autocomplete="on">
+        <div class="row">
+          <div class="form-row">
+            <label for="t-name">Your name</label>
+            <input id="t-name" name="name" required autocomplete="name" />
+          </div>
+          <div class="form-row">
+            <label for="t-email">Email</label>
+            <input id="t-email" name="email" type="email" required autocomplete="email" />
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="t-subject">Subject</label>
+          <input id="t-subject" name="subject" required />
+        </div>
+        <div class="form-row">
+          <label for="t-body">How can we help?</label>
+          <textarea id="t-body" name="body" required></textarea>
+        </div>
+        <button type="submit" id="t-submit">Send</button>
+        <div id="t-err" class="err" style="display:none"></div>
+        <div id="t-ok"  class="ok"  style="display:none"></div>
+      </form>
+    </section>
+
+    <footer>Powered by Maestro Desk</footer>
+  </main>
+
+  <script>
+    // Public portal driver. Pulls workspace + KB from /api/v1/public/:slug/*
+    // and posts new tickets to the same root. No bundler, no SPA glue —
+    // this page is self-contained so a workspace can host it under their
+    // own domain (or behind their static CDN) without pulling the SPA.
+
+    const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
+    const params = new URLSearchParams(location.search);
+    const SLUG = params.get('ws') || 'demo';
+    let ARTICLES = [];
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, ch => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[ch]));
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(`${API_BASE}/api/v1/public/${SLUG}${path}`, {
+        method: opts.method || 'GET',
+        headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const text = await res.text();
+      let parsed; try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
+      if (!res.ok) {
+        const msg = (parsed && parsed.error) || res.statusText || `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return parsed;
+    }
+
+    function renderKBList(filter = '') {
+      const list = document.getElementById('kb-list');
+      const ql = filter.toLowerCase().trim();
+      const matches = ql
+        ? ARTICLES.filter(a =>
+            a.title.toLowerCase().includes(ql) ||
+            (a.body || '').toLowerCase().includes(ql) ||
+            (a.category || '').toLowerCase().includes(ql))
+        : ARTICLES;
+      if (matches.length === 0) {
+        list.innerHTML = '<div class="empty">No articles match your search.</div>';
+        return;
+      }
+      list.innerHTML = matches.map(a => `
+        <div class="kb-row" data-id="${escHtml(a.id)}">
+          <div>
+            <span class="kb-cat">${escHtml(a.category || 'Help')}</span>
+            <span class="kb-title">${escHtml(a.title)}</span>
+          </div>
+          <div class="kb-meta">${a.view_count || 0} views · last updated ${(a.updated_at || '').slice(0, 10)}</div>
+        </div>
+        <div class="kb-body-wrap">${escHtml(a.body)}</div>`).join('');
+      list.querySelectorAll('.kb-row').forEach(el => {
+        el.addEventListener('click', () => el.classList.toggle('open'));
+      });
+    }
+
+    async function boot() {
+      try {
+        const [cfg, kb] = await Promise.all([api('/config'), api('/kb-articles')]);
+        document.getElementById('ws-name').textContent = cfg.workspace.name;
+        document.title = `${cfg.workspace.name} — Help`;
+        if (cfg.workspace.primary_color) {
+          document.documentElement.style.setProperty('--accent', cfg.workspace.primary_color);
+        }
+        ARTICLES = kb.articles || [];
+        renderKBList();
+      } catch (err) {
+        const el = document.getElementById('boot-err');
+        el.textContent = `Couldn't load this workspace: ${err.message}`;
+        el.style.display = 'block';
+      }
+    }
+
+    document.getElementById('kb-search').addEventListener('input', (e) => renderKBList(e.target.value));
+
+    document.getElementById('ticket-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submit = document.getElementById('t-submit');
+      const errEl  = document.getElementById('t-err');
+      const okEl   = document.getElementById('t-ok');
+      errEl.style.display = 'none';
+      okEl.style.display  = 'none';
+      submit.disabled = true;
+      submit.textContent = 'Sending...';
+      try {
+        const body = {
+          name:    document.getElementById('t-name').value.trim(),
+          email:   document.getElementById('t-email').value.trim(),
+          subject: document.getElementById('t-subject').value.trim(),
+          body:    document.getElementById('t-body').value.trim(),
+        };
+        const res = await api('/tickets', { method: 'POST', body });
+        okEl.textContent = `Got it — your request is logged as ${res.ticket.display_id}. We'll email you back at ${body.email}.`;
+        okEl.style.display = 'block';
+        document.getElementById('ticket-form').reset();
+      } catch (err) {
+        errEl.textContent = `Couldn't send: ${err.message}`;
+        errEl.style.display = 'block';
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Send';
+      }
+    });
+
+    boot();
+  </script>
+</body>
+</html>

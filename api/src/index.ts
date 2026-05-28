@@ -26,6 +26,7 @@ import { assignRules } from './routes/assign-rules.ts';
 import { roles } from './routes/roles.ts';
 import { permissions } from './routes/permissions.ts';
 import { customValues } from './routes/custom-values.ts';
+import { publicRoutes } from './routes/public.ts';
 
 const app = new Hono();
 
@@ -57,6 +58,7 @@ app.route('/api/v1/assign-rules', assignRules);
 app.route('/api/v1/roles', roles);
 app.route('/api/v1/permissions', permissions);
 app.route('/api/v1/custom-values', customValues);
+app.route('/api/v1/public', publicRoutes);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 
