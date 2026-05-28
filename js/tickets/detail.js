@@ -48,7 +48,7 @@ import { showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
-import { apiPatch, apiPost } from '../core/api-client.js';
+import { apiPatch, apiPost, apiDelete } from '../core/api-client.js';
 import {
   KB_INTEGRATION, KB_TICKET_CACHE,
   refreshTicketKbSuggestions,
@@ -656,25 +656,31 @@ export async function changeTicketStatus(id, val) {
   if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
 }
 function quickStatus(id, val) { changeTicketStatus(id, val); }
-export function addTicketTag(id, raw) {
+export async function addTicketTag(id, raw) {
   const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   if (!tag) return;
   const t = TICKETS.find(x => x.id === id); if (!t) return;
   if (!t.tags) t.tags = [];
-  if (!t.tags.includes(tag)) {
-    t.tags.push(tag);
-    logTicketEvent(id, 'tag', `Tagged: ${tag}`);
-    const lib = TAG_LIBRARY.find(x => x.tag === tag);
-    if (lib) lib.count++;
-    else TAG_LIBRARY.push({ tag, count: 1, type: 'manual', conf: null });
+  if (t.tags.includes(tag)) { openTicket(id); return; }
+  if (t._uuid) {
+    try { await apiPost(`/api/v1/tickets/${t._uuid}/tags`, { tag }); }
+    catch (err) { alert(`Couldn't add tag: ${err?.message || err}`); return; }
   }
+  t.tags.push(tag);
+  logTicketEvent(id, 'tag', `Tagged: ${tag}`);
+  const lib = TAG_LIBRARY.find(x => x.tag === tag);
+  if (lib) lib.count++;
+  else TAG_LIBRARY.push({ tag, count: 1, type: 'manual', conf: null });
   openTicket(id);
 }
-function removeTicketTag(id, tag) {
+async function removeTicketTag(id, tag) {
   const t = TICKETS.find(x => x.id === id); if (!t) return;
-  if ((t.tags || []).includes(tag)) {
-    logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
+  if (!(t.tags || []).includes(tag)) { openTicket(id); return; }
+  if (t._uuid) {
+    try { await apiDelete(`/api/v1/tickets/${t._uuid}/tags/${encodeURIComponent(tag)}`); }
+    catch (err) { alert(`Couldn't remove tag: ${err?.message || err}`); return; }
   }
+  logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
   t.tags = (t.tags || []).filter(x => x !== tag);
   const lib = TAG_LIBRARY.find(x => x.tag === tag);
   if (lib && lib.count > 0) lib.count--;
