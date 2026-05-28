@@ -23,6 +23,8 @@ import { cannedResponses } from './routes/canned-responses.ts';
 import { ticketTemplates } from './routes/ticket-templates.ts';
 import { customFields } from './routes/custom-fields.ts';
 import { assignRules } from './routes/assign-rules.ts';
+import { roles } from './routes/roles.ts';
+import { permissions } from './routes/permissions.ts';
 
 const app = new Hono();
 
@@ -51,6 +53,8 @@ app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/ticket-templates', ticketTemplates);
 app.route('/api/v1/custom-fields', customFields);
 app.route('/api/v1/assign-rules', assignRules);
+app.route('/api/v1/roles', roles);
+app.route('/api/v1/permissions', permissions);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 

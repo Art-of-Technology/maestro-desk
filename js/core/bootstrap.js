@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, permsRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -32,6 +32,8 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/ticket-templates'),
     apiGet('/api/v1/custom-fields'),
     apiGet('/api/v1/assign-rules'),
+    apiGet('/api/v1/roles'),
+    apiGet('/api/v1/permissions'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -47,6 +49,8 @@ export async function loadWorkspaceData() {
   const ttRaw        = ttRes.ticket_templates || [];
   const cfRaw        = cfRes.custom_fields    || [];
   const arRaw        = arRes.assign_rules     || [];
+  const rolesRaw     = rolesRes.roles         || [];
+  const permsRaw     = permsRes.permissions   || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -267,6 +271,22 @@ export async function loadWorkspaceData() {
   }));
   replaceInPlace(CUSTOM_FIELDS, mappedCf);
 
+  // ─── PERMISSIONS (global catalogue) + ROLES_MATRIX ─────────────────────
+  // PERMISSIONS becomes the full list of {key, label} from the server.
+  // ROLES_MATRIX is reconstructed as { role_name: { perm_key: bool, ... } }.
+  // The per-role UUID lookup goes into the module-scope _roleUuidByName
+  // map so the roles module can address rows by UUID on mutation.
+  PERMISSIONS = permsRaw.map((p) => ({ key: p.key, label: p.label }));
+  _roleUuidByName = {};
+  for (const k of Object.keys(ROLES_MATRIX)) delete ROLES_MATRIX[k];
+  for (const r of rolesRaw) {
+    const granted = new Set(r.permissions || []);
+    const cell = {};
+    for (const p of PERMISSIONS) cell[p.key] = granted.has(p.key);
+    ROLES_MATRIX[r.name] = cell;
+    _roleUuidByName[r.name] = r.id;
+  }
+
   // ─── ASSIGN_RULES ──────────────────────────────────────────────────────
   // The DB stores assignee references as user UUIDs (agent_user_id or
   // team_user_ids[]). data.js uses agent names. Translate via userByUuid
@@ -283,6 +303,21 @@ export async function loadWorkspaceData() {
     lastMatchAt:  r.last_match_at ? isoDate(r.last_match_at) : null,
   }));
   replaceInPlace(ASSIGN_RULES, mappedAr);
+}
+
+// Role-name → UUID lookup populated by loadWorkspaceData; consumed by
+// roles/index.js when issuing PATCH/DELETE against /api/v1/roles. Kept
+// in module scope (with a getter export) so the roles module doesn't
+// need to learn about a sibling global.
+let _roleUuidByName = {};
+export function getRoleUuid(name) { return _roleUuidByName[name] || null; }
+export function setRoleUuid(name, uuid) { _roleUuidByName[name] = uuid; }
+export function clearRoleUuid(name) { delete _roleUuidByName[name]; }
+export function renameRoleUuid(oldName, newName) {
+  if (_roleUuidByName[oldName]) {
+    _roleUuidByName[newName] = _roleUuidByName[oldName];
+    delete _roleUuidByName[oldName];
+  }
 }
 
 // Server → client: turn agent_user_id / team_user_ids back into names.

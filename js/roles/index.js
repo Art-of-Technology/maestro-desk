@@ -23,6 +23,19 @@
 
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid } from '../core/bootstrap.js';
+
+function rolesApiBacked() {
+  // If any role row carries a UUID lookup, the workspace is API-backed.
+  return Object.keys(ROLES_MATRIX).some((name) => getRoleUuid(name));
+}
+
+// Snapshot the granted permission keys for a role from the local matrix.
+function grantedKeys(roleName) {
+  const cell = ROLES_MATRIX[roleName] || {};
+  return Object.keys(cell).filter((k) => cell[k]);
+}
 
 export function renderRoles() {
   if (ROLES_VIEW_AGENTS) return renderRoleAgentsPage(ROLES_VIEW_AGENTS);
@@ -218,10 +231,16 @@ function renameRolePrompt(oldName) {
       <label class="form-label">New name</label>
       <input class="form-input" id="rn-name" value="${String(oldName).replace(/"/g,'&quot;')}"/>
     </div>
-  `, () => {
+  `, async () => {
     const newName = document.getElementById('rn-name').value.trim();
     if (!newName || newName === oldName) { window.closeModal(); return; }
     if (ROLES_MATRIX[newName]) return; // duplicate guard
+    const uuid = getRoleUuid(oldName);
+    if (uuid) {
+      try { await apiPatch(`/api/v1/roles/${uuid}`, { name: newName }); }
+      catch (err) { alert(`Couldn't rename: ${err?.message || err}`); return; }
+      renameRoleUuid(oldName, newName);
+    }
     ROLES_MATRIX[newName] = ROLES_MATRIX[oldName];
     delete ROLES_MATRIX[oldName];
     AGENTS.forEach(a => { if (a.role === oldName) a.role = newName; });
@@ -233,8 +252,25 @@ function renameRolePrompt(oldName) {
 function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; window.renderPage('roles'); }
 function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; window.renderPage('roles'); }
 
-function togglePermission(role, perm, val) {
+async function togglePermission(role, perm, val) {
   if (!window.isAdmin() || !ROLES_MATRIX[role]) return;
+  const uuid = getRoleUuid(role);
+  if (uuid) {
+    // Optimistic: flip locally, send the new permission set, roll back on
+    // failure. Saves a round-trip when the user toggles multiple cells in
+    // a row.
+    const prev = !!ROLES_MATRIX[role][perm];
+    ROLES_MATRIX[role][perm] = val;
+    try {
+      await apiPatch(`/api/v1/roles/${uuid}`, { permissions: grantedKeys(role) });
+    } catch (err) {
+      ROLES_MATRIX[role][perm] = prev;
+      alert(`Couldn't update permission: ${err?.message || err}`);
+      window.renderPage('roles');
+      return;
+    }
+    return;
+  }
   ROLES_MATRIX[role][perm] = val;
 }
 
@@ -289,12 +325,19 @@ function addRolePrompt() {
         ${Object.keys(ROLES_MATRIX).map(r => `<option value="${r}">${r}</option>`).join('')}
       </select>
     </div>
-  `, () => {
+  `, async () => {
     const name = document.getElementById('nr-name').value.trim();
     if (!name || ROLES_MATRIX[name]) return;
     const base = document.getElementById('nr-base').value;
     const perms = {};
     PERMISSIONS.forEach(p => { perms[p.key] = base ? !!ROLES_MATRIX[base][p.key] : false; });
+    if (rolesApiBacked()) {
+      const grants = PERMISSIONS.map((p) => p.key).filter((k) => perms[k]);
+      let resp;
+      try { resp = await apiPost('/api/v1/roles', { name, permissions: grants }); }
+      catch (err) { alert(`Couldn't create role: ${err?.message || err}`); return; }
+      setRoleUuid(resp.role.name, resp.role.id);
+    }
     ROLES_MATRIX[name] = perms;
     window.closeModal(); window.renderPage('roles');
   }, 'Create');
@@ -324,7 +367,13 @@ function deleteRolePrompt(role) {
     window.showModal('Cannot delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6"><strong style="color:var(--ink)">${inUse}</strong> agent${inUse===1?' is':'s are'} still assigned to <strong style="color:var(--ink)">${role}</strong>. Reassign them to another role first.</div>`, null, null);
     return;
   }
-  window.showModal('Delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete the <strong style="color:var(--ink)">${role}</strong> role?</div>`, () => {
+  window.showModal('Delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete the <strong style="color:var(--ink)">${role}</strong> role?</div>`, async () => {
+    const uuid = getRoleUuid(role);
+    if (uuid) {
+      try { await apiDelete(`/api/v1/roles/${uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+      clearRoleUuid(role);
+    }
     delete ROLES_MATRIX[role];
     window.closeModal(); window.renderPage('roles');
   }, 'Delete');
