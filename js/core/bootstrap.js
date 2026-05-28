@@ -17,9 +17,89 @@
 
 import { apiGet } from './api-client.js';
 
+// Tickets pagination state. Bootstrap loads the first page; the SPA's
+// "Load more" button (and any future infinite scroll) pulls the next.
+// Demo persona doesn't paginate — its TICKETS array stays whatever
+// data.js seeded.
+//
+// PAGE_SIZE is small enough that the demo workspace's 15-20 tickets
+// trip the "Load more" button visibly (so the UI gets exercised). A
+// real deployment would bump this to 50-100.
+export const TICKETS_PAGE_SIZE = 10;
+let _ticketsTotal  = 0;
+let _ticketsOffset = 0;
+let _ticketsPagingFor = null;  // workspace_id string — reset on workspace switch
+
+export function ticketsTotal()       { return _ticketsTotal; }
+export function ticketsLoaded()      { return TICKETS.length; }
+export function ticketsHasMore()     { return _ticketsOffset < _ticketsTotal; }
+
+export async function loadMoreTickets() {
+  if (!ticketsHasMore()) return 0;
+  const res = await apiGet(`/api/v1/tickets?limit=${TICKETS_PAGE_SIZE}&offset=${_ticketsOffset}`);
+  const rawNew = res.tickets || [];
+  // Build the joins map from the freshly-loaded customers + agents
+  // (already in CUSTOMERS / AGENTS by this point — set by the initial
+  // bootstrap before any "load more" can fire).
+  const customerByUuid = Object.fromEntries(CUSTOMERS.map((c) => [c._uuid || c.id, c]));
+  const userByUuid     = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
+  const ticketByUuid   = Object.fromEntries(TICKETS.map((t) => [t._uuid, t]));
+  const newMapped = rawNew.map((t) => mapTicket(t, customerByUuid, userByUuid));
+  // Wire merge pointers within the loaded set + back into existing ones.
+  for (const m of newMapped) {
+    if (m._mergedIntoUuid) {
+      const parent = ticketByUuid[m._mergedIntoUuid] || newMapped.find((x) => x._uuid === m._mergedIntoUuid);
+      if (parent) {
+        m.mergedInto = parent.id;
+        parent.mergedFrom.push(m.id);
+      }
+    }
+  }
+  for (const m of newMapped) TICKETS.push(m);
+  _ticketsOffset += newMapped.length;
+  _ticketsTotal   = res.total ?? _ticketsTotal;
+  return newMapped.length;
+}
+
+// Mapping helper extracted so loadMoreTickets and the initial bootstrap
+// share the exact same shape.
+function mapTicket(t, customerByUuid, userByUuid) {
+  return {
+    _uuid:           t.id,
+    _detailLoaded:   false,
+    id:              t.display_id,
+    subject:         t.subject,
+    customerId:      customerByUuid[t.customer_id]?.id || customerByUuid[t.customer_id]?.display_id || null,
+    status:          t.status_key,
+    priority:        t.priority_key,
+    category:        labelCase(t.category_key) || 'Other',
+    agent:           userByUuid[t.assigned_user_id]?.name || '',
+    created:         isoDate(t.created_at),
+    updated:         fmtRelative(t.updated_at),
+    sla:             t.sla_state || 'ok',
+    snoozedUntil:    t.snoozed_until || null,
+    snoozedAt:       t.snoozed_at    || null,
+    snoozeReason:    t.snooze_reason || null,
+    snoozeWokenAt:   t.snooze_woken_at || null,
+    _mergedIntoUuid: t.merged_into_id || null,
+    mergedInto:      null,
+    mergedAt:        t.merged_at || null,
+    mergedFrom:      [],
+    _statusBeforeMerge: t.status_before_merge || null,
+    tags:            [],
+    aiTags:          [],
+    csat:            null,
+    msgs:            [],
+    timeEntries:     [],
+  };
+}
+
 export async function loadWorkspaceData() {
   const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, permsRes, cvRes] = await Promise.all([
-    apiGet('/api/v1/tickets?limit=200'),
+    // First page only. Subsequent pages load via loadMoreTickets() when
+    // the user clicks "Load more" on the tickets list. Total comes back
+    // in ticketsRes.total so the UI can show "showing N of M".
+    apiGet(`/api/v1/tickets?limit=${TICKETS_PAGE_SIZE}&offset=0`),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
     apiGet('/api/v1/inbox'),
@@ -142,6 +222,10 @@ export async function loadWorkspaceData() {
     }
   }
   replaceInPlace(TICKETS, mappedTickets);
+  // Seed the tickets pagination cursor + total. loadMoreTickets uses
+  // these to fetch subsequent pages on demand.
+  _ticketsOffset = mappedTickets.length;
+  _ticketsTotal  = ticketsRes.total ?? mappedTickets.length;
 
   // ─── CHANNELS ───────────────────────────────────────────────────────────
   // Map UUIDs to display_ids so the rest of the UI (which expects "CH-001"

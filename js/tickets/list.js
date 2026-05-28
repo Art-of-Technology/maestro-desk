@@ -24,6 +24,8 @@ import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
+import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
+import { registerActions } from '../core/event-delegation.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
@@ -186,8 +188,27 @@ export function renderTickets() {
           <tbody>${tableBody}</tbody>
         </table>
         ${list.length===0?'<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets match the current filters</div><div class="empty-line"></div></div>':''}
+        ${ticketsHasMore() ? `
+          <div style="padding:14px;display:flex;align-items:center;gap:12px;justify-content:center;border-top:1px solid var(--rule)">
+            <button class="btn btn-sm" data-action="tickets.loadMore" ${TICKETS_LOAD_MORE_PENDING ? 'disabled' : ''}>
+              ${TICKETS_LOAD_MORE_PENDING ? 'Loading…' : `Load more (${ticketsLoaded()} of ${ticketsTotal()})`}
+            </button>
+          </div>` : ''}
       </div>
     </div>`;
+}
+
+let TICKETS_LOAD_MORE_PENDING = false;
+async function ticketsLoadMore() {
+  if (TICKETS_LOAD_MORE_PENDING || !ticketsHasMore()) return;
+  TICKETS_LOAD_MORE_PENDING = true;
+  window.renderPage('tickets');
+  try { await loadMoreTickets(); }
+  catch (err) { alert(`Couldn't load more tickets: ${err?.message || err}`); }
+  finally {
+    TICKETS_LOAD_MORE_PENDING = false;
+    window.renderPage('tickets');
+  }
 }
 
 export function setStatusFilter(s) { FILTER_STATUS = s; window.renderPage('tickets'); }
@@ -403,3 +424,7 @@ export function exportTicketList() {
     URL.revokeObjectURL(url);
   }
 }
+
+registerActions({
+  'tickets.loadMore': () => ticketsLoadMore(),
+});
