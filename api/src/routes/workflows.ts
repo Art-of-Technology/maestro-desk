@@ -165,3 +165,49 @@ workflows.post('/:id/run', async (c) => {
 
   return c.json({ workflow: updated });
 });
+
+// ─── GET /:id/runs — workflow run history, newest first ─────────────────
+//
+// Joined with users (for the triggered-by display name) and tickets
+// (for the display_id when the run was tied to a ticket — triggered
+// runs always are, manual runs aren't). Capped at 200 rows so the UI
+// doesn't render an unbounded list.
+workflows.get('/:id/runs', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const id = c.req.param('id');
+
+  // Workspace-scope check.
+  const { data: wf, error: wErr } = await sb
+    .from('workflows')
+    .select('id')
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (wErr) return c.json({ error: wErr.message }, 500);
+  if (!wf)  return c.json({ error: 'Workflow not found' }, 404);
+
+  const { data, error } = await sb
+    .from('workflow_runs')
+    .select(`
+      id, kind, triggered_by_user_id, ticket_id, created_at,
+      users(name),
+      tickets(display_id)
+    `)
+    .eq('workspace_id', workspaceId)
+    .eq('workflow_id', id)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) return c.json({ error: error.message }, 500);
+
+  const runs = (data || []).map((r: any) => ({
+    id:                   r.id,
+    kind:                 r.kind,
+    triggered_by_user_id: r.triggered_by_user_id,
+    triggered_by_name:    r.users?.name || null,
+    ticket_id:            r.ticket_id,
+    ticket_display_id:    r.tickets?.display_id || null,
+    created_at:           r.created_at,
+  }));
+  return c.json({ runs });
+});
