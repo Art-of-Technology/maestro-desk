@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { supabaseAdmin } from '../lib/supabase.ts';
+import { suggestKbForQuestion } from '../lib/kb-suggest.ts';
 
 export const publicRoutes = new Hono();
 
@@ -173,4 +174,40 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     ticket: { id: ticket.id, display_id: ticket.display_id },
     customer: { id: customerId },
   }, 201);
+});
+
+// ─── POST /:slug/kb-suggest — AI-rank KB articles for a question ─────────
+//
+// The portal calls this after the customer fills in subject + body to
+// suggest articles that might let them self-serve. Returns
+// { suggestions: [{ article_id, confidence, reason }] } — display_ids
+// matching the workspace's KB. Empty list when no good match OR when
+// the workspace's AI budget is exhausted (graceful degrade — portal
+// just shows "submit a request" without the suggestions panel).
+const PostSuggest = z.object({
+  question: z.string().min(8).max(4000),
+});
+
+publicRoutes.post('/:slug/kb-suggest', async (c) => {
+  const ws = await resolveWorkspace(c.req.param('slug'));
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = PostSuggest.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+
+  try {
+    const res = await suggestKbForQuestion({
+      sb:          supabaseAdmin,
+      workspaceId: ws.id,
+      question:    parsed.data.question,
+    });
+    return c.json({ suggestions: res.suggestions });
+  } catch (err) {
+    console.error('[public] kb-suggest failed:', err);
+    // Don't surface the error to the customer — they'll just submit
+    // their ticket without suggestions, which is the correct fallback.
+    return c.json({ suggestions: [] });
+  }
 });
