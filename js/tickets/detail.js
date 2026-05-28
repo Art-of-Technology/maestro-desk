@@ -47,6 +47,7 @@ import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
+import { loadTicketDetail } from '../core/bootstrap.js';
 import {
   KB_INTEGRATION, KB_TICKET_CACHE,
   refreshTicketKbSuggestions,
@@ -64,6 +65,16 @@ export function openTicket(id) {
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
   if (!t) { CURRENT_TICKET = null; return window.renderPage('tickets'); }
+  // Fire-and-forget API load of messages/tags/ai_tags/time_entries. The
+  // ticket renders immediately with whatever's already in `t`; when the
+  // fetch completes, the entry is mutated in place and we re-render iff
+  // the user is still on this ticket. Skipped for demo personas
+  // (loadTicketDetail no-ops when `t._uuid` is absent) and idempotent.
+  if (t._uuid && !t._detailLoaded) {
+    loadTicketDetail(id).then(() => {
+      if (CURRENT_TICKET === id) openTicket(id);
+    }).catch(err => console.warn('[ticket-detail] load failed:', err));
+  }
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
   const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
   const snoozeBanner = (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) ? `

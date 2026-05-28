@@ -30,6 +30,68 @@ tickets.get('/', async (c) => {
   return c.json({ tickets: data, total: count ?? 0, limit, offset });
 });
 
+// Full ticket detail — the row itself plus all of its child collections.
+// Used by the SPA's ticket-detail view to populate the conversation thread,
+// tags, AI tags, and time entries that aren't returned by the list endpoint.
+//
+// 4 parallel queries instead of one big embedded select — clearer to read
+// and to debug, with no measurable latency cost at v1 scale.
+tickets.get('/:id', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const ticketId = c.req.param('id');
+
+  const { data: ticket, error: tErr } = await sb
+    .from('tickets')
+    .select('*')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr) return c.json({ error: tErr.message }, 500);
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  const [msgsRes, tagsRes, aiTagsRes, timeRes] = await Promise.all([
+    sb.from('ticket_messages')
+      .select('id, role, author_user_id, author_label, body, mentions, created_at')
+      .eq('ticket_id', ticketId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true }),
+    sb.from('ticket_tags')
+      .select('tag')
+      .eq('ticket_id', ticketId),
+    sb.from('ticket_ai_tags')
+      .select('tag, confidence, accepted')
+      .eq('ticket_id', ticketId)
+      .order('confidence', { ascending: false }),
+    sb.from('time_entries')
+      .select('id, user_id, minutes, note, billable, created_at, users(name)')
+      .eq('ticket_id', ticketId)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  const firstErr = [msgsRes, tagsRes, aiTagsRes, timeRes].find((r) => r.error);
+  if (firstErr?.error) return c.json({ error: firstErr.error.message }, 500);
+
+  return c.json({
+    ticket: {
+      ...ticket,
+      messages:     msgsRes.data || [],
+      tags:         (tagsRes.data || []).map((r: any) => r.tag),
+      ai_tags:      aiTagsRes.data || [],
+      time_entries: (timeRes.data || []).map((te: any) => ({
+        id:         te.id,
+        user_id:    te.user_id,
+        user_name:  te.users?.name || null,
+        minutes:    te.minutes,
+        note:       te.note,
+        billable:   te.billable,
+        created_at: te.created_at,
+      })),
+    },
+  });
+});
+
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),

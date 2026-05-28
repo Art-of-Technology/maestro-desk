@@ -65,22 +65,73 @@ export async function loadWorkspaceData() {
 
   // ─── TICKETS ────────────────────────────────────────────────────────────
   const mappedTickets = ticketsRaw.map((t) => ({
-    id:         t.display_id,
-    subject:    t.subject,
-    customerId: customerByUuid[t.customer_id]?.display_id || null,
-    status:     t.status_key,
-    priority:   t.priority_key,
-    category:   labelCase(t.category_key) || 'Other',
-    agent:      userByUuid[t.assigned_user_id]?.name || '',
-    created:    isoDate(t.created_at),
-    updated:    fmtRelative(t.updated_at),
-    sla:        t.sla_state || 'ok',
-    tags:       [],   // PR follow-up: GET /api/v1/tickets/:id/tags
-    aiTags:     [],   // PR follow-up
-    csat:       null, // PR follow-up
-    msgs:       [],   // PR follow-up: GET /api/v1/tickets/:id/messages on detail open
+    _uuid:           t.id,          // DB UUID — used by detail fetch
+    _detailLoaded:   false,         // flips true after loadTicketDetail
+    id:              t.display_id,
+    subject:         t.subject,
+    customerId:      customerByUuid[t.customer_id]?.display_id || null,
+    status:          t.status_key,
+    priority:        t.priority_key,
+    category:        labelCase(t.category_key) || 'Other',
+    agent:           userByUuid[t.assigned_user_id]?.name || '',
+    created:         isoDate(t.created_at),
+    updated:         fmtRelative(t.updated_at),
+    sla:             t.sla_state || 'ok',
+    tags:            [],   // populated by loadTicketDetail on open
+    aiTags:          [],
+    csat:            null,
+    msgs:            [],
+    timeEntries:     [],
   }));
   replaceInPlace(TICKETS, mappedTickets);
+}
+
+// Fetches the full detail (messages, tags, ai_tags, time_entries) for a
+// single ticket and merges into the existing TICKETS entry in place.
+// Idempotent: second call is a cheap no-op via the _detailLoaded flag.
+// Returns the ticket after merge (or null if not found / not loadable).
+export async function loadTicketDetail(displayId) {
+  const t = TICKETS.find((x) => x.id === displayId);
+  if (!t) return null;
+  if (!t._uuid) return t;          // demo persona ticket — nothing to load
+  if (t._detailLoaded) return t;
+
+  const res = await apiGet(`/api/v1/tickets/${t._uuid}`);
+  const d = res.ticket;
+  if (!d) return t;
+
+  // Map messages to data.js shape ({from, r, t, ts, mentions}).
+  t.msgs = (d.messages || []).map((m) => ({
+    from:     m.author_label,
+    r:        m.role,
+    t:        m.body,
+    ts:       fmtTime(m.created_at),
+    mentions: m.mentions || [],
+  }));
+  t.tags        = d.tags || [];
+  t.aiTags      = (d.ai_tags || []).map((x) => ({ tag: x.tag, conf: x.confidence, accepted: x.accepted }));
+  t.timeEntries = (d.time_entries || []).map((te) => ({
+    id:       te.id,
+    agent:    te.user_name || '',
+    minutes:  te.minutes,
+    note:     te.note || '',
+    billable: te.billable,
+    ts:       fmtTimestampLong(te.created_at),
+  }));
+
+  // Sidebar metadata
+  t.csat            = d.csat_score ?? null;
+  t.csatStars       = d.csat_stars ?? null;
+  t.csatComment     = d.csat_comment || '';
+  t.csatRequestedAt = d.csat_requested_at ? isoDate(d.csat_requested_at) : null;
+  t.csatSubmittedAt = d.csat_submitted_at ? isoDate(d.csat_submitted_at) : null;
+  t.snoozedUntil    = d.snoozed_until || null;
+  t.snoozedAt       = d.snoozed_at || null;
+  t.snoozeReason    = d.snooze_reason || '';
+  t.resolvedAt      = d.resolved_at || null;
+
+  t._detailLoaded = true;
+  return t;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -122,4 +173,22 @@ function fmtRelative(iso) {
 function labelCase(s) {
   if (!s) return '';
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// "HH:MM" — matches data.js's `ts: '09:12'` shape for messages.
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toTimeString().slice(0, 5);
+}
+
+// "YYYY-MM-DD HH:MM" — matches data.js's time-entry ts shape.
+function fmtTimestampLong(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const date = d.toISOString().slice(0, 10);
+  const time = d.toTimeString().slice(0, 5);
+  return `${date} ${time}`;
 }
