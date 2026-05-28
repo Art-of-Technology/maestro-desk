@@ -18,7 +18,7 @@ tickets.get('/', async (c) => {
   const { data, error, count } = await sb
     .from('tickets')
     .select(
-      'id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at',
+      'id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge',
       { count: 'exact' },
     )
     .eq('workspace_id', workspaceId)
@@ -51,9 +51,11 @@ tickets.get('/:id', async (c) => {
   if (tErr) return c.json({ error: tErr.message }, 500);
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const [msgsRes, tagsRes, aiTagsRes, timeRes] = await Promise.all([
+  // Messages query carries merged_from_id so the client can mark which
+  // turns came from a merged-in source ticket.
+  const [msgsRes, tagsRes, aiTagsRes, timeRes, mergedFromRes, mergedIntoRes] = await Promise.all([
     sb.from('ticket_messages')
-      .select('id, role, author_user_id, author_label, body, mentions, created_at')
+      .select('id, role, author_user_id, author_label, body, mentions, merged_from_id, created_at')
       .eq('ticket_id', ticketId)
       .is('deleted_at', null)
       .order('created_at', { ascending: true }),
@@ -68,9 +70,23 @@ tickets.get('/:id', async (c) => {
       .select('id, user_id, minutes, note, billable, created_at, users(name)')
       .eq('ticket_id', ticketId)
       .order('created_at', { ascending: false }),
+    // Children: tickets whose merged_into_id points at us. Returned as
+    // display_ids so the UI can deep-link without an extra fetch.
+    sb.from('tickets')
+      .select('display_id')
+      .eq('merged_into_id', ticketId)
+      .eq('workspace_id', workspaceId)
+      .is('deleted_at', null),
+    // Parent: if this ticket is itself merged, fetch the primary's display_id.
+    ticket.merged_into_id
+      ? sb.from('tickets')
+          .select('display_id')
+          .eq('id', ticket.merged_into_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as any),
   ]);
 
-  const firstErr = [msgsRes, tagsRes, aiTagsRes, timeRes].find((r) => r.error);
+  const firstErr = [msgsRes, tagsRes, aiTagsRes, timeRes, mergedFromRes, mergedIntoRes].find((r) => r.error);
   if (firstErr?.error) return c.json({ error: firstErr.error.message }, 500);
 
   return c.json({
@@ -88,6 +104,8 @@ tickets.get('/:id', async (c) => {
         billable:   te.billable,
         created_at: te.created_at,
       })),
+      merged_from_display_ids: (mergedFromRes.data || []).map((r: any) => r.display_id),
+      merged_into_display_id:  (mergedIntoRes as any)?.data?.display_id || null,
     },
   });
 });
@@ -467,6 +485,167 @@ tickets.delete('/:id/snooze', async (c) => {
   if (updErr) return c.json({ error: updErr.message }, 500);
 
   return c.json({ ticket: updated });
+});
+
+// ─── POST /:id/merge — merge this ticket into another as a duplicate ─────
+//
+// :id is the SOURCE (the duplicate); body's into_id is the PRIMARY (the
+// one that keeps the customer-facing thread). Server:
+//   1. Validates both tickets exist in workspace; primary isn't itself merged.
+//   2. Stamps merged_into_id, merged_at, status_before_merge on source.
+//   3. Copies source's messages to primary with merged_from_id=source so
+//      the primary's thread shows the merged history. Existing primary
+//      messages aren't touched.
+//   4. Inserts a "── Merged from TK-XXX ──" system marker on primary.
+//   5. Resolves the source ticket (status_key='resolved') if it wasn't
+//      already, so it leaves the open queue.
+const PostMerge = z.object({
+  into_id: z.string().uuid(),
+});
+
+tickets.post('/:id/merge', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const sourceId = c.req.param('id');
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = PostMerge.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const primaryId = parsed.data.into_id;
+  if (primaryId === sourceId) {
+    return c.json({ error: 'Cannot merge a ticket into itself' }, 400);
+  }
+
+  // Fetch both tickets in the workspace.
+  const { data: rows, error: fetchErr } = await sb
+    .from('tickets')
+    .select('id, display_id, subject, status_key, merged_into_id')
+    .in('id', [sourceId, primaryId])
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null);
+  if (fetchErr) return c.json({ error: fetchErr.message }, 500);
+  const source = (rows || []).find((r) => r.id === sourceId);
+  const primary = (rows || []).find((r) => r.id === primaryId);
+  if (!source)  return c.json({ error: 'Source ticket not found' }, 404);
+  if (!primary) return c.json({ error: 'Primary ticket not found' }, 404);
+  if (source.merged_into_id) {
+    return c.json({ error: 'Source is already merged' }, 409);
+  }
+  if (primary.merged_into_id) {
+    return c.json({ error: 'Primary is itself a duplicate — pick the chain primary instead' }, 409);
+  }
+
+  // 1. Update source row.
+  const wasResolved = source.status_key === 'resolved';
+  const { error: updErr } = await sb
+    .from('tickets')
+    .update({
+      merged_into_id:      primaryId,
+      merged_at:           new Date().toISOString(),
+      status_before_merge: wasResolved ? null : source.status_key,
+      status_key:          'resolved',
+    })
+    .eq('id', sourceId)
+    .eq('workspace_id', workspaceId);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  // 2. Copy source messages onto primary, tagged with merged_from_id.
+  const { data: srcMsgs, error: msgsErr } = await sb
+    .from('ticket_messages')
+    .select('role, author_user_id, author_label, body, mentions, created_at')
+    .eq('ticket_id', sourceId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true });
+  if (msgsErr) return c.json({ error: msgsErr.message }, 500);
+
+  const inserts: any[] = [
+    // Merge marker first so it shows up at the top of the merged block.
+    // mentions:[] is explicit because Supabase's batch insert sends every
+    // key — missing → null, which violates the NOT NULL constraint even
+    // though the column has a default.
+    {
+      workspace_id:   workspaceId,
+      ticket_id:      primaryId,
+      role:           'system',
+      author_label:   'System',
+      body:           `── Merged from ${source.display_id}: "${source.subject}" ──`,
+      mentions:       [],
+      merged_from_id: sourceId,
+    },
+    ...(srcMsgs || []).map((m: any) => ({
+      workspace_id:   workspaceId,
+      ticket_id:      primaryId,
+      role:           m.role,
+      author_user_id: m.author_user_id,
+      author_label:   m.author_label,
+      body:           m.body,
+      mentions:       m.mentions || [],
+      merged_from_id: sourceId,
+    })),
+  ];
+  const { error: insErr } = await sb.from('ticket_messages').insert(inserts);
+  if (insErr) return c.json({ error: insErr.message }, 500);
+
+  return c.json({
+    source: { id: sourceId, merged_into_display_id: primary.display_id },
+    primary: { id: primaryId, display_id: primary.display_id },
+  });
+});
+
+// ─── POST /:id/unmerge — undo a merge ────────────────────────────────────
+//
+// :id is the SOURCE (currently merged). Server:
+//   1. Strips messages from the primary where merged_from_id = source.
+//   2. Restores status_key from status_before_merge (default 'open' if
+//      somehow missing — shouldn't happen for clean merges).
+//   3. Clears merged_into_id, merged_at, status_before_merge.
+tickets.post('/:id/unmerge', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const sourceId = c.req.param('id');
+
+  const { data: source, error: fetchErr } = await sb
+    .from('tickets')
+    .select('id, merged_into_id, status_before_merge')
+    .eq('id', sourceId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (fetchErr) return c.json({ error: fetchErr.message }, 500);
+  if (!source) return c.json({ error: 'Source ticket not found' }, 404);
+  if (!source.merged_into_id) {
+    return c.json({ error: 'Ticket is not merged' }, 409);
+  }
+
+  // 1. Strip merged messages from the primary.
+  const { error: delErr } = await sb
+    .from('ticket_messages')
+    .delete()
+    .eq('workspace_id', workspaceId)
+    .eq('ticket_id', source.merged_into_id)
+    .eq('merged_from_id', sourceId);
+  if (delErr) return c.json({ error: delErr.message }, 500);
+
+  // 2. Restore source row.
+  const restoredStatus = source.status_before_merge || 'open';
+  const { error: updErr } = await sb
+    .from('tickets')
+    .update({
+      merged_into_id:      null,
+      merged_at:           null,
+      status_before_merge: null,
+      status_key:          restoredStatus,
+    })
+    .eq('id', sourceId)
+    .eq('workspace_id', workspaceId);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  return c.json({
+    source: { id: sourceId, status_key: restoredStatus },
+    primary: { id: source.merged_into_id },
+  });
 });
 
 const CreateTicket = z.object({

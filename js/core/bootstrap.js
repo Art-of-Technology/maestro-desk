@@ -87,12 +87,30 @@ export async function loadWorkspaceData() {
     snoozedAt:       t.snoozed_at    || null,
     snoozeReason:    t.snooze_reason || null,
     snoozeWokenAt:   t.snooze_woken_at || null,
+    _mergedIntoUuid: t.merged_into_id || null,
+    mergedInto:      null,            // back-filled below from ticketByUuid
+    mergedAt:        t.merged_at || null,
+    mergedFrom:      [],              // back-filled below
+    _statusBeforeMerge: t.status_before_merge || null,
     tags:            [],   // populated by loadTicketDetail on open
     aiTags:          [],
     csat:            null,
     msgs:            [],
     timeEntries:     [],
   }));
+  // Resolve merge pointers display_id ↔ display_id across the loaded set.
+  // Children outside the current page won't appear in mergedFrom — paginate-
+  // aware merge graphs are a future PR.
+  const ticketByUuid = Object.fromEntries(mappedTickets.map((m) => [m._uuid, m]));
+  for (const m of mappedTickets) {
+    if (m._mergedIntoUuid) {
+      const parent = ticketByUuid[m._mergedIntoUuid];
+      if (parent) {
+        m.mergedInto = parent.id;
+        parent.mergedFrom.push(m.id);
+      }
+    }
+  }
   replaceInPlace(TICKETS, mappedTickets);
 
   // ─── CHANNELS ───────────────────────────────────────────────────────────
@@ -146,13 +164,19 @@ export async function loadTicketDetail(displayId) {
   const d = res.ticket;
   if (!d) return t;
 
-  // Map messages to data.js shape ({from, r, t, ts, mentions}).
+  // Build a UUID → display_id lookup for messages that came from a
+  // merged source ticket, so the per-message mergedFrom tag matches the
+  // existing data.js shape (display_id string, not UUID).
+  const ticketByUuid = Object.fromEntries(TICKETS.map((x) => [x._uuid, x.id]));
+
+  // Map messages to data.js shape ({from, r, t, ts, mentions, mergedFrom?}).
   t.msgs = (d.messages || []).map((m) => ({
-    from:     m.author_label,
-    r:        m.role,
-    t:        m.body,
-    ts:       fmtTime(m.created_at),
-    mentions: m.mentions || [],
+    from:       m.author_label,
+    r:          m.role,
+    t:          m.body,
+    ts:         fmtTime(m.created_at),
+    mentions:   m.mentions || [],
+    mergedFrom: m.merged_from_id ? (ticketByUuid[m.merged_from_id] || null) : undefined,
   }));
   t.tags        = d.tags || [];
   t.aiTags      = (d.ai_tags || []).map((x) => ({ tag: x.tag, conf: x.confidence, accepted: x.accepted }));
@@ -175,6 +199,14 @@ export async function loadTicketDetail(displayId) {
   t.snoozedAt       = d.snoozed_at || null;
   t.snoozeReason    = d.snooze_reason || '';
   t.resolvedAt      = d.resolved_at || null;
+
+  // Merge state — the detail endpoint joins the primary's display_id and
+  // the children's display_ids so the SPA's merge banner + merged-duplicates
+  // sidebar block don't need cross-ticket lookups.
+  t.mergedInto         = d.merged_into_display_id || null;
+  t.mergedAt           = d.merged_at ? isoDate(d.merged_at) : null;
+  t.mergedFrom         = d.merged_from_display_ids || [];
+  t._statusBeforeMerge = d.status_before_merge || null;
 
   t._detailLoaded = true;
   return t;

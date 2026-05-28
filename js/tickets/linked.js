@@ -16,6 +16,7 @@
 // is a direct ES import.
 
 import { refreshTicketSLA } from './sla.js';
+import { apiPost } from '../core/api-client.js';
 
 export function linkTickets(id, otherId) {
   const t = TICKETS.find(x => x.id === id);
@@ -63,7 +64,7 @@ export function showMergeTicketModal(id) {
   `, null, null);
 }
 
-export function mergeTickets(srcId, primaryId) {
+export async function mergeTickets(srcId, primaryId) {
   if (srcId === primaryId) return;
   const src = TICKETS.find(x => x.id === srcId);
   const primary = TICKETS.find(x => x.id === primaryId);
@@ -72,6 +73,10 @@ export function mergeTickets(srcId, primaryId) {
   if (primary.mergedInto) {
     alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
     return;
+  }
+  if (src._uuid && primary._uuid) {
+    try { await apiPost(`/api/v1/tickets/${src._uuid}/merge`, { into_id: primary._uuid }); }
+    catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
   }
   src.mergedInto = primaryId;
   src.mergedAt = new Date().toISOString().slice(0, 10);
@@ -101,11 +106,15 @@ export function mergeTickets(srcId, primaryId) {
   window.fireWebhook('ticket.merged', { source: window.ticketPayload(src), primary: window.ticketPayload(primary) });
 }
 
-export function unmergeTicket(srcId) {
+export async function unmergeTicket(srcId) {
   const src = TICKETS.find(x => x.id === srcId);
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
   const primary = TICKETS.find(x => x.id === primaryId);
+  if (src._uuid) {
+    try { await apiPost(`/api/v1/tickets/${src._uuid}/unmerge`, {}); }
+    catch (err) { alert(`Couldn't un-merge: ${err?.message || err}`); return; }
+  }
   if (primary) {
     if (primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
     if (primary.msgs) primary.msgs = primary.msgs.filter(m => m.mergedFrom !== srcId);
