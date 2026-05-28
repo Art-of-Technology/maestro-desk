@@ -28,6 +28,7 @@ import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from './detail.js';
+import { apiPatch } from '../core/api-client.js';
 
 function csatStarString(n) {
   const score = Math.max(0, Math.min(5, parseInt(n, 10) || 0));
@@ -70,10 +71,15 @@ export function ticketCSATBlock(t) {
   return '';
 }
 
-function requestCSAT(id) {
+async function requestCSAT(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
-  t.csatRequestedAt = new Date().toISOString().slice(0, 10);
+  const stamp = new Date().toISOString().slice(0, 10);
+  if (t._uuid) {
+    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { csat_requested_at: stamp }); }
+    catch (err) { alert(`Couldn't send survey: ${err?.message || err}`); return; }
+  }
+  t.csatRequestedAt = stamp;
   logTicketEvent(id, 'system', 'CSAT survey sent to customer');
   if (CURRENT_TICKET === id) window.openTicket(id);
   openCSATSurveyModal(id);
@@ -140,16 +146,29 @@ function csatPick(n) {
   csatHover(n);
 }
 
-function submitCSAT(id, score, comment) {
+async function submitCSAT(id, score, comment) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   const clamped = Math.max(1, Math.min(5, parseInt(score, 10)));
   if (!Number.isInteger(clamped)) return;
+  const submittedAt = new Date().toISOString().slice(0, 10);
+  const requestedAt = t.csatRequestedAt || submittedAt;
+  if (t._uuid) {
+    try {
+      await apiPatch(`/api/v1/tickets/${t._uuid}`, {
+        csat_score:        clamped,
+        csat_stars:        clamped,
+        csat_comment:      comment || null,
+        csat_submitted_at: submittedAt,
+        csat_requested_at: requestedAt,
+      });
+    } catch (err) { alert(`Couldn't submit CSAT: ${err?.message || err}`); return; }
+  }
   t.csat = clamped;
   t.csatStars = clamped;
   t.csatComment = comment || null;
-  t.csatSubmittedAt = new Date().toISOString().slice(0, 10);
-  if (!t.csatRequestedAt) t.csatRequestedAt = t.csatSubmittedAt;
+  t.csatSubmittedAt = submittedAt;
+  t.csatRequestedAt = requestedAt;
   logTicketEvent(id, 'system', `CSAT submitted: ${clamped}/5${comment ? ' with comment' : ''}`);
   fireWebhook('csat.submitted', { ...ticketPayload(t), csat: clamped, comment: comment || null });
   window.closeModal();

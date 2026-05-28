@@ -98,10 +98,18 @@ tickets.get('/:id', async (c) => {
 // 400 (probably a client bug, fail loudly). assigned_user_id may be null
 // to unassign.
 const PatchTicket = z.object({
-  status_key:       z.string().optional(),
-  priority_key:     z.string().optional(),
-  category_key:     z.string().nullable().optional(),
-  assigned_user_id: z.string().uuid().nullable().optional(),
+  status_key:        z.string().optional(),
+  priority_key:      z.string().optional(),
+  category_key:      z.string().nullable().optional(),
+  assigned_user_id:  z.string().uuid().nullable().optional(),
+  // CSAT fields — the schema defaults to YYYY-MM-DD when written from the
+  // SPA, but the column is timestamptz so any Postgres-parseable timestamp
+  // is fine. Bad values bubble up as DB errors.
+  csat_score:        z.number().int().min(1).max(5).nullable().optional(),
+  csat_stars:        z.number().int().min(1).max(5).nullable().optional(),
+  csat_comment:      z.string().nullable().optional(),
+  csat_requested_at: z.string().nullable().optional(),
+  csat_submitted_at: z.string().nullable().optional(),
 }).strict();
 
 tickets.patch('/:id', async (c) => {
@@ -138,7 +146,7 @@ tickets.patch('/:id', async (c) => {
     .update(updates)
     .eq('id', ticketId)
     .eq('workspace_id', workspaceId)
-    .select('id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at')
+    .select('id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at, csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at')
     .single();
   if (updErr) return c.json({ error: updErr.message }, 500);
 

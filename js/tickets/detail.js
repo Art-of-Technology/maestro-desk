@@ -637,16 +637,24 @@ export function insertMacro(ticketId, idx) {
 export async function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
+  // Side-effect: resolving an un-surveyed ticket auto-requests CSAT. Bundle
+  // both fields into a single PATCH so the row stays consistent if the
+  // status update succeeds but a follow-up call would fail.
+  const stampCsat = val === 'resolved' && !t.csatRequestedAt && !t.csat
+    ? new Date().toISOString().slice(0, 10)
+    : null;
   if (t._uuid) {
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_key: val }); }
+    const patch = { status_key: val };
+    if (stampCsat) patch.csat_requested_at = stampCsat;
+    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, patch); }
     catch (err) { alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
   logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
   t.status = val;
   refreshTicketSLA(t);
-  if (val === 'resolved' && !t.csatRequestedAt && !t.csat) {
-    t.csatRequestedAt = new Date().toISOString().slice(0, 10);
+  if (stampCsat) {
+    t.csatRequestedAt = stampCsat;
     logTicketEvent(id, 'system', 'CSAT survey sent to customer');
   }
   window.updateNavBadges();
