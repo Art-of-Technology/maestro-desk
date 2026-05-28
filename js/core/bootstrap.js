@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -26,6 +26,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/channels'),
     apiGet('/api/v1/workflows'),
     apiGet('/api/v1/sla-policies'),
+    apiGet('/api/v1/tags'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -35,6 +36,7 @@ export async function loadWorkspaceData() {
   const channelsRaw  = channelsRes.channels   || [];
   const workflowsRaw = workflowsRes.workflows || [];
   const slaRaw       = slaRes.sla_policies    || [];
+  const tagsRaw      = tagsRes.tags           || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -183,6 +185,18 @@ export async function loadWorkspaceData() {
     status:           p.status,
   }));
   replaceInPlace(SLA_POLICIES, mappedSla);
+
+  // ─── TAG_LIBRARY ────────────────────────────────────────────────────────
+  // type/conf are the data.js field names; kind/ai_confidence on the server.
+  // Count comes pre-computed from the API (manual or AI count depending on
+  // the row's kind).
+  const mappedTags = tagsRaw.map((t) => ({
+    tag:   t.tag,
+    type:  t.kind,
+    conf:  t.ai_confidence,
+    count: t.count || 0,
+  }));
+  replaceInPlace(TAG_LIBRARY, mappedTags);
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.

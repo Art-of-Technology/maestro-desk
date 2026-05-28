@@ -23,6 +23,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
+import { apiPatch, apiPost, apiDelete } from '../core/api-client.js';
 
 export function renderTags() {
   if (TAG_SELECTED) return renderTagDetail(TAG_SELECTED);
@@ -166,8 +167,24 @@ function toggleAllTags() {
 }
 function clearTagSelection() { TAG_SELECTED_NAMES.clear(); window.renderPage('tags'); }
 
-function bulkSetTagType(v) {
+function tagsApiBacked() {
+  // ticket_tags-bootstrapped tags don't carry a per-row UUID (composite
+  // PK), so we treat the whole library as API-backed when TICKETS came
+  // from the API. Demo persona has no _uuid on any ticket.
+  return TICKETS.some((t) => t._uuid);
+}
+
+async function bulkSetTagType(v) {
   if (!window.isAdmin() || !v || TAG_SELECTED_NAMES.size === 0) return;
+  const apiBacked = tagsApiBacked();
+  const names = [...TAG_SELECTED_NAMES];
+  if (apiBacked) {
+    try {
+      await Promise.all(names.map((n) =>
+        apiPatch(`/api/v1/tags/${encodeURIComponent(n)}`, { kind: v })
+      ));
+    } catch (err) { alert(`Couldn't update tag kinds: ${err?.message || err}`); return; }
+  }
   TAG_LIBRARY.forEach(t => {
     if (TAG_SELECTED_NAMES.has(t.tag)) {
       t.type = v;
@@ -182,8 +199,16 @@ function bulkDeleteTags() {
   if (!window.isAdmin()) return;
   const n = TAG_SELECTED_NAMES.size;
   if (n === 0) return;
-  window.showModal(`Delete ${n} tag${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> tag${n===1?'':'s'}? They will be removed from any tickets currently using them.</div>`, () => {
-    [...TAG_SELECTED_NAMES].forEach(tagName => {
+  window.showModal(`Delete ${n} tag${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> tag${n===1?'':'s'}? They will be removed from any tickets currently using them.</div>`, async () => {
+    const names = [...TAG_SELECTED_NAMES];
+    if (tagsApiBacked()) {
+      try {
+        await Promise.all(names.map((n) =>
+          apiDelete(`/api/v1/tags/${encodeURIComponent(n)}`)
+        ));
+      } catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
+    names.forEach(tagName => {
       TICKETS.forEach(tk => {
         tk.tags = (tk.tags || []).filter(x => x !== tagName);
         tk.aiTags = (tk.aiTags || []).filter(at => at.tag !== tagName);
@@ -197,12 +222,17 @@ function bulkDeleteTags() {
   }, 'Delete');
 }
 
-function convertTagType(tagName) {
+async function convertTagType(tagName) {
   if (!window.isAdmin()) return;
   const t = TAG_LIBRARY.find(x => x.tag === tagName);
   if (!t) return;
-  if (t.type === 'ai') { t.type = 'manual'; t.conf = null; }
-  else                 { t.type = 'ai'; t.conf = t.conf || 90; }
+  const nextKind = t.type === 'ai' ? 'manual' : 'ai';
+  if (tagsApiBacked()) {
+    try { await apiPatch(`/api/v1/tags/${encodeURIComponent(tagName)}`, { kind: nextKind }); }
+    catch (err) { alert(`Couldn't convert: ${err?.message || err}`); return; }
+  }
+  if (nextKind === 'manual') { t.type = 'manual'; t.conf = null; }
+  else                       { t.type = 'ai'; t.conf = t.conf || 90; }
   window.renderPage('tags');
 }
 
@@ -221,10 +251,14 @@ function mergeTagPrompt(sourceName) {
   `, null, null);
 }
 
-function mergeTags(sourceName, targetName) {
+async function mergeTags(sourceName, targetName) {
   const source = TAG_LIBRARY.find(x => x.tag === sourceName);
   const target = TAG_LIBRARY.find(x => x.tag === targetName);
   if (!source || !target) return;
+  if (tagsApiBacked()) {
+    try { await apiPost(`/api/v1/tags/${encodeURIComponent(sourceName)}/merge`, { into: targetName }); }
+    catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
+  }
   TICKETS.forEach(tk => {
     tk.tags = [...new Set((tk.tags || []).map(x => x === sourceName ? targetName : x))];
     tk.aiTags = (tk.aiTags || []).map(at => at.tag === sourceName ? { ...at, tag: targetName } : at);
