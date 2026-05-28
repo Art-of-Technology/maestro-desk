@@ -22,6 +22,7 @@
 import { signIn, rehydrateUser, signOut } from '../core/auth-client.js';
 import { setWorkspaceId, getWorkspaceId } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
+import { loadWorkspaceData } from '../core/bootstrap.js';
 import { showAuthPanel } from './index.js';
 
 // In-memory cache of the memberships list between sign-in and workspace pick.
@@ -117,25 +118,36 @@ registerActions({
   'agent.pickWorkspace': (ds) => pickAgentWorkspace(ds),
 });
 
-function enterWorkspace(m) {
+async function enterWorkspace(m) {
   if (m.suspended) {
-    const errEl = document.getElementById('ag-error');
-    if (errEl) {
-      errEl.textContent = `${m.workspace_name} is suspended. Contact your platform admin.`;
-      errEl.style.display = 'block';
-    }
-    // Re-show the form so the user can try another login.
-    const formEl = document.getElementById('ag-form');
-    const pickEl = document.getElementById('ag-picker');
-    if (formEl) formEl.style.display = 'block';
-    if (pickEl) pickEl.style.display = 'none';
+    showSignInError(`${m.workspace_name} is suspended. Contact your platform admin.`);
     return;
   }
   setWorkspaceId(m.workspace_id);
-  bootShell(_user, m);
+  try {
+    await bootShell(_user, m);
+  } catch (err) {
+    // Bootstrap failed → unwind so the user lands back on the form rather
+    // than a half-booted shell with stale demo data still in the globals.
+    setWorkspaceId(null);
+    showSignInError(err?.message || 'Failed to load workspace data.');
+  }
 }
 
-function bootShell(user, membership) {
+function showSignInError(msg) {
+  const errEl = document.getElementById('ag-error');
+  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+  const formEl = document.getElementById('ag-form');
+  const pickEl = document.getElementById('ag-picker');
+  if (formEl) formEl.style.display = 'block';
+  if (pickEl) pickEl.style.display = 'none';
+}
+
+async function bootShell(user, membership) {
+  // Load tickets/customers/agents from the API before showing the shell,
+  // so the dashboard renders against real data on first paint (not demo
+  // data that then flickers when the fetch completes).
+  await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
   window.login(role, user.name || user.email, initials);
@@ -184,6 +196,12 @@ export async function autoResumeAgent() {
     setWorkspaceId(null);
     return false;
   }
-  bootShell(me.user, m);
+  try {
+    await bootShell(me.user, m);
+  } catch (err) {
+    console.warn('[autoResumeAgent] bootstrap failed:', err);
+    setWorkspaceId(null);
+    return false;
+  }
   return true;
 }
