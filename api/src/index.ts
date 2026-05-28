@@ -16,6 +16,7 @@ import { agents } from './routes/agents.ts';
 import { inbox } from './routes/inbox.ts';
 import { channels } from './routes/channels.ts';
 import { workflows } from './routes/workflows.ts';
+import { slaPolicies } from './routes/sla-policies.ts';
 
 const app = new Hono();
 
@@ -37,6 +38,7 @@ app.route('/api/v1/agents', agents);
 app.route('/api/v1/inbox', inbox);
 app.route('/api/v1/channels', channels);
 app.route('/api/v1/workflows', workflows);
+app.route('/api/v1/sla-policies', slaPolicies);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 

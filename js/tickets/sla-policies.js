@@ -17,6 +17,19 @@
 
 import { findMatchingSLAPolicy, fmtSLAMinutes } from './sla.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+
+// Map a row to the API body shape used by POST/PATCH.
+function slaToApiBody(data) {
+  return {
+    name:               data.name,
+    priority_key:       data.priority,
+    category_key:       data.category === 'all' ? null : data.category,
+    first_response_min: data.firstResponseMin,
+    resolution_min:     data.resolutionMin,
+    status:             data.status,
+  };
+}
 
 export function renderSLA() {
   const admin = window.isAdmin();
@@ -98,10 +111,16 @@ export function renderSLA() {
     </div>`;
 }
 
-function slaToggle(id, active) {
+async function slaToggle(id, active) {
   if (!window.isAdmin()) return;
   const p = SLA_POLICIES.find(x => x.id === id);
-  if (p) p.status = active ? 'active' : 'inactive';
+  if (!p) return;
+  const next = active ? 'active' : 'inactive';
+  if (p._uuid) {
+    try { await apiPatch(`/api/v1/sla-policies/${p._uuid}`, { status: next }); }
+    catch (err) { alert(`Couldn't toggle: ${err?.message || err}`); return; }
+  }
+  p.status = next;
 }
 
 function slaFormBody(p) {
@@ -162,9 +181,28 @@ function slaReadAndValidate() {
 
 function slaNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New SLA policy', slaFormBody(null), () => {
+  window.showModal('New SLA policy', slaFormBody(null), async () => {
     const data = slaReadAndValidate(); if (!data) return;
-    SLA_POLICIES.unshift({ id: slaNextId(), ...data });
+    // API-backed if any existing row carries a _uuid (loaded from the server).
+    const apiBacked = SLA_POLICIES.some((x) => x._uuid);
+    if (apiBacked) {
+      let resp;
+      try { resp = await apiPost('/api/v1/sla-policies', slaToApiBody(data)); }
+      catch (err) { slaShowError(err?.message || String(err)); return; }
+      const p = resp.sla_policy;
+      SLA_POLICIES.unshift({
+        _uuid:            p.id,
+        id:               p.display_id,
+        name:             p.name,
+        priority:         p.priority_key,
+        category:         p.category_key || 'all',
+        firstResponseMin: p.first_response_min,
+        resolutionMin:    p.resolution_min,
+        status:           p.status,
+      });
+    } else {
+      SLA_POLICIES.unshift({ id: slaNextId(), ...data });
+    }
     window.closeModal(); window.renderPage('sla');
   }, 'Create');
 }
@@ -172,8 +210,12 @@ function slaNew() {
 function slaEdit(id) {
   if (!window.isAdmin()) return;
   const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
-  window.showModal(`Edit ${p.id}`, slaFormBody(p), () => {
+  window.showModal(`Edit ${p.id}`, slaFormBody(p), async () => {
     const data = slaReadAndValidate(); if (!data) return;
+    if (p._uuid) {
+      try { await apiPatch(`/api/v1/sla-policies/${p._uuid}`, slaToApiBody(data)); }
+      catch (err) { slaShowError(err?.message || String(err)); return; }
+    }
     Object.assign(p, data);
     window.closeModal(); window.renderPage('sla');
   }, 'Save');
@@ -182,7 +224,11 @@ function slaEdit(id) {
 function slaDelete(id) {
   if (!window.isAdmin()) return;
   const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
-  window.showModal('Delete policy', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${p.name}</strong>?</div>`, () => {
+  window.showModal('Delete policy', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${p.name}</strong>?</div>`, async () => {
+    if (p._uuid) {
+      try { await apiDelete(`/api/v1/sla-policies/${p._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = SLA_POLICIES.findIndex(x => x.id === id);
     if (i >= 0) SLA_POLICIES.splice(i, 1);
     window.closeModal(); window.renderPage('sla');

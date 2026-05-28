@@ -18,13 +18,14 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
     apiGet('/api/v1/inbox'),
     apiGet('/api/v1/channels'),
     apiGet('/api/v1/workflows'),
+    apiGet('/api/v1/sla-policies'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -33,6 +34,7 @@ export async function loadWorkspaceData() {
   const inboxRaw     = inboxRes.inbox         || [];
   const channelsRaw  = channelsRes.channels   || [];
   const workflowsRaw = workflowsRes.workflows || [];
+  const slaRaw       = slaRes.sla_policies    || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -166,6 +168,21 @@ export async function loadWorkspaceData() {
     lastRun:  w.last_run_at ? fmtRelative(w.last_run_at) : null,
   }));
   replaceInPlace(WORKFLOWS, mappedWorkflows);
+
+  // ─── SLA_POLICIES ───────────────────────────────────────────────────────
+  // category_key is null on the server for "any category"; the SPA models
+  // that as the literal string 'all'. priority_key matches on both sides.
+  const mappedSla = slaRaw.map((p) => ({
+    _uuid:            p.id,
+    id:               p.display_id,
+    name:             p.name,
+    priority:         p.priority_key,
+    category:         p.category_key || 'all',
+    firstResponseMin: p.first_response_min,
+    resolutionMin:    p.resolution_min,
+    status:           p.status,
+  }));
+  replaceInPlace(SLA_POLICIES, mappedSla);
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.
