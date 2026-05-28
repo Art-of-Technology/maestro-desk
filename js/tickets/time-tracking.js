@@ -12,8 +12,16 @@
 //
 // SESSION and CURRENT_TICKET come from core/state.js via the global lexical env.
 
+import { apiPost, apiDelete } from '../core/api-client.js';
+
 function timeEntryNextId() {
   return 'TE-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
+function fmtEntryTs(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (isNaN(d.getTime())) return new Date().toISOString().slice(0, 16).replace('T', ' ');
+  return d.toISOString().slice(0, 16).replace('T', ' ');
 }
 
 export function ticketTotalMinutes(t) {
@@ -24,26 +32,44 @@ export function ticketBillableMinutes(t) {
   return (t?.timeEntries || []).filter(e => e.billable !== false).reduce((s, e) => s + (e.minutes || 0), 0);
 }
 
-export function addTimeEntry(ticketId, minutes, note, billable) {
+export async function addTimeEntry(ticketId, minutes, note, billable) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t) return;
   const m = parseInt(minutes, 10);
   if (!Number.isFinite(m) || m <= 0) { alert('Enter a positive number of minutes.'); return; }
   if (!t.timeEntries) t.timeEntries = [];
-  const entry = {
-    id: timeEntryNextId(),
-    agent: SESSION?.name || 'Agent',
-    minutes: m,
-    note: (note || '').trim() || null,
-    billable: billable !== false,
-    ts: new Date().toISOString().slice(0, 16).replace('T', ' '),
-  };
+  const trimmedNote = (note || '').trim() || null;
+  const isBillable = billable !== false;
+  let entry;
+  if (t._uuid) {
+    let resp;
+    try {
+      resp = await apiPost(`/api/v1/tickets/${t._uuid}/time`, { minutes: m, note: trimmedNote, billable: isBillable });
+    } catch (err) { alert(`Couldn't log time: ${err?.message || err}`); return; }
+    entry = {
+      id:       resp.entry.id,
+      agent:    resp.entry.user_name || SESSION?.name || 'Agent',
+      minutes:  resp.entry.minutes,
+      note:     resp.entry.note,
+      billable: resp.entry.billable,
+      ts:       fmtEntryTs(resp.entry.created_at),
+    };
+  } else {
+    entry = {
+      id:       timeEntryNextId(),
+      agent:    SESSION?.name || 'Agent',
+      minutes:  m,
+      note:     trimmedNote,
+      billable: isBillable,
+      ts:       fmtEntryTs(),
+    };
+  }
   t.timeEntries.unshift(entry);
   window.logTicketEvent(ticketId, 'system', `Logged ${window.fmtMinutes(m)}${entry.billable ? '' : ' (non-billable)'}${entry.note ? ' · ' + entry.note : ''}`);
   if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
 }
 
-export function removeTimeEntry(ticketId, entryId) {
+export async function removeTimeEntry(ticketId, entryId) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || !t.timeEntries) return;
   const idx = t.timeEntries.findIndex(e => e.id === entryId);
@@ -52,6 +78,10 @@ export function removeTimeEntry(ticketId, entryId) {
   if (SESSION?.name && entry.agent !== SESSION.name && !window.isAdmin()) {
     alert('Only the agent who logged this entry (or an admin) can remove it.');
     return;
+  }
+  if (t._uuid) {
+    try { await apiDelete(`/api/v1/tickets/${t._uuid}/time/${encodeURIComponent(entryId)}`); }
+    catch (err) { alert(`Couldn't remove entry: ${err?.message || err}`); return; }
   }
   t.timeEntries.splice(idx, 1);
   window.logTicketEvent(ticketId, 'system', `Removed time entry · ${window.fmtMinutes(entry.minutes)}`);
