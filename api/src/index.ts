@@ -11,6 +11,8 @@ import { webhooks } from './routes/webhooks.ts';
 import { god } from './routes/god.ts';
 import { whoami } from './routes/whoami.ts';
 import { config } from './routes/config.ts';
+import { customers } from './routes/customers.ts';
+import { agents } from './routes/agents.ts';
 
 const app = new Hono();
 
@@ -27,6 +29,8 @@ app.route('/api/v1/me', me);
 app.route('/api/v1/whoami', whoami);
 app.route('/api/v1/tickets', tickets);
 app.route('/api/v1/tickets/:id/triage', triage);
+app.route('/api/v1/customers', customers);
+app.route('/api/v1/agents', agents);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 
