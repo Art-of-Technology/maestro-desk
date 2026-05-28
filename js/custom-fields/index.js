@@ -11,6 +11,26 @@
 // CUSTOM_FIELDS comes from data.js via the global lexical env;
 // CF_FILTER_ENTITY comes from core/state.js the same way.
 
+import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+
+function cfApiBacked() {
+  return CUSTOM_FIELDS.some((f) => f._uuid);
+}
+
+function cfMapResponse(r) {
+  return {
+    _uuid:        r.id,
+    id:           r.key,
+    label:        r.label,
+    type:         r.field_type,
+    entity:       r.entity_type,
+    required:     Boolean(r.required),
+    defaultValue: r.default_value || '',
+    options:      r.options || undefined,
+    sortOrder:    r.sort_order || 0,
+  };
+}
+
 const CF_TYPES = [
   { v:'text',    l:'Text' },
   { v:'number',  l:'Number' },
@@ -131,12 +151,27 @@ function cfNextId() {
 
 export function cfNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New custom field', cfFormBody(null), () => {
+  window.showModal('New custom field', cfFormBody(null), async () => {
     const data = cfReadForm();
     if (!data.label) return;
-    const field = { id: cfNextId(), label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
-    if (data.options) field.options = data.options;
-    CUSTOM_FIELDS.unshift(field);
+    if (cfApiBacked()) {
+      let resp;
+      try {
+        resp = await apiPost('/api/v1/custom-fields', {
+          label:         data.label,
+          field_type:    data.type,
+          entity_type:   data.entity,
+          required:      data.required,
+          default_value: data.defaultValue || null,
+          options:       data.options || null,
+        });
+      } catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
+      CUSTOM_FIELDS.unshift(cfMapResponse(resp.custom_field));
+    } else {
+      const field = { id: cfNextId(), label: data.label, type: data.type, entity: data.entity, required: data.required, defaultValue: data.defaultValue };
+      if (data.options) field.options = data.options;
+      CUSTOM_FIELDS.unshift(field);
+    }
     window.closeModal(); window.renderPage('custom-fields');
   }, 'Create');
 }
@@ -144,9 +179,26 @@ export function cfNew() {
 export function cfEdit(id) {
   if (!window.isAdmin()) return;
   const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
-  window.showModal(`Edit ${f.id}`, cfFormBody(f), () => {
+  window.showModal(`Edit ${f.id}`, cfFormBody(f), async () => {
     const data = cfReadForm();
     if (!data.label) return;
+    // entity_type isn't editable server-side (would orphan custom_field_values
+    // referencing the old (entity, key) pair). Inform the user if they tried.
+    if (f._uuid && data.entity !== f.entity) {
+      alert(`Can't change the entity type on an existing field — would orphan stored values. Delete this field and create a new one if you need to switch entity.`);
+      return;
+    }
+    if (f._uuid) {
+      try {
+        await apiPatch(`/api/v1/custom-fields/${f._uuid}`, {
+          label:         data.label,
+          field_type:    data.type,
+          required:      data.required,
+          default_value: data.defaultValue || null,
+          options:       data.options || null,
+        });
+      } catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    }
     f.label = data.label; f.type = data.type; f.entity = data.entity;
     f.required = data.required; f.defaultValue = data.defaultValue;
     if (data.options) f.options = data.options; else delete f.options;
@@ -157,7 +209,11 @@ export function cfEdit(id) {
 export function cfDelete(id) {
   if (!window.isAdmin()) return;
   const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
-  window.showModal('Delete custom field', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(f.label)}</strong>? Existing values stored on customer / ticket records will become orphaned (not deleted).</div>`, () => {
+  window.showModal('Delete custom field', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(f.label)}</strong>? Existing values stored on customer / ticket records will become orphaned (not deleted).</div>`, async () => {
+    if (f._uuid) {
+      try { await apiDelete(`/api/v1/custom-fields/${f._uuid}`); }
+      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+    }
     const i = CUSTOM_FIELDS.findIndex(x => x.id === id);
     if (i >= 0) CUSTOM_FIELDS.splice(i, 1);
     window.closeModal(); window.renderPage('custom-fields');

@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -30,6 +30,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/kb-articles'),
     apiGet('/api/v1/canned-responses'),
     apiGet('/api/v1/ticket-templates'),
+    apiGet('/api/v1/custom-fields'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -43,6 +44,7 @@ export async function loadWorkspaceData() {
   const kbRaw        = kbRes.articles         || [];
   const cannedRaw    = cannedRes.canned_responses || [];
   const ttRaw        = ttRes.ticket_templates || [];
+  const cfRaw        = cfRes.custom_fields    || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -244,6 +246,24 @@ export async function loadWorkspaceData() {
     body:     t.body || '',
   }));
   replaceInPlace(TICKET_TEMPLATES, mappedTt);
+
+  // ─── CUSTOM_FIELDS ─────────────────────────────────────────────────────
+  // data.js uses short ids ('cf1', 'cf2'); the server uses meaningful
+  // snake_case `key`s ('account_manager'). Expose `key` as `id` so the
+  // existing find-by-id pattern (CUSTOM_FIELDS.find(x => x.id === id))
+  // keeps working — the IDs become semantic, which is a UX win.
+  const mappedCf = cfRaw.map((f) => ({
+    _uuid:        f.id,
+    id:           f.key,
+    label:        f.label,
+    type:         f.field_type,
+    entity:       f.entity_type,
+    required:     Boolean(f.required),
+    defaultValue: f.default_value || '',
+    options:      f.options || undefined,
+    sortOrder:    f.sort_order || 0,
+  }));
+  replaceInPlace(CUSTOM_FIELDS, mappedCf);
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.

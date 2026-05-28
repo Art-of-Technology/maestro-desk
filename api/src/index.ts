@@ -21,6 +21,7 @@ import { tags } from './routes/tags.ts';
 import { kb } from './routes/kb.ts';
 import { cannedResponses } from './routes/canned-responses.ts';
 import { ticketTemplates } from './routes/ticket-templates.ts';
+import { customFields } from './routes/custom-fields.ts';
 
 const app = new Hono();
 
@@ -47,6 +48,7 @@ app.route('/api/v1/tags', tags);
 app.route('/api/v1/kb-articles', kb);
 app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/ticket-templates', ticketTemplates);
+app.route('/api/v1/custom-fields', customFields);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 
