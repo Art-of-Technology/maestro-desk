@@ -18,7 +18,7 @@
 import { apiGet } from './api-client.js';
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes] = await Promise.all([
     apiGet('/api/v1/tickets?limit=200'),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
@@ -31,6 +31,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/canned-responses'),
     apiGet('/api/v1/ticket-templates'),
     apiGet('/api/v1/custom-fields'),
+    apiGet('/api/v1/assign-rules'),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -45,6 +46,7 @@ export async function loadWorkspaceData() {
   const cannedRaw    = cannedRes.canned_responses || [];
   const ttRaw        = ttRes.ticket_templates || [];
   const cfRaw        = cfRes.custom_fields    || [];
+  const arRaw        = arRes.assign_rules     || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -264,6 +266,39 @@ export async function loadWorkspaceData() {
     sortOrder:    f.sort_order || 0,
   }));
   replaceInPlace(CUSTOM_FIELDS, mappedCf);
+
+  // ─── ASSIGN_RULES ──────────────────────────────────────────────────────
+  // The DB stores assignee references as user UUIDs (agent_user_id or
+  // team_user_ids[]). data.js uses agent names. Translate via userByUuid
+  // (already built above for ticket assignee resolution).
+  const mappedAr = arRaw.map((r) => ({
+    _uuid:        r.id,
+    id:           r.display_id,
+    name:         r.name,
+    priority:     r.priority,
+    status:       r.status,
+    conditions:   r.conditions || { priority: 'all', category: 'all', vip: 'all' },
+    assignment:   assignmentServerToClient(r.assignment, userByUuid),
+    matchCount:   r.match_count || 0,
+    lastMatchAt:  r.last_match_at ? isoDate(r.last_match_at) : null,
+  }));
+  replaceInPlace(ASSIGN_RULES, mappedAr);
+}
+
+// Server → client: turn agent_user_id / team_user_ids back into names.
+function assignmentServerToClient(srv, userByUuid) {
+  if (!srv) return { mode: 'round-robin', team: [] };
+  if (srv.mode === 'specific-agent') {
+    return {
+      mode:  'specific-agent',
+      agent: userByUuid[srv.agent_user_id]?.name || '',
+    };
+  }
+  return {
+    mode: srv.mode,
+    team: (srv.team_user_ids || []).map((uid) => userByUuid[uid]?.name).filter(Boolean),
+    ...(srv.rr_index !== undefined ? { rrIndex: srv.rr_index } : {}),
+  };
 }
 
 // Unwrap the JSONB trigger/action shape into a single display string.
