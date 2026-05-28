@@ -226,13 +226,17 @@ export async function loadWorkspaceData() {
   // updated_at is timestamptz; data.js used 'YYYY-MM-DD'. Keep that shape
   // for the existing sort + display code that does localeCompare on it.
   const mappedKb = kbRaw.map((a) => ({
-    _uuid:    a.id,
-    id:       a.display_id,
-    title:    a.title,
-    category: a.category || '',
-    body:     a.body || '',
-    author:   a.author_name || 'Unknown',
-    updated:  isoDate(a.updated_at),
+    _uuid:           a.id,
+    id:              a.display_id,
+    title:           a.title,
+    category:        a.category || '',
+    body:            a.body || '',
+    author:          a.author_name || 'Unknown',
+    updated:         isoDate(a.updated_at),
+    viewCount:       a.view_count || 0,
+    helpfulCount:    a.helpful_count || 0,
+    unhelpfulCount:  a.unhelpful_count || 0,
+    myVote:          a.my_vote || 0,  // 1 = up, -1 = down, 0 = none
   }));
   replaceInPlace(KB_ARTICLES, mappedKb);
 

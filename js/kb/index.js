@@ -23,6 +23,10 @@ function kbApiBacked() {
   return KB_ARTICLES.some((a) => a._uuid);
 }
 
+function kbApiBacked() {
+  return KB_ARTICLES.some((a) => a._uuid);
+}
+
 function mapKbResponse(a) {
   return {
     _uuid:    a.id,
@@ -53,14 +57,45 @@ function saveKBState() {
 }
 
 function getKBViews(id) {
+  // API-backed: server-stamped view_count on the article row.
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (a?._uuid) return a.viewCount || 0;
+  // Demo persona — fall back to localStorage + deterministic seed.
   if (KB_VIEWS[id] != null) return KB_VIEWS[id];
-  // Deterministic seed so it doesn't change between renders
   let h = 0;
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
   return 50 + (h % 350);
 }
-function incrementKBView(id) {
-  KB_VIEWS[id] = getKBViews(id) + 1;
+
+function getKBNetVote(id) {
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (a?._uuid) return (a.helpfulCount || 0) - (a.unhelpfulCount || 0);
+  return KB_VOTES[id] || 0;
+}
+
+function getKBUserVote(id) {
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (a?._uuid) {
+    if (a.myVote === 1)  return 'up';
+    if (a.myVote === -1) return 'down';
+    return undefined;
+  }
+  return KB_USER_VOTES[id];
+}
+
+async function incrementKBView(id) {
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (a?._uuid) {
+    try {
+      const res = await apiPost(`/api/v1/kb-articles/${a._uuid}/view`, {});
+      a.viewCount = res.view_count;
+    } catch (err) {
+      // Best-effort — a missed view ping isn't worth alerting the user.
+      console.warn('[kb] view increment failed:', err);
+    }
+    return;
+  }
+  KB_VIEWS[id] = (getKBViews(id) || 0) + 1;
   saveKBState();
 }
 
@@ -69,8 +104,25 @@ function readingTime(body) {
   return Math.max(1, Math.round(words / 200));
 }
 
-function voteKB(id, dir) {
-  const prev = KB_USER_VOTES[id];
+async function voteKB(id, dir) {
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (!a) return;
+  // 'up' / 'down' toggles: if the user clicks the same direction
+  // they previously voted, that's a clear; otherwise it's a switch
+  // (which may be from no-vote, up→down, or down→up).
+  const prev = getKBUserVote(id);
+  const direction = prev === dir ? 'clear' : dir;
+  if (a._uuid) {
+    let res;
+    try { res = await apiPost(`/api/v1/kb-articles/${a._uuid}/vote`, { direction }); }
+    catch (err) { alert(`Couldn't vote: ${err?.message || err}`); return; }
+    a.myVote         = res.my_vote;
+    a.helpfulCount   = res.helpful_count;
+    a.unhelpfulCount = res.unhelpful_count;
+    window.renderPage('kb');
+    return;
+  }
+  // Demo persona — keep the localStorage path.
   let v = KB_VOTES[id] || 0;
   if (prev === dir) {
     v -= dir === 'up' ? 1 : -1;
@@ -134,7 +186,7 @@ export function renderKB() {
 
   const cards = list.map(a => {
     const views = getKBViews(a.id);
-    const votes = KB_VOTES[a.id] || 0;
+    const votes = getKBNetVote(a.id);
     const titleHtml   = ql ? highlightSearch(window.escHtml(a.title),         KB_QUERY) : window.escHtml(a.title);
     const snippetHtml = ql ? highlightSearch(window.escHtml(articleSnippet(a)), KB_QUERY) : window.escHtml(articleSnippet(a));
     return `
@@ -201,8 +253,8 @@ function renderKBArticle(id) {
   if (!a) { KB_SELECTED = null; return renderKB(); }
   const admin = window.isAdmin();
   const views = getKBViews(id);
-  const votes = KB_VOTES[id] || 0;
-  const userVote = KB_USER_VOTES[id];
+  const votes = getKBNetVote(id);
+  const userVote = getKBUserVote(id);
   const reading = readingTime(a.body);
   const wordCount = (a.body || '').split(/\s+/).filter(Boolean).length;
   const related = getRelatedArticles(a);
