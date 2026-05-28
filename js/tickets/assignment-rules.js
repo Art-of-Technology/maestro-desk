@@ -219,25 +219,73 @@ export function applyAssignmentRules(t) {
   return null;
 }
 
-export function runAssignmentRulesOnTicket(id) {
+export async function runAssignmentRulesOnTicket(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
-  const rule = applyAssignmentRules(t);
-  if (!rule) {
-    alert('No active rule matched this ticket.');
+  // API path: the server runs the engine, picks an agent, persists.
+  // On match, mirror the new assignee + rule bookkeeping into local
+  // state so the UI updates without a refresh.
+  if (t._uuid) {
+    let resp;
+    try { resp = await apiPost(`/api/v1/tickets/${t._uuid}/apply-rules`, {}); }
+    catch (err) { alert(`Couldn't apply rules: ${err?.message || err}`); return; }
+    if (!resp.matched) { alert('No active rule matched this ticket.'); return; }
+    const userByUuid = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
+    const oldAgent = t.agent || 'Unassigned';
+    const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
+    if (newAgent && newAgent !== oldAgent) {
+      logTicketEvent(id, 'assign', `Assigned by rule ${resp.rule.name}: ${oldAgent} → ${newAgent}`);
+      t.agent = newAgent;
+    }
+    // Bookkeeping for the matched rule mirrors the server's bump.
+    const localRule = ASSIGN_RULES.find(r => r._uuid === resp.rule.id);
+    if (localRule) {
+      localRule.matchCount = (localRule.matchCount || 0) + 1;
+      localRule.lastMatchAt = new Date().toISOString().slice(0, 10);
+    }
+    if (CURRENT_TICKET === id) window.openTicket(id);
+    else window.renderPage(CURRENT_PAGE || 'tickets');
     return;
   }
+  // Demo persona — keep the local engine.
+  const rule = applyAssignmentRules(t);
+  if (!rule) { alert('No active rule matched this ticket.'); return; }
   if (CURRENT_TICKET === id) window.openTicket(id);
   else window.renderPage(CURRENT_PAGE || 'tickets');
 }
 
-export function bulkApplyAssignmentRules() {
+export async function bulkApplyAssignmentRules() {
   if (TICKET_SELECTED_IDS.size === 0) return;
+  const ids = [...TICKET_SELECTED_IDS];
+  const apiBacked = ids.some(id => TICKETS.find(t => t.id === id)?._uuid);
   let matched = 0;
-  [...TICKET_SELECTED_IDS].forEach(id => {
-    const t = TICKETS.find(x => x.id === id);
-    if (t && applyAssignmentRules(t)) matched++;
-  });
+  if (apiBacked) {
+    // Fan out parallel API calls. Mirror result into local state per ticket.
+    const userByUuid = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
+    const results = await Promise.allSettled(ids.map(async (id) => {
+      const t = TICKETS.find(x => x.id === id);
+      if (!t?._uuid) return false;
+      const resp = await apiPost(`/api/v1/tickets/${t._uuid}/apply-rules`, {});
+      if (!resp.matched) return false;
+      const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
+      if (newAgent) {
+        if (t.agent !== newAgent) logTicketEvent(id, 'assign', `Assigned by rule ${resp.rule.name}: ${t.agent || 'Unassigned'} → ${newAgent}`);
+        t.agent = newAgent;
+      }
+      const localRule = ASSIGN_RULES.find(r => r._uuid === resp.rule.id);
+      if (localRule) {
+        localRule.matchCount = (localRule.matchCount || 0) + 1;
+        localRule.lastMatchAt = new Date().toISOString().slice(0, 10);
+      }
+      return true;
+    }));
+    matched = results.filter(r => r.status === 'fulfilled' && r.value).length;
+  } else {
+    ids.forEach(id => {
+      const t = TICKETS.find(x => x.id === id);
+      if (t && applyAssignmentRules(t)) matched++;
+    });
+  }
   TICKET_SELECTED_IDS.clear();
   window.renderPage('tickets');
   alert(matched ? `Assignment rules matched ${matched} ticket${matched===1?'':'s'}.` : 'No active rule matched any ticket in the selection.');

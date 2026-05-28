@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
 import { runWorkflowsForTicket } from '../lib/workflow-engine.ts';
+import { applyAssignmentRules } from '../lib/assign-rules-engine.ts';
 
 export const tickets = new Hono();
 
@@ -774,6 +775,33 @@ tickets.delete('/:id/time/:entryId', async (c) => {
   return new Response(null, { status: 204 });
 });
 
+// ─── POST /:id/apply-rules — run assignment rules against this ticket ──
+//
+// Returns { matched: false } when no rule fires (rule.matchCount stays
+// flat, no ticket update). Otherwise { matched: true, rule, ticket }
+// reflecting the post-engine state.
+tickets.post('/:id/apply-rules', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const ticketId = c.req.param('id');
+
+  const result = await applyAssignmentRules({ sb, workspaceId, ticketId });
+  if (!result) return c.json({ matched: false });
+
+  const { data: ticket } = await sb
+    .from('tickets')
+    .select('id, display_id, assigned_user_id, status_key, priority_key, category_key')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+
+  return c.json({
+    matched:  true,
+    rule:     { id: result.rule_id, name: result.rule_name },
+    ticket,
+  });
+});
+
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),
@@ -825,6 +853,13 @@ tickets.post('/', async (c) => {
     });
     if (mErr) return c.json({ error: mErr.message, ticket }, 500);
   }
+
+  // Auto-apply assignment rules on the freshly-created ticket. Errors
+  // swallowed (logged) so a misconfigured rule can't break ticket
+  // creation. POST currently stamps assigned_user_id=userId (the
+  // creating agent); the engine may override that with a rule's pick.
+  try { await applyAssignmentRules({ sb, workspaceId, ticketId: ticket.id }); }
+  catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
 
   return c.json({ ticket }, 201);
 });
