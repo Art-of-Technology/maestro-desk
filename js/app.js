@@ -96,6 +96,7 @@ import {
   updateProfileName, updateProfileInitials,
   toggleNotifPref, setKbCfg, testKbConnection,
   saveSlackIntegration, deleteSlackIntegration,
+  saveStripeIntegration, deleteStripeIntegration,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,

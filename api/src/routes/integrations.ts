@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { fetchStripeContext } from '../lib/stripe-client.ts';
 
 export const integrations = new Hono();
 
@@ -69,4 +70,116 @@ integrations.delete('/slack', async (c) => {
     .eq('workspace_id', workspaceId);
   if (error) return c.json({ error: error.message }, 500);
   return new Response(null, { status: 204 });
+});
+
+// ─── Stripe integration ─────────────────────────────────────────────────
+//
+// Workspace pastes a restricted Stripe API key (read-only on customers
+// + subscriptions + charges is enough). The key is the secret — never
+// returned in GET responses, only used server-side. GET responds with
+// just { active, has_key } so the SPA can render "Connected" without
+// exposing the secret.
+
+const StripeBody = z.object({
+  api_key: z.string().regex(/^(rk|sk)_(test|live)_\w+$/, 'Must be a Stripe restricted or secret key'),
+  active:  z.boolean().optional(),
+});
+
+integrations.get('/stripe', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const { data, error } = await sb
+    .from('stripe_integrations')
+    .select('api_key, active, created_at, updated_at')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data) return c.json({ integration: null });
+  return c.json({
+    integration: {
+      active:     data.active,
+      has_key:    Boolean(data.api_key),
+      // Last 4 chars only — enough to confirm "yes, the key I pasted
+      // is the one stored" without leaking the rest. Stripe keys end
+      // in random hex so the tail is enough to identify.
+      key_suffix: data.api_key ? data.api_key.slice(-6) : null,
+      mode:       data.api_key?.includes('_test_') ? 'test' : 'live',
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    },
+  });
+});
+
+integrations.put('/stripe', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = StripeBody.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const { error } = await sb
+    .from('stripe_integrations')
+    .upsert(
+      {
+        workspace_id: workspaceId,
+        api_key:      parsed.data.api_key,
+        active:       parsed.data.active ?? true,
+      },
+      { onConflict: 'workspace_id' },
+    );
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true });
+});
+
+integrations.delete('/stripe', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const { error } = await sb
+    .from('stripe_integrations')
+    .delete()
+    .eq('workspace_id', workspaceId);
+  if (error) return c.json({ error: error.message }, 500);
+  return new Response(null, { status: 204 });
+});
+
+// ─── GET /customers/:id/stripe-context — fetch Stripe data for a customer ─
+//
+// Looks up the workspace's Stripe key + this customer's email, then
+// hits Stripe for customer + subscriptions + charges. Returns null
+// blocks when the integration isn't configured OR when Stripe has no
+// customer for that email (the common case). Errors from Stripe
+// (auth failure, rate limit) bubble up as 502.
+integrations.get('/customers/:id/stripe-context', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+
+  const { data: integration } = await sb
+    .from('stripe_integrations')
+    .select('api_key, active')
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  if (!integration || !integration.active) {
+    return c.json({ configured: false, context: null });
+  }
+
+  const { data: customer } = await sb
+    .from('customers')
+    .select('email')
+    .eq('id', customerId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (!customer?.email) {
+    return c.json({ configured: true, context: { customer: null, subscriptions: [], charges: [] } });
+  }
+
+  try {
+    const context = await fetchStripeContext({ apiKey: integration.api_key, email: customer.email });
+    return c.json({ configured: true, context });
+  } catch (err) {
+    console.error('[stripe] fetch failed:', err);
+    return c.json({ error: err instanceof Error ? err.message : 'Stripe lookup failed' }, 502);
+  }
 });

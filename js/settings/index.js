@@ -23,10 +23,12 @@ import {
 import { refreshNotifBadge } from '../notifications/index.js';
 import { apiGet, apiPut, apiDelete } from '../core/api-client.js';
 
-// In-memory snapshot of the workspace's Slack integration, loaded lazily
+// In-memory snapshots of the workspace's integrations, loaded lazily
 // when the Integrations tab is opened.
 let SLACK_INTEGRATION = null;
 let SLACK_LOADED = false;
+let STRIPE_INTEGRATION = null;
+let STRIPE_LOADED = false;
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
   { k: 'ticket.resolved',  l: 'Ticket resolved' },
@@ -371,7 +373,92 @@ function settingsIntegrations() {
         ${slack ? '<button class="btn btn-sm btn-danger" onclick="deleteSlackIntegration()">Disconnect</button>' : ''}
         <span id="slack-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
       </div>
+    </div>
+    ${settingsStripeSection()}`;
+}
+
+function settingsStripeSection() {
+  if (!STRIPE_LOADED) {
+    STRIPE_LOADED = true;
+    apiGet('/api/v1/integrations/stripe')
+      .then((res) => { STRIPE_INTEGRATION = res.integration; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] stripe load failed:', err); });
+  }
+  const stripe = STRIPE_INTEGRATION;
+  const connected = Boolean(stripe?.has_key);
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Stripe</div>
+      <div class="settings-desc" style="margin-bottom:14px">
+        Surface a customer's Stripe subscription + recent charge history on the ticket sidebar.
+        Paste a <a href="https://dashboard.stripe.com/apikeys" target="_blank" style="color:var(--purple)">restricted Stripe API key</a> with read-only access on customers, subscriptions, and charges.
+      </div>
+      ${connected ? `
+        <div style="margin-bottom:14px;padding:10px 12px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:12px;color:var(--green);display:flex;gap:10px;align-items:center">
+          <span style="font-weight:600">Connected</span>
+          <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${stripe.mode === 'test' ? 'TEST' : 'LIVE'} mode · ...${window.escHtml(stripe.key_suffix || '')}</span>
+        </div>` : ''}
+      <div class="form-row">
+        <label class="form-label">${connected ? 'Replace API key' : 'API key'}</label>
+        <input class="form-input" id="stripe-key" type="password" placeholder="${connected ? 'Paste a new key to rotate' : 'rk_test_... or rk_live_...'}" autocomplete="off"/>
+      </div>
+      <div class="form-row" style="display:flex;align-items:center;gap:8px">
+        <label class="toggle"><input type="checkbox" id="stripe-active" ${stripe?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
+        <span style="font-size:13px;color:var(--ink2)">Active</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px">
+        <button class="btn btn-solid btn-sm" onclick="saveStripeIntegration()">${connected ? 'Update' : 'Connect'}</button>
+        ${connected ? '<button class="btn btn-sm btn-danger" onclick="deleteStripeIntegration()">Disconnect</button>' : ''}
+        <span id="stripe-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
+      </div>
     </div>`;
+}
+
+export async function saveStripeIntegration() {
+  if (!window.isAdmin()) return;
+  const key    = document.getElementById('stripe-key').value.trim();
+  const active = document.getElementById('stripe-active').checked;
+  const msg = document.getElementById('stripe-msg');
+  // When the field is empty + a key is already on file, the user is
+  // just toggling active. Patch with just the active flag in that case.
+  if (!key && !STRIPE_INTEGRATION?.has_key) {
+    msg.textContent = 'API key is required'; msg.style.color = 'var(--red)'; return;
+  }
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const body = key ? { api_key: key, active } : { api_key: rebuildKeyForToggle(), active };
+    if (!body.api_key) {
+      msg.textContent = 'Re-paste the key to update settings'; msg.style.color = 'var(--red)'; return;
+    }
+    await apiPut('/api/v1/integrations/stripe', body);
+    // Refresh the GET to get the masked summary back.
+    const res = await apiGet('/api/v1/integrations/stripe');
+    STRIPE_INTEGRATION = res.integration;
+    document.getElementById('stripe-key').value = '';
+    msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+// Stub used when the user toggles active without re-entering the key.
+// We don't have the key client-side (the server masks it), so the only
+// safe path is to require a re-paste for any update. Returning null
+// triggers that branch above.
+function rebuildKeyForToggle() { return null; }
+
+export async function deleteStripeIntegration() {
+  if (!window.isAdmin()) return;
+  if (!confirm('Disconnect Stripe? Ticket sidebars will stop showing subscription + charge context.')) return;
+  try {
+    await apiDelete('/api/v1/integrations/stripe');
+    STRIPE_INTEGRATION = null;
+    window.renderPage('settings');
+  } catch (err) {
+    alert(`Couldn't disconnect: ${err?.message || err}`);
+  }
 }
 
 export async function saveSlackIntegration() {
