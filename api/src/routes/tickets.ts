@@ -648,6 +648,118 @@ tickets.post('/:id/unmerge', async (c) => {
   });
 });
 
+// ─── POST /:id/time — log a time entry ───────────────────────────────────
+//
+// minutes must be a positive integer. user_id is stamped from the JWT
+// (the agent who clicked "Log time"), not trusted from the client.
+const PostTime = z.object({
+  minutes:  z.number().int().positive().max(60 * 24),  // max 24h per entry
+  note:     z.string().nullable().optional(),
+  billable: z.boolean().optional(),
+});
+
+tickets.post('/:id/time', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const ticketId = c.req.param('id');
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = PostTime.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const { minutes, note, billable } = parsed.data;
+
+  // Workspace-scope check.
+  const { data: ticket, error: tErr } = await sb
+    .from('tickets')
+    .select('id')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr) return c.json({ error: tErr.message }, 500);
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  const { data: entry, error: insErr } = await sb
+    .from('time_entries')
+    .insert({
+      workspace_id: workspaceId,
+      ticket_id:    ticketId,
+      user_id:      userId,
+      minutes,
+      note:         note ?? null,
+      billable:     billable ?? true,
+    })
+    .select('id, user_id, minutes, note, billable, created_at, users(name)')
+    .single();
+  if (insErr) return c.json({ error: insErr.message }, 500);
+
+  // Flatten the user join so the client gets a consistent shape with the
+  // detail-endpoint time_entries payload.
+  return c.json({
+    entry: {
+      id:         entry.id,
+      user_id:    entry.user_id,
+      user_name:  (entry as any).users?.name || null,
+      minutes:    entry.minutes,
+      note:       entry.note,
+      billable:   entry.billable,
+      created_at: entry.created_at,
+    },
+  }, 201);
+});
+
+// ─── DELETE /:id/time/:entryId — remove a time entry ─────────────────────
+//
+// Only the original logger can delete, with two escape hatches: platform
+// admins (already past the auth middleware) and workspace-role admins.
+// Mirrors the client-side guard.
+tickets.delete('/:id/time/:entryId', async (c) => {
+  const sb = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const ticketId = c.req.param('id');
+  const entryId = c.req.param('entryId');
+
+  const { data: entry, error: lookupErr } = await sb
+    .from('time_entries')
+    .select('id, user_id, workspace_id, ticket_id')
+    .eq('id', entryId)
+    .maybeSingle();
+  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  if (!entry || entry.workspace_id !== workspaceId || entry.ticket_id !== ticketId) {
+    return c.json({ error: 'Time entry not found' }, 404);
+  }
+
+  if (entry.user_id !== userId) {
+    // Caller didn't log it — allow if they're a platform admin or a
+    // workspace-role admin. Both checks in parallel.
+    const [paRes, waRes] = await Promise.all([
+      sb.from('users').select('is_platform_admin').eq('id', userId).maybeSingle(),
+      sb.from('workspace_members')
+        .select('roles(is_admin)')
+        .eq('user_id', userId)
+        .eq('workspace_id', workspaceId)
+        .maybeSingle(),
+    ]);
+    const isPlatformAdmin  = Boolean(paRes.data?.is_platform_admin);
+    const isWorkspaceAdmin = Boolean((waRes.data as any)?.roles?.is_admin);
+    if (!isPlatformAdmin && !isWorkspaceAdmin) {
+      return c.json({ error: 'Only the original logger or an admin can remove this entry' }, 403);
+    }
+  }
+
+  const { error: delErr } = await sb
+    .from('time_entries')
+    .delete()
+    .eq('id', entryId);
+  if (delErr) return c.json({ error: delErr.message }, 500);
+
+  return new Response(null, { status: 204 });
+});
+
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),
