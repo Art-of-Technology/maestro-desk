@@ -24,37 +24,44 @@ import { registerActions, registerChangeActions } from '../core/event-delegation
 import { openTicket } from '../tickets/detail.js';
 import { navTo } from '../core/keybindings.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
+import { apiPatch, apiPost } from '../core/api-client.js';
+import { loadTicketDetail } from '../core/bootstrap.js';
 
-function dismissEmail(emailId) {
+// Server-backed status change for inbox rows that came from the API
+// (carry an _uuid). Demo persona rows fall back to local mutation so the
+// offline UI still works. Re-renders on success; surfaces server errors
+// via alert so the agent isn't left wondering why the row didn't move.
+async function setInboxStatus(emailId, newStatus) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
-  e.status = 'dismissed';
-  e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  if (INBOX_SELECTED_ID === emailId) INBOX_SELECTED_ID = null;
+  if (e._uuid) {
+    try {
+      await apiPatch(`/api/v1/inbox/${e._uuid}`, { status: newStatus });
+    } catch (err) {
+      alert(`Couldn't update the email: ${err?.message || err}`);
+      return;
+    }
+  }
+  e.status = newStatus;
+  if (newStatus === 'new') {
+    delete e.actedAt;
+  } else {
+    e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  }
+  if (newStatus !== 'new' && INBOX_SELECTED_ID === emailId) INBOX_SELECTED_ID = null;
   window.updateNavBadges();
   window.renderPage('inbox');
 }
 
-function markSpamEmail(emailId) {
-  const e = INBOX.find(x => x.id === emailId);
-  if (!e) return;
-  e.status = 'spam';
-  e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  if (INBOX_SELECTED_ID === emailId) INBOX_SELECTED_ID = null;
-  window.updateNavBadges();
-  window.renderPage('inbox');
-}
-
+function dismissEmail(emailId)   { return setInboxStatus(emailId, 'dismissed'); }
+function markSpamEmail(emailId)  { return setInboxStatus(emailId, 'spam'); }
 function restoreEmail(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e || e.status === 'converted') return;
-  e.status = 'new';
-  delete e.actedAt;
-  window.updateNavBadges();
-  window.renderPage('inbox');
+  return setInboxStatus(emailId, 'new');
 }
 
-function convertEmailToTicket(emailId) {
+async function convertEmailToTicket(emailId) {
   const e = INBOX.find(x => x.id === emailId);
   if (!e) return;
   const cust = CUSTOMERS.find(c => (c.email || '').toLowerCase() === (e.fromEmail || '').toLowerCase());
@@ -67,22 +74,48 @@ function convertEmailToTicket(emailId) {
     return;
   }
   const channel = CHANNELS.find(c => c.id === e.channelId);
-  const max = Math.max(0, ...TICKETS.map(x => parseInt((x.id || '').split('-')[1] || '0', 10)));
-  const newId = 'TK-' + String(max + 1).padStart(3, '0');
   const cats = [...new Set(TICKETS.map(x => x.category).filter(Boolean))];
   const fallbackCat = cats.includes('Technical') ? 'Technical' : (cats[0] || 'Technical');
+  const resolvedCat = (channel?.defaultCategory && channel.defaultCategory !== 'all')
+    ? channel.defaultCategory
+    : fallbackCat;
+
+  // API-backed path: server creates the ticket + first message + flips
+  // the inbox row to converted. We optimistically append a minimal TICKETS
+  // entry locally so openTicket has something to find; the fire-and-forget
+  // detail fetch fills in messages/tags/etc on first render.
+  let newId;
+  let newUuid;
+  if (e._uuid) {
+    let resp;
+    try {
+      resp = await apiPost(`/api/v1/inbox/${e._uuid}/convert`, {});
+    } catch (err) {
+      alert(`Couldn't convert to ticket: ${err?.message || err}`);
+      return;
+    }
+    newId = resp.ticket.display_id;
+    newUuid = resp.ticket.id;
+  } else {
+    // Demo persona path — synthesize a display_id locally as before.
+    const max = Math.max(0, ...TICKETS.map(x => parseInt((x.id || '').split('-')[1] || '0', 10)));
+    newId = 'TK-' + String(max + 1).padStart(3, '0');
+  }
+
   const newT = {
+    _uuid: newUuid,
+    _detailLoaded: false,
     id: newId,
     subject: e.subject || '(no subject)',
     customerId: cust.id,
     status: 'open',
     priority: 'normal',
-    category: (channel?.defaultCategory && channel.defaultCategory !== 'all') ? channel.defaultCategory : fallbackCat,
+    category: resolvedCat,
     agent: channel?.defaultAgent || '',
     created: new Date().toISOString().slice(0, 10),
     updated: 'just now',
     sla: 'ok', tags: [], aiTags: [], csat: null,
-    msgs: [{
+    msgs: e._uuid ? [] : [{
       from: `${cust.first} ${cust.last}`,
       r: 'customer',
       t: e.body || '',

@@ -3,6 +3,7 @@ import {
   extractInReplyTo,
   extractMessageId,
   parseFrom,
+  parseTo,
   pickBody,
   type PostmarkInbound,
 } from './postmark.ts';
@@ -21,6 +22,65 @@ function nextTicketDisplayId(): string {
 
 function nextCustomerDisplayId(): string {
   return `M${String(Math.floor(Math.random() * 9000 + 1000))}`;
+}
+
+// ─── Inbox message helper ────────────────────────────────────────────────
+//
+// Resolves the workspace's channel for this inbound (best match by To:
+// address, else first active email channel), then writes an
+// inbox_messages row. Skipped silently when no channel exists (e.g.
+// unrouted bucket, freshly provisioned brand with no channels seeded) —
+// inbox_messages.channel_id is NOT NULL so we can't write a placeholder.
+// Errors are logged but never thrown: the inbox row is an audit trail,
+// not load-bearing for the customer-facing ticket creation.
+async function recordInboundInInbox(args: {
+  sb: SupabaseClient;
+  workspaceId: string;
+  payload: PostmarkInbound;
+  ticketId: string;
+  toEmail: string | null;
+}): Promise<void> {
+  const { sb, workspaceId, payload, ticketId, toEmail } = args;
+
+  const { data: channels, error: chErr } = await sb
+    .from('channels')
+    .select('id, address')
+    .eq('workspace_id', workspaceId)
+    .eq('type', 'email')
+    .eq('status', 'active');
+  if (chErr) {
+    console.warn('[inbound-email] channel lookup failed:', chErr.message);
+    return;
+  }
+  if (!channels || channels.length === 0) return;
+
+  const matched = toEmail
+    ? channels.find((c) => (c.address || '').toLowerCase() === toEmail.toLowerCase())
+    : null;
+  const channelId = matched?.id ?? channels[0].id;
+
+  const { email, name } = parseFrom(payload);
+  const body = pickBody(payload);
+
+  const { error: insErr } = await sb.from('inbox_messages').insert({
+    workspace_id:        workspaceId,
+    channel_id:          channelId,
+    external_id:         extractMessageId(payload),
+    from_name:           name || null,
+    from_email:          email,
+    subject:             payload.Subject || null,
+    body,
+    received_at:         new Date().toISOString(),
+    status:              'converted',
+    converted_ticket_id: ticketId,
+  });
+  if (insErr) {
+    // Unique violation on (channel_id, external_id) is expected on Postmark
+    // retries — silent skip. Anything else, log it.
+    if (insErr.code !== '23505') {
+      console.warn('[inbound-email] inbox_messages insert failed:', insErr.message);
+    }
+  }
 }
 
 // ─── Workspace resolution ────────────────────────────────────────────────
@@ -135,7 +195,7 @@ export async function processInboundEmail(args: {
         return await attachReplyToTicket({
           sb, workspaceId, ticketId: t.id, ticketDisplayId: t.display_id,
           customerId: t.customer_id, body, name, email,
-          externalMessageId,
+          externalMessageId, payload,
         });
       }
     }
@@ -269,6 +329,11 @@ export async function processInboundEmail(args: {
   });
   if (mErr) throw new Error(`Message create failed: ${mErr.message}`);
 
+  // 3b. Audit row in the inbox view. Failures are logged but don't fail
+  //     the webhook — the customer-facing ticket has already been created.
+  const to = parseTo(payload);
+  await recordInboundInInbox({ sb, workspaceId, payload, ticketId: newTicket.id, toEmail: to?.email ?? null });
+
   // 4. Fire-and-forget auto-triage. We swallow errors here — they're already
   //    logged in ai_usage_log + console — because the webhook MUST return
   //    fast or Postmark will retry. The agent can manually re-trigger
@@ -325,8 +390,9 @@ async function attachReplyToTicket(args: {
   name: string | null;
   email: string;
   externalMessageId: string | null;
+  payload: PostmarkInbound;
 }): Promise<InboundResult> {
-  const { sb, workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId } = args;
+  const { sb, workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload } = args;
 
   const authorLabel = name?.trim() || email;
   const { error: mErr } = await sb.from('ticket_messages').insert({
@@ -338,6 +404,12 @@ async function attachReplyToTicket(args: {
     external_message_id: externalMessageId,
   });
   if (mErr) throw new Error(`Reply attach failed: ${mErr.message}`);
+
+  // Audit the threaded reply in the inbox view too, so the agent can see
+  // the email arrived even if they don't immediately notice the ticket
+  // updated. Same fire-and-forget treatment as the new-ticket path.
+  const to = parseTo(payload);
+  await recordInboundInInbox({ sb, workspaceId, payload, ticketId, toEmail: to?.email ?? null });
 
   // Fire-and-forget retriage so the AI draft refreshes with the new turn.
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.
