@@ -54,6 +54,17 @@
     .empty { color: var(--ink3); font-size: 12px; font-style: italic; padding: 12px 0; }
     .search { margin-bottom: 14px; }
     footer { text-align: center; color: var(--ink3); font-size: 11px; margin-top: 32px; }
+    .ai-panel { margin-top: 12px; padding: 12px 14px; background: var(--accent-lt); border: 1px solid var(--accent); border-radius: var(--radius); display: none; }
+    .ai-panel.shown { display: block; }
+    .ai-panel-head { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+    .ai-sugg { display: block; background: #fff; border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; cursor: pointer; text-decoration: none; color: inherit; }
+    .ai-sugg:hover { border-color: var(--accent); }
+    .ai-sugg-title { font-weight: 500; font-size: 13px; }
+    .ai-sugg-reason { font-size: 12px; color: var(--ink2); margin-top: 4px; }
+    .ai-sugg-conf { font-size: 10px; color: var(--ink3); font-family: 'DM Mono', monospace; margin-left: 8px; }
+    .ai-actions { margin-top: 8px; font-size: 12px; color: var(--ink2); }
+    .ai-actions button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; }
+    .ai-panel.thinking .ai-panel-head::after { content: ' ...'; }
   </style>
 </head>
 <body>
@@ -98,6 +109,17 @@
           <label for="t-body">How can we help?</label>
           <textarea id="t-body" name="body" required></textarea>
         </div>
+
+        <div id="ai-panel" class="ai-panel">
+          <div class="ai-panel-head">Suggested help articles</div>
+          <div id="ai-list"></div>
+          <div class="ai-actions">
+            Did one of these resolve your question?
+            <button type="button" id="ai-resolved">Yes, I'm sorted</button>
+            <button type="button" id="ai-dismiss">No, still need help</button>
+          </div>
+        </div>
+
         <button type="submit" id="t-submit">Send</button>
         <div id="t-err" class="err" style="display:none"></div>
         <div id="t-ok"  class="ok"  style="display:none"></div>
@@ -185,6 +207,100 @@
 
     document.getElementById('kb-search').addEventListener('input', (e) => renderKBList(e.target.value));
 
+    // ─── AI-suggested KB articles ───────────────────────────────────────
+    //
+    // Fires when subject + body are both non-trivial, debounced so we
+    // don't hammer Anthropic on every keystroke. Customer can dismiss
+    // ("No, still need help") to hide the panel and proceed to submit,
+    // or click an article to expand its full body inline.
+    let aiTimer = null;
+    let aiLastQuery = '';
+    let aiDismissed = false;
+
+    function compositeQuery() {
+      const subj = document.getElementById('t-subject').value.trim();
+      const body = document.getElementById('t-body').value.trim();
+      if (subj.length < 4 || body.length < 12) return null;
+      return `${subj}\n\n${body}`;
+    }
+
+    function clearAiPanel() {
+      const panel = document.getElementById('ai-panel');
+      panel.classList.remove('shown', 'thinking');
+      document.getElementById('ai-list').innerHTML = '';
+    }
+
+    async function fetchAiSuggestions() {
+      if (aiDismissed) return;
+      const query = compositeQuery();
+      if (!query || query === aiLastQuery) return;
+      aiLastQuery = query;
+      const panel = document.getElementById('ai-panel');
+      panel.classList.add('shown', 'thinking');
+      document.getElementById('ai-list').innerHTML = '<div style="font-size:12px;color:var(--ink3)">Looking for relevant help articles</div>';
+      try {
+        const res = await api('/kb-suggest', { method: 'POST', body: { question: query } });
+        if (!res.suggestions || res.suggestions.length === 0) {
+          clearAiPanel();
+          return;
+        }
+        const byId = Object.fromEntries(ARTICLES.map((a) => [a.display_id, a]));
+        const html = res.suggestions.map((s) => {
+          const a = byId[s.article_id];
+          if (!a) return '';
+          return `
+            <a class="ai-sugg" href="#" data-id="${escHtml(a.display_id)}">
+              <span class="kb-cat">${escHtml(a.category || 'Help')}</span>
+              <span class="ai-sugg-title">${escHtml(a.title)}</span>
+              <span class="ai-sugg-conf">${Math.round(s.confidence)}%</span>
+              <div class="ai-sugg-reason">${escHtml(s.reason)}</div>
+            </a>`;
+        }).join('');
+        document.getElementById('ai-list').innerHTML = html;
+        panel.classList.remove('thinking');
+        // Clicking a suggestion scrolls to + expands the matching KB
+        // article in the search list above. Lets the customer read the
+        // full body without leaving the page or losing their draft.
+        panel.querySelectorAll('.ai-sugg').forEach(el => {
+          el.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = el.dataset.id;
+            const target = document.querySelector(`.kb-row[data-id="${id}"]`);
+            if (target) {
+              target.classList.add('open');
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
+        });
+      } catch (err) {
+        clearAiPanel();
+      }
+    }
+
+    function scheduleAi() {
+      if (aiDismissed) return;
+      if (aiTimer) clearTimeout(aiTimer);
+      aiTimer = setTimeout(fetchAiSuggestions, 800);
+    }
+    document.getElementById('t-subject').addEventListener('input', scheduleAi);
+    document.getElementById('t-body').addEventListener('input', scheduleAi);
+
+    document.getElementById('ai-resolved').addEventListener('click', () => {
+      // Wipe the form + show a success state. No ticket is created —
+      // the suggestion itself counts as the resolution.
+      document.getElementById('ticket-form').reset();
+      aiDismissed = false;
+      aiLastQuery = '';
+      clearAiPanel();
+      const okEl = document.getElementById('t-ok');
+      okEl.textContent = "Glad we could help. Submit the form below if you need to reach us about anything else.";
+      okEl.style.display = 'block';
+    });
+    document.getElementById('ai-dismiss').addEventListener('click', () => {
+      aiDismissed = true;
+      clearAiPanel();
+    });
+
     document.getElementById('ticket-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const submit = document.getElementById('t-submit');
@@ -205,6 +321,9 @@
         okEl.textContent = `Got it — your request is logged as ${res.ticket.display_id}. We'll email you back at ${body.email}.`;
         okEl.style.display = 'block';
         document.getElementById('ticket-form').reset();
+        aiDismissed = false;
+        aiLastQuery = '';
+        clearAiPanel();
       } catch (err) {
         errEl.textContent = `Couldn't send: ${err.message}`;
         errEl.style.display = 'block';
