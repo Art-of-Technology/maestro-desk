@@ -515,8 +515,9 @@ export async function loadTicketDetail(displayId) {
   t.csat            = d.csat_score ?? null;
   t.csatStars       = d.csat_stars ?? null;
   t.csatComment     = d.csat_comment || '';
-  t.csatRequestedAt = d.csat_requested_at ? isoDate(d.csat_requested_at) : null;
-  t.csatSubmittedAt = d.csat_submitted_at ? isoDate(d.csat_submitted_at) : null;
+  t.csatRequestedAt    = d.csat_requested_at ? isoDate(d.csat_requested_at) : null;
+  t.csatSubmittedAt    = d.csat_submitted_at ? isoDate(d.csat_submitted_at) : null;
+  t.csatLastRemindedAt = d.csat_last_reminded_at ? isoDate(d.csat_last_reminded_at) : null;
   t.snoozedUntil    = d.snoozed_until || null;
   t.snoozedAt       = d.snoozed_at || null;
   t.snoozeReason    = d.snooze_reason || '';

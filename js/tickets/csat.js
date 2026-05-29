@@ -54,10 +54,13 @@ export function ticketCSATBlock(t) {
       </div>`;
   }
   if (t.csatRequestedAt) {
+    const reminderNote = t.csatLastRemindedAt
+      ? ` · reminder sent ${window.escHtml(t.csatLastRemindedAt)}`
+      : '';
     return `
       <div class="ts-section">
         <div class="ts-heading">CSAT survey</div>
-        <div style="font-size:11px;color:var(--ink2);margin-bottom:8px">Sent ${window.escHtml(t.csatRequestedAt)} · awaiting response</div>
+        <div style="font-size:11px;color:var(--ink2);margin-bottom:8px">Sent ${window.escHtml(t.csatRequestedAt)} · awaiting response${reminderNote}</div>
         <button class="btn btn-sm" data-action="csat.openSurvey" data-ticket-id="${window.escAttr(t.id)}">Preview customer view</button>
       </div>`;
   }

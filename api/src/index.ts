@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { env } from './lib/env.ts';
 import { supabaseAdmin } from './lib/supabase.ts';
 import { startWebhookWorker } from './lib/outgoing-webhooks.ts';
+import { startCsatReminderWorker } from './lib/csat-survey.ts';
 import { health } from './routes/health.ts';
 import { me } from './routes/me.ts';
 import { tickets } from './routes/tickets.ts';
@@ -87,6 +88,12 @@ console.log(`maestro-desk API listening on http://localhost:${env.PORT}`);
 // SELECT ... FOR UPDATE SKIP LOCKED claim in
 // processPendingDeliveries.
 startWebhookWorker(supabaseAdmin);
+
+// CSAT reminder worker. Hourly sweep that re-sends the survey email
+// to customers who haven't rated 3+ days after the initial request.
+// One reminder per ticket; subsequent ticks skip already-reminded
+// rows via the partial index on tickets_csat_pending_reminder_idx.
+startCsatReminderWorker(supabaseAdmin);
 
 export default {
   port: env.PORT,
