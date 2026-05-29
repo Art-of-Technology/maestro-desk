@@ -102,6 +102,7 @@ import {
   editOutgoingWebhook, saveOutgoingWebhookEdit, rotateOutgoingWebhookSecret,
   resetSuppressedCustomer,
   setAutoPriorityBump,
+  setMentionEmailPref,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,

@@ -32,7 +32,7 @@ export async function notifyMentionedAgents(args: {
   if (targets.length === 0) return { sent: 0, skipped: 0 };
 
   const [usersRes, ticketRes, workspaceFrom] = await Promise.all([
-    sb.from('users').select('id, name, email').in('id', targets),
+    sb.from('users').select('id, name, email, mention_email_enabled').in('id', targets),
     sb.from('tickets').select('display_id, subject, workspaces(name, slug)').eq('id', ticketId).eq('workspace_id', workspaceId).maybeSingle(),
     getOutboundFrom(sb, workspaceId),
   ]);
@@ -62,8 +62,11 @@ export async function notifyMentionedAgents(args: {
 
   let sent = 0;
   let skipped = 0;
-  for (const u of (usersRes.data || []) as Array<{ id: string; name: string | null; email: string | null }>) {
+  for (const u of (usersRes.data || []) as Array<{ id: string; name: string | null; email: string | null; mention_email_enabled: boolean | null }>) {
     if (!u.email) { skipped++; continue; }
+    // Per-user opt-out. The default-true column means absence of the
+    // preference (legacy rows pre-migration) gets the emails.
+    if (u.mention_email_enabled === false) { skipped++; continue; }
     const greeting = u.name ? `Hi ${u.name.split(/\s+/)[0]},` : 'Hi,';
     const subject = `${author} mentioned you on ${ticket.display_id}`;
     const textBody = [
