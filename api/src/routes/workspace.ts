@@ -16,7 +16,7 @@ workspace.get('/settings', async (c) => {
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('workspaces')
-    .select('id, name, slug, auto_priority_bump_on_angry')
+    .select('id, name, slug, auto_priority_bump_on_angry, csat_reminder_days')
     .eq('id', workspaceId)
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
@@ -32,8 +32,20 @@ workspace.get('/settings', async (c) => {
 // matching sbUser flip would be a separate slice. The admin check
 // runs via the existing is_workspace_admin helper, called as an RPC
 // against the sbUser client so the JWT context drives the decision.
+// csat_reminder_days validation: 0–6 entries, each 1–365 days,
+// strictly ascending. The DB CHECK enforces length only; ordering +
+// per-element bounds live here so a clean 400 surfaces in the SPA
+// instead of an opaque postgres error. Empty array is valid and
+// means "no reminders" for that workspace.
 const SettingsBody = z.object({
   auto_priority_bump_on_angry: z.boolean().optional(),
+  csat_reminder_days: z.array(z.number().int().min(1).max(365))
+    .max(6)
+    .refine(
+      (arr) => arr.every((v, i) => i === 0 || v > arr[i - 1]),
+      'csat_reminder_days must be strictly ascending',
+    )
+    .optional(),
 }).strict();
 
 workspace.patch('/settings', async (c) => {
@@ -54,7 +66,7 @@ workspace.patch('/settings', async (c) => {
     .from('workspaces')
     .update(parsed.data)
     .eq('id', workspaceId)
-    .select('id, name, slug, auto_priority_bump_on_angry')
+    .select('id, name, slug, auto_priority_bump_on_angry, csat_reminder_days')
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data)  return c.json({ error: 'Workspace not found' }, 404);

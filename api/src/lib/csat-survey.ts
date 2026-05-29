@@ -133,30 +133,32 @@ function generateToken(): string {
 // The column itself supports adding more reminders later (timestamptz,
 // not a count) without a schema change.
 
-// Cumulative day thresholds from the initial csat_requested_at.
-// Reminder N (1-indexed) fires once the ticket crosses REMINDER_DAYS[N-1]
-// days since request AND csat_reminder_count is still < N. Length of
-// this array also caps the total reminders sent per ticket — there's
-// no separate MAX_REMINDERS constant.
-const REMINDER_DAYS = [3, 7, 14];
+// Default cadence (cumulative days from initial csat_requested_at)
+// applied to workspaces that don't override the column. Operators
+// edit per-workspace via workspace.csat_reminder_days, validated in
+// workspace.ts PATCH.
+export const DEFAULT_REMINDER_DAYS = [3, 7, 14] as const;
 const REMINDER_TICK_MS = 60 * 60 * 1000;  // every hour
 let reminderTimer: ReturnType<typeof setInterval> | null = null;
 
 export async function processCsatReminders(sb: SupabaseClient, portalBase?: string): Promise<number> {
   if (!isPostmarkConfigured()) return 0;
-  // Earliest threshold = REMINDER_DAYS[0]. Anything older than that
-  // is at least a candidate; we filter the specific cadence step in
-  // code below so a single SQL query covers all reminder waves.
-  const earliestCutoff = new Date(Date.now() - REMINDER_DAYS[0] * 86400000).toISOString();
+  // The per-workspace cadence is variable now, so we can't pre-bake
+  // an "earliestCutoff" or a hard "count < N" gate in SQL. Use
+  // generous bounds: any candidate at least 1 day old with fewer
+  // than 6 reminders fired so far (the column-level cap from the
+  // CHECK constraint). The precise cadence step runs per-row in
+  // code, with the workspace's array embedded via the join.
+  const generousCutoff = new Date(Date.now() - 86400000).toISOString();
   const { data: candidates, error } = await sb
     .from('tickets')
-    .select('id, workspace_id, csat_requested_at, csat_reminder_count')
+    .select('id, workspace_id, csat_requested_at, csat_reminder_count, workspaces(csat_reminder_days)')
     .is('csat_submitted_at', null)
-    .lt('csat_reminder_count', REMINDER_DAYS.length)
+    .lt('csat_reminder_count', 6)
     .not('csat_requested_at', 'is', null)
     .not('csat_token', 'is', null)
     .is('deleted_at', null)
-    .lte('csat_requested_at', earliestCutoff)
+    .lte('csat_requested_at', generousCutoff)
     .limit(200);
   if (error) {
     console.error('[csat-reminders] scan failed:', error.message);
@@ -166,19 +168,32 @@ export async function processCsatReminders(sb: SupabaseClient, portalBase?: stri
 
   const now = Date.now();
   let sentCount = 0;
-  for (const row of candidates as Array<{ id: string; workspace_id: string; csat_requested_at: string; csat_reminder_count: number }>) {
-    // For a row currently at count=N, the *next* reminder is N+1,
-    // which fires once we're at-or-past REMINDER_DAYS[N] days from
-    // the initial request. Skip if we haven't crossed that bar yet.
-    const nextIndex = row.csat_reminder_count; // 0 → first reminder, 1 → second, etc.
-    if (nextIndex >= REMINDER_DAYS.length) continue;
+  for (const row of candidates as unknown as Array<{
+    id: string;
+    workspace_id: string;
+    csat_requested_at: string;
+    csat_reminder_count: number;
+    // PostgREST embeds resolve as either an array (many-to-many) or
+    // a single object (foreign-key one-to-one); supabase-js's types
+    // tend to call it an array. Handle both shapes defensively.
+    workspaces: { csat_reminder_days: number[] | null }
+              | { csat_reminder_days: number[] | null }[]
+              | null;
+  }>) {
+    const workspaceEmbed = Array.isArray(row.workspaces) ? row.workspaces[0] : row.workspaces;
+    const cadence = workspaceEmbed?.csat_reminder_days ?? Array.from(DEFAULT_REMINDER_DAYS);
+    // Empty cadence = reminders disabled for this workspace.
+    if (cadence.length === 0) continue;
+    const nextIndex = row.csat_reminder_count;
+    if (nextIndex >= cadence.length) continue;
     const requestedMs = new Date(row.csat_requested_at).getTime();
     const ageDays = (now - requestedMs) / 86400000;
-    if (ageDays < REMINDER_DAYS[nextIndex]) continue;
+    if (ageDays < cadence[nextIndex]) continue;
     try {
       const ok = await sendOneReminder({
         sb, workspaceId: row.workspace_id, ticketId: row.id,
-        attemptNumber: nextIndex + 1,
+        attemptNumber:  nextIndex + 1,
+        totalAttempts:  cadence.length,
         portalBase,
       });
       if (ok) sentCount++;
@@ -194,9 +209,10 @@ async function sendOneReminder(args: {
   workspaceId:   string;
   ticketId:      string;
   attemptNumber: number;
+  totalAttempts: number;
   portalBase?:   string;
 }): Promise<boolean> {
-  const { sb, workspaceId, ticketId, attemptNumber } = args;
+  const { sb, workspaceId, ticketId, attemptNumber, totalAttempts } = args;
   // Re-pull the ticket row in full now that it's on the hot path. The
   // select shape mirrors sendCsatSurvey above; could be factored later,
   // but the duplication is small enough to leave for now.
@@ -236,9 +252,9 @@ async function sendOneReminder(args: {
   const surveyUrl  = `${portalBase}?ws=${encodeURIComponent(workspaceSlug)}&csat=${encodeURIComponent(t.csat_token)}`;
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there';
   // Soften the tone progressively. Attempt 1 = light nudge; attempt 2
-  // adds "another" so it's clearly the second ask; attempt 3 = "last"
-  // so the customer knows we won't keep chasing past it.
-  const lastAttempt = attemptNumber >= REMINDER_DAYS.length;
+  // adds "another" so it's clearly the second ask; the final one
+  // says "last" so the customer knows we won't keep chasing.
+  const lastAttempt = attemptNumber >= totalAttempts;
   const prefix = attemptNumber === 1
     ? 'Just a quick reminder'
     : lastAttempt

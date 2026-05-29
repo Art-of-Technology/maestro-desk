@@ -299,7 +299,66 @@ function settingsAI() {
         <label class="toggle"><input type="checkbox" ${autoBumpOn ? 'checked' : ''} onchange="setAutoPriorityBump(this.checked)" ${window.isAdmin() ? '' : 'disabled'}/><span class="toggle-slider"></span></label>
       </div>
       <div id="auto-bump-msg" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
+    </div>
+
+    ${settingsCsatCadence(ws)}`;
+}
+
+function settingsCsatCadence(ws) {
+  const cadence = Array.isArray(ws?.csat_reminder_days) ? ws.csat_reminder_days : [3, 7, 14];
+  const cadenceStr = cadence.length === 0 ? '(none — reminders off)' : cadence.join(', ');
+  const isAdmin = window.isAdmin();
+  return `
+    <div class="settings-section">
+      <div class="settings-h">CSAT reminder cadence</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
+        Days after the initial CSAT request to send reminders. Cumulative — each value is days since the original request, not days since the previous reminder. Cap of 6 entries; each value 1–365 days, strictly ascending. Leave empty (just spaces / comma) to disable reminders entirely.
+      </div>
+      <div class="form-row">
+        <label class="form-label">Schedule (comma-separated days)</label>
+        <input class="form-input" id="csat-cadence-input" value="${window.escAttr(cadenceStr === '(none — reminders off)' ? '' : cadenceStr)}" placeholder="3, 7, 14" ${isAdmin ? '' : 'disabled'} style="font-family:'DM Mono',monospace"/>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Currently: <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${window.escHtml(cadenceStr)}</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-solid btn-sm" onclick="saveCsatCadence()" ${isAdmin ? '' : 'disabled'}>Save cadence</button>
+        <span id="csat-cadence-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
+      </div>
     </div>`;
+}
+
+export async function saveCsatCadence() {
+  if (!window.isAdmin()) return;
+  const raw = (document.getElementById('csat-cadence-input').value || '').trim();
+  const msg = document.getElementById('csat-cadence-msg');
+  // Parse: comma-separated ints; empty string → empty array (reminders off).
+  const parsed = raw === ''
+    ? []
+    : raw.split(',').map((s) => s.trim()).filter(Boolean).map((s) => Number(s));
+  if (parsed.some((n) => !Number.isInteger(n) || n < 1 || n > 365)) {
+    msg.textContent = 'Each day must be an integer 1–365';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  if (parsed.length > 6) {
+    msg.textContent = 'At most 6 reminders';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  if (parsed.some((v, i) => i > 0 && v <= parsed[i - 1])) {
+    msg.textContent = 'Days must be strictly ascending';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPatch('/api/v1/workspace/settings', { csat_reminder_days: parsed });
+    WORKSPACE_SETTINGS = res.workspace;
+    msg.textContent = '✓ Saved';
+    msg.style.color = 'var(--green)';
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 export async function setAutoPriorityBump(enabled) {
