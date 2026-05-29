@@ -16,7 +16,7 @@ workspace.get('/settings', async (c) => {
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('workspaces')
-    .select('id, name, slug, auto_priority_bump_on_angry, csat_reminder_days')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days')
     .eq('id', workspaceId)
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
@@ -46,6 +46,11 @@ const SettingsBody = z.object({
       'csat_reminder_days must be strictly ascending',
     )
     .optional(),
+  // Workspace branding. logo_url accepts plain http(s) — anything more
+  // restrictive (signed URLs, allowlisted CDNs) would belong in a
+  // file-upload-and-host slice rather than here. Null clears.
+  logo_url:      z.string().url().nullable().optional(),
+  primary_color: z.string().regex(/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/, 'primary_color must be a hex like #8b5cf6').nullable().optional(),
 }).strict();
 
 workspace.patch('/settings', async (c) => {
@@ -66,7 +71,7 @@ workspace.patch('/settings', async (c) => {
     .from('workspaces')
     .update(parsed.data)
     .eq('id', workspaceId)
-    .select('id, name, slug, auto_priority_bump_on_angry, csat_reminder_days')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days')
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data)  return c.json({ error: 'Workspace not found' }, 404);

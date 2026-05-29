@@ -173,7 +173,100 @@ function settingsAppearance() {
         </div>
         <button class="btn btn-sm" ${collapsedN===0?'disabled':''} onclick="resetAllCollapsedSections()">Show all</button>
       </div>
+    </div>
+
+    ${settingsWorkspaceBranding()}`;
+}
+
+function settingsWorkspaceBranding() {
+  // Reuses the same workspace settings state lazy-loaded by the AI
+  // Assistant tab (PR #222). Either tab triggers the fetch; whichever
+  // lands first wins, the other paints from cache.
+  if (!WORKSPACE_SETTINGS_LOADED) {
+    WORKSPACE_SETTINGS_LOADED = true;
+    apiGet('/api/v1/workspace/settings')
+      .then((res) => { WORKSPACE_SETTINGS = res.workspace; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] workspace load failed:', err); });
+  }
+  const ws = WORKSPACE_SETTINGS;
+  const isAdmin = window.isAdmin();
+  const logoUrl = ws?.logo_url || '';
+  const color   = ws?.primary_color || '';
+  const preview = logoUrl
+    ? `<img src="${window.escAttr(logoUrl)}" alt="" style="max-height:32px;max-width:160px;vertical-align:middle;border:1px solid var(--rule);border-radius:4px;padding:2px;background:#fff" onerror="this.style.display='none'"/>`
+    : '<span style="color:var(--ink3);font-size:11px;font-family:\'DM Mono\',monospace">No logo configured</span>';
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Workspace branding</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
+        Logo + primary color are shown on the sidebar, in CSAT survey + magic-link emails, and on the customer portal. Host the logo image somewhere public (your CDN, an S3 bucket, etc.) and paste the URL here. Admins only.
+      </div>
+      <div class="settings-row" style="border:none;padding-bottom:8px">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--ink)">Current</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px">Shown wherever the workspace surfaces to a customer or agent.</div>
+        </div>
+        <div>${preview}</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Logo URL</label>
+        <input class="form-input" id="brand-logo-url" type="url" value="${window.escAttr(logoUrl)}" placeholder="https://cdn.example.com/your-logo.png" ${isAdmin ? '' : 'disabled'}/>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">PNG / SVG with a transparent background works best. Leave empty to fall back to the workspace name.</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Primary color</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input class="form-input" id="brand-primary-color" type="text" value="${window.escAttr(color)}" placeholder="#8b5cf6" style="font-family:'DM Mono',monospace;max-width:140px" ${isAdmin ? '' : 'disabled'}/>
+          <input type="color" id="brand-primary-color-picker" value="${color || '#8b5cf6'}" oninput="document.getElementById('brand-primary-color').value=this.value" ${isAdmin ? '' : 'disabled'} style="width:34px;height:34px;border:1px solid var(--rule);border-radius:4px;padding:0;cursor:pointer;background:none"/>
+        </div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Hex like <code style="font-family:'DM Mono',monospace">#8b5cf6</code>. Used for chips, focus rings, and the AI-draft button. Empty falls back to the default purple.</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-solid btn-sm" onclick="saveWorkspaceBranding()" ${isAdmin ? '' : 'disabled'}>Save</button>
+        <span id="brand-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
+      </div>
     </div>`;
+}
+
+export async function saveWorkspaceBranding() {
+  if (!window.isAdmin()) return;
+  const logoUrl = document.getElementById('brand-logo-url').value.trim();
+  const color   = document.getElementById('brand-primary-color').value.trim();
+  const msg = document.getElementById('brand-msg');
+  if (logoUrl && !/^https?:\/\//i.test(logoUrl)) {
+    msg.textContent = 'Logo URL must start with https://';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  if (color && !/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color)) {
+    msg.textContent = 'Color must be a hex like #8b5cf6';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPatch('/api/v1/workspace/settings', {
+      logo_url:      logoUrl || null,
+      primary_color: color   || null,
+    });
+    WORKSPACE_SETTINGS = res.workspace;
+    msg.textContent = '✓ Saved';
+    msg.style.color = 'var(--green)';
+    // Apply the new brand to the sidebar + tab title immediately so
+    // the user sees their change reflected without re-signing-in.
+    window.applyWorkspaceBrand?.({
+      name:         res.workspace.name,
+      slug:         res.workspace.slug,
+      logoUrl:      res.workspace.logo_url,
+      primaryColor: res.workspace.primary_color,
+    });
+    // Re-render the settings page so the preview row picks up the
+    // new logo / color too.
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 function settingsNotifications() {

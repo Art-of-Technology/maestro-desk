@@ -104,6 +104,7 @@ import {
   setAutoPriorityBump,
   setMentionEmailPref,
   saveCsatCadence,
+  saveWorkspaceBranding,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
