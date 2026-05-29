@@ -22,6 +22,7 @@ import {
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
 import { apiGet, apiPost, apiPut, apiDelete } from '../core/api-client.js';
+import { showModal } from '../core/modal.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
 // when the Integrations tab is opened.
@@ -626,6 +627,7 @@ function settingsOutgoingWebhooksSection() {
             <span style="color:var(--ink4);margin-left:8px">${w.events.length} event${w.events.length === 1 ? '' : 's'}</span>
           </div>
         </div>
+        <button class="btn btn-sm" onclick="showOutgoingWebhookDeliveries('${window.escAttr(w.id)}', '${window.escAttr(w.name)}')">Deliveries</button>
         <button class="btn btn-sm btn-danger" onclick="deleteOutgoingWebhook('${window.escAttr(w.id)}')">Delete</button>
       </div>`;
   }).join('');
@@ -699,6 +701,64 @@ export async function deleteOutgoingWebhook(id) {
   } catch (err) {
     alert(`Couldn't delete: ${err?.message || err}`);
   }
+}
+
+// ─── Delivery log modal ─────────────────────────────────────────────────
+//
+// Opens a modal listing the 50 most recent delivery attempts for one
+// webhook. Renders empty-then-load (showModal first with a "loading"
+// stub, then swap the inner container's HTML when the fetch resolves)
+// so the user gets immediate feedback. No re-fetch or live update —
+// this is a snapshot view, the user closes + reopens for a refresh.
+
+export function showOutgoingWebhookDeliveries(id, name) {
+  showModal(
+    `Deliveries · ${window.escHtml(name)}`,
+    `<div id="wh-deliveries-body" style="min-height:120px;color:var(--ink3);font-size:12px">Loading…</div>`,
+    null, null, true,
+  );
+  loadOutgoingWebhookDeliveries(id);
+}
+
+async function loadOutgoingWebhookDeliveries(id) {
+  const container = document.getElementById('wh-deliveries-body');
+  if (!container) return;
+  try {
+    const res = await apiGet(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}/deliveries`);
+    container.innerHTML = renderDeliveryRows(res.deliveries || []);
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--red);font-size:12px">${window.escHtml(err?.message || 'Failed to load')}</div>`;
+  }
+}
+
+function renderDeliveryRows(deliveries) {
+  if (deliveries.length === 0) {
+    return `<div style="color:var(--ink3);font-size:12px;text-align:center;padding:20px 0">No deliveries yet.</div>`;
+  }
+  const stateColor = (s) => s === 'success' ? 'var(--green)' : s === 'exhausted' ? 'var(--red)' : 'var(--amber)';
+  const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 19).replace('T', ' ') : '—';
+  return `
+    <div style="display:grid;grid-template-columns:auto 1fr auto auto auto auto;gap:8px 12px;font-size:11px;align-items:baseline">
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">State</div>
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Event</div>
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Attempts</div>
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Last status</div>
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Last attempt</div>
+      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Next attempt</div>
+      ${deliveries.map((d) => {
+        const last = d.last_status
+          ? `HTTP ${d.last_status}`
+          : (d.last_error ? `<span title="${window.escAttr(d.last_error)}">err</span>` : '—');
+        return `
+          <div><span style="color:${stateColor(d.state)};font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">${d.state}</span></div>
+          <div style="font-family:'DM Mono',monospace;color:var(--ink2)">${window.escHtml(d.event)}</div>
+          <div style="font-family:'DM Mono',monospace;color:var(--ink)">${d.attempts}</div>
+          <div style="font-family:'DM Mono',monospace;color:var(--ink2)">${last}</div>
+          <div style="font-family:'DM Mono',monospace;color:var(--ink3)">${fmtTs(d.last_attempt_at)}</div>
+          <div style="font-family:'DM Mono',monospace;color:var(--ink3)">${d.state === 'pending' ? fmtTs(d.next_attempt_at) : '—'}</div>
+        `;
+      }).join('')}
+    </div>`;
 }
 
 export async function saveSlackIntegration() {
