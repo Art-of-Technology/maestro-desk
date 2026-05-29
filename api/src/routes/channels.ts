@@ -7,8 +7,11 @@ channels.use('*', requireAuth);
 
 // List channels in the active workspace, with the default-assigned user
 // joined so the SPA can show "default agent" by name.
+//
+// Uses sbUser — channels was pivoted alongside inbox_messages in PR #193,
+// and the users(name) embed resolves via the workspace-peer-select policy.
 channels.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const { data, error } = await sb
