@@ -26,7 +26,7 @@ const SlackBody = z.object({
 });
 
 integrations.get('/slack', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('slack_integrations')
@@ -51,7 +51,7 @@ integrations.get('/slack', async (c) => {
 });
 
 integrations.put('/slack', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = SlackBody.safeParse(reqBody);
@@ -80,7 +80,7 @@ integrations.put('/slack', async (c) => {
 });
 
 integrations.delete('/slack', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { error } = await sb
     .from('slack_integrations')
@@ -104,7 +104,7 @@ const StripeBody = z.object({
 });
 
 integrations.get('/stripe', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('stripe_integrations')
@@ -129,7 +129,7 @@ integrations.get('/stripe', async (c) => {
 });
 
 integrations.put('/stripe', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = StripeBody.safeParse(reqBody);
@@ -151,7 +151,7 @@ integrations.put('/stripe', async (c) => {
 });
 
 integrations.delete('/stripe', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { error } = await sb
     .from('stripe_integrations')
@@ -169,7 +169,7 @@ integrations.delete('/stripe', async (c) => {
 // customer for that email (the common case). Errors from Stripe
 // (auth failure, rate limit) bubble up as 502.
 integrations.get('/customers/:id/stripe-context', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
 
@@ -218,7 +218,7 @@ const ShopifyBody = z.object({
 });
 
 integrations.get('/shopify', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('shopify_integrations')
@@ -240,7 +240,7 @@ integrations.get('/shopify', async (c) => {
 });
 
 integrations.put('/shopify', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = ShopifyBody.safeParse(reqBody);
@@ -271,7 +271,7 @@ integrations.put('/shopify', async (c) => {
 });
 
 integrations.delete('/shopify', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { error } = await sb
     .from('shopify_integrations')
@@ -282,7 +282,7 @@ integrations.delete('/shopify', async (c) => {
 });
 
 integrations.get('/customers/:id/shopify-context', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
 
