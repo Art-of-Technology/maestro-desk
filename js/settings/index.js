@@ -35,6 +35,8 @@ let SHOPIFY_LOADED = false;
 let OUTGOING_WEBHOOKS = [];
 let OUTGOING_WEBHOOKS_LOADED = false;
 let LAST_REVEALED_SECRET = null;        // shown once after a POST; cleared on next paint
+let SUPPRESSED_CUSTOMERS = [];
+let SUPPRESSED_LOADED = false;
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
   { k: 'ticket.resolved',  l: 'Ticket resolved' },
@@ -403,7 +405,8 @@ function settingsIntegrations() {
     </div>
     ${settingsStripeSection()}
     ${settingsShopifySection()}
-    ${settingsOutgoingWebhooksSection()}`;
+    ${settingsOutgoingWebhooksSection()}
+    ${settingsSuppressionListSection()}`;
 }
 
 function settingsStripeSection() {
@@ -701,6 +704,77 @@ export async function deleteOutgoingWebhook(id) {
     window.renderPage('settings');
   } catch (err) {
     alert(`Couldn't delete: ${err?.message || err}`);
+  }
+}
+
+// ─── Postmark suppression list ──────────────────────────────────────────
+//
+// Surfaces every customer whose email is currently in hard or spam
+// bounce state. Reset clears the local bounce summary; if the address
+// is still suppressed at Postmark, the next send will bounce again
+// and re-populate this list. Soft bounces aren't shown here — they're
+// transient by nature and the count badge on the customer detail is
+// enough.
+
+function settingsSuppressionListSection() {
+  if (!SUPPRESSED_LOADED) {
+    SUPPRESSED_LOADED = true;
+    apiGet('/api/v1/integrations/postmark/suppressed')
+      .then((res) => { SUPPRESSED_CUSTOMERS = res.suppressed || []; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] suppression load failed:', err); });
+  }
+  const list = SUPPRESSED_CUSTOMERS;
+  const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '—';
+  const rows = list.length === 0 ? `
+    <div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No suppressed addresses.</div>
+  ` : list.map((c) => {
+    const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.display_id || '(no name)';
+    const stateColor = c.email_bounce_state === 'spam' ? 'var(--red)' : 'var(--red)';
+    return `
+      <div style="padding:10px 0;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(name)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(c.email || '')}</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px">
+            <span style="color:${stateColor};font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">${window.escHtml(c.email_bounce_state)}</span>
+            <span style="color:var(--ink4);margin-left:8px">${window.escHtml(c.email_last_bounce_type || '')}</span>
+            <span style="color:var(--ink4);margin-left:8px">last: ${fmtTs(c.email_last_bounce_at)}</span>
+            <span style="color:var(--ink4);margin-left:8px">${c.email_bounce_count} bounce${c.email_bounce_count === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <button class="btn btn-sm" onclick="resetSuppressedCustomer('${window.escAttr(c.id)}')">Reset</button>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Postmark suppression list</div>
+      <div class="settings-desc" style="margin-bottom:14px">
+        Customers whose email is currently flagged as undeliverable based on Postmark Bounce / SpamComplaint webhook events. Resetting clears the local state — if the address is still suppressed at Postmark, the next send will bounce and re-populate it.
+      </div>
+      <div>${rows}</div>
+    </div>`;
+}
+
+export async function resetSuppressedCustomer(customerId) {
+  if (!window.isAdmin()) return;
+  if (!confirm('Reset this customer\'s bounce state? Sends will resume immediately.')) return;
+  try {
+    await apiPost(`/api/v1/integrations/postmark/suppressed/${encodeURIComponent(customerId)}/reset`);
+    SUPPRESSED_CUSTOMERS = SUPPRESSED_CUSTOMERS.filter((c) => c.id !== customerId);
+    // Also clear the in-memory customer record so the badge disappears
+    // on the customer detail without a full bootstrap reload.
+    if (typeof CUSTOMERS !== 'undefined') {
+      const cust = CUSTOMERS.find((c) => c._uuid === customerId);
+      if (cust) {
+        cust.emailBounceState = 'none';
+        cust.emailBounceCount = 0;
+        cust.emailLastBounce  = null;
+      }
+    }
+    window.renderPage('settings');
+  } catch (err) {
+    alert(`Couldn't reset: ${err?.message || err}`);
   }
 }
 

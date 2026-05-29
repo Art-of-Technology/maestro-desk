@@ -508,6 +508,60 @@ integrations.post('/webhooks/:id/deliveries/:deliveryId/retry', async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Postmark suppression list ──────────────────────────────────────────
+//
+// Surface customers whose email_bounce_state is 'hard' or 'spam' so
+// admins can see who's silently undeliverable, and manually reset the
+// state once they've verified the address is fixed (or after Postmark's
+// own reactivation flow). 'soft' isn't surfaced — the badge already
+// shows a count on the customer detail, and soft bounces shouldn't
+// require manual intervention.
+
+integrations.get('/postmark/suppressed', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const { data, error } = await sb
+    .from('customers')
+    .select('id, display_id, first_name, last_name, email, email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count')
+    .eq('workspace_id', workspaceId)
+    .in('email_bounce_state', ['hard', 'spam'])
+    .is('deleted_at', null)
+    .order('email_last_bounce_at', { ascending: false })
+    .limit(200);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ suppressed: data || [] });
+});
+
+integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('customerId');
+
+  // Reset the full bounce summary back to baseline. We deliberately
+  // wipe the count too — the user's intent is "this address is good
+  // again", so starting fresh matches that. Postmark's own
+  // reactivation/suppression list lives separately on their side; if
+  // the address is still marked inactive there, future sends will
+  // keep failing and the next webhook event will bump us right back
+  // into a bounce state.
+  const { data, error } = await sb
+    .from('customers')
+    .update({
+      email_bounce_state:     'none',
+      email_last_bounce_type: null,
+      email_last_bounce_at:   null,
+      email_bounce_count:     0,
+    })
+    .eq('id', customerId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .select('id, email_bounce_state')
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data)  return c.json({ error: 'Customer not found' }, 404);
+  return c.json({ ok: true, customer: data });
+});
+
 function generateWebhookSecret(): string {
   // 32 random bytes → base64url. Bun has crypto.randomBytes via the
   // node compat layer; use it rather than rolling our own RNG.

@@ -100,6 +100,7 @@ import {
   saveShopifyIntegration, deleteShopifyIntegration,
   createOutgoingWebhook, deleteOutgoingWebhook, showOutgoingWebhookDeliveries, retryWebhookDelivery,
   editOutgoingWebhook, saveOutgoingWebhookEdit, rotateOutgoingWebhookSecret,
+  resetSuppressedCustomer,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
