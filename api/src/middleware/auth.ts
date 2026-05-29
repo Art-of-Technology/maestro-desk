@@ -1,33 +1,35 @@
 import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../lib/supabase.ts';
+import { supabaseAdmin, userClient } from '../lib/supabase.ts';
 
 declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
-    sb: SupabaseClient;
+    sb:     SupabaseClient;
+    sbUser: SupabaseClient;
   }
 }
 
 // Verifies the caller's Supabase JWT, resolves the active workspace from the
-// X-Workspace-Id header (must be one they're a member of), and attaches the
-// service-role Supabase client + extracted (userId, workspaceId) to the
-// request context.
+// X-Workspace-Id header (must be one they're a member of), and attaches BOTH
+// Supabase clients to the request context:
 //
-// Why service role and not the user's JWT?
-// RLS in 20260520121400_rls_policies.sql reads workspace_id from
-// `request.jwt.claims->>'workspace_id'` via public.current_workspace_id().
-// Supabase doesn't put workspace_id in the JWT by default — it lands there
-// only once we configure a Custom Access Token Hook (or migrate the helper
-// to a membership-join check). Until that's wired up, using the user's JWT
-// would have RLS deny every read.
+//   c.get('sb')     — service-role; bypasses RLS. Used by every route today.
+//   c.get('sbUser') — user-scoped; carries the caller's JWT, RLS-enforced.
+//                     Routes opt in by switching their queries to this client.
 //
-// For now: service role bypasses RLS; routes MUST explicitly scope queries
-// by workspaceId from this context (the request will already have verified
-// membership). RLS stays enabled in the DB as defense-in-depth for any
-// direct browser → PostgREST traffic that bypasses the API.
+// The pivot from `sb` to `sbUser` happens table-family by table-family. The
+// 20260529120000_tickets_rls_pivot migration moves the ticket family's
+// policies to is_workspace_member(); a follow-up PR will flip tickets.ts
+// to use sbUser. Other table families stay on the legacy policies + sb
+// until they're individually pivoted.
+//
+// PREREQUISITE for any route using sbUser: the Custom Access Token Hook
+// must be enabled (see 20260529110000_custom_access_token_hook.sql). The
+// hook injects workspace_ids into the JWT; without it, RLS denies
+// everything on the pivoted tables.
 export const requireAuth: MiddlewareHandler = async (c, next) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
@@ -73,6 +75,7 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   c.set('userId', userId);
   c.set('workspaceId', workspaceId);
   c.set('sb', supabaseAdmin);
+  c.set('sbUser', userClient(jwt));
   await next();
 };
 
@@ -94,5 +97,6 @@ export const requireAuthOnly: MiddlewareHandler = async (c, next) => {
 
   c.set('userId', data.user.id);
   c.set('sb', supabaseAdmin);
+  c.set('sbUser', userClient(jwt));
   await next();
 };
