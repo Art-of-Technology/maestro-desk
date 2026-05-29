@@ -16,7 +16,7 @@ workspace.get('/settings', async (c) => {
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('workspaces')
-    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer')
     .eq('id', workspaceId)
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
@@ -51,6 +51,12 @@ const SettingsBody = z.object({
   // file-upload-and-host slice rather than here. Null clears.
   logo_url:      z.string().url().nullable().optional(),
   primary_color: z.string().regex(/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/, 'primary_color must be a hex like #8b5cf6').nullable().optional(),
+  // Customer-portal copy. All optional + bounded to match the DB
+  // CHECK lengths (100 / 1000 / 500). Empty strings normalise to
+  // null in the SPA so "" doesn't sneak past the nullable.
+  portal_tagline: z.string().max(100).nullable().optional(),
+  portal_intro:   z.string().max(1000).nullable().optional(),
+  portal_footer:  z.string().max(500).nullable().optional(),
 }).strict();
 
 // ─── POST /api/v1/workspace/branding/logo ───────────────────────────────
@@ -147,7 +153,7 @@ workspace.patch('/settings', async (c) => {
     .from('workspaces')
     .update(parsed.data)
     .eq('id', workspaceId)
-    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer')
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data)  return c.json({ error: 'Workspace not found' }, 404);

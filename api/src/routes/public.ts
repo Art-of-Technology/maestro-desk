@@ -31,12 +31,23 @@ async function resolveWorkspace(slug: string) {
 // ─── GET /:slug/config — workspace name + branding ───────────────────────
 publicRoutes.get('/:slug/config', async (c) => {
   const ws = await resolveWorkspace(c.req.param('slug'));
+  // Portal copy lives on workspaces.* — resolveWorkspace's narrow
+  // select doesn't carry them, so re-fetch the three optional fields
+  // here. Single extra round-trip per portal boot, negligible.
+  const { data: copy } = await supabaseAdmin
+    .from('workspaces')
+    .select('portal_tagline, portal_intro, portal_footer')
+    .eq('id', ws.id)
+    .maybeSingle();
   return c.json({
     workspace: {
-      slug:          ws.slug,
-      name:          ws.name,
-      primary_color: ws.primary_color || null,
-      logo_url:      ws.logo_url || null,
+      slug:           ws.slug,
+      name:           ws.name,
+      primary_color:  ws.primary_color || null,
+      logo_url:       ws.logo_url || null,
+      portal_tagline: copy?.portal_tagline || null,
+      portal_intro:   copy?.portal_intro   || null,
+      portal_footer:  copy?.portal_footer  || null,
     },
   });
 });

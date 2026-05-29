@@ -233,7 +233,61 @@ function settingsWorkspaceBranding() {
         <button class="btn btn-solid btn-sm" onclick="saveWorkspaceBranding()" ${isAdmin ? '' : 'disabled'}>Save</button>
         <span id="brand-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
       </div>
+    </div>
+
+    ${settingsPortalCopy(ws, isAdmin)}`;
+}
+
+function settingsPortalCopy(ws, isAdmin) {
+  const tagline = ws?.portal_tagline || '';
+  const intro   = ws?.portal_intro   || '';
+  const footer  = ws?.portal_footer  || '';
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Customer portal copy</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
+        Custom text shown on the customer-facing portal (the page at <code style="font-family:'DM Mono',monospace">portal.html?ws=${window.escHtml(ws?.slug || 'your-workspace')}</code>). Leave any field empty to fall back to the platform default. Admins only.
+      </div>
+      <div class="form-row">
+        <label class="form-label">Tagline <span style="color:var(--ink3);font-weight:400;font-family:'DM Mono',monospace;font-size:11px">— shown under the workspace name in the portal header</span></label>
+        <input class="form-input" id="brand-portal-tagline" type="text" maxlength="100" value="${window.escAttr(tagline)}" placeholder="Help &amp; support" ${isAdmin ? '' : 'disabled'}/>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Intro paragraph <span style="color:var(--ink3);font-weight:400;font-family:'DM Mono',monospace;font-size:11px">— shown above the help / submit-request cards</span></label>
+        <textarea class="form-input" id="brand-portal-intro" maxlength="1000" rows="3" placeholder="Welcome! Search our help center below, or submit a ticket and our team will get back to you." ${isAdmin ? '' : 'disabled'} style="resize:vertical;font-family:inherit">${window.escHtml(intro)}</textarea>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Up to 1000 characters. Plain text — no markdown or HTML.</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Footer <span style="color:var(--ink3);font-weight:400;font-family:'DM Mono',monospace;font-size:11px">— replaces "Powered by Maestro Desk"</span></label>
+        <input class="form-input" id="brand-portal-footer" type="text" maxlength="500" value="${window.escAttr(footer)}" placeholder="© Your Company 2026 · Need urgent help? Call +1 555 0100" ${isAdmin ? '' : 'disabled'}/>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-solid btn-sm" onclick="savePortalCopy()" ${isAdmin ? '' : 'disabled'}>Save portal copy</button>
+        <span id="portal-copy-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
+      </div>
     </div>`;
+}
+
+export async function savePortalCopy() {
+  if (!window.isAdmin()) return;
+  const tagline = document.getElementById('brand-portal-tagline').value.trim();
+  const intro   = document.getElementById('brand-portal-intro').value.trim();
+  const footer  = document.getElementById('brand-portal-footer').value.trim();
+  const msg = document.getElementById('portal-copy-msg');
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPatch('/api/v1/workspace/settings', {
+      portal_tagline: tagline || null,
+      portal_intro:   intro   || null,
+      portal_footer:  footer  || null,
+    });
+    WORKSPACE_SETTINGS = res.workspace;
+    msg.textContent = '✓ Saved';
+    msg.style.color = 'var(--green)';
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 export async function uploadWorkspaceLogo() {

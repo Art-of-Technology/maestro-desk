@@ -87,9 +87,12 @@
 <body>
   <main>
     <header>
-      <div class="brand">
-        <div id="ws-name">Loading...</div>
-        <div class="sub">Help &amp; support</div>
+      <div class="brand" style="display:flex;align-items:center;gap:12px">
+        <img id="ws-logo" alt="" style="display:none;max-height:36px;max-width:160px;object-fit:contain"/>
+        <div>
+          <div id="ws-name">Loading...</div>
+          <div class="sub" id="ws-tagline">Help &amp; support</div>
+        </div>
       </div>
       <div class="session-pill">
         <span id="who"></span>
@@ -99,6 +102,11 @@
     </header>
 
     <div id="boot-err" class="err" style="display:none"></div>
+
+    <!-- Workspace-customizable intro paragraph above the help view.
+         Populated by boot() from /config; stays empty + display:none
+         when the workspace hasn't set portal_intro. -->
+    <div id="ws-intro" style="display:none;font-size:14px;color:var(--ink2);line-height:1.6;padding:12px 18px;background:var(--accent-lt);border-radius:var(--radius);margin-bottom:20px"></div>
 
     <nav class="tabs" id="tabs" style="display:none">
       <button data-view="help"    class="active">Help</button>
@@ -210,7 +218,9 @@
       </form>
     </section>
 
-    <footer>Powered by Maestro Desk</footer>
+    <!-- Footer: workspace-customizable copy when portal_footer is set;
+         falls back to the platform attribution otherwise. -->
+    <footer id="ws-footer">Powered by Maestro Desk</footer>
   </main>
 
   <script>
@@ -473,10 +483,30 @@
     async function boot() {
       try {
         const [cfg, kb] = await Promise.all([api('/config'), api('/kb-articles')]);
-        document.getElementById('ws-name').textContent = cfg.workspace.name;
-        document.title = `${cfg.workspace.name} — Help`;
-        if (cfg.workspace.primary_color) {
-          document.documentElement.style.setProperty('--accent', cfg.workspace.primary_color);
+        const ws = cfg.workspace;
+        document.getElementById('ws-name').textContent = ws.name;
+        document.title = `${ws.name} — Help`;
+        if (ws.primary_color) {
+          document.documentElement.style.setProperty('--accent', ws.primary_color);
+        }
+        // Workspace-customizable surface area. Each block falls back to
+        // its hardcoded default when the column is null — keeps fresh
+        // workspaces from rendering a blank brand.
+        if (ws.logo_url) {
+          const logoEl = document.getElementById('ws-logo');
+          logoEl.src = ws.logo_url;
+          logoEl.style.display = 'block';
+        }
+        if (ws.portal_tagline) {
+          document.getElementById('ws-tagline').textContent = ws.portal_tagline;
+        }
+        if (ws.portal_intro) {
+          const introEl = document.getElementById('ws-intro');
+          introEl.textContent = ws.portal_intro;
+          introEl.style.display = 'block';
+        }
+        if (ws.portal_footer) {
+          document.getElementById('ws-footer').textContent = ws.portal_footer;
         }
         ARTICLES = kb.articles || [];
         renderKBList();

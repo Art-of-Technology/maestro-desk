@@ -104,7 +104,7 @@ import {
   setAutoPriorityBump,
   setMentionEmailPref,
   saveCsatCadence,
-  saveWorkspaceBranding, uploadWorkspaceLogo,
+  saveWorkspaceBranding, uploadWorkspaceLogo, savePortalCopy,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
