@@ -36,6 +36,20 @@ let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
 
+// "Needs attention" predicate — the union of three urgency signals,
+// excluding tickets that are already resolved/closed or currently
+// snoozed (the agent has deliberately deferred those). Used by both
+// the KPI counter and the view filter so they stay in sync.
+function needsAttention(t) {
+  const isOpen = t.status === 'open' || t.status === 'escalated';
+  if (!isOpen) return false;
+  const snoozed = t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now();
+  if (snoozed) return false;
+  return t.sentiment === 'angry'
+      || t.sla === 'breach' || t.sla === 'warn'
+      || t.priority === 'urgent';
+}
+
 // Render hook: applied by renderPage in app.js after innerHTML is set, so
 // the table's "select all" checkbox can show the indeterminate state when
 // some-but-not-all rows are selected (a DOM property, not an HTML attr).
@@ -61,12 +75,14 @@ export function renderTickets() {
   const slaRiskN = TICKETS.filter(t => t.sla === 'breach' || t.sla === 'warn').length;
 
   const snoozedN = TICKETS.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()).length;
+  const needsAttentionN = TICKETS.filter(needsAttention).length;
   const views = [
-    { k: 'all',        l: 'All',                            active: FILTER_VIEW === 'all' },
-    { k: 'mine',       l: `Assigned to me · ${myN}`,        active: FILTER_VIEW === 'mine' },
-    { k: 'unassigned', l: `Unassigned · ${unassignedN}`,    active: FILTER_VIEW === 'unassigned' },
-    { k: 'breach',     l: `SLA risk · ${slaRiskN}`,         active: FILTER_VIEW === 'breach' },
-    { k: 'snoozed',    l: `Snoozed · ${snoozedN}`,          active: FILTER_VIEW === 'snoozed' },
+    { k: 'all',             l: 'All',                                 active: FILTER_VIEW === 'all' },
+    { k: 'needs_attention', l: `Needs attention · ${needsAttentionN}`, active: FILTER_VIEW === 'needs_attention' },
+    { k: 'mine',            l: `Assigned to me · ${myN}`,             active: FILTER_VIEW === 'mine' },
+    { k: 'unassigned',      l: `Unassigned · ${unassignedN}`,         active: FILTER_VIEW === 'unassigned' },
+    { k: 'breach',          l: `SLA risk · ${slaRiskN}`,              active: FILTER_VIEW === 'breach' },
+    { k: 'snoozed',         l: `Snoozed · ${snoozedN}`,               active: FILTER_VIEW === 'snoozed' },
   ];
 
   const rowFor = t => {
@@ -240,6 +256,7 @@ function getFilteredTickets() {
   else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent);
   else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.sla === 'breach' || t.sla === 'warn');
   else if (FILTER_VIEW === 'snoozed')    list = list.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now());
+  else if (FILTER_VIEW === 'needs_attention') list = list.filter(needsAttention);
   if (FILTER_STATUS !== 'all')   list = list.filter(t => t.status === FILTER_STATUS);
   if (FILTER_CATEGORY !== 'all') list = list.filter(t => t.category === FILTER_CATEGORY);
   if (FILTER_PRIORITY !== 'all') list = list.filter(t => t.priority === FILTER_PRIORITY);
