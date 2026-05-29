@@ -69,10 +69,9 @@ export async function sendCsatSurvey(args: {
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return { sent: false, reason: 'no_from' };
 
-  // Portal base URL. Hardcoded to the dev server for now; a
-  // PORTAL_BASE_URL env var slot is the natural extension once we
-  // have a production portal deployment to point at.
-  const portalBase = args.portalBase || 'http://localhost:5173/portal.html';
+  // Portal base URL. Prefer the explicit arg (handy for tests),
+  // then PORTAL_BASE_URL env var (production), then the dev fallback.
+  const portalBase = args.portalBase || env.PORTAL_BASE_URL || 'http://localhost:5173/portal.html';
   const surveyUrl  = `${portalBase}?ws=${encodeURIComponent(workspaceSlug)}&csat=${encodeURIComponent(token)}`;
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there';
   const subject = `How did we do? · ${t.display_id}`;
@@ -209,7 +208,7 @@ async function sendOneReminder(args: {
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return false;
 
-  const portalBase = args.portalBase || 'http://localhost:5173/portal.html';
+  const portalBase = args.portalBase || env.PORTAL_BASE_URL || 'http://localhost:5173/portal.html';
   const surveyUrl  = `${portalBase}?ws=${encodeURIComponent(workspaceSlug)}&csat=${encodeURIComponent(t.csat_token)}`;
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there';
   const subject = `Reminder — how did we do? · ${t.display_id}`;

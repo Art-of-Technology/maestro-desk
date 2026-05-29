@@ -28,6 +28,13 @@ const Env = z.object({
   // Settings — the "@inbound.postmarkapp.com" address at the top.
   // Empty means replies fall back to the From address.
   POSTMARK_INBOUND_REPLY_ADDRESS: z.string().default(''),
+  // Public-facing base URL of the customer portal. Used to build links
+  // we embed in outbound emails (CSAT surveys, CSAT reminders, magic-
+  // link sign-in fallback). Should include the protocol and path to
+  // portal.html — e.g. https://help.acme.com/portal.html. Empty in
+  // dev: csat code falls back to http://localhost:5173/portal.html,
+  // and the magic-link path derives a URL from the request origin.
+  PORTAL_BASE_URL: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 

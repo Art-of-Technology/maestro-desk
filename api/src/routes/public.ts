@@ -6,6 +6,7 @@ import { suggestKbForQuestion } from '../lib/kb-suggest.ts';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.ts';
 import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.ts';
 import { getOutboundFrom } from '../lib/outbound-from.ts';
+import { env } from '../lib/env.ts';
 
 export const publicRoutes = new Hono();
 
@@ -256,12 +257,15 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
     return c.json(genericOk);
   }
 
-  // Build the link the customer will click. The client passes its own
-  // base URL via return_to; fall back to a portal.html?ws=<slug> URL on
-  // the API origin if not provided. Either way the magic token rides
-  // in the query string.
-  const base = parsed.data.return_to
+  // Build the link the customer will click. Precedence:
+  //   1. Client-passed return_to (the portal posting from its own host)
+  //   2. PORTAL_BASE_URL env var (production-configured portal)
+  //   3. API request origin + /portal.html (dev fallback)
+  // The magic token rides in the query string regardless.
+  const portalBase = parsed.data.return_to
+    || (env.PORTAL_BASE_URL ? `${env.PORTAL_BASE_URL}?ws=${ws.slug}` : null)
     || `${new URL(c.req.url).origin.replace(/\/$/, '')}/portal.html?ws=${ws.slug}`;
+  const base = portalBase;
   const sep = base.includes('?') ? '&' : '?';
   const url = `${base}${sep}token=${token}`;
 
