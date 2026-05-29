@@ -318,3 +318,87 @@ integrations.get('/customers/:id/shopify-context', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : 'Shopify lookup failed' }, 502);
   }
 });
+
+// ─── Outgoing webhooks (multiple per workspace) ─────────────────────────
+//
+// Workspaces register their own HTTP endpoints to receive ticket-event
+// POSTs. Distinct from Slack: that posts to chat.postMessage with our
+// Slack-specific payload; this posts generic JSON to any URL with an
+// HMAC signature the workspace chose. Use for CRM bridges, analytics
+// pipelines, anything that wants ticket events without us hard-coding
+// a transport.
+//
+// Secret is generated server-side on POST and never returned in any
+// subsequent GET — the user copies it once at creation time.
+
+const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
+
+const WebhookBody = z.object({
+  name:   z.string().min(1).max(100),
+  url:    z.string().url(),
+  events: z.array(z.enum(OUTGOING_EVENTS)).min(1).max(OUTGOING_EVENTS.length),
+  active: z.boolean().optional(),
+});
+
+integrations.get('/webhooks', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const { data, error } = await sb
+    .from('workspace_webhooks')
+    .select('id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ webhooks: data || [] });
+});
+
+integrations.post('/webhooks', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = WebhookBody.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  // Generate the HMAC secret server-side. We surface it once on
+  // create — every subsequent GET masks it. 32 bytes base64url is
+  // ~43 chars, plenty for HMAC-SHA256.
+  const secret = generateWebhookSecret();
+  const { data, error } = await sb
+    .from('workspace_webhooks')
+    .insert({
+      workspace_id: workspaceId,
+      name:         parsed.data.name,
+      url:          parsed.data.url,
+      secret,
+      events:       parsed.data.events,
+      active:       parsed.data.active ?? true,
+    })
+    .select('id, name, url, events, active, created_at')
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  // First-and-only time the raw secret is returned. The SPA must
+  // surface this to the user and warn them to store it now.
+  return c.json({ webhook: data, secret }, 201);
+});
+
+integrations.delete('/webhooks/:id', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const id = c.req.param('id');
+  const { error } = await sb
+    .from('workspace_webhooks')
+    .delete()
+    .eq('id', id)
+    .eq('workspace_id', workspaceId);
+  if (error) return c.json({ error: error.message }, 500);
+  return new Response(null, { status: 204 });
+});
+
+function generateWebhookSecret(): string {
+  // 32 random bytes → base64url. Bun has crypto.randomBytes via the
+  // node compat layer; use it rather than rolling our own RNG.
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString('base64url');
+}

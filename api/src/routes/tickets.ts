@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.ts';
 import { runWorkflowsForTicket } from '../lib/workflow-engine.ts';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.ts';
 import { notifySlack } from '../lib/slack-notify.ts';
+import { dispatchTicketEvent } from '../lib/outgoing-webhooks.ts';
 
 export const tickets = new Hono();
 
@@ -199,14 +200,20 @@ tickets.patch('/:id', async (c) => {
   if (statusChanged && updates.status_key === 'resolved') {
     try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[slack] notify resolved failed:', err); }
+    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
+    catch (err) { console.warn('[outgoing-webhooks] resolved failed:', err); }
   }
   if (statusChanged && updates.status_key === 'escalated') {
     try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
     catch (err) { console.warn('[slack] notify escalated failed:', err); }
+    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
+    catch (err) { console.warn('[outgoing-webhooks] escalated failed:', err); }
   }
   if (priorityChanged && updates.priority_key === 'urgent') {
     try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'priority.urgent',  ticketId }); }
     catch (err) { console.warn('[slack] notify urgent failed:', err); }
+    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'priority.urgent',  ticketId }); }
+    catch (err) { console.warn('[outgoing-webhooks] urgent failed:', err); }
   }
 
   const { data: updated, error: refetchErr } = await sb
@@ -900,6 +907,9 @@ tickets.post('/', async (c) => {
   // Slack notification on creation.
   try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
   catch (err) { console.warn('[slack] notify created failed:', err); }
+  // Generic outgoing webhooks (any URL the workspace configured).
+  try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
   return c.json({ ticket }, 201);
 });

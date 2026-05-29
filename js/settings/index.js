@@ -21,7 +21,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
-import { apiGet, apiPut, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPut, apiDelete } from '../core/api-client.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
 // when the Integrations tab is opened.
@@ -31,6 +31,9 @@ let STRIPE_INTEGRATION = null;
 let STRIPE_LOADED = false;
 let SHOPIFY_INTEGRATION = null;
 let SHOPIFY_LOADED = false;
+let OUTGOING_WEBHOOKS = [];
+let OUTGOING_WEBHOOKS_LOADED = false;
+let LAST_REVEALED_SECRET = null;        // shown once after a POST; cleared on next paint
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
   { k: 'ticket.resolved',  l: 'Ticket resolved' },
@@ -398,7 +401,8 @@ function settingsIntegrations() {
       </div>
     </div>
     ${settingsStripeSection()}
-    ${settingsShopifySection()}`;
+    ${settingsShopifySection()}
+    ${settingsOutgoingWebhooksSection()}`;
 }
 
 function settingsStripeSection() {
@@ -569,6 +573,131 @@ export async function deleteShopifyIntegration() {
     window.renderPage('settings');
   } catch (err) {
     alert(`Couldn't disconnect: ${err?.message || err}`);
+  }
+}
+
+// ─── Outgoing webhooks ──────────────────────────────────────────────────
+//
+// Multiple webhooks per workspace, distinct from Slack/Stripe/Shopify
+// (which are single-instance). List + Create + Delete are exposed in
+// this slice; rotating the secret = delete + recreate. Secrets are
+// surfaced once at creation time via LAST_REVEALED_SECRET, then
+// cleared on the next render so they can't be re-read by paging
+// through DevTools.
+
+function settingsOutgoingWebhooksSection() {
+  if (!OUTGOING_WEBHOOKS_LOADED) {
+    OUTGOING_WEBHOOKS_LOADED = true;
+    apiGet('/api/v1/integrations/webhooks')
+      .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] webhooks load failed:', err); });
+  }
+  const list = OUTGOING_WEBHOOKS;
+
+  // One-time secret reveal — pulled out before render so the next
+  // settings re-render starts clean and the user can't accidentally
+  // re-read it by switching tabs.
+  const revealedBanner = LAST_REVEALED_SECRET ? `
+    <div style="margin-bottom:14px;padding:12px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px">
+      <div style="font-weight:600;color:var(--amber);margin-bottom:6px">Save this signing secret — it won't be shown again</div>
+      <div style="font-family:'DM Mono',monospace;color:var(--ink);background:var(--off2);padding:8px 10px;border-radius:3px;word-break:break-all;user-select:all">${window.escHtml(LAST_REVEALED_SECRET)}</div>
+      <div style="margin-top:6px;color:var(--ink3)">Use this with HMAC-SHA256 over <code>v0:&lt;X-Maestro-Timestamp&gt;:&lt;raw-body&gt;</code> and compare to the <code>X-Maestro-Signature</code> header.</div>
+    </div>` : '';
+  LAST_REVEALED_SECRET = null;
+
+  const rows = list.length === 0 ? `
+    <div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No outgoing webhooks configured.</div>
+  ` : list.map((w) => {
+    const last = w.last_delivery_at ? new Date(w.last_delivery_at).toISOString().slice(0, 19).replace('T', ' ') : '—';
+    const statusColor = w.last_delivery_error
+      ? 'var(--red)'
+      : (w.last_delivery_status && w.last_delivery_status < 400 ? 'var(--green)' : 'var(--ink3)');
+    const statusLabel = w.last_delivery_error
+      ? `error · ${window.escHtml(w.last_delivery_error.slice(0, 40))}`
+      : (w.last_delivery_status ? `HTTP ${w.last_delivery_status}` : 'no deliveries yet');
+    return `
+      <div style="padding:10px 0;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:12px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(w.name)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(w.url)}</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px">
+            <span style="color:${statusColor}">${statusLabel}</span>
+            <span style="color:var(--ink4);margin-left:8px">last: ${last}</span>
+            <span style="color:var(--ink4);margin-left:8px">${w.events.length} event${w.events.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-danger" onclick="deleteOutgoingWebhook('${window.escAttr(w.id)}')">Delete</button>
+      </div>`;
+  }).join('');
+
+  const eventCheckboxes = SLACK_EVENTS.map((e) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
+      <input type="checkbox" id="wh-evt-${e.k}" checked/>
+      ${window.escHtml(e.l)}
+    </label>`).join('');
+
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Outgoing webhooks</div>
+      <div class="settings-desc" style="margin-bottom:14px">
+        Register HTTP endpoints to receive ticket-event POSTs. Generic alternative to the Slack integration — useful for piping events into a CRM, analytics pipeline, or homemade automation. Payloads are JSON, signed with HMAC-SHA256 using a secret generated at creation time.
+      </div>
+      ${revealedBanner}
+      <div>${rows}</div>
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
+        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px">Add webhook</div>
+        <div class="form-row">
+          <label class="form-label">Name</label>
+          <input class="form-input" id="wh-name" placeholder="e.g. CRM sync"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">URL</label>
+          <input class="form-input" id="wh-url" type="url" placeholder="https://your-receiver.example.com/maestro"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Events</label>
+          ${eventCheckboxes}
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn btn-solid btn-sm" onclick="createOutgoingWebhook()">Create</button>
+          <span id="wh-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
+        </div>
+      </div>
+    </div>`;
+}
+
+export async function createOutgoingWebhook() {
+  if (!window.isAdmin()) return;
+  const name   = document.getElementById('wh-name').value.trim();
+  const url    = document.getElementById('wh-url').value.trim();
+  const events = SLACK_EVENTS.filter((e) => document.getElementById(`wh-evt-${e.k}`)?.checked).map((e) => e.k);
+  const msg = document.getElementById('wh-msg');
+  if (!name) { msg.textContent = 'Name is required'; msg.style.color = 'var(--red)'; return; }
+  if (!url)  { msg.textContent = 'URL is required';  msg.style.color = 'var(--red)'; return; }
+  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
+  msg.textContent = 'Creating...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPost('/api/v1/integrations/webhooks', { name, url, events });
+    LAST_REVEALED_SECRET = res.secret;
+    // Re-fetch the list so the new row appears.
+    const list = await apiGet('/api/v1/integrations/webhooks');
+    OUTGOING_WEBHOOKS = list.webhooks || [];
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Create failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+export async function deleteOutgoingWebhook(id) {
+  if (!window.isAdmin()) return;
+  if (!confirm('Delete this webhook? Events will stop firing immediately.')) return;
+  try {
+    await apiDelete(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`);
+    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.filter((w) => w.id !== id);
+    window.renderPage('settings');
+  } catch (err) {
+    alert(`Couldn't delete: ${err?.message || err}`);
   }
 }
 
