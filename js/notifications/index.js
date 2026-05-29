@@ -48,7 +48,24 @@ function getNotifications() {
   if (SESSION?.name && NOTIF_PREFS.mention !== false) {
     for (const t of TICKETS) {
       (t.msgs || []).forEach((m, i) => {
-        if (m.r !== 'note' || !m.mentions || !m.mentions.includes(SESSION.name)) return;
+        if (m.r !== 'note' || !m.mentions) return;
+        // mentions are stored in two shapes depending on origin:
+        //   API-fetched messages  → array of UUID strings
+        //   Just-posted via SPA   → array of {name, userId, role} objects
+        // The old check only handled neither correctly (compared a
+        // name string against either UUIDs or objects). Handle both
+        // shapes so the bell badge actually fires for real-auth users.
+        const userMentioned = m.mentions.some((x) => {
+          if (typeof x === 'string') {
+            return SESSION.userId ? x === SESSION.userId : false;
+          }
+          if (x && typeof x === 'object') {
+            return (SESSION.userId && x.userId === SESSION.userId)
+                || x.name === SESSION.name;
+          }
+          return false;
+        });
+        if (!userMentioned) return;
         if (m.from === SESSION.name) return;
         const mid = `mention-${t.id}-${i}`;
         if (NOTIFICATIONS_DISMISSED.has(mid)) return;
