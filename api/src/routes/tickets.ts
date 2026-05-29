@@ -5,6 +5,7 @@ import { runWorkflowsForTicket } from '../lib/workflow-engine.ts';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.ts';
 import { notifySlack } from '../lib/slack-notify.ts';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.ts';
+import { scoreMessageSentiment } from '../lib/sentiment.ts';
 
 export const tickets = new Hono();
 
@@ -283,6 +284,72 @@ tickets.post('/:id/messages', async (c) => {
   if (mErr) return c.json({ error: mErr.message }, 500);
 
   return c.json({ message }, 201);
+});
+
+// ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
+//
+// For tickets created before sentiment scoring shipped (or whose
+// scoring was skipped due to a previous budget exhaustion / API
+// outage). Scores every customer message on this ticket whose
+// sentiment is currently null, sequentially. Sequential rather than
+// parallel because:
+//   - rate-limit headroom is small for non-Sonnet/Haiku free tiers
+//   - budget exhaustion mid-batch should stop the rest cleanly, not
+//     burn through every message before the gate trips
+//
+// Sentiment-scoring stays on service-role because the lib already
+// expects the privileged client (it inserts into ai_usage_log and
+// updates tickets.priority_key on anger).
+tickets.post('/:id/sentiment/backfill', async (c) => {
+  const sb       = c.get('sb');         // service-role for scoreMessageSentiment
+  const sbUser   = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const ticketId    = c.req.param('id');
+
+  // Confirm the ticket exists in this workspace before doing any AI
+  // work — also surfaces a clean 404 instead of "0 scored" if the
+  // caller fat-fingers the id.
+  const { data: ticket, error: tErr } = await sbUser
+    .from('tickets')
+    .select('id')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr) return c.json({ error: tErr.message }, 500);
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  const { data: messages, error: mErr } = await sbUser
+    .from('ticket_messages')
+    .select('id, body')
+    .eq('ticket_id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .eq('role', 'customer')
+    .is('sentiment', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: true });
+  if (mErr) return c.json({ error: mErr.message }, 500);
+  const unscored = messages || [];
+  if (unscored.length === 0) {
+    return c.json({ scored: 0, sentiments: {} });
+  }
+
+  // Sequential scoring with early exit on null result (likely budget
+  // exhaustion). We don't bubble the BudgetExceededError because the
+  // lib catches it internally and returns null — but the null does
+  // mean further calls would also fail, so stop.
+  const sentiments: Record<string, string> = {};
+  let scored = 0;
+  for (const m of unscored) {
+    const result = await scoreMessageSentiment({
+      sb, workspaceId, ticketId, messageId: m.id, body: m.body || '',
+    });
+    if (!result) break;
+    sentiments[m.id] = result;
+    scored++;
+  }
+
+  return c.json({ scored, total: unscored.length, sentiments });
 });
 
 // ─── POST /:id/tags — add a manual tag ───────────────────────────────────

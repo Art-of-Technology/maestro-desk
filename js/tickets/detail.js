@@ -404,6 +404,18 @@ export function openTicket(id) {
       ${!AI_API_KEY ? '<span style="margin-left:auto;color:var(--amber);font-family:\'DM Mono\',monospace;font-size:10px">Add API key in Settings → AI</span>' : ''}
     </div>`;
 
+  // Sentiment backfill nudge — only when this is a real (api-backed)
+  // ticket AND it has at least one customer message that hasn't been
+  // scored yet. Demo personas + already-scored tickets never see it.
+  const unscoredCount = t._uuid
+    ? (t.msgs || []).filter(m => m.r === 'customer' && !m.sentiment && (m.t || '').trim()).length
+    : 0;
+  const sentimentBackfillBar = unscoredCount > 0 ? `
+    <div style="padding:6px 14px;border-bottom:1px solid var(--rule);background:var(--off2);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--ink3)">
+      <span>${unscoredCount} customer message${unscoredCount === 1 ? '' : 's'} not yet scored for sentiment.</span>
+      <button class="btn btn-sm" data-action="td.backfillSentiment" data-ticket-id="${window.escAttr(id)}" style="margin-left:auto">Score now</button>
+    </div>` : '';
+
   const main = document.getElementById('main-area');
   main.innerHTML = `
     <div class="page">
@@ -445,6 +457,7 @@ export function openTicket(id) {
       <div class="ticket-layout">
         <div class="ticket-main">
           ${threadBarHtml}
+          ${sentimentBackfillBar}
           <div class="thread" id="thread-${id}">${msgsHtml}</div>
           <div class="composer">
             <div class="composer-tabs">
@@ -681,6 +694,29 @@ export async function changeTicketStatus(id, val) {
   if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
 }
 function quickStatus(id, val) { changeTicketStatus(id, val); }
+
+// Trigger server-side sentiment backfill for a ticket. Sequential
+// scoring means a slow ticket (lots of unscored messages) will take
+// a few seconds — show a "Scoring…" label and reload from the API
+// when done so the in-thread badges + the auto-priority bump (if it
+// fires) reflect the new state. Demo personas without _uuid are
+// already filtered out at the render site, so this assumes _uuid.
+async function backfillTicketSentiment(id) {
+  const t = TICKETS.find(x => x.id === id);
+  if (!t?._uuid) return;
+  try {
+    const res = await apiPost(`/api/v1/tickets/${t._uuid}/sentiment/backfill`);
+    // Force a re-fetch of the ticket detail so the score badges +
+    // potentially-bumped priority + system audit message all land.
+    await loadTicketDetail(id);
+    openTicket(id);
+    if (res.total && res.scored < res.total) {
+      alert(`Scored ${res.scored} of ${res.total} messages — the rest were skipped (likely AI budget exhausted).`);
+    }
+  } catch (err) {
+    alert(`Backfill failed: ${err?.message || err}`);
+  }
+}
 export async function addTicketTag(id, raw) {
   const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   if (!tag) return;
@@ -1078,6 +1114,7 @@ registerActions({
   'td.macroModal':     (ds) => showApplyMacroModal(ds.ticketId),
   'td.runRules':       (ds) => runAssignmentRulesOnTicket(ds.ticketId),
   'td.quickStatus':    (ds) => quickStatus(ds.ticketId, ds.status),
+  'td.backfillSentiment': (ds) => backfillTicketSentiment(ds.ticketId),
   // Tags row
   'td.removeTag':      (ds) => removeTicketTag(ds.ticketId, ds.tag),
   // Message thread
