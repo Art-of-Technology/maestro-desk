@@ -21,7 +21,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
-import { apiGet, apiPost, apiPut, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal } from '../core/modal.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -627,6 +627,7 @@ function settingsOutgoingWebhooksSection() {
             <span style="color:var(--ink4);margin-left:8px">${w.events.length} event${w.events.length === 1 ? '' : 's'}</span>
           </div>
         </div>
+        <button class="btn btn-sm" onclick="editOutgoingWebhook('${window.escAttr(w.id)}')">Edit</button>
         <button class="btn btn-sm" onclick="showOutgoingWebhookDeliveries('${window.escAttr(w.id)}', '${window.escAttr(w.name)}')">Deliveries</button>
         <button class="btn btn-sm btn-danger" onclick="deleteOutgoingWebhook('${window.escAttr(w.id)}')">Delete</button>
       </div>`;
@@ -775,6 +776,107 @@ export async function retryWebhookDelivery(webhookId, deliveryId) {
     await loadOutgoingWebhookDeliveries(webhookId);
   } catch (err) {
     alert(`Couldn't re-queue: ${err?.message || err}`);
+  }
+}
+
+// ─── Edit modal ─────────────────────────────────────────────────────────
+//
+// Opens a modal pre-populated from OUTGOING_WEBHOOKS (no server fetch
+// needed — the list is already in module state). Form fields share an
+// `we-*` prefix so we don't collide with the inline create form's
+// `wh-*` fields. Save and Rotate-secret are separate actions; the
+// rotate flow surfaces the new secret in the same one-shot banner
+// the create flow uses.
+
+export function editOutgoingWebhook(id) {
+  if (!window.isAdmin()) return;
+  const w = OUTGOING_WEBHOOKS.find((x) => x.id === id);
+  if (!w) return;
+  const eventCheckboxes = SLACK_EVENTS.map((e) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
+      <input type="checkbox" id="we-evt-${e.k}" ${w.events.includes(e.k) ? 'checked' : ''}/>
+      ${window.escHtml(e.l)}
+    </label>`).join('');
+  // onConfirm-with-callback is avoided here: showModal's .toString()
+  // round-trip loses our module-scope imports (apiPatch in particular),
+  // so the buttons are inlined into the body and routed through the
+  // window bridge instead.
+  showModal(`Edit webhook · ${window.escHtml(w.name)}`,
+    `<input type="hidden" id="we-id" value="${window.escAttr(w.id)}"/>
+     <div class="form-row">
+       <label class="form-label">Name</label>
+       <input class="form-input" id="we-name" value="${window.escAttr(w.name)}"/>
+     </div>
+     <div class="form-row">
+       <label class="form-label">URL</label>
+       <input class="form-input" id="we-url" type="url" value="${window.escAttr(w.url)}"/>
+     </div>
+     <div class="form-row">
+       <label class="form-label">Events</label>
+       ${eventCheckboxes}
+     </div>
+     <div class="form-row" style="display:flex;align-items:center;gap:8px">
+       <label class="toggle"><input type="checkbox" id="we-active" ${w.active ? 'checked' : ''}/><span class="toggle-slider"></span></label>
+       <span style="font-size:13px;color:var(--ink2)">Active</span>
+     </div>
+     <div style="display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)">
+       <button class="btn" onclick="closeModal()">Cancel</button>
+       <button class="btn btn-solid" onclick="saveOutgoingWebhookEdit()">Save</button>
+       <span id="we-msg" style="margin-left:auto;font-size:11px;font-family:'DM Mono',monospace;color:var(--ink3)"></span>
+     </div>
+     <div style="margin-top:18px;padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r)">
+       <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px">Rotate signing secret</div>
+       <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;line-height:1.5">
+         Generates a fresh secret and invalidates the old one immediately. In-flight retries will start failing HMAC verification at the receiver until you update its configuration.
+       </div>
+       <button class="btn btn-sm btn-danger" onclick="rotateOutgoingWebhookSecret()">Rotate secret</button>
+     </div>`,
+    null, null, true,
+  );
+}
+
+// onConfirm callback. Module-scope so showModal's .toString() roundtrip
+// resolves it via the window bridge. Reads the form by id rather than
+// closing over the webhook record (see modal.js comment).
+export async function saveOutgoingWebhookEdit() {
+  const id     = document.getElementById('we-id').value;
+  const name   = document.getElementById('we-name').value.trim();
+  const url    = document.getElementById('we-url').value.trim();
+  const events = SLACK_EVENTS.filter((e) => document.getElementById(`we-evt-${e.k}`)?.checked).map((e) => e.k);
+  const active = document.getElementById('we-active').checked;
+  const msg = document.getElementById('we-msg');
+  if (!name) { msg.textContent = 'Name is required'; msg.style.color = 'var(--red)'; return; }
+  if (!url)  { msg.textContent = 'URL is required';  msg.style.color = 'var(--red)'; return; }
+  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
+  try {
+    const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { name, url, events, active });
+    // Replace the row in module state so the panel re-renders with
+    // the new values without a full refetch.
+    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
+    window.closeModal();
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+export async function rotateOutgoingWebhookSecret() {
+  const id = document.getElementById('we-id').value;
+  if (!confirm('Rotate the signing secret? The current secret will stop working immediately.')) return;
+  const msg = document.getElementById('we-msg');
+  msg.textContent = 'Rotating...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { rotate_secret: true });
+    // Surface the new secret via the same one-shot banner used by
+    // create — close the modal so the user can see it on the panel.
+    LAST_REVEALED_SECRET = res.secret;
+    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
+    window.closeModal();
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Rotation failed';
+    msg.style.color = 'var(--red)';
   }
 }
 

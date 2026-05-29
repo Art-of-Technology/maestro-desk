@@ -382,6 +382,63 @@ integrations.post('/webhooks', async (c) => {
   return c.json({ webhook: data, secret }, 201);
 });
 
+// PATCH a webhook: any subset of name / url / events / active, plus
+// rotate_secret as a special flag. Body is validated as .strict() so
+// the response shape stays predictable — typos in client field names
+// fail loudly rather than silently no-op.
+//
+// When rotate_secret=true, the server generates a fresh secret and
+// returns it ONCE in the response (same one-shot reveal contract as
+// POST). All other PATCH calls return the updated row without
+// touching the secret.
+const PatchWebhookBody = z.object({
+  name:          z.string().min(1).max(100).optional(),
+  url:           z.string().url().optional(),
+  events:        z.array(z.enum(OUTGOING_EVENTS)).min(1).max(OUTGOING_EVENTS.length).optional(),
+  active:        z.boolean().optional(),
+  rotate_secret: z.boolean().optional(),
+}).strict();
+
+integrations.patch('/webhooks/:id', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const id = c.req.param('id');
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = PatchWebhookBody.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+  const input = parsed.data;
+  // Pull rotate_secret out so it doesn't end up as a column name on
+  // the update.
+  const { rotate_secret, ...fields } = input;
+  if (Object.keys(fields).length === 0 && !rotate_secret) {
+    return c.json({ error: 'No fields to update' }, 400);
+  }
+
+  const updates: Record<string, unknown> = { ...fields };
+  let revealedSecret: string | null = null;
+  if (rotate_secret) {
+    revealedSecret = generateWebhookSecret();
+    updates.secret = revealedSecret;
+  }
+
+  const { data, error } = await sb
+    .from('workspace_webhooks')
+    .update(updates)
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at')
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!data)  return c.json({ error: 'Webhook not found' }, 404);
+
+  // Mirror the POST shape: secret is at top level when present,
+  // otherwise the response is just { webhook }.
+  return c.json(revealedSecret ? { webhook: data, secret: revealedSecret } : { webhook: data });
+});
+
 integrations.delete('/webhooks/:id', async (c) => {
   const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');

@@ -99,6 +99,7 @@ import {
   saveStripeIntegration, deleteStripeIntegration,
   saveShopifyIntegration, deleteShopifyIntegration,
   createOutgoingWebhook, deleteOutgoingWebhook, showOutgoingWebhookDeliveries, retryWebhookDelivery,
+  editOutgoingWebhook, saveOutgoingWebhookEdit, rotateOutgoingWebhookSecret,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
