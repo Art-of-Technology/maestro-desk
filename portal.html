@@ -106,6 +106,26 @@
     </nav>
 
     <!-- Sign-in / magic-link panel — shown when user clicks "Sign in" -->
+    <!-- CSAT survey view — token-gated, reached via the auto-survey email -->
+    <section class="card" id="card-csat" style="display:none">
+      <div id="csat-content">
+        <h2 id="csat-title">How did we do?</h2>
+        <div class="desc" id="csat-subject"></div>
+        <div class="form-row" style="margin-top:14px">
+          <label>Rating</label>
+          <div id="csat-stars" style="display:flex;gap:6px;font-size:32px;line-height:1;cursor:pointer;user-select:none"></div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:6px">1 = very poor, 5 = excellent</div>
+        </div>
+        <div class="form-row">
+          <label for="csat-comment">Comment (optional)</label>
+          <textarea id="csat-comment" placeholder="Anything to add?"></textarea>
+        </div>
+        <button type="button" id="csat-submit" disabled>Submit rating</button>
+        <div id="csat-err" class="err" style="display:none"></div>
+      </div>
+      <div id="csat-thanks" class="ok" style="display:none">Thanks for the feedback!</div>
+    </section>
+
     <section class="card" id="card-signin" style="display:none">
       <h2>Sign in to see your tickets</h2>
       <div class="desc">We'll email you a one-time link. No password required.</div>
@@ -278,11 +298,17 @@
     function switchView(view) {
       CURRENT_VIEW = view;
       document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-      document.getElementById('card-kb').style.display              = view === 'help' ? 'block' : 'none';
-      document.getElementById('card-form').style.display            = view === 'help' ? 'block' : 'none';
-      document.getElementById('card-my-tickets').style.display      = view === 'tickets' ? 'block' : 'none';
-      document.getElementById('card-ticket-detail').style.display   = view === 'ticket-detail' ? 'block' : 'none';
-      document.getElementById('card-signin').style.display          = view === 'signin' ? 'block' : 'none';
+      // CSAT view is mutually exclusive with everything else — when active,
+      // hide the regular cards and the tabs entirely.
+      const csat = view === 'csat';
+      document.getElementById('card-csat').style.display            = csat ? 'block' : 'none';
+      document.getElementById('card-kb').style.display              = !csat && view === 'help' ? 'block' : 'none';
+      document.getElementById('card-form').style.display            = !csat && view === 'help' ? 'block' : 'none';
+      document.getElementById('card-my-tickets').style.display      = !csat && view === 'tickets' ? 'block' : 'none';
+      document.getElementById('card-ticket-detail').style.display   = !csat && view === 'ticket-detail' ? 'block' : 'none';
+      document.getElementById('card-signin').style.display          = !csat && view === 'signin' ? 'block' : 'none';
+      const tabs = document.getElementById('tabs');
+      if (tabs && csat) tabs.style.display = 'none';
       if (view === 'tickets') refreshMyTickets();
     }
     document.querySelectorAll('#tabs button').forEach(b => {
@@ -461,6 +487,75 @@
       }
     }
 
+    // ─── CSAT survey flow ───────────────────────────────────────────────
+    //
+    // Triggered when the URL carries ?csat=<token>. We load the ticket
+    // context, render the star picker + comment field, and post the
+    // rating to the public CSAT endpoint. Token also serves as the
+    // session — no portal sign-in required.
+    let CSAT_TOKEN = null;
+    let CSAT_SCORE = 0;
+    function renderCsatStars() {
+      const wrap = document.getElementById('csat-stars');
+      wrap.innerHTML = [1,2,3,4,5].map((n) => {
+        const filled = n <= CSAT_SCORE;
+        return `<span data-score="${n}" style="color:${filled ? 'var(--accent)' : 'var(--rule2)'};transition:color .1s">${filled ? '★' : '☆'}</span>`;
+      }).join('');
+      wrap.querySelectorAll('[data-score]').forEach((el) => {
+        el.addEventListener('click', () => {
+          CSAT_SCORE = Number(el.dataset.score);
+          renderCsatStars();
+          document.getElementById('csat-submit').disabled = false;
+        });
+      });
+    }
+    async function loadCsatSurvey(token) {
+      CSAT_TOKEN = token;
+      switchView('csat');
+      try {
+        const data = await api(`/csat/${encodeURIComponent(token)}`);
+        if (data.ticket.submitted_at) {
+          document.getElementById('csat-content').style.display = 'none';
+          document.getElementById('csat-thanks').textContent =
+            `You already rated this ticket ${data.ticket.score}/5 — thanks!`;
+          document.getElementById('csat-thanks').style.display = 'block';
+          return;
+        }
+        const name = data.ticket.customer_name ? `Hi ${data.ticket.customer_name},` : 'Hi,';
+        document.getElementById('csat-title').textContent = `${name} how did we do?`;
+        document.getElementById('csat-subject').textContent =
+          `Ticket ${data.ticket.display_id}: ${data.ticket.subject}`;
+        renderCsatStars();
+      } catch (err) {
+        document.getElementById('csat-content').style.display = 'none';
+        document.getElementById('csat-thanks').textContent =
+          `This survey link is no longer valid (${err.message}).`;
+        document.getElementById('csat-thanks').style.background = '#fef2f2';
+        document.getElementById('csat-thanks').style.color = 'var(--red)';
+        document.getElementById('csat-thanks').style.borderColor = 'var(--red)';
+        document.getElementById('csat-thanks').style.display = 'block';
+      }
+    }
+    document.getElementById('csat-submit').addEventListener('click', async () => {
+      if (!CSAT_TOKEN || !CSAT_SCORE) return;
+      const btn = document.getElementById('csat-submit');
+      const errEl = document.getElementById('csat-err');
+      errEl.style.display = 'none';
+      btn.disabled = true; btn.textContent = 'Submitting...';
+      try {
+        await api(`/csat/${encodeURIComponent(CSAT_TOKEN)}`, {
+          method: 'POST',
+          body: { score: CSAT_SCORE, comment: document.getElementById('csat-comment').value.trim() || null },
+        });
+        document.getElementById('csat-content').style.display = 'none';
+        document.getElementById('csat-thanks').style.display = 'block';
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        btn.disabled = false; btn.textContent = 'Submit rating';
+      }
+    });
+
     document.getElementById('kb-search').addEventListener('input', (e) => renderKBList(e.target.value));
 
     // ─── AI-suggested KB articles ───────────────────────────────────────
@@ -591,7 +686,15 @@
 
     loadSession();
     renderSessionUi();
-    boot().then(maybeConsumeMagicToken);
+    // If the URL carries a CSAT token, render the survey instead of the
+    // regular help view. boot() still runs so workspace branding loads
+    // for the survey header.
+    const csatTokenParam = params.get('csat');
+    if (csatTokenParam) {
+      boot().then(() => loadCsatSurvey(csatTokenParam));
+    } else {
+      boot().then(maybeConsumeMagicToken);
+    }
   </script>
 </body>
 </html>

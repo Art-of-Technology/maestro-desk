@@ -466,3 +466,81 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
 
   return c.json({ message }, 201);
 });
+
+// ─── CSAT survey: token-gated, no portal session needed ──────────────────
+//
+// The customer reaches this through a link in the auto-survey email; we
+// don't ask them to sign in (the link is itself the proof). GET returns
+// the minimal ticket context; POST records the rating + optional
+// comment. Either endpoint returns 404 for unknown tokens — that's both
+// "wrong token" and "already submitted with a token we'd have rotated",
+// because token revocation isn't built yet.
+
+publicRoutes.get('/:slug/csat/:token', async (c) => {
+  const ws = await resolveWorkspace(c.req.param('slug'));
+  const token = c.req.param('token');
+  const { data: ticket, error } = await supabaseAdmin
+    .from('tickets')
+    .select('id, display_id, subject, csat_score, csat_submitted_at, customers(first_name)')
+    .eq('workspace_id', ws.id)
+    .eq('csat_token', token)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new HTTPException(500, { message: error.message });
+  if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
+  const t = ticket as any;
+  return c.json({
+    workspace: { name: ws.name, slug: ws.slug, primary_color: ws.primary_color, logo_url: ws.logo_url },
+    ticket: {
+      display_id:    t.display_id,
+      subject:       t.subject,
+      customer_name: t.customers?.first_name || null,
+      submitted_at:  t.csat_submitted_at,
+      score:         t.csat_score,
+    },
+  });
+});
+
+const CsatSubmit = z.object({
+  score:   z.number().int().min(1).max(5),
+  comment: z.string().max(2000).nullable().optional(),
+});
+
+publicRoutes.post('/:slug/csat/:token', async (c) => {
+  const ws = await resolveWorkspace(c.req.param('slug'));
+  const token = c.req.param('token');
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = CsatSubmit.safeParse(reqBody);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  }
+
+  // Refuse to overwrite a submitted rating — the survey is one-shot,
+  // matches what the SPA's manual rating flow does.
+  const { data: ticket, error: lookupErr } = await supabaseAdmin
+    .from('tickets')
+    .select('id, csat_submitted_at')
+    .eq('workspace_id', ws.id)
+    .eq('csat_token', token)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (lookupErr) throw new HTTPException(500, { message: lookupErr.message });
+  if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
+  if (ticket.csat_submitted_at) {
+    return c.json({ error: 'Survey already submitted' }, 409);
+  }
+
+  const { error: upErr } = await supabaseAdmin
+    .from('tickets')
+    .update({
+      csat_score:        parsed.data.score,
+      csat_stars:        parsed.data.score, // legacy mirror — both columns exist
+      csat_comment:      parsed.data.comment || null,
+      csat_submitted_at: new Date().toISOString(),
+    })
+    .eq('id', ticket.id)
+    .eq('workspace_id', ws.id);
+  if (upErr) throw new HTTPException(500, { message: upErr.message });
+
+  return c.json({ ok: true });
+});

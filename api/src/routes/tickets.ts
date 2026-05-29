@@ -6,6 +6,7 @@ import { applyAssignmentRules } from '../lib/assign-rules-engine.ts';
 import { notifySlack } from '../lib/slack-notify.ts';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.ts';
 import { scoreMessageSentiment } from '../lib/sentiment.ts';
+import { sendCsatSurvey } from '../lib/csat-survey.ts';
 
 export const tickets = new Hono();
 
@@ -203,6 +204,11 @@ tickets.patch('/:id', async (c) => {
     catch (err) { console.warn('[slack] notify resolved failed:', err); }
     try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] resolved failed:', err); }
+    // Auto-send a CSAT survey email. The lib short-circuits on
+    // already-requested / no-email / postmark-not-configured paths,
+    // so this is safe to fire-and-forget for every resolution.
+    try { await sendCsatSurvey({ sb: sbAdmin, workspaceId, ticketId }); }
+    catch (err) { console.warn('[csat] auto-survey failed:', err); }
   }
   if (statusChanged && updates.status_key === 'escalated') {
     try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
