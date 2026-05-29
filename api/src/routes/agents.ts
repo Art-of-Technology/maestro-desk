@@ -50,12 +50,15 @@ const PatchAgent = z.object({
   ooo_note:  z.string().nullable().optional(),
 }).strict();
 
-// PATCH stays on service-role: workspace_members has only a SELECT policy
-// under the JWT-claim regime, and the admin-only update policy + a proper
-// "caller is admin in this workspace" check belongs in its own PR rather
-// than getting bolted on here.
+// PATCH uses sbUser: workspace_members now has an admin-only UPDATE policy
+// (workspace_members_admin_update) backed by is_workspace_admin(). RLS
+// blocks non-admins at the DB layer — if a non-admin hits this endpoint
+// the .update() returns zero rows and the .maybeSingle() yields null,
+// surfacing as the existing "Membership not found" 404. The role-scope
+// pre-check below still runs against the roles table (also pivoted), so
+// admins can't reassign to a role from another workspace.
 agents.patch('/:userId', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.req.param('userId');
 
@@ -104,7 +107,7 @@ agents.patch('/:userId', async (c) => {
 // references (e.g. ticket_messages.author_user_id) keep resolving. Same
 // shape as removing an agent from the demo persona's AGENTS array.
 agents.delete('/:userId', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.req.param('userId');
 
