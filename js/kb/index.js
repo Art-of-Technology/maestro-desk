@@ -23,10 +23,6 @@ function kbApiBacked() {
   return KB_ARTICLES.some((a) => a._uuid);
 }
 
-function kbApiBacked() {
-  return KB_ARTICLES.some((a) => a._uuid);
-}
-
 function mapKbResponse(a) {
   return {
     _uuid:    a.id,
