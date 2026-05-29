@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { requireAuthOnly } from '../middleware/auth.ts';
-import { supabaseAdmin } from '../lib/supabase.ts';
 
 export const whoami = new Hono();
 
@@ -18,9 +17,10 @@ whoami.use('*', requireAuthOnly);
 // membership); /whoami is the workspace-agnostic equivalent for callers
 // who haven't picked a workspace yet.
 whoami.get('/', async (c) => {
+  const sb = c.get('sbUser');
   const userId = c.get('userId');
 
-  const { data: user, error } = await supabaseAdmin
+  const { data: user, error } = await sb
     .from('users')
     .select('id, email, name, initials, is_platform_admin')
     .eq('id', userId)
@@ -29,8 +29,9 @@ whoami.get('/', async (c) => {
 
   // Active memberships in non-deleted, non-system workspaces. The system
   // unrouted-bucket workspace exists for routing fallback only — no human
-  // ever signs into it.
-  const { data: memberships, error: mErr } = await supabaseAdmin
+  // ever signs into it. Reads through sbUser — the workspace_members,
+  // workspaces, and roles policies all gate by JWT workspace_ids.
+  const { data: memberships, error: mErr } = await sb
     .from('workspace_members')
     .select(`
       role_id,
