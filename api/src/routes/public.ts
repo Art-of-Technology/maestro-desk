@@ -29,6 +29,26 @@ async function resolveWorkspace(slug: string) {
 }
 
 // ─── GET /:slug/config — workspace name + branding ───────────────────────
+// GET /api/v1/public/resolve-host?host=help.acme.com — returns the
+// workspace slug for a verified custom domain. The portal calls this
+// at boot when no ?ws= param is present, so a CNAMEd custom host
+// can serve maestro's portal.html with no client-side wiring beyond
+// reading window.location.host.
+publicRoutes.get('/resolve-host', async (c) => {
+  const host = (c.req.query('host') || '').trim().toLowerCase();
+  if (!host) return c.json({ error: 'host query param required' }, 400);
+  const { data, error } = await supabaseAdmin
+    .from('workspaces')
+    .select('slug')
+    .eq('portal_custom_domain', host)
+    .eq('portal_custom_domain_verified', true)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new HTTPException(500, { message: error.message });
+  if (!data) return c.json({ slug: null }, 404);
+  return c.json({ slug: data.slug });
+});
+
 publicRoutes.get('/:slug/config', async (c) => {
   const ws = await resolveWorkspace(c.req.param('slug'));
   // Portal copy lives on workspaces.* — resolveWorkspace's narrow

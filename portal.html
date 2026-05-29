@@ -231,8 +231,14 @@
 
     const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
     const params = new URLSearchParams(location.search);
-    const SLUG = params.get('ws') || 'demo';
-    const SESSION_KEY = `maestro_portal_session_${SLUG}`;
+    // SLUG is resolved at boot from one of (in priority order):
+    //   1. ?ws=<slug>            — explicit query param
+    //   2. /resolve-host?host=…  — verified custom-domain claim
+    //   3. 'demo'                — fallback for local dev
+    // It's a let so the boot path can fill it in before everything
+    // else uses it.
+    let SLUG = params.get('ws') || null;
+    let SESSION_KEY = ''; // re-derived once SLUG is known
     let ARTICLES = [];
     let SESSION = null;       // { token, customer: { id, display_id, name, email } }
     let CURRENT_VIEW = 'help'; // 'help' | 'tickets' | 'ticket-detail'
@@ -714,17 +720,39 @@
       }
     });
 
-    loadSession();
-    renderSessionUi();
-    // If the URL carries a CSAT token, render the survey instead of the
-    // regular help view. boot() still runs so workspace branding loads
-    // for the survey header.
-    const csatTokenParam = params.get('csat');
-    if (csatTokenParam) {
-      boot().then(() => loadCsatSurvey(csatTokenParam));
-    } else {
-      boot().then(maybeConsumeMagicToken);
+    // Resolve the workspace slug then run the rest of the boot
+    // sequence. The /resolve-host call is best-effort: if it 404s
+    // (host not claimed) or errors out, we fall back to 'demo' so
+    // local dev keeps working without any DNS plumbing.
+    async function resolveSlug() {
+      if (SLUG) return SLUG;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/public/resolve-host?host=${encodeURIComponent(location.host)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.slug) return data.slug;
+        }
+      } catch (err) {
+        console.warn('[portal] resolve-host failed:', err);
+      }
+      return 'demo';
     }
+
+    (async () => {
+      SLUG = await resolveSlug();
+      SESSION_KEY = `maestro_portal_session_${SLUG}`;
+      loadSession();
+      renderSessionUi();
+      // If the URL carries a CSAT token, render the survey instead of
+      // the regular help view. boot() still runs so workspace branding
+      // loads for the survey header.
+      const csatTokenParam = params.get('csat');
+      if (csatTokenParam) {
+        boot().then(() => loadCsatSurvey(csatTokenParam));
+      } else {
+        boot().then(maybeConsumeMagicToken);
+      }
+    })();
   </script>
 </body>
 </html>

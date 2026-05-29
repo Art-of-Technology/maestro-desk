@@ -105,6 +105,7 @@ import {
   setMentionEmailPref,
   saveCsatCadence,
   saveWorkspaceBranding, uploadWorkspaceLogo, savePortalCopy,
+  savePortalDomain, verifyPortalDomain,
 } from './settings/index.js';
 import {
   renderLayouts, isFieldVisible, isFieldRequired,

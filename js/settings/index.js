@@ -265,7 +265,94 @@ function settingsPortalCopy(ws, isAdmin) {
         <button class="btn btn-solid btn-sm" onclick="savePortalCopy()" ${isAdmin ? '' : 'disabled'}>Save portal copy</button>
         <span id="portal-copy-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
       </div>
+    </div>
+
+    ${settingsPortalDomain(ws, isAdmin)}`;
+}
+
+function settingsPortalDomain(ws, isAdmin) {
+  const domain   = ws?.portal_custom_domain || '';
+  const token    = ws?.portal_custom_domain_token || '';
+  const verified = ws?.portal_custom_domain_verified === true;
+  const recordName = domain ? `_maestro-verify.${domain}` : '';
+  const verifiedPill = verified
+    ? `<span style="display:inline-block;padding:2px 8px;border-radius:3px;background:var(--green-lt);color:var(--green);font-size:10px;font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">Verified</span>`
+    : `<span style="display:inline-block;padding:2px 8px;border-radius:3px;background:var(--amber-lt);color:var(--amber);font-size:10px;font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">Pending</span>`;
+  return `
+    <div class="settings-section">
+      <div class="settings-h">Custom portal domain</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
+        Serve the customer portal at your own hostname (e.g. <code style="font-family:'DM Mono',monospace">help.acme.com</code>) instead of the platform URL. TLS is on you — point a CDN at this server's portal host. Verification is via a TXT record so we know you control the domain.
+      </div>
+      <div class="form-row">
+        <label class="form-label">Custom hostname</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input class="form-input" id="brand-portal-domain" type="text" value="${window.escAttr(domain)}" placeholder="help.acme.com" ${isAdmin ? '' : 'disabled'} style="font-family:'DM Mono',monospace;flex:1"/>
+          ${domain ? verifiedPill : ''}
+        </div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lowercase, fully-qualified (at least one dot). Changing this re-issues the verification token and resets the verified state.</div>
+      </div>
+      ${domain && token ? `
+        <div style="margin:14px 0;padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);font-size:12px;line-height:1.6">
+          <div style="font-weight:600;color:var(--ink);margin-bottom:8px">DNS verification</div>
+          <div style="color:var(--ink2);margin-bottom:10px">Add a TXT record at:</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--bg);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;margin-bottom:6px">${window.escHtml(recordName)}</div>
+          <div style="color:var(--ink2);margin-bottom:10px">with the value:</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--bg);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;word-break:break-all">${window.escHtml(token)}</div>
+        </div>
+      ` : ''}
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn btn-solid btn-sm" onclick="savePortalDomain()" ${isAdmin ? '' : 'disabled'}>Save hostname</button>
+        ${domain ? `<button class="btn btn-sm" onclick="verifyPortalDomain()" ${isAdmin ? '' : 'disabled'}>${verified ? 'Re-verify' : 'Verify now'}</button>` : ''}
+        <span id="portal-domain-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
+      </div>
     </div>`;
+}
+
+export async function savePortalDomain() {
+  if (!window.isAdmin()) return;
+  const domain = document.getElementById('brand-portal-domain').value.trim().toLowerCase();
+  const msg = document.getElementById('portal-domain-msg');
+  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPatch('/api/v1/workspace/settings', {
+      portal_custom_domain: domain || null,
+    });
+    WORKSPACE_SETTINGS = res.workspace;
+    msg.textContent = '✓ Saved';
+    msg.style.color = 'var(--green)';
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Save failed';
+    msg.style.color = 'var(--red)';
+  }
+}
+
+export async function verifyPortalDomain() {
+  if (!window.isAdmin()) return;
+  const msg = document.getElementById('portal-domain-msg');
+  msg.textContent = 'Looking up DNS...'; msg.style.color = 'var(--ink3)';
+  try {
+    const res = await apiPost('/api/v1/workspace/domain/verify');
+    if (res.verified) {
+      msg.textContent = '✓ Verified';
+      msg.style.color = 'var(--green)';
+      const fresh = await apiGet('/api/v1/workspace/settings');
+      WORKSPACE_SETTINGS = fresh.workspace;
+      window.renderPage('settings');
+    } else {
+      const reason = res.reason === 'no_txt_record'
+        ? `No TXT record at ${res.record_name}`
+        : res.reason === 'mismatch'
+          ? `TXT record found but value didn't match the expected token`
+          : `DNS lookup failed (${res.reason})`;
+      msg.textContent = reason;
+      msg.style.color = 'var(--red)';
+    }
+  } catch (err) {
+    msg.textContent = err?.message || 'Verification failed';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 export async function savePortalCopy() {

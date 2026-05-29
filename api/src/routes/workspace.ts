@@ -16,7 +16,7 @@ workspace.get('/settings', async (c) => {
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('workspaces')
-    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer, portal_custom_domain, portal_custom_domain_token, portal_custom_domain_verified')
     .eq('id', workspaceId)
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
@@ -57,6 +57,11 @@ const SettingsBody = z.object({
   portal_tagline: z.string().max(100).nullable().optional(),
   portal_intro:   z.string().max(1000).nullable().optional(),
   portal_footer:  z.string().max(500).nullable().optional(),
+  // Custom domain claim. The DB CHECK accepts the same shape; we
+  // normalise to lower-case + trim before persisting. Setting this
+  // resets the verification state — the admin must re-verify after
+  // every change.
+  portal_custom_domain: z.string().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i, 'Invalid hostname').max(253).nullable().optional(),
 }).strict();
 
 // ─── POST /api/v1/workspace/branding/logo ───────────────────────────────
@@ -149,13 +154,104 @@ workspace.patch('/settings', async (c) => {
   if (rpcErr) return c.json({ error: rpcErr.message }, 500);
   if (!isAdmin) return c.json({ error: 'Admin permission required' }, 403);
 
+  // When portal_custom_domain changes (either to a new value or
+  // cleared), rotate the verification state. Setting → generate a
+  // fresh token + verified=false until the admin completes the TXT
+  // dance; clearing → null both fields.
+  const updates: Record<string, unknown> = { ...parsed.data };
+  if ('portal_custom_domain' in parsed.data) {
+    const incoming = parsed.data.portal_custom_domain
+      ? parsed.data.portal_custom_domain.trim().toLowerCase()
+      : null;
+    updates.portal_custom_domain = incoming;
+    if (incoming === null) {
+      updates.portal_custom_domain_token    = null;
+      updates.portal_custom_domain_verified = false;
+    } else {
+      // Token is regenerated even if the value is the same so an
+      // accidental no-op save doesn't leave a stale claim verified.
+      updates.portal_custom_domain_token    = generateDomainToken();
+      updates.portal_custom_domain_verified = false;
+    }
+  }
+
   const { data, error } = await sbAdmin
     .from('workspaces')
-    .update(parsed.data)
+    .update(updates)
     .eq('id', workspaceId)
-    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer')
+    .select('id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry, csat_reminder_days, portal_tagline, portal_intro, portal_footer, portal_custom_domain, portal_custom_domain_token, portal_custom_domain_verified')
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) {
+    if ((error as any).code === '23505') {
+      return c.json({ error: 'That hostname is already claimed by another workspace' }, 409);
+    }
+    return c.json({ error: error.message }, 500);
+  }
   if (!data)  return c.json({ error: 'Workspace not found' }, 404);
   return c.json({ workspace: data });
 });
+
+// POST /api/v1/workspace/domain/verify — resolves the TXT record at
+// _maestro-verify.{host} and flips verified=true when the value
+// matches the workspace's token. Returns the lookup outcome so the
+// SPA can surface a clear "TXT record missing" / "wrong value"
+// message instead of "verification failed".
+workspace.post('/domain/verify', async (c) => {
+  const sbUser  = c.get('sbUser');
+  const sbAdmin = c.get('sb');
+  const workspaceId = c.get('workspaceId');
+
+  const { data: isAdmin, error: rpcErr } = await sbUser.rpc('is_workspace_admin', { ws: workspaceId });
+  if (rpcErr) return c.json({ error: rpcErr.message }, 500);
+  if (!isAdmin) return c.json({ error: 'Admin permission required' }, 403);
+
+  const { data: ws } = await sbAdmin
+    .from('workspaces')
+    .select('portal_custom_domain, portal_custom_domain_token')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  if (!ws?.portal_custom_domain || !ws?.portal_custom_domain_token) {
+    return c.json({ error: 'No custom domain configured' }, 400);
+  }
+
+  const recordName = `_maestro-verify.${ws.portal_custom_domain}`;
+  let txtValues: string[][];
+  try {
+    const dns = await import('node:dns/promises');
+    txtValues = await dns.resolveTxt(recordName);
+  } catch (err: any) {
+    const code = err?.code || 'UNKNOWN';
+    return c.json({
+      verified: false,
+      reason:   code === 'ENOTFOUND' || code === 'ENODATA'
+        ? 'no_txt_record'
+        : `dns_error:${code}`,
+      record_name:     recordName,
+      expected_value:  ws.portal_custom_domain_token,
+    });
+  }
+  const flat = txtValues.flat();
+  const matched = flat.includes(ws.portal_custom_domain_token);
+  if (!matched) {
+    return c.json({
+      verified:        false,
+      reason:          'mismatch',
+      record_name:     recordName,
+      expected_value:  ws.portal_custom_domain_token,
+      found_values:    flat,
+    });
+  }
+
+  const { error: upErr } = await sbAdmin
+    .from('workspaces')
+    .update({ portal_custom_domain_verified: true })
+    .eq('id', workspaceId);
+  if (upErr) return c.json({ error: upErr.message }, 500);
+  return c.json({ verified: true });
+});
+
+function generateDomainToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return 'maestro-verify-' + Buffer.from(bytes).toString('base64url');
+}
