@@ -21,7 +21,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE } from '../core/api-client.js';
 import { showModal } from '../core/modal.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -209,9 +209,17 @@ function settingsWorkspaceBranding() {
         <div>${preview}</div>
       </div>
       <div class="form-row">
-        <label class="form-label">Logo URL</label>
+        <label class="form-label">Upload logo</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="file" id="brand-logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp" ${isAdmin ? '' : 'disabled'} style="flex:1;font-size:12px"/>
+          <button class="btn btn-sm" onclick="uploadWorkspaceLogo()" ${isAdmin ? '' : 'disabled'}>Upload</button>
+        </div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">PNG, JPG, SVG, or WEBP up to 2 MB. Uploaded files are hosted on the workspace's own brand-assets bucket.</div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Or paste a URL</label>
         <input class="form-input" id="brand-logo-url" type="url" value="${window.escAttr(logoUrl)}" placeholder="https://cdn.example.com/your-logo.png" ${isAdmin ? '' : 'disabled'}/>
-        <div style="font-size:11px;color:var(--ink3);margin-top:4px">PNG / SVG with a transparent background works best. Leave empty to fall back to the workspace name.</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Externally hosted images work too. Leave empty (and don't upload) to fall back to the workspace name.</div>
       </div>
       <div class="form-row">
         <label class="form-label">Primary color</label>
@@ -226,6 +234,59 @@ function settingsWorkspaceBranding() {
         <span id="brand-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
       </div>
     </div>`;
+}
+
+export async function uploadWorkspaceLogo() {
+  if (!window.isAdmin()) return;
+  const fileEl = document.getElementById('brand-logo-file');
+  const file = fileEl?.files?.[0];
+  const msg = document.getElementById('brand-msg');
+  if (!file) {
+    msg.textContent = 'Pick a file first';
+    msg.style.color = 'var(--red)';
+    return;
+  }
+  msg.textContent = 'Uploading...';
+  msg.style.color = 'var(--ink3)';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    // apiPost serializes JSON; bypass it for multipart by calling fetch
+    // directly. The api-client's auth + workspace headers live in
+    // window for the standard JSON paths — we replicate the headers
+    // here without the Content-Type (the browser sets the multipart
+    // boundary on its own).
+    const jwt         = sessionStorage.getItem('maestro_jwt') || '';
+    const workspaceId = sessionStorage.getItem('maestro_workspace_id') || '';
+    const res = await fetch(`${API_BASE}/api/v1/workspace/branding/logo`, {
+      method: 'POST',
+      headers: {
+        Authorization:   `Bearer ${jwt}`,
+        'X-Workspace-Id': workspaceId,
+      },
+      body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    // Push the new URL into the local state + the URL input + apply
+    // the brand so the sidebar updates without re-signing-in.
+    WORKSPACE_SETTINGS = { ...(WORKSPACE_SETTINGS || {}), logo_url: data.logo_url };
+    const urlEl = document.getElementById('brand-logo-url');
+    if (urlEl) urlEl.value = data.logo_url;
+    window.applyWorkspaceBrand?.({
+      name:         WORKSPACE_SETTINGS.name,
+      slug:         WORKSPACE_SETTINGS.slug,
+      logoUrl:      data.logo_url,
+      primaryColor: WORKSPACE_SETTINGS.primary_color,
+    });
+    msg.textContent = '✓ Uploaded';
+    msg.style.color = 'var(--green)';
+    fileEl.value = '';
+    window.renderPage('settings');
+  } catch (err) {
+    msg.textContent = err?.message || 'Upload failed';
+    msg.style.color = 'var(--red)';
+  }
 }
 
 export async function saveWorkspaceBranding() {
