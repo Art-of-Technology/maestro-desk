@@ -147,6 +147,90 @@ function reportTime(s) {
     </div>`;
 }
 
+// Bucket tickets into time slots for the sentiment trend widget.
+// Granularity ramps with the timeframe so each chart shows ~7–30 bars,
+// readable at the widget's normal grid width without horizontal scroll.
+//
+// Buckets are right-anchored to "now" so the rightmost bar is always
+// the current period. We use t.created for bucketing rather than the
+// latest_customer_message_at — close enough for trend-shape purposes
+// and avoids threading a second timestamp through the SPA. CSV export
+// is the path for precise correlation.
+function buildSentimentTrend(tickets, tf) {
+  const now = new Date();
+  const buckets = [];
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const yyMM = (d) => `${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`;
+  const mmDD = (d) => `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  if (tf === '7d' || tf === '30d') {
+    const days = tf === '7d' ? 7 : 30;
+    for (let i = days - 1; i >= 0; i--) {
+      const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - i);
+      const end = new Date(start); end.setDate(end.getDate() + 1);
+      const label = (tf === '7d' || i % 5 === 0) ? mmDD(start) : '';
+      buckets.push({ label, start, end });
+    }
+  } else if (tf === '90d') {
+    for (let i = 12; i >= 0; i--) {
+      const end = new Date(now); end.setHours(0, 0, 0, 0); end.setDate(end.getDate() - i * 7 + 1);
+      const start = new Date(end); start.setDate(start.getDate() - 7);
+      buckets.push({ label: mmDD(start), start, end });
+    }
+  } else {
+    // 'all' → monthly, last 12 months
+    for (let i = 11; i >= 0; i--) {
+      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const end   = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      buckets.push({ label: yyMM(start), start, end });
+    }
+  }
+  for (const b of buckets) b.counts = { angry: 0, frustrated: 0, neutral: 0, positive: 0 };
+  for (const t of tickets) {
+    if (!t.sentiment) continue;
+    const c = new Date(t.created);
+    if (isNaN(c.getTime())) continue;
+    for (const b of buckets) {
+      if (c >= b.start && c < b.end) { b.counts[t.sentiment]++; break; }
+    }
+  }
+  return buckets;
+}
+
+function reportSentimentTrend(s) {
+  const buckets = s.sentimentTrend || [];
+  const ORDER = ['angry', 'frustrated', 'neutral', 'positive'];
+  // Max bucket total drives the bar-height scale. Always at least 1 so
+  // the empty case renders cleanly rather than dividing by zero.
+  const max = Math.max(1, ...buckets.map(b => ORDER.reduce((sum, k) => sum + (b.counts[k] || 0), 0)));
+  const anyData = buckets.some(b => ORDER.some(k => b.counts[k] > 0));
+  const bars = buckets.map(b => {
+    const total = ORDER.reduce((sum, k) => sum + (b.counts[k] || 0), 0);
+    // justify-content:flex-end pushes segments to the bottom; rendered
+    // in [angry..positive] order so angry ends up visually on top.
+    const segments = ORDER.map(k => {
+      const c = b.counts[k] || 0;
+      if (!c) return '';
+      const pct = (c / max) * 100;
+      return `<div style="height:${pct}%;background:${SENTIMENT_COLORS[k]}" title="${k}: ${c}"></div>`;
+    }).join('');
+    return `
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
+        <div style="flex:1;width:100%;display:flex;flex-direction:column;justify-content:flex-end;background:var(--off2);border-radius:2px" title="${b.label || ''}: ${total} scored">${segments}</div>
+        <div style="font-size:9px;color:var(--ink3);font-family:'DM Mono',monospace;white-space:nowrap;min-height:11px">${b.label}</div>
+      </div>`;
+  }).join('');
+  const legend = ORDER.map(k => `
+    <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink2)">
+      <span style="width:10px;height:10px;background:${SENTIMENT_COLORS[k]};border-radius:2px"></span>
+      <span style="text-transform:capitalize">${k}</span>
+    </span>`).join('');
+  const body = anyData
+    ? `<div style="display:flex;align-items:stretch;gap:3px;height:160px;padding:8px 0 4px">${bars}</div>
+       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">${legend}</div>`
+    : `<div style="color:var(--ink3);font-size:12px;padding:24px 0;text-align:center">No scored sentiments in this range</div>`;
+  return `<div class="card"><div class="card-title">Sentiment trend</div>${body}</div>`;
+}
+
 function reportSentiment(s) {
   // Order angry → frustrated → neutral → positive so the visual flow
   // matches the urgency story (red on the left, green on the right).
@@ -179,7 +263,8 @@ function reportSLA(s) {
 export const REPORT_WIDGETS = [
   { id:'r-status',    title:'Status breakdown',  render:s => reportStatus(s),    charts:['bar','donut'] },
   { id:'r-sla',       title:'SLA',               render:s => reportSLA(s),       charts:['tiles','bar'] },
-  { id:'r-sentiment', title:'Customer sentiment',render:s => reportSentiment(s), charts:['bar','donut'] },
+  { id:'r-sentiment',       title:'Customer sentiment',render:s => reportSentiment(s),      charts:['bar','donut'] },
+  { id:'r-sentiment-trend', title:'Sentiment trend',   render:s => reportSentimentTrend(s) },
   { id:'r-priority',  title:'Priority',          render:s => reportPriority(s),  charts:['bar','donut'] },
   { id:'r-category',  title:'Category',          render:s => reportCategory(s),  charts:['bar','donut'] },
   { id:'r-agents',    title:'Tickets per agent', render:s => reportAgents(s) },
@@ -206,6 +291,10 @@ export function renderReports() {
   const tf = REPORT_TF;
   const tickets = getReportTickets();
   const s = computeReportStats(tickets);
+  // Trend buckets need the raw ticket list + timeframe, so we attach
+  // them here rather than expanding computeReportStats (which is also
+  // called from the dashboard, which doesn't need the trend).
+  s.sentimentTrend = buildSentimentTrend(tickets, tf);
   return `
     <div class="page">
       <div class="topbar">
