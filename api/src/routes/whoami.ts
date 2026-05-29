@@ -36,7 +36,7 @@ whoami.get('/', async (c) => {
     .select(`
       role_id,
       active,
-      workspaces!inner(id, name, slug, suspended_at, is_unrouted_bucket, deleted_at),
+      workspaces!inner(id, name, slug, logo_url, primary_color, suspended_at, is_unrouted_bucket, deleted_at),
       roles(name, is_admin)
     `)
     .eq('user_id', userId)
@@ -46,13 +46,15 @@ whoami.get('/', async (c) => {
   const shaped = (memberships || [])
     .filter((m: any) => m.workspaces && !m.workspaces.deleted_at && !m.workspaces.is_unrouted_bucket)
     .map((m: any) => ({
-      workspace_id:   m.workspaces.id,
-      workspace_name: m.workspaces.name,
-      workspace_slug: m.workspaces.slug,
-      suspended:      Boolean(m.workspaces.suspended_at),
-      role_id:        m.role_id,
-      role_name:      m.roles?.name || null,
-      is_admin:       Boolean(m.roles?.is_admin),
+      workspace_id:            m.workspaces.id,
+      workspace_name:          m.workspaces.name,
+      workspace_slug:          m.workspaces.slug,
+      workspace_logo_url:      m.workspaces.logo_url || null,
+      workspace_primary_color: m.workspaces.primary_color || null,
+      suspended:               Boolean(m.workspaces.suspended_at),
+      role_id:                 m.role_id,
+      role_name:               m.roles?.name || null,
+      is_admin:                Boolean(m.roles?.is_admin),
     }));
 
   return c.json({ user, memberships: shaped });

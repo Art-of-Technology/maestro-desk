@@ -151,6 +151,15 @@ async function bootShell(user, membership) {
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
   window.login(role, user.name || user.email, initials, user.id);
+  // Apply workspace brand AFTER login so the DOM is visible — the
+  // sidebar logo + name + accent color all swap to reflect the
+  // signed-in workspace instead of the platform-default copy.
+  window.applyWorkspaceBrand?.({
+    name:         membership.workspace_name,
+    slug:         membership.workspace_slug,
+    logoUrl:      membership.workspace_logo_url,
+    primaryColor: membership.workspace_primary_color,
+  });
 }
 
 function deriveInitials(name, email) {

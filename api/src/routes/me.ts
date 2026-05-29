@@ -23,15 +23,26 @@ me.get('/', async (c) => {
     .single();
   if (uErr) return c.json({ error: uErr.message }, 500);
 
-  const { data: membership, error: mErr } = await sb
-    .from('workspace_members')
-    .select('role_id, active, ooo_from, ooo_to, ooo_note, roles(name, is_admin)')
-    .eq('user_id', userId)
-    .eq('workspace_id', workspaceId)
-    .single();
-  if (mErr) return c.json({ error: mErr.message }, 500);
+  const [memRes, wsRes] = await Promise.all([
+    sb.from('workspace_members')
+      .select('role_id, active, ooo_from, ooo_to, ooo_note, roles(name, is_admin)')
+      .eq('user_id', userId)
+      .eq('workspace_id', workspaceId)
+      .single(),
+    sb.from('workspaces')
+      .select('id, name, slug, logo_url, primary_color')
+      .eq('id', workspaceId)
+      .maybeSingle(),
+  ]);
+  if (memRes.error) return c.json({ error: memRes.error.message }, 500);
+  if (wsRes.error)  return c.json({ error: wsRes.error.message }, 500);
 
-  return c.json({ user, workspace_id: workspaceId, membership });
+  return c.json({
+    user,
+    workspace_id: workspaceId,
+    workspace:    wsRes.data,
+    membership:   memRes.data,
+  });
 });
 
 // Self-PATCH for the small set of fields a user can edit on their
