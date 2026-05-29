@@ -13,7 +13,7 @@ customValues.use('*', requireAuth);
 // more round-trips for less. Join custom_fields to get the field key +
 // entity_type so the client can group without a second lookup.
 customValues.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const entityType = c.req.query('entity_type'); // optional filter
 
@@ -51,7 +51,7 @@ const PutValue = z.object({
 });
 
 customValues.put('/customers/:customerId/:fieldKey', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('customerId');
   const fieldKey = c.req.param('fieldKey');

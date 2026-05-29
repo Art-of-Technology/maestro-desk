@@ -35,7 +35,7 @@ const FieldBody = z.object({
 });
 
 customFields.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const { data, error } = await sb
@@ -50,7 +50,7 @@ customFields.get('/', async (c) => {
 });
 
 customFields.post('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -102,7 +102,7 @@ const PatchField = z.object({
 }).strict();
 
 customFields.patch('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -128,7 +128,7 @@ customFields.patch('/:id', async (c) => {
 });
 
 customFields.delete('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
