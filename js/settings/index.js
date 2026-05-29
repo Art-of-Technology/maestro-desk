@@ -39,6 +39,8 @@ let SUPPRESSED_CUSTOMERS = [];
 let SUPPRESSED_LOADED = false;
 let WORKSPACE_SETTINGS = null;
 let WORKSPACE_SETTINGS_LOADED = false;
+let ME_PREFS = null;
+let ME_PREFS_LOADED = false;
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
   { k: 'ticket.resolved',  l: 'Ticket resolved' },
@@ -183,6 +185,16 @@ function settingsNotifications() {
     {k:'wake',      l:'Snooze wake-ups', d:'Tickets that have come back from a snooze'},
     {k:'mention',   l:'@mentions',     d:'You were @-mentioned in an internal note'},
   ];
+  // Email preferences live server-side (per-user, on public.users).
+  // Lazy-load on tab open + re-render once the fetch lands so the
+  // toggle reflects the persisted value.
+  if (!ME_PREFS_LOADED) {
+    ME_PREFS_LOADED = true;
+    apiGet('/api/v1/me')
+      .then((res) => { ME_PREFS = res.user; window.renderPage('settings'); })
+      .catch((err) => { console.warn('[settings] me load failed:', err); });
+  }
+  const mentionEmailOn = ME_PREFS ? ME_PREFS.mention_email_enabled !== false : true;
   return `
     <div class="settings-section">
       <div class="settings-h">Notification types</div>
@@ -198,7 +210,38 @@ function settingsNotifications() {
             <span class="toggle-slider"></span>
           </label>
         </div>`).join('')}
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-h">Email notifications</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Choose when we email you outside the app. Saved to your account, applies across devices.</div>
+      <div class="settings-row">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--ink)">@mention emails</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px">A teammate @-mentions you in an internal note.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" ${mentionEmailOn ? 'checked' : ''} onchange="setMentionEmailPref(this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="mention-email-msg" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
     </div>`;
+}
+
+export async function setMentionEmailPref(enabled) {
+  const msg = document.getElementById('mention-email-msg');
+  if (msg) { msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)'; }
+  try {
+    const res = await apiPatch('/api/v1/me', { mention_email_enabled: enabled });
+    ME_PREFS = res.user;
+    if (msg) { msg.textContent = enabled ? '✓ Enabled' : '✓ Disabled'; msg.style.color = 'var(--green)'; }
+  } catch (err) {
+    if (msg) { msg.textContent = err?.message || 'Save failed'; msg.style.color = 'var(--red)'; }
+    // Revert UI if the patch failed.
+    ME_PREFS_LOADED = false;
+    window.renderPage('settings');
+  }
 }
 
 export function toggleNotifPref(k, v) {
