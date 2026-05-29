@@ -11,8 +11,12 @@ customers.use('*', requireAuth);
 // No pagination yet — workspaces are small in v1 and the SPA loads the full
 // list on sign-in for client-side filtering. Switch to keyset pagination
 // before this hits real-customer scale.
+//
+// Uses sbUser (user-scoped JWT client) so RLS gates the read against the
+// caller's workspace_ids claim; the .eq('workspace_id', workspaceId)
+// still scopes to the active workspace within that membership set.
 customers.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const { data, error } = await sb
