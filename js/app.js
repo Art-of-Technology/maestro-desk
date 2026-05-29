@@ -175,8 +175,8 @@ import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 
-function login(role, name, initials) {
-  SESSION = {role, name, initials};
+function login(role, name, initials, userId = null) {
+  SESSION = { role, name, initials, userId };
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('sb-av').textContent = initials;

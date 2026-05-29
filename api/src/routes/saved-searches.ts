@@ -27,23 +27,42 @@ const Filters = z.object({
 }).strict();
 
 const CreateBody = z.object({
-  name:    z.string().min(1).max(100),
-  filters: Filters,
+  name:      z.string().min(1).max(100),
+  filters:   Filters,
+  is_shared: z.boolean().optional(),
 });
 
 const PatchBody = z.object({
-  name:    z.string().min(1).max(100).optional(),
-  filters: Filters.optional(),
+  name:      z.string().min(1).max(100).optional(),
+  filters:   Filters.optional(),
+  is_shared: z.boolean().optional(),
 }).strict();
 
 savedSearches.get('/', async (c) => {
   const sb = c.get('sbUser');
+  // RLS combines two SELECT policies: owner sees their own rows
+  // (saved_searches_owner_write), workspace members see shared rows
+  // (saved_searches_shared_read). The union is the result set —
+  // we embed users(name) for attribution on shared entries.
   const { data, error } = await sb
     .from('saved_searches')
-    .select('id, name, filters, created_at, updated_at')
+    .select('id, user_id, name, filters, is_shared, created_at, updated_at, users(name)')
+    .order('is_shared', { ascending: true })  // own first, shared second
     .order('created_at', { ascending: false });
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ saved_searches: data || [] });
+  // Flatten the user embed into owner_name and drop the raw users
+  // payload — the client only needs the attribution string.
+  const shaped = (data || []).map((row: any) => ({
+    id:          row.id,
+    user_id:     row.user_id,
+    name:        row.name,
+    filters:     row.filters,
+    is_shared:   row.is_shared,
+    owner_name:  row.users?.name || null,
+    created_at:  row.created_at,
+    updated_at:  row.updated_at,
+  }));
+  return c.json({ saved_searches: shaped });
 });
 
 savedSearches.post('/', async (c) => {
@@ -62,8 +81,9 @@ savedSearches.post('/', async (c) => {
       user_id:      userId,
       name:         parsed.data.name,
       filters:      parsed.data.filters,
+      is_shared:    parsed.data.is_shared ?? false,
     })
-    .select('id, name, filters, created_at, updated_at')
+    .select('id, user_id, name, filters, is_shared, created_at, updated_at')
     .single();
   if (error) {
     // Unique-violation on (workspace_id, user_id, lower(name)) → 409
@@ -87,7 +107,7 @@ savedSearches.patch('/:id', async (c) => {
     .from('saved_searches')
     .update(parsed.data)
     .eq('id', id)
-    .select('id, name, filters, created_at, updated_at')
+    .select('id, user_id, name, filters, is_shared, created_at, updated_at')
     .maybeSingle();
   if (error) {
     if ((error as any).code === '23505') {

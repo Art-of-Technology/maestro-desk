@@ -150,7 +150,7 @@ async function bootShell(user, membership) {
   await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
-  window.login(role, user.name || user.email, initials);
+  window.login(role, user.name || user.email, initials, user.id);
 }
 
 function deriveInitials(name, email) {

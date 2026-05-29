@@ -26,7 +26,7 @@ import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
 import { registerActions } from '../core/event-delegation.js';
-import { apiGet, apiPost, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
@@ -51,17 +51,26 @@ function renderSavedSearchesControls() {
       .then((res) => { SAVED_SEARCHES = res.saved_searches || []; window.renderPage('tickets'); })
       .catch((err) => { console.warn('[tickets] saved searches load failed:', err); });
   }
-  const opts = SAVED_SEARCHES.map((s) =>
-    `<option value="${window.escAttr(s.id)}">${window.escHtml(s.name)}</option>`
-  ).join('');
+  // Group: own searches first, then "Shared with workspace" (via
+  // <optgroup>) so the picker reads as a clear two-section list.
+  const own    = SAVED_SEARCHES.filter((s) => !s.is_shared || isOwnedByMe(s));
+  const shared = SAVED_SEARCHES.filter((s) => s.is_shared && !isOwnedByMe(s));
+  const renderOpt = (s) => `<option value="${window.escAttr(s.id)}">${window.escHtml(s.name)}${s.is_shared ? ' (shared)' : ''}</option>`;
+  const ownGroup    = own.length    ? `<optgroup label="My searches">${own.map(renderOpt).join('')}</optgroup>` : '';
+  const sharedGroup = shared.length ? `<optgroup label="Shared with workspace">${shared.map(renderOpt).join('')}</optgroup>` : '';
   return `
     <select class="filter-select" onchange="applySavedSearch(this.value); this.value=''" title="Apply a saved search">
       <option value="">— Saved searches${SAVED_SEARCHES.length ? '' : ' (none yet)'} —</option>
-      ${opts}
+      ${ownGroup}
+      ${sharedGroup}
     </select>
     <button class="btn btn-sm" onclick="saveCurrentSearch()" title="Save the current filter state">Save current</button>
-    ${SAVED_SEARCHES.length ? `<button class="btn btn-sm" onclick="manageSavedSearches()" title="Delete saved searches">Manage</button>` : ''}
+    ${SAVED_SEARCHES.length ? `<button class="btn btn-sm" onclick="manageSavedSearches()" title="Manage saved searches">Manage</button>` : ''}
   `;
+}
+
+function isOwnedByMe(s) {
+  return Boolean(SESSION?.userId) && s.user_id === SESSION.userId;
 }
 
 // "Needs attention" predicate — the union of three urgency signals,
@@ -317,15 +326,39 @@ export function applySavedSearch(id) {
 
 export function manageSavedSearches() {
   if (SAVED_SEARCHES.length === 0) return;
-  const body = SAVED_SEARCHES.map((s) => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule)">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(s.name)}</div>
-        <div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(JSON.stringify(s.filters))}</div>
-      </div>
+  const body = SAVED_SEARCHES.map((s) => {
+    const owned = isOwnedByMe(s);
+    const attribution = s.is_shared && !owned
+      ? `<span style="color:var(--ink3)"> · shared by ${window.escHtml(s.owner_name || 'someone')}</span>`
+      : (s.is_shared ? '<span style="color:var(--purple)"> · shared with workspace</span>' : '');
+    const shareBtn = owned ? `
+      <button class="btn btn-sm" onclick="toggleSavedSearchShare('${window.escAttr(s.id)}', ${s.is_shared ? 'false' : 'true'})" title="${s.is_shared ? 'Stop sharing with workspace' : 'Share with workspace'}">${s.is_shared ? 'Unshare' : 'Share'}</button>
+    ` : '';
+    const deleteBtn = owned ? `
       <button class="btn btn-sm btn-danger" onclick="deleteSavedSearch('${window.escAttr(s.id)}')">Delete</button>
-    </div>`).join('');
+    ` : '';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule)">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(s.name)}${attribution}</div>
+          <div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(JSON.stringify(s.filters))}</div>
+        </div>
+        ${shareBtn}
+        ${deleteBtn}
+      </div>`;
+  }).join('');
   showModal('Saved searches', body, null, null, true);
+}
+
+export async function toggleSavedSearchShare(id, share) {
+  try {
+    const res = await apiPatch(`/api/v1/saved-searches/${encodeURIComponent(id)}`, { is_shared: share });
+    SAVED_SEARCHES = SAVED_SEARCHES.map((s) => s.id === id ? { ...s, ...res.saved_search } : s);
+    window.renderPage('tickets');
+    manageSavedSearches();
+  } catch (err) {
+    alert(`Couldn't update sharing: ${err?.message || err}`);
+  }
 }
 
 export async function deleteSavedSearch(id) {
