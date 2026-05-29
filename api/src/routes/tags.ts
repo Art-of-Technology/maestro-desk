@@ -13,7 +13,7 @@ tags.use('*', requireAuth);
 // is small (10s, not 1000s). Manual tags count against ticket_tags; AI
 // tags count against ticket_ai_tags.
 tags.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const [libRes, manualRes, aiRes] = await Promise.all([
@@ -54,7 +54,7 @@ const PatchTag = z.object({
 }).strict();
 
 tags.patch('/:tag', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const tag = c.req.param('tag');
 
@@ -97,7 +97,7 @@ tags.patch('/:tag', async (c) => {
 
 // ─── DELETE /:tag — remove from library + strip from all tickets ─────────
 tags.delete('/:tag', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const tag = c.req.param('tag');
 
@@ -123,7 +123,7 @@ const PostMerge = z.object({
 });
 
 tags.post('/:tag/merge', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const source = c.req.param('tag');
 
