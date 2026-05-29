@@ -136,11 +136,40 @@ export async function scoreMessageSentiment(args: {
 
   if (!sentiment) return null;
 
+  // Fetch the message timestamp once — used by both the message
+  // update and the denormalised tickets stamp. We could read it from
+  // the .single() return on insert, but threading that through every
+  // caller is more friction than just re-reading.
+  const { data: msgRow } = await sb
+    .from('ticket_messages')
+    .select('created_at')
+    .eq('id', messageId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const messageCreatedAt = msgRow?.created_at;
+
   await sb
     .from('ticket_messages')
     .update({ sentiment })
     .eq('id', messageId)
     .eq('workspace_id', workspaceId);
+
+  // Denormalise onto tickets so the SPA list can filter by sentiment
+  // without joining ticket_messages on every render. Only overwrite
+  // when this message is at-or-after the current latest_customer_
+  // message_at — handles the rare case where two inbound messages
+  // arrive close together and scoring resolves out of order.
+  if (messageCreatedAt) {
+    await sb
+      .from('tickets')
+      .update({
+        latest_customer_sentiment:  sentiment,
+        latest_customer_message_at: messageCreatedAt,
+      })
+      .eq('id', ticketId)
+      .eq('workspace_id', workspaceId)
+      .or(`latest_customer_message_at.is.null,latest_customer_message_at.lte.${messageCreatedAt}`);
+  }
 
   // Anger triggers an automatic priority bump so the ticket surfaces
   // in the agent's queue without requiring manual triage. Best-effort

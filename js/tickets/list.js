@@ -160,6 +160,13 @@ export function renderTickets() {
           <option value="all">All agents</option>
           ${AGENTS.map(a=>`<option value="${a.name}" ${FILTER_AGENT===a.name?'selected':''}>${a.name}</option>`).join('')}
         </select>
+        <select class="filter-select" onchange="FILTER_SENTIMENT=this.value;renderPage('tickets')" title="Filter by latest customer sentiment">
+          <option value="all">All sentiments</option>
+          <option value="angry"      ${FILTER_SENTIMENT==='angry'?'selected':''}>Angry</option>
+          <option value="frustrated" ${FILTER_SENTIMENT==='frustrated'?'selected':''}>Frustrated</option>
+          <option value="neutral"    ${FILTER_SENTIMENT==='neutral'?'selected':''}>Neutral</option>
+          <option value="positive"   ${FILTER_SENTIMENT==='positive'?'selected':''}>Positive</option>
+        </select>
         <select class="filter-select" onchange="setTicketGroupBy(this.value)" title="Group rows">
           <option value="none"     ${TICKET_GROUP_BY==='none'?'selected':''}>No grouping</option>
           <option value="status"   ${TICKET_GROUP_BY==='status'?'selected':''}>Group by status</option>
@@ -170,6 +177,7 @@ export function renderTickets() {
         ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${FILTER_CATEGORY}<span class="rm" onclick="FILTER_CATEGORY='all';renderPage('tickets')">×</span></span>`:''}
         ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" onclick="FILTER_PRIORITY='all';renderPage('tickets')">×</span></span>`:''}
         ${FILTER_AGENT!=='all'?`<span class="filter-tag">${FILTER_AGENT}<span class="rm" onclick="FILTER_AGENT='all';renderPage('tickets')">×</span></span>`:''}
+        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" onclick="FILTER_SENTIMENT='all';renderPage('tickets')">×</span></span>`:''}
         ${FILTER_QUERY?`<span class="filter-tag">"${FILTER_QUERY}"<span class="rm" onclick="FILTER_QUERY='';renderPage('tickets')">×</span></span>`:''}
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
@@ -236,6 +244,7 @@ function getFilteredTickets() {
   if (FILTER_CATEGORY !== 'all') list = list.filter(t => t.category === FILTER_CATEGORY);
   if (FILTER_PRIORITY !== 'all') list = list.filter(t => t.priority === FILTER_PRIORITY);
   if (FILTER_AGENT !== 'all')    list = list.filter(t => t.agent === FILTER_AGENT);
+  if (FILTER_SENTIMENT !== 'all') list = list.filter(t => t.sentiment === FILTER_SENTIMENT);
   if (FILTER_QUERY.trim()) {
     const q = FILTER_QUERY.toLowerCase();
     list = list.filter(t => {

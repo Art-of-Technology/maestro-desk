@@ -22,6 +22,7 @@ let AI_MESSAGES = [];
 let FILTER_CATEGORY = 'all';
 let FILTER_PRIORITY = 'all';
 let FILTER_AGENT = 'all';
+let FILTER_SENTIMENT = 'all';
 let FILTER_QUERY = '';
 let AGENT_SELECTED = null;
 let CUSTOMER_SELECTED = null;

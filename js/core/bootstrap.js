@@ -210,6 +210,7 @@ export async function loadWorkspaceData() {
     csat:            null,
     msgs:            [],
     timeEntries:     [],
+    sentiment:       t.latest_customer_sentiment || null,
   }));
   // Resolve merge pointers display_id ↔ display_id across the loaded set.
   // Children outside the current page won't appear in mergedFrom — paginate-

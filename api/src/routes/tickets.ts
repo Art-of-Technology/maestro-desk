@@ -34,7 +34,7 @@ tickets.get('/', async (c) => {
   const { data, error, count } = await sb
     .from('tickets')
     .select(
-      'id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge',
+      'id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment',
       { count: 'exact' },
     )
     .eq('workspace_id', workspaceId)
