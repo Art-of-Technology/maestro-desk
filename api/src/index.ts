@@ -3,6 +3,8 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 import { env } from './lib/env.ts';
+import { supabaseAdmin } from './lib/supabase.ts';
+import { startWebhookWorker } from './lib/outgoing-webhooks.ts';
 import { health } from './routes/health.ts';
 import { me } from './routes/me.ts';
 import { tickets } from './routes/tickets.ts';
@@ -78,6 +80,13 @@ app.onError((err, c) => {
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 
 console.log(`maestro-desk API listening on http://localhost:${env.PORT}`);
+
+// Outgoing-webhook delivery worker. Polls webhook_deliveries for
+// pending rows whose backoff has elapsed and POSTs them. Single
+// process for now — if we ever scale to >1 instance, add a
+// SELECT ... FOR UPDATE SKIP LOCKED claim in
+// processPendingDeliveries.
+startWebhookWorker(supabaseAdmin);
 
 export default {
   port: env.PORT,

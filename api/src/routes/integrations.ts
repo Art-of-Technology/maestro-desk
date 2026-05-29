@@ -395,6 +395,24 @@ integrations.delete('/webhooks/:id', async (c) => {
   return new Response(null, { status: 204 });
 });
 
+// Recent delivery attempts for one webhook. Capped at 50 — enough to
+// answer "is this thing working" without paginating; a future PR can
+// add cursor-based scroll if real volume demands it.
+integrations.get('/webhooks/:id/deliveries', async (c) => {
+  const sb = c.get('sbUser');
+  const workspaceId = c.get('workspaceId');
+  const id = c.req.param('id');
+  const { data, error } = await sb
+    .from('webhook_deliveries')
+    .select('id, event, attempts, state, last_status, last_error, last_attempt_at, next_attempt_at, created_at')
+    .eq('webhook_id', id)
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ deliveries: data || [] });
+});
+
 function generateWebhookSecret(): string {
   // 32 random bytes → base64url. Bun has crypto.randomBytes via the
   // node compat layer; use it rather than rolling our own RNG.

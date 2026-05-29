@@ -1,12 +1,23 @@
-// Fan-out dispatcher for the workspace_webhooks table. Mirrors
-// slack-notify.ts's shape — same event taxonomy, same fire-and-forget
-// semantics — but POSTs JSON to any URL the workspace configured,
-// signed with an HMAC the workspace also chose.
+// Outgoing webhook fan-out + retry pipeline.
+//
+// Architecture: dispatchTicketEvent ENQUEUES rows in webhook_deliveries
+// (one per subscribed webhook). A background worker (started in
+// api/src/index.ts) polls the table every ~5s and attempts pending
+// deliveries whose backoff timer has elapsed. On failure, the worker
+// schedules the next attempt with exponential backoff. After
+// MAX_ATTEMPTS the row is parked in state='exhausted' (the DLQ).
+//
+// HTTP semantics:
+//   - 2xx                  → success, no further attempts
+//   - 4xx (except 408/429) → permanent rejection, exhausted immediately
+//                            (the receiver said "no, never" — retries
+//                             won't change the answer)
+//   - 5xx / 408 / 429      → transient, retry with backoff
+//   - network errors       → transient
 //
 // Receivers verify via:
-//   compute(secret, `v0:${X-Maestro-Timestamp}:${rawBody}`) == X-Maestro-Signature
-// modeled on Slack's pattern so we can reuse the verifier shape if we
-// ever want a Maestro → Maestro chain.
+//   hmac_sha256(secret, `v0:${X-Maestro-Timestamp}:${rawBody}`)
+//     === X-Maestro-Signature  (with the "v0=" prefix stripped)
 
 import { createHmac } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -17,12 +28,13 @@ export type WebhookEvent =
   | 'ticket.escalated'
   | 'priority.urgent';
 
-interface WebhookRow {
-  id:      string;
-  url:     string;
-  secret:  string;
-  events:  string[];
-}
+// Backoff schedule in seconds. Index = attempts already made.
+// attempts=0 (just enqueued) → fire ASAP
+// attempts=1 → wait 60s
+// attempts=2 → wait 5min
+// ...etc. After BACKOFF.length attempts, exhausted.
+const BACKOFF_SECONDS = [60, 5 * 60, 30 * 60, 2 * 3600, 12 * 3600];
+const MAX_ATTEMPTS = BACKOFF_SECONDS.length + 1;  // initial + retries
 
 interface TicketRow {
   id:            string;
@@ -35,19 +47,24 @@ interface TicketRow {
   customers: { id: string; first_name: string | null; last_name: string | null; email: string | null; vip_tier: string | null; brand: string | null } | null;
 }
 
+interface WebhookRow {
+  id:     string;
+  events: string[];
+}
+
 function sign(secret: string, timestamp: string, body: string): string {
   return 'v0=' + createHmac('sha256', secret).update(`v0:${timestamp}:${body}`).digest('hex');
 }
 
 /**
- * Dispatch a ticket event to every active webhook in the workspace
- * subscribed to that event. Fan-out is parallel; per-webhook errors
- * are logged + persisted onto the webhook row (last_delivery_*) but
- * don't propagate — a misconfigured external URL must not break the
- * user's ticket mutation.
+ * Enqueue ticket-event deliveries for every active webhook in the
+ * workspace subscribed to this event. Returns the count of rows
+ * enqueued (mostly for tests; tickets.ts ignores it).
  *
- * Returns the count of attempted deliveries (useful for tests; the
- * callers in tickets.ts ignore it).
+ * Synchronous: this builds the payload once and inserts rows. Actual
+ * HTTP POSTs happen on the next worker tick. The poll interval is
+ * short enough (5s) that observable latency is in the seconds, not
+ * the minutes.
  */
 export async function dispatchTicketEvent(args: {
   sb:          SupabaseClient;
@@ -59,13 +76,12 @@ export async function dispatchTicketEvent(args: {
 
   const { data: webhooks } = await sb
     .from('workspace_webhooks')
-    .select('id, url, secret, events')
+    .select('id, events')
     .eq('workspace_id', workspaceId)
     .eq('active', true);
   const subscribed = (webhooks as WebhookRow[] | null || []).filter(w => w.events.includes(event));
   if (subscribed.length === 0) return 0;
 
-  // Fetch ticket + customer once, broadcast to N receivers.
   const { data: ticket } = await sb
     .from('tickets')
     .select(`
@@ -100,42 +116,158 @@ export async function dispatchTicketEvent(args: {
       brand:     customer.brand,
     },
   };
-  const body = JSON.stringify(payload);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
 
-  await Promise.all(subscribed.map(async (w) => {
-    try {
-      const res = await fetch(w.url, {
-        method:  'POST',
-        headers: {
-          'Content-Type':         'application/json',
-          'X-Maestro-Event':      event,
-          'X-Maestro-Timestamp':  timestamp,
-          'X-Maestro-Signature':  sign(w.secret, timestamp, body),
-        },
-        body,
-        // Don't let a slow receiver hold the request thread. Abort
-        // after 5 seconds — receivers should ack fast and process async.
-        signal: AbortSignal.timeout(5000),
-      });
-      await sb.from('workspace_webhooks').update({
-        last_delivery_at:     new Date().toISOString(),
-        last_delivery_status: res.status,
-        last_delivery_error:  res.ok ? null : `HTTP ${res.status}`,
-      }).eq('id', w.id);
-      if (!res.ok) {
-        console.warn(`[outgoing-webhooks] ${w.url} returned ${res.status}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[outgoing-webhooks] ${w.url} failed: ${msg}`);
-      await sb.from('workspace_webhooks').update({
-        last_delivery_at:     new Date().toISOString(),
-        last_delivery_status: null,
-        last_delivery_error:  msg.slice(0, 200),
-      }).eq('id', w.id);
+  const rows = subscribed.map((w) => ({
+    workspace_id:    workspaceId,
+    webhook_id:      w.id,
+    event,
+    payload,
+    next_attempt_at: new Date().toISOString(),
+  }));
+  const { error } = await sb.from('webhook_deliveries').insert(rows);
+  if (error) {
+    console.error('[outgoing-webhooks] enqueue failed:', error.message);
+    return 0;
+  }
+  return rows.length;
+}
+
+// ─── Worker side: process pending deliveries ─────────────────────────────
+
+interface DeliveryRow {
+  id:           string;
+  webhook_id:   string;
+  attempts:     number;
+  payload:      any;
+}
+
+const PERMANENT_4XX_EXCEPTIONS = new Set([408, 429]);  // these are transient even though 4xx
+
+export async function processPendingDeliveries(sb: SupabaseClient, limit = 50): Promise<{ processed: number }> {
+  const now = new Date().toISOString();
+  const { data: deliveries, error } = await sb
+    .from('webhook_deliveries')
+    .select('id, webhook_id, attempts, payload')
+    .eq('state', 'pending')
+    .lte('next_attempt_at', now)
+    .order('next_attempt_at', { ascending: true })
+    .limit(limit);
+  if (error) {
+    console.error('[webhook-worker] poll failed:', error.message);
+    return { processed: 0 };
+  }
+  if (!deliveries || deliveries.length === 0) return { processed: 0 };
+
+  // Load the parent webhooks once (id → url/secret) so we don't
+  // round-trip per delivery. Same set we'd join inline; bulk-loading
+  // is cheaper at our scale.
+  const ids = Array.from(new Set(deliveries.map((d) => d.webhook_id)));
+  const { data: webhookRows } = await sb
+    .from('workspace_webhooks')
+    .select('id, url, secret, active')
+    .in('id', ids);
+  const byId = new Map((webhookRows || []).map((w: any) => [w.id, w]));
+
+  await Promise.all((deliveries as DeliveryRow[]).map(async (d) => {
+    const wh = byId.get(d.webhook_id);
+    // Parent webhook deleted or inactive between enqueue and delivery
+    // — mark exhausted and skip. (active=false isn't permanent, but
+    // we treat it as "stop trying" rather than holding queue depth.)
+    if (!wh || !wh.active) {
+      await markExhausted(sb, d.id, 0, 'webhook deleted or inactive');
+      return;
     }
+    await attemptDelivery(sb, d, wh);
   }));
 
-  return subscribed.length;
+  return { processed: deliveries.length };
+}
+
+async function attemptDelivery(sb: SupabaseClient, d: DeliveryRow, wh: { id: string; url: string; secret: string }) {
+  const attempts = d.attempts + 1;
+  const body = JSON.stringify(d.payload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  let status: number | null = null;
+  let err: string | null = null;
+  try {
+    const res = await fetch(wh.url, {
+      method:  'POST',
+      headers: {
+        'Content-Type':         'application/json',
+        'X-Maestro-Event':      d.payload.event,
+        'X-Maestro-Timestamp':  timestamp,
+        'X-Maestro-Signature':  sign(wh.secret, timestamp, body),
+      },
+      body,
+      signal: AbortSignal.timeout(5000),
+    });
+    status = res.status;
+    if (!res.ok) err = `HTTP ${res.status}`;
+  } catch (e) {
+    err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+  }
+
+  const succeeded = status !== null && status >= 200 && status < 300;
+  const permanentFail = status !== null && status >= 400 && status < 500 && !PERMANENT_4XX_EXCEPTIONS.has(status);
+  const exhausted = succeeded
+    ? false
+    : permanentFail || attempts >= MAX_ATTEMPTS;
+
+  const updates: Record<string, unknown> = {
+    attempts,
+    last_status:     status,
+    last_error:      err,
+    last_attempt_at: new Date().toISOString(),
+  };
+  if (succeeded) {
+    updates.state = 'success';
+  } else if (exhausted) {
+    updates.state = 'exhausted';
+  } else {
+    // Schedule the next attempt. attempts is the count INCLUDING the
+    // one we just did, so the next backoff slot is at index (attempts-1).
+    const seconds = BACKOFF_SECONDS[attempts - 1] ?? BACKOFF_SECONDS[BACKOFF_SECONDS.length - 1];
+    updates.next_attempt_at = new Date(Date.now() + seconds * 1000).toISOString();
+  }
+  await sb.from('webhook_deliveries').update(updates).eq('id', d.id);
+
+  // Mirror onto the parent row so the SPA's "last delivery" indicator
+  // reflects the latest attempt across all deliveries.
+  await sb.from('workspace_webhooks').update({
+    last_delivery_at:     updates.last_attempt_at,
+    last_delivery_status: status,
+    last_delivery_error:  succeeded ? null : err,
+  }).eq('id', wh.id);
+}
+
+async function markExhausted(sb: SupabaseClient, id: string, status: number | null, error: string) {
+  await sb.from('webhook_deliveries').update({
+    state: 'exhausted', last_status: status, last_error: error,
+    last_attempt_at: new Date().toISOString(),
+  }).eq('id', id);
+}
+
+// ─── Worker lifecycle ────────────────────────────────────────────────────
+//
+// Single setInterval tick driving processPendingDeliveries. Started
+// from api/src/index.ts once after server boot. The interval is
+// deliberately short (5s) so first-attempt latency stays sub-tick;
+// retries are scheduled minutes/hours apart, so the tick just polls
+// to find rows whose backoff elapsed.
+
+const POLL_INTERVAL_MS = 5000;
+let workerTimer: ReturnType<typeof setInterval> | null = null;
+
+export function startWebhookWorker(sb: SupabaseClient): void {
+  if (workerTimer) return;
+  workerTimer = setInterval(() => {
+    processPendingDeliveries(sb).catch((err) => {
+      console.error('[webhook-worker] tick failed:', err);
+    });
+  }, POLL_INTERVAL_MS);
+}
+
+export function stopWebhookWorker(): void {
+  if (workerTimer) clearInterval(workerTimer);
+  workerTimer = null;
 }
