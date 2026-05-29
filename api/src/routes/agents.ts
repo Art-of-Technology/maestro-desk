@@ -10,8 +10,12 @@ agents.use('*', requireAuth);
 // name + initials) and roles (for the role label). Returns active and
 // inactive members so the agent page can show "Inactive" agents grayed-out
 // the way data.js seeded `active: false` rows did.
+//
+// Uses sbUser (JWT-scoped) — workspace_members, users (peer-select), and
+// roles policies all read is_workspace_member, so the embeds resolve
+// inside the caller's workspace_ids set.
 agents.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   const { data, error } = await sb
@@ -46,6 +50,10 @@ const PatchAgent = z.object({
   ooo_note:  z.string().nullable().optional(),
 }).strict();
 
+// PATCH stays on service-role: workspace_members has only a SELECT policy
+// under the JWT-claim regime, and the admin-only update policy + a proper
+// "caller is admin in this workspace" check belongs in its own PR rather
+// than getting bolted on here.
 agents.patch('/:userId', async (c) => {
   const sb = c.get('sb');
   const workspaceId = c.get('workspaceId');
