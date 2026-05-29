@@ -26,6 +26,7 @@ import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
 import { registerActions } from '../core/event-delegation.js';
+import { apiGet, apiPost, apiDelete } from '../core/api-client.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
@@ -35,6 +36,33 @@ let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
+
+// Saved searches: per-user, persisted server-side. Lazy-load on first
+// paint of the list and re-render once the fetch resolves. The
+// dropdown lets the agent apply a search in one click; Save current
+// turns the current filter state into a new row.
+let SAVED_SEARCHES = [];
+let SAVED_SEARCHES_LOADED = false;
+
+function renderSavedSearchesControls() {
+  if (!SAVED_SEARCHES_LOADED) {
+    SAVED_SEARCHES_LOADED = true;
+    apiGet('/api/v1/saved-searches')
+      .then((res) => { SAVED_SEARCHES = res.saved_searches || []; window.renderPage('tickets'); })
+      .catch((err) => { console.warn('[tickets] saved searches load failed:', err); });
+  }
+  const opts = SAVED_SEARCHES.map((s) =>
+    `<option value="${window.escAttr(s.id)}">${window.escHtml(s.name)}</option>`
+  ).join('');
+  return `
+    <select class="filter-select" onchange="applySavedSearch(this.value); this.value=''" title="Apply a saved search">
+      <option value="">— Saved searches${SAVED_SEARCHES.length ? '' : ' (none yet)'} —</option>
+      ${opts}
+    </select>
+    <button class="btn btn-sm" onclick="saveCurrentSearch()" title="Save the current filter state">Save current</button>
+    ${SAVED_SEARCHES.length ? `<button class="btn btn-sm" onclick="manageSavedSearches()" title="Delete saved searches">Manage</button>` : ''}
+  `;
+}
 
 // "Needs attention" predicate — the union of three urgency signals,
 // excluding tickets that are already resolved/closed or currently
@@ -200,6 +228,9 @@ export function renderTickets() {
       <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
         ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="setTicketView('${v.k}')">${v.l}</span>`).join('')}
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          ${renderSavedSearchesControls()}
+        </span>
       </div>
       <div style="flex:1;overflow-y:auto">
         <table class="tbl">
@@ -242,6 +273,75 @@ export function sortTickets(col) {
 }
 export function setAgentFilter(v)  { FILTER_AGENT = v; window.renderPage('tickets'); }
 export function setTicketView(v)   { FILTER_VIEW = v;  window.renderPage('tickets'); }
+
+// ─── Saved searches ─────────────────────────────────────────────────────
+
+function currentFilterSnapshot() {
+  return {
+    status:    FILTER_STATUS,
+    category:  FILTER_CATEGORY,
+    priority:  FILTER_PRIORITY,
+    agent:     FILTER_AGENT,
+    sentiment: FILTER_SENTIMENT,
+    view:      FILTER_VIEW,
+    query:     FILTER_QUERY,
+  };
+}
+
+export async function saveCurrentSearch() {
+  const name = (prompt('Name this search:') || '').trim();
+  if (!name) return;
+  try {
+    const res = await apiPost('/api/v1/saved-searches', { name, filters: currentFilterSnapshot() });
+    SAVED_SEARCHES = [res.saved_search, ...SAVED_SEARCHES];
+    window.renderPage('tickets');
+  } catch (err) {
+    alert(`Couldn't save: ${err?.message || err}`);
+  }
+}
+
+export function applySavedSearch(id) {
+  if (!id) return;
+  const s = SAVED_SEARCHES.find((x) => x.id === id);
+  if (!s) return;
+  const f = s.filters || {};
+  FILTER_STATUS    = f.status    || 'all';
+  FILTER_CATEGORY  = f.category  || 'all';
+  FILTER_PRIORITY  = f.priority  || 'all';
+  FILTER_AGENT     = f.agent     || 'all';
+  FILTER_SENTIMENT = f.sentiment || 'all';
+  FILTER_VIEW      = f.view      || 'all';
+  FILTER_QUERY     = f.query     || '';
+  window.renderPage('tickets');
+}
+
+export function manageSavedSearches() {
+  if (SAVED_SEARCHES.length === 0) return;
+  const body = SAVED_SEARCHES.map((s) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(s.name)}</div>
+        <div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(JSON.stringify(s.filters))}</div>
+      </div>
+      <button class="btn btn-sm btn-danger" onclick="deleteSavedSearch('${window.escAttr(s.id)}')">Delete</button>
+    </div>`).join('');
+  showModal('Saved searches', body, null, null, true);
+}
+
+export async function deleteSavedSearch(id) {
+  if (!confirm('Delete this saved search?')) return;
+  try {
+    await apiDelete(`/api/v1/saved-searches/${encodeURIComponent(id)}`);
+    SAVED_SEARCHES = SAVED_SEARCHES.filter((s) => s.id !== id);
+    window.renderPage('tickets');
+    // Re-open the manage modal with the row removed, unless we just
+    // deleted the last one.
+    if (SAVED_SEARCHES.length > 0) manageSavedSearches();
+    else closeModal();
+  } catch (err) {
+    alert(`Couldn't delete: ${err?.message || err}`);
+  }
+}
 export function setTicketQuery(q)  {
   FILTER_QUERY = q;
   window.renderPage('tickets');

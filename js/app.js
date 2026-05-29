@@ -131,6 +131,7 @@ import {
   bulkAssignTickets, bulkSetStatus, bulkSetPriority,
   bulkAddTag, bulkExportTickets, bulkDeleteTickets,
   exportTicketList,
+  saveCurrentSearch, applySavedSearch, manageSavedSearches, deleteSavedSearch,
 } from './tickets/list.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import {
