@@ -80,7 +80,7 @@ export async function notifySlack(args: {
 
   const { data: integration } = await sb
     .from('slack_integrations')
-    .select('webhook_url, channel, active, events')
+    .select('webhook_url, channel, active, events, bot_token')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (!integration || !integration.active) return false;
@@ -121,7 +121,54 @@ export async function notifySlack(args: {
     agent_name:     assignee.name || null,
   };
   const payload = buildBlocks(event, ctx);
-  // Override Slack's default channel if the integration specifies one.
+
+  // Two-way mode: bot_token + channel configured. We use chat.postMessage
+  // so we get the message timestamp back (= thread_ts for the root) and
+  // can stitch later replies to the same thread. On ticket.created we
+  // upsert the thread mapping; on subsequent events we reuse it so
+  // resolved/escalated/urgent post as thread replies instead of
+  // spamming the channel root.
+  if (integration.bot_token && integration.channel) {
+    try {
+      const existing = await getThreadMapping(sb, workspaceId, ticketId);
+      const postBody: any = {
+        channel: existing?.channel_id || integration.channel,
+        text:    payload.text,
+        blocks:  payload.blocks,
+      };
+      if (existing) postBody.thread_ts = existing.thread_ts;
+
+      const res = await fetch('https://slack.com/api/chat.postMessage', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json; charset=utf-8',
+          'Authorization': `Bearer ${integration.bot_token}`,
+        },
+        body: JSON.stringify(postBody),
+      });
+      const json = await res.json().catch(() => ({})) as any;
+      if (!json.ok) {
+        console.warn(`[slack] chat.postMessage failed: ${json.error || res.status}`);
+        return true;
+      }
+      // First message in this thread — record the mapping so replies
+      // come back via /webhooks/slack/events.
+      if (!existing && json.ts && json.channel) {
+        await sb
+          .from('slack_thread_mappings')
+          .upsert(
+            { workspace_id: workspaceId, ticket_id: ticketId, channel_id: json.channel, thread_ts: json.ts },
+            { onConflict: 'workspace_id,ticket_id' },
+          );
+      }
+    } catch (err) {
+      console.warn('[slack] chat.postMessage error:', err);
+    }
+    return true;
+  }
+
+  // Webhook fallback for one-way installs. Override Slack's default
+  // channel if the integration specifies one.
   const body: any = { ...payload };
   if (integration.channel) body.channel = integration.channel;
 
@@ -138,4 +185,14 @@ export async function notifySlack(args: {
     console.warn('[slack] post failed:', err);
   }
   return true;
+}
+
+async function getThreadMapping(sb: SupabaseClient, workspaceId: string, ticketId: string) {
+  const { data } = await sb
+    .from('slack_thread_mappings')
+    .select('channel_id, thread_ts')
+    .eq('workspace_id', workspaceId)
+    .eq('ticket_id', ticketId)
+    .maybeSingle();
+  return data;
 }

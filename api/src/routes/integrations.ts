@@ -17,10 +17,12 @@ integrations.use('*', requireAuth);
 const EVENT_NAMES = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
 
 const SlackBody = z.object({
-  webhook_url: z.string().url().startsWith('https://hooks.slack.com/'),
-  channel:     z.string().max(80).nullable().optional(),
-  active:      z.boolean().optional(),
-  events:      z.array(z.enum(EVENT_NAMES)).min(1).max(EVENT_NAMES.length),
+  webhook_url:    z.string().url().startsWith('https://hooks.slack.com/'),
+  channel:        z.string().max(80).nullable().optional(),
+  active:         z.boolean().optional(),
+  events:         z.array(z.enum(EVENT_NAMES)).min(1).max(EVENT_NAMES.length),
+  bot_token:      z.string().regex(/^xoxb-[\w-]+$/, 'Bot token must start with xoxb-').nullable().optional(),
+  signing_secret: z.string().min(16).max(200).nullable().optional(),
 });
 
 integrations.get('/slack', async (c) => {
@@ -28,11 +30,24 @@ integrations.get('/slack', async (c) => {
   const workspaceId = c.get('workspaceId');
   const { data, error } = await sb
     .from('slack_integrations')
-    .select('webhook_url, channel, active, events, created_at, updated_at')
+    .select('webhook_url, channel, active, events, bot_token, signing_secret, created_at, updated_at')
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ integration: data || null });
+  if (!data) return c.json({ integration: null });
+  // Mask the two secrets — surface only "configured yes/no" + a tail
+  // suffix on the bot token (xoxb-...XXX) so the SPA can show the
+  // user which token is on file without ever returning the full
+  // value over the wire.
+  const { bot_token, signing_secret, ...rest } = data as any;
+  return c.json({
+    integration: {
+      ...rest,
+      bot_token_suffix:       bot_token ? bot_token.slice(-6) : null,
+      has_bot_token:          Boolean(bot_token),
+      has_signing_secret:     Boolean(signing_secret),
+    },
+  });
 });
 
 integrations.put('/slack', async (c) => {
@@ -44,22 +59,24 @@ integrations.put('/slack', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
-  const { data, error } = await sb
+  // bot_token / signing_secret are optional. Treating `undefined` as
+  // "don't touch" and `null` as "clear" lets the SPA toggle two-way
+  // independently of webhook config (you can set up outbound first,
+  // then add the bot token later).
+  const row: any = {
+    workspace_id: workspaceId,
+    webhook_url:  input.webhook_url,
+    channel:      input.channel ?? null,
+    active:       input.active ?? true,
+    events:       input.events,
+  };
+  if (input.bot_token !== undefined)      row.bot_token      = input.bot_token;
+  if (input.signing_secret !== undefined) row.signing_secret = input.signing_secret;
+  const { error } = await sb
     .from('slack_integrations')
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        webhook_url:  input.webhook_url,
-        channel:      input.channel ?? null,
-        active:       input.active ?? true,
-        events:       input.events,
-      },
-      { onConflict: 'workspace_id' },
-    )
-    .select('webhook_url, channel, active, events, updated_at')
-    .single();
+    .upsert(row, { onConflict: 'workspace_id' });
   if (error) return c.json({ error: error.message }, 500);
-  return c.json({ integration: data });
+  return c.json({ ok: true });
 });
 
 integrations.delete('/slack', async (c) => {

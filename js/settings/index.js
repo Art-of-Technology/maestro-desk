@@ -370,6 +370,27 @@ function settingsIntegrations() {
         <label class="toggle"><input type="checkbox" id="slack-active" ${slack?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
         <span style="font-size:13px;color:var(--ink2)">Active</span>
       </div>
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
+        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px">Two-way sync (optional)</div>
+        <div style="font-size:11px;color:var(--ink3);margin-bottom:12px;line-height:1.5">
+          Lets agents reply directly from the Slack thread that the notification creates — replies are recorded on the ticket. Requires a Slack app with the <code style="font-family:'DM Mono',monospace;color:var(--ink2)">chat:write</code>, <code style="font-family:'DM Mono',monospace;color:var(--ink2)">users:read</code>, and <code style="font-family:'DM Mono',monospace;color:var(--ink2)">users:read.email</code> scopes plus the Events API URL pointed at <code style="font-family:'DM Mono',monospace;color:var(--ink2)">/api/v1/webhooks/slack/events</code>.
+        </div>
+        ${slack?.has_bot_token ? `
+          <div style="margin-bottom:10px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:11px;color:var(--green);display:flex;gap:8px;align-items:center">
+            <span style="font-weight:600">Two-way ready</span>
+            <span style="font-family:'DM Mono',monospace;color:var(--ink2)">xoxb-...${window.escHtml(slack.bot_token_suffix || '')}</span>
+          </div>` : ''}
+        <div class="form-row">
+          <label class="form-label">Bot token</label>
+          <input class="form-input" id="slack-bot-token" type="password" placeholder="${slack?.has_bot_token ? 'Paste a new token to rotate' : 'xoxb-...'}" autocomplete="off"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Signing secret</label>
+          <input class="form-input" id="slack-signing-secret" type="password" placeholder="${slack?.has_signing_secret ? 'Paste a new secret to rotate' : 'app signing secret'}" autocomplete="off"/>
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;margin-top:14px">
         <button class="btn btn-solid btn-sm" onclick="saveSlackIntegration()">Save</button>
         ${slack ? '<button class="btn btn-sm btn-danger" onclick="deleteSlackIntegration()">Disconnect</button>' : ''}
@@ -553,23 +574,36 @@ export async function deleteShopifyIntegration() {
 
 export async function saveSlackIntegration() {
   if (!window.isAdmin()) return;
-  const url     = document.getElementById('slack-url').value.trim();
-  const channel = document.getElementById('slack-channel').value.trim();
-  const active  = document.getElementById('slack-active').checked;
-  const events  = SLACK_EVENTS.filter((e) => document.getElementById(`slack-evt-${e.k}`)?.checked).map((e) => e.k);
+  const url           = document.getElementById('slack-url').value.trim();
+  const channel       = document.getElementById('slack-channel').value.trim();
+  const active        = document.getElementById('slack-active').checked;
+  const events        = SLACK_EVENTS.filter((e) => document.getElementById(`slack-evt-${e.k}`)?.checked).map((e) => e.k);
+  const botToken      = document.getElementById('slack-bot-token')?.value.trim() || '';
+  const signingSecret = document.getElementById('slack-signing-secret')?.value.trim() || '';
   const msg = document.getElementById('slack-msg');
   if (!url) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
   if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
   msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
   try {
-    const res = await apiPut('/api/v1/integrations/slack', {
+    // Only send bot_token / signing_secret when the user actually
+    // typed something — sending undefined leaves the server-side value
+    // alone, which is what we want for "save settings without
+    // rotating credentials".
+    const body = {
       webhook_url: url,
       channel:     channel || null,
       active,
       events,
-    });
+    };
+    if (botToken)      body.bot_token      = botToken;
+    if (signingSecret) body.signing_secret = signingSecret;
+    await apiPut('/api/v1/integrations/slack', body);
+    const res = await apiGet('/api/v1/integrations/slack');
     SLACK_INTEGRATION = res.integration;
+    document.getElementById('slack-bot-token').value = '';
+    document.getElementById('slack-signing-secret').value = '';
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
+    window.renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
