@@ -23,7 +23,7 @@ const KbBody = z.object({
 // second round-trip. view / helpful / unhelpful counts come along for
 // the existing "popularity" pane.
 kb.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
 
@@ -70,7 +70,7 @@ kb.get('/', async (c) => {
 
 // ─── POST / — create ──────────────────────────────────────────────────────
 kb.post('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
 
@@ -117,7 +117,7 @@ const PatchKb = z.object({
 }).strict();
 
 kb.patch('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -153,7 +153,7 @@ kb.patch('/:id', async (c) => {
 
 // ─── DELETE /:id ─────────────────────────────────────────────────────────
 kb.delete('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -172,7 +172,7 @@ kb.delete('/:id', async (c) => {
 // a re-fetch. No deduplication here — the SPA already debounces by
 // only firing on detail-open, which is sufficient for v1.
 kb.post('/:id/view', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -217,7 +217,7 @@ const PostVote = z.object({
 });
 
 kb.post('/:id/vote', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const id = c.req.param('id');
