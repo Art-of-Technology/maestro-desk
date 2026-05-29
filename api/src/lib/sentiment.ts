@@ -142,5 +142,63 @@ export async function scoreMessageSentiment(args: {
     .eq('id', messageId)
     .eq('workspace_id', workspaceId);
 
+  // Anger triggers an automatic priority bump so the ticket surfaces
+  // in the agent's queue without requiring manual triage. Best-effort
+  // and silent on failure — sentiment already landed, the row update
+  // shouldn't block.
+  if (sentiment === 'angry') {
+    try {
+      await bumpPriorityForAnger({ sb, workspaceId, ticketId });
+    } catch (err) {
+      console.warn('[sentiment] priority bump failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
   return sentiment;
+}
+
+// Priority ranks. Higher = more urgent. We bump tickets in the
+// {low, normal} band up to {high}; tickets already at high or urgent
+// stay where they are (a sentiment signal isn't strong enough to
+// override an explicit human priority).
+const PRIORITY_RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
+const ANGER_BUMP_TARGET = 'high';
+
+async function bumpPriorityForAnger(args: {
+  sb:          SupabaseClient;
+  workspaceId: string;
+  ticketId:    string;
+}): Promise<void> {
+  const { sb, workspaceId, ticketId } = args;
+
+  const { data: ticket, error: tErr } = await sb
+    .from('tickets')
+    .select('id, priority_key')
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (tErr || !ticket) return;
+
+  const currentRank = PRIORITY_RANK[ticket.priority_key as string] ?? PRIORITY_RANK.normal;
+  if (currentRank >= PRIORITY_RANK[ANGER_BUMP_TARGET]) return;
+  const fromPriority = ticket.priority_key;
+
+  const { error: upErr } = await sb
+    .from('tickets')
+    .update({ priority_key: ANGER_BUMP_TARGET })
+    .eq('id', ticketId)
+    .eq('workspace_id', workspaceId);
+  if (upErr) return;
+
+  // Audit row so the thread shows WHY the priority changed — without
+  // it the agent sees a silent bump and has to dig through ai_usage_log
+  // to figure out what happened.
+  await sb.from('ticket_messages').insert({
+    workspace_id: workspaceId,
+    ticket_id:    ticketId,
+    role:         'system',
+    author_label: 'System',
+    body:         `Priority bumped from ${fromPriority} to ${ANGER_BUMP_TARGET} — customer's last message was flagged as angry.`,
+  });
 }
