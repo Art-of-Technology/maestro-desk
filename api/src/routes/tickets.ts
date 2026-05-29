@@ -10,10 +10,22 @@ export const tickets = new Hono();
 tickets.use('*', requireAuth);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
-// ticket volumes get serious. Scoping is explicit because the API uses
-// the service-role client (see comment in middleware/auth.ts).
+// ticket volumes get serious.
+//
+// Every direct query in this file uses c.get('sbUser') — the user-scoped
+// Supabase client that forwards the caller's JWT, so RLS sees their
+// workspace_ids claim (injected by the Custom Access Token Hook) and
+// scopes reads/writes to memberships only. The route still appends
+// .eq('workspace_id', workspaceId) to scope to the active workspace
+// out of the user's full membership list.
+//
+// Library calls (workflow-engine, slack-notify, assign-rules-engine)
+// need cross-table privileged access that those libs' tables haven't
+// been pivoted to JWT-based RLS yet — they take sbAdmin (service-role).
+// Each PATCH/POST that delegates to a lib pulls both clients off the
+// context.
 tickets.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
   const offset = parseInt(c.req.query('offset') ?? '0', 10);
@@ -40,7 +52,7 @@ tickets.get('/', async (c) => {
 // 4 parallel queries instead of one big embedded select — clearer to read
 // and to debug, with no measurable latency cost at v1 scale.
 tickets.get('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -134,7 +146,10 @@ const PatchTicket = z.object({
 }).strict();
 
 tickets.patch('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
+  // Library calls (workflow engine, Slack notify) need cross-table
+  // privileged access — keep them on service-role.
+  const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -173,7 +188,7 @@ tickets.patch('/:id', async (c) => {
   // Fire workflow engine against the post-update row. The engine may
   // mutate further fields (assign_role / set_status / add_tag), so we
   // re-fetch below to return the canonical post-engine state.
-  try { await runWorkflowsForTicket({ sb, workspaceId, ticketId, prevRow: existing }); }
+  try { await runWorkflowsForTicket({ sb: sbAdmin, workspaceId, ticketId, prevRow: existing }); }
   catch (err) { console.error('[workflow-engine] top-level failure:', err); }
 
   // Slack notifications for the state transitions the workspace cares
@@ -182,15 +197,15 @@ tickets.patch('/:id', async (c) => {
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
   const priorityChanged = updates.priority_key !== undefined && updates.priority_key !== existing.priority_key;
   if (statusChanged && updates.status_key === 'resolved') {
-    try { await notifySlack({ sb, workspaceId, event: 'ticket.resolved',  ticketId }); }
+    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[slack] notify resolved failed:', err); }
   }
   if (statusChanged && updates.status_key === 'escalated') {
-    try { await notifySlack({ sb, workspaceId, event: 'ticket.escalated', ticketId }); }
+    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
     catch (err) { console.warn('[slack] notify escalated failed:', err); }
   }
   if (priorityChanged && updates.priority_key === 'urgent') {
-    try { await notifySlack({ sb, workspaceId, event: 'priority.urgent',  ticketId }); }
+    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'priority.urgent',  ticketId }); }
     catch (err) { console.warn('[slack] notify urgent failed:', err); }
   }
 
@@ -213,7 +228,7 @@ const PostMessage = z.object({
 });
 
 tickets.post('/:id/messages', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -282,7 +297,7 @@ function normaliseTag(raw: string): string {
 }
 
 tickets.post('/:id/tags', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -332,7 +347,7 @@ tickets.post('/:id/tags', async (c) => {
 // Tags are unique by (ticket_id, tag), so we route by URL. Returns 204
 // on success whether or not the tag was actually present (idempotent).
 tickets.delete('/:id/tags/:tag', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const tag = normaliseTag(c.req.param('tag'));
@@ -370,7 +385,7 @@ const PatchAITag = z.object({
 });
 
 tickets.patch('/:id/ai_tags/:tag', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const tag = c.req.param('tag');
@@ -439,7 +454,7 @@ const PostSnooze = z.object({
 });
 
 tickets.post('/:id/snooze', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -488,7 +503,7 @@ tickets.post('/:id/snooze', async (c) => {
 // ?via_wakeup=true → server stamps snooze_woken_at = now() so the activity
 // log can distinguish "snooze elapsed" from "agent un-snoozed manually".
 tickets.delete('/:id/snooze', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const viaWakeup = c.req.query('via_wakeup') === 'true';
@@ -538,7 +553,7 @@ const PostMerge = z.object({
 });
 
 tickets.post('/:id/merge', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const sourceId = c.req.param('id');
 
@@ -636,7 +651,7 @@ tickets.post('/:id/merge', async (c) => {
 //      somehow missing — shouldn't happen for clean merges).
 //   3. Clears merged_into_id, merged_at, status_before_merge.
 tickets.post('/:id/unmerge', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const sourceId = c.req.param('id');
 
@@ -693,7 +708,7 @@ const PostTime = z.object({
 });
 
 tickets.post('/:id/time', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -751,7 +766,7 @@ tickets.post('/:id/time', async (c) => {
 // admins (already past the auth middleware) and workspace-role admins.
 // Mirrors the client-side guard.
 tickets.delete('/:id/time/:entryId', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -800,11 +815,12 @@ tickets.delete('/:id/time/:entryId', async (c) => {
 // flat, no ticket update). Otherwise { matched: true, rule, ticket }
 // reflecting the post-engine state.
 tickets.post('/:id/apply-rules', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
+  const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
-  const result = await applyAssignmentRules({ sb, workspaceId, ticketId });
+  const result = await applyAssignmentRules({ sb: sbAdmin, workspaceId, ticketId });
   if (!result) return c.json({ matched: false });
 
   const { data: ticket } = await sb
@@ -831,7 +847,8 @@ const CreateTicket = z.object({
 });
 
 tickets.post('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
+  const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
 
@@ -877,11 +894,11 @@ tickets.post('/', async (c) => {
   // swallowed (logged) so a misconfigured rule can't break ticket
   // creation. POST currently stamps assigned_user_id=userId (the
   // creating agent); the engine may override that with a rule's pick.
-  try { await applyAssignmentRules({ sb, workspaceId, ticketId: ticket.id }); }
+  try { await applyAssignmentRules({ sb: sbAdmin, workspaceId, ticketId: ticket.id }); }
   catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
 
   // Slack notification on creation.
-  try { await notifySlack({ sb, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
   catch (err) { console.warn('[slack] notify created failed:', err); }
 
   return c.json({ ticket }, 201);
