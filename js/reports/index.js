@@ -21,7 +21,7 @@ import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
-import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
+import { STATUS_COLORS, PRIORITY_COLORS, SENTIMENT_COLORS } from '../core/colors.js';
 
 // Timeframe filter — only the Reports page reads or writes this, so it
 // stays module-local rather than going to core/state.js.
@@ -39,16 +39,21 @@ function getReportTickets() {
 }
 
 export function computeReportStats(tickets) {
-  const byStatus = {}, byPriority = {}, byCategory = {}, byAgent = {};
+  const byStatus = {}, byPriority = {}, byCategory = {}, byAgent = {}, bySentiment = {};
   const csatScores = [];
   const timeByAgent = {};
   let slaOk = 0, slaWarn = 0, slaBreach = 0;
   let timeTotal = 0, timeBillable = 0;
+  let sentimentScored = 0;
   for (const t of tickets) {
     byStatus[t.status]     = (byStatus[t.status]     ||0) + 1;
     byPriority[t.priority] = (byPriority[t.priority] ||0) + 1;
     byCategory[t.category] = (byCategory[t.category] ||0) + 1;
     byAgent[t.agent]       = (byAgent[t.agent]       ||0) + 1;
+    if (t.sentiment) {
+      bySentiment[t.sentiment] = (bySentiment[t.sentiment] || 0) + 1;
+      sentimentScored++;
+    }
     if (t.csat) csatScores.push(t.csat);
     if      (t.sla === 'ok')     slaOk++;
     else if (t.sla === 'warn')   slaWarn++;
@@ -66,7 +71,7 @@ export function computeReportStats(tickets) {
   const resolutionRate = total ? Math.round(resolved/total*100) : 0;
   const avgCSAT = csatScores.length ? csatScores.reduce((a,b)=>a+b,0)/csatScores.length : 0;
   const slaCompliance = total ? Math.round((slaOk + slaWarn)/total*100) : 0;
-  return { total, byStatus, byPriority, byCategory, byAgent, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
+  return { total, byStatus, byPriority, byCategory, byAgent, bySentiment, sentimentScored, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
 }
 
 function rBarRow(label, count, max, color) {
@@ -142,6 +147,22 @@ function reportTime(s) {
     </div>`;
 }
 
+function reportSentiment(s) {
+  // Order angry → frustrated → neutral → positive so the visual flow
+  // matches the urgency story (red on the left, green on the right).
+  const ORDER = ['angry', 'frustrated', 'neutral', 'positive'];
+  const items = ORDER.filter(k => s.bySentiment[k]).map(k => [k, s.bySentiment[k]]);
+  const chart = REPORT_LAYOUT.charts['r-sentiment'] || 'bar';
+  const unscored = s.total - (s.sentimentScored || 0);
+  const footer = s.total === 0
+    ? ''
+    : `<div style="margin-top:10px;font-size:11px;color:var(--ink3)">${s.sentimentScored || 0} of ${s.total} tickets have a scored latest customer message${unscored > 0 ? ` · ${unscored} unscored` : ''}</div>`;
+  const body = items.length
+    ? renderCategoricalChart(items, k => SENTIMENT_COLORS[k] || 'var(--ink3)', chart)
+    : '<div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No scored sentiments in this range</div>';
+  return `<div class="card"><div class="card-title">Customer sentiment</div>${body}${footer}</div>`;
+}
+
 function reportSLA(s) {
   return `
     <div class="card">
@@ -156,21 +177,22 @@ function reportSLA(s) {
 }
 
 export const REPORT_WIDGETS = [
-  { id:'r-status',    title:'Status breakdown', render:s => reportStatus(s),   charts:['bar','donut'] },
-  { id:'r-sla',       title:'SLA',              render:s => reportSLA(s),      charts:['tiles','bar'] },
-  { id:'r-priority',  title:'Priority',         render:s => reportPriority(s), charts:['bar','donut'] },
-  { id:'r-category',  title:'Category',         render:s => reportCategory(s), charts:['bar','donut'] },
-  { id:'r-agents',    title:'Tickets per agent',render:s => reportAgents(s) },
-  { id:'r-csat',      title:'CSAT',             render:s => reportCSAT(s) },
-  { id:'r-time',      title:'Time logged',      render:s => reportTime(s) },
+  { id:'r-status',    title:'Status breakdown',  render:s => reportStatus(s),    charts:['bar','donut'] },
+  { id:'r-sla',       title:'SLA',               render:s => reportSLA(s),       charts:['tiles','bar'] },
+  { id:'r-sentiment', title:'Customer sentiment',render:s => reportSentiment(s), charts:['bar','donut'] },
+  { id:'r-priority',  title:'Priority',          render:s => reportPriority(s),  charts:['bar','donut'] },
+  { id:'r-category',  title:'Category',          render:s => reportCategory(s),  charts:['bar','donut'] },
+  { id:'r-agents',    title:'Tickets per agent', render:s => reportAgents(s) },
+  { id:'r-csat',      title:'CSAT',              render:s => reportCSAT(s) },
+  { id:'r-time',      title:'Time logged',       render:s => reportTime(s) },
 ];
 
 export const DEFAULT_REPORT_LAYOUT = { order: REPORT_WIDGETS.map(w => w.id), hidden: [], charts: {} };
 
 function exportReport() {
   const tickets = getReportTickets();
-  const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT','Time logged','Time billable'];
-  const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '', window.fmtMinutes(ticketTotalMinutes(t)), window.fmtMinutes(ticketBillableMinutes(t))]);
+  const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT','Sentiment','Time logged','Time billable'];
+  const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '', t.sentiment ?? '', window.fmtMinutes(ticketTotalMinutes(t)), window.fmtMinutes(ticketBillableMinutes(t))]);
   const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
