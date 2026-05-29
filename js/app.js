@@ -204,8 +204,58 @@ function login(role, name, initials, userId = null) {
   }
   renderPage('dashboard');
 }
+// Swap the sidebar brand block (and the browser tab title) to the
+// signed-in workspace's identity. Called from the agent-login boot
+// flow after window.login; demo personas keep the platform-default
+// copy because they never carry workspace metadata.
+function applyWorkspaceBrand(brand) {
+  if (!brand) return;
+  const wordEl = document.querySelector('.sb-logo .sb-word');
+  const subEl  = document.querySelector('.sb-logo .sb-sub');
+  const logoEl = document.querySelector('.sb-logo');
+  if (logoEl && brand.logoUrl) {
+    // Render logo image alongside (in place of, visually) the word
+    // mark. Use background-image so we don't have to restructure the
+    // HTML — keeps the sub-text in flow.
+    if (wordEl) {
+      wordEl.style.backgroundImage    = `url("${brand.logoUrl}")`;
+      wordEl.style.backgroundRepeat   = 'no-repeat';
+      wordEl.style.backgroundPosition = 'left center';
+      wordEl.style.backgroundSize     = 'auto 70%';
+      wordEl.style.paddingLeft        = '34px';
+      wordEl.style.minHeight          = '28px';
+    }
+  }
+  if (wordEl && brand.name) wordEl.textContent = brand.name;
+  if (subEl)                subEl.textContent  = brand.slug ? brand.slug : 'AI Helpdesk';
+  if (brand.name) document.title = `${brand.name} — Helpdesk`;
+  if (brand.primaryColor) {
+    document.documentElement.style.setProperty('--purple', brand.primaryColor);
+    document.documentElement.style.setProperty('--accent', brand.primaryColor);
+  }
+}
+
+// Inverse of applyWorkspaceBrand — restores the platform-default
+// copy so a subsequent demo-persona sign-in doesn't show stale
+// branding from a previous workspace session.
+function resetWorkspaceBrand() {
+  const wordEl = document.querySelector('.sb-logo .sb-word');
+  const subEl  = document.querySelector('.sb-logo .sb-sub');
+  if (wordEl) {
+    wordEl.textContent = 'Maestro Desk';
+    wordEl.style.backgroundImage = '';
+    wordEl.style.paddingLeft     = '';
+    wordEl.style.minHeight       = '';
+  }
+  if (subEl) subEl.textContent = 'iGaming · AI Assisted';
+  document.title = 'Maestro Desk — AI Support';
+  document.documentElement.style.removeProperty('--purple');
+  document.documentElement.style.removeProperty('--accent');
+}
+
 function logout() {
   SESSION = null;
+  resetWorkspaceBrand();
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
   // demo personas (which never stored anything) and load-bearing for real-
   // auth users (so the next page-load doesn't auto-resume).
@@ -358,7 +408,7 @@ function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 // specific functions stay window-reachable until index.html migrates.
 Object.assign(
   window,
-  { login, logout, nav, renderPage, updateNavBadges,
+  { login, logout, nav, renderPage, updateNavBadges, applyWorkspaceBrand, resetWorkspaceBrand,
     fmtMinutes, escHtml, escAttr, isAdmin,
     // Single-fn entries: callers in static index.html (sidebar/auth/top-bar)
     toggleNotifications,
