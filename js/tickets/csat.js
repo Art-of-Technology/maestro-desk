@@ -54,8 +54,9 @@ export function ticketCSATBlock(t) {
       </div>`;
   }
   if (t.csatRequestedAt) {
+    const count = t.csatReminderCount || 0;
     const reminderNote = t.csatLastRemindedAt
-      ? ` · reminder sent ${window.escHtml(t.csatLastRemindedAt)}`
+      ? ` · reminder ${count} sent ${window.escHtml(t.csatLastRemindedAt)}`
       : '';
     return `
       <div class="ts-section">

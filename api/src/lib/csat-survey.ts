@@ -133,33 +133,54 @@ function generateToken(): string {
 // The column itself supports adding more reminders later (timestamptz,
 // not a count) without a schema change.
 
-const REMINDER_AGE_DAYS = 3;
-const REMINDER_TICK_MS  = 60 * 60 * 1000;  // every hour
+// Cumulative day thresholds from the initial csat_requested_at.
+// Reminder N (1-indexed) fires once the ticket crosses REMINDER_DAYS[N-1]
+// days since request AND csat_reminder_count is still < N. Length of
+// this array also caps the total reminders sent per ticket — there's
+// no separate MAX_REMINDERS constant.
+const REMINDER_DAYS = [3, 7, 14];
+const REMINDER_TICK_MS = 60 * 60 * 1000;  // every hour
 let reminderTimer: ReturnType<typeof setInterval> | null = null;
 
 export async function processCsatReminders(sb: SupabaseClient, portalBase?: string): Promise<number> {
   if (!isPostmarkConfigured()) return 0;
-  const cutoff = new Date(Date.now() - REMINDER_AGE_DAYS * 86400000).toISOString();
+  // Earliest threshold = REMINDER_DAYS[0]. Anything older than that
+  // is at least a candidate; we filter the specific cadence step in
+  // code below so a single SQL query covers all reminder waves.
+  const earliestCutoff = new Date(Date.now() - REMINDER_DAYS[0] * 86400000).toISOString();
   const { data: candidates, error } = await sb
     .from('tickets')
-    .select('id, workspace_id')
+    .select('id, workspace_id, csat_requested_at, csat_reminder_count')
     .is('csat_submitted_at', null)
-    .is('csat_last_reminded_at', null)
+    .lt('csat_reminder_count', REMINDER_DAYS.length)
     .not('csat_requested_at', 'is', null)
     .not('csat_token', 'is', null)
     .is('deleted_at', null)
-    .lte('csat_requested_at', cutoff)
-    .limit(100);
+    .lte('csat_requested_at', earliestCutoff)
+    .limit(200);
   if (error) {
     console.error('[csat-reminders] scan failed:', error.message);
     return 0;
   }
   if (!candidates || candidates.length === 0) return 0;
 
+  const now = Date.now();
   let sentCount = 0;
-  for (const row of candidates) {
+  for (const row of candidates as Array<{ id: string; workspace_id: string; csat_requested_at: string; csat_reminder_count: number }>) {
+    // For a row currently at count=N, the *next* reminder is N+1,
+    // which fires once we're at-or-past REMINDER_DAYS[N] days from
+    // the initial request. Skip if we haven't crossed that bar yet.
+    const nextIndex = row.csat_reminder_count; // 0 → first reminder, 1 → second, etc.
+    if (nextIndex >= REMINDER_DAYS.length) continue;
+    const requestedMs = new Date(row.csat_requested_at).getTime();
+    const ageDays = (now - requestedMs) / 86400000;
+    if (ageDays < REMINDER_DAYS[nextIndex]) continue;
     try {
-      const ok = await sendOneReminder({ sb, workspaceId: row.workspace_id, ticketId: row.id, portalBase });
+      const ok = await sendOneReminder({
+        sb, workspaceId: row.workspace_id, ticketId: row.id,
+        attemptNumber: nextIndex + 1,
+        portalBase,
+      });
       if (ok) sentCount++;
     } catch (err) {
       console.warn(`[csat-reminders] ticket=${row.id} failed:`, err instanceof Error ? err.message : err);
@@ -169,19 +190,20 @@ export async function processCsatReminders(sb: SupabaseClient, portalBase?: stri
 }
 
 async function sendOneReminder(args: {
-  sb:          SupabaseClient;
-  workspaceId: string;
-  ticketId:    string;
-  portalBase?: string;
+  sb:            SupabaseClient;
+  workspaceId:   string;
+  ticketId:      string;
+  attemptNumber: number;
+  portalBase?:   string;
 }): Promise<boolean> {
-  const { sb, workspaceId, ticketId } = args;
+  const { sb, workspaceId, ticketId, attemptNumber } = args;
   // Re-pull the ticket row in full now that it's on the hot path. The
   // select shape mirrors sendCsatSurvey above; could be factored later,
   // but the duplication is small enough to leave for now.
   const { data: ticket } = await sb
     .from('tickets')
     .select(`
-      id, display_id, subject, csat_token, csat_submitted_at, csat_last_reminded_at,
+      id, display_id, subject, csat_token, csat_submitted_at, csat_reminder_count,
       customers(first_name, last_name, email),
       workspaces(name, slug)
     `)
@@ -193,10 +215,12 @@ async function sendOneReminder(args: {
   const t = ticket as any;
   // Belt-and-suspenders re-checks — the scan filter SHOULD already
   // guarantee these, but races with concurrent rating submission +
-  // SQL view caches make a direct check cheap insurance.
-  if (t.csat_submitted_at)    return false;
-  if (t.csat_last_reminded_at) return false;
-  if (!t.csat_token)          return false;
+  // SQL view caches make a direct check cheap insurance. We also
+  // re-check the count against the attemptNumber we computed at scan
+  // time so a race between scan and send can't double-fire a wave.
+  if (t.csat_submitted_at)                     return false;
+  if ((t.csat_reminder_count ?? 0) >= attemptNumber) return false;
+  if (!t.csat_token)                           return false;
   const customer = t.customers || {};
   if (!customer.email) return false;
   const workspaceName = t.workspaces?.name || 'Support';
@@ -211,15 +235,26 @@ async function sendOneReminder(args: {
   const portalBase = args.portalBase || env.PORTAL_BASE_URL || 'http://localhost:5173/portal.html';
   const surveyUrl  = `${portalBase}?ws=${encodeURIComponent(workspaceSlug)}&csat=${encodeURIComponent(t.csat_token)}`;
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there';
-  const subject = `Reminder — how did we do? · ${t.display_id}`;
+  // Soften the tone progressively. Attempt 1 = light nudge; attempt 2
+  // adds "another" so it's clearly the second ask; attempt 3 = "last"
+  // so the customer knows we won't keep chasing past it.
+  const lastAttempt = attemptNumber >= REMINDER_DAYS.length;
+  const prefix = attemptNumber === 1
+    ? 'Just a quick reminder'
+    : lastAttempt
+      ? 'Last reminder'
+      : 'Another quick reminder';
+  const subject = lastAttempt
+    ? `Last reminder — how did we do? · ${t.display_id}`
+    : `Reminder — how did we do? · ${t.display_id}`;
   const textBody = [
     `Hi ${customerName},`,
     '',
-    `Just a quick reminder — we'd love your feedback on the support you got for "${t.subject}". It takes about 10 seconds:`,
+    `${prefix} — we'd love your feedback on the support you got for "${t.subject}". It takes about 10 seconds:`,
     '',
     surveyUrl,
     '',
-    `Thanks,`,
+    lastAttempt ? `If you don't have time, no worries — this is the last we'll ask. Thanks either way,` : `Thanks,`,
     workspaceName,
   ].join('\n');
 
@@ -238,7 +273,10 @@ async function sendOneReminder(args: {
 
   await sb
     .from('tickets')
-    .update({ csat_last_reminded_at: new Date().toISOString() })
+    .update({
+      csat_last_reminded_at: new Date().toISOString(),
+      csat_reminder_count:   attemptNumber,
+    })
     .eq('id', ticketId)
     .eq('workspace_id', workspaceId);
   return true;
