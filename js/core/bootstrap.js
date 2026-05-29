@@ -163,6 +163,9 @@ export async function loadWorkspaceData() {
     since:        c.since || '',
     bo:           c.backoffice_url || '',
     custom:       customByEntity[c.id] || {},
+    emailBounceState: c.email_bounce_state || 'none',
+    emailBounceCount: c.email_bounce_count || 0,
+    emailLastBounce:  c.email_last_bounce_at || null,
   }));
   replaceInPlace(CUSTOMERS, mappedCustomers);
 

@@ -649,6 +649,17 @@ function renderStripeContextBlock(c) {
   `);
 }
 
+// Small inline indicator for the email row. Hard / spam bounces are
+// the actionable cases (mail won't deliver) — soft bounces accumulate
+// silently in the count without alarming the agent.
+function renderBounceBadge(c) {
+  const state = c.emailBounceState || 'none';
+  if (state !== 'hard' && state !== 'spam') return '';
+  const label = state === 'spam' ? 'SPAM' : 'BOUNCING';
+  const title = `${state === 'spam' ? 'Marked as spam' : 'Email bouncing'} — ${c.emailBounceCount || 0} event${(c.emailBounceCount || 0) === 1 ? '' : 's'}`;
+  return `<span title="${window.escAttr(title)}" style="margin-left:8px;display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;color:var(--red);background:var(--red-lt);border:1px solid rgba(248,113,113,0.4);border-radius:3px;font-family:'DM Mono',monospace">${label}</span>`;
+}
+
 async function loadShopifyContext(custId, uuid) {
   try {
     const res = await apiGet(`/api/v1/integrations/customers/${uuid}/shopify-context`);
@@ -888,7 +899,7 @@ function renderCustomerDetail(custId) {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div class="card">
             <div class="card-title">Profile</div>
-            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}</span></div>` : ''}
+            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>` : ''}
             ${isFieldVisible('customer','mobile')       ? `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>` : ''}
             ${isFieldVisible('customer','username')     ? `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>` : ''}
             ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>` : ''}

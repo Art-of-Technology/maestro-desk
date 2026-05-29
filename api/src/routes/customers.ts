@@ -22,7 +22,7 @@ customers.get('/', async (c) => {
   const { data, error } = await sb
     .from('customers')
     .select(
-      'id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier, jurisdiction, consent, kyc_status, since, backoffice_url, erased_at, created_at',
+      'id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier, jurisdiction, consent, kyc_status, since, backoffice_url, erased_at, created_at, email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count',
     )
     .eq('workspace_id', workspaceId)
     .is('deleted_at', null)

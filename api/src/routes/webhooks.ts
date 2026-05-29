@@ -5,6 +5,7 @@ import { PostmarkInbound, assertPostmarkAuth, parseTo } from '../lib/postmark.ts
 import { processInboundEmail, resolveInboundWorkspace } from '../lib/inbound-email.ts';
 import { verifySlackSignature } from '../lib/slack-verify.ts';
 import { handleSlackEvent } from '../lib/slack-inbound.ts';
+import { PostmarkBounce, processBounceEvent, fromDomain } from '../lib/postmark-bounce.ts';
 
 export const webhooks = new Hono();
 
@@ -169,4 +170,46 @@ webhooks.post('/slack/events', async (c) => {
     // event is logged for follow-up.
   }
   return c.json({ ok: true });
+});
+
+// POST /api/v1/webhooks/postmark/bounce
+//
+// Postmark POSTs here on Bounce and SpamComplaint events. Pointed at
+// the same shared-secret URL the inbound webhook uses (Postmark lets
+// you configure each event-type endpoint independently). We always
+// ack 200 — Postmark retries on non-2xx, and a single bounce event
+// failing to land in our DB shouldn't pile up retries forever. Real
+// failures get logged.
+webhooks.post('/postmark/bounce', async (c) => {
+  assertPostmarkAuth(c);
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = PostmarkBounce.safeParse(body);
+  if (!parsed.success) {
+    // Bad shape from Postmark is extremely unlikely — log and 200 so
+    // they don't replay. If we ever start seeing these in logs,
+    // tighten the schema.
+    console.warn('[postmark-bounce] invalid payload:', parsed.error.issues);
+    return c.json({ ok: false, error: 'Invalid payload' }, 200);
+  }
+
+  const result = await processBounceEvent({
+    sb:         supabaseAdmin,
+    payload:    parsed.data,
+    fromDomain: fromDomain(parsed.data),
+  });
+
+  if (!result.ok) {
+    console.warn(`[postmark-bounce] ${parsed.data.Type} for ${parsed.data.Email}: ${result.error}`);
+    return c.json({ ok: false, error: result.error }, 200);
+  }
+
+  const tag = result.matched
+    ? `customer=${result.customerId}`
+    : 'no customer match';
+  console.log(
+    `[postmark-bounce] ${parsed.data.Type} for ${parsed.data.Email} → ` +
+      `workspace=${result.workspaceId} state=${result.state} ${tag}`,
+  );
+  return c.json({ ok: true, matched: result.matched, state: result.state });
 });
