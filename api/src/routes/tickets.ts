@@ -71,7 +71,7 @@ tickets.get('/:id', async (c) => {
   // turns came from a merged-in source ticket.
   const [msgsRes, tagsRes, aiTagsRes, timeRes, mergedFromRes, mergedIntoRes] = await Promise.all([
     sb.from('ticket_messages')
-      .select('id, role, author_user_id, author_label, body, mentions, merged_from_id, created_at')
+      .select('id, role, author_user_id, author_label, body, mentions, merged_from_id, sentiment, created_at')
       .eq('ticket_id', ticketId)
       .is('deleted_at', null)
       .order('created_at', { ascending: true }),

@@ -59,6 +59,22 @@ import { ticketCSATBlock } from './csat.js';
 import { runAssignmentRulesOnTicket } from './assignment-rules.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
+// Sentiment badge for customer messages — colored dot + label next to
+// the author name. Skipped silently when sentiment is null (not yet
+// classified, or AI off for the workspace) and for neutral, which is
+// the common case and doesn't need a visual cue.
+function renderSentimentBadge(sentiment) {
+  if (!sentiment || sentiment === 'neutral') return '';
+  const palette = {
+    angry:      { color: 'var(--red)',   label: 'ANGRY' },
+    frustrated: { color: 'var(--amber)', label: 'FRUSTRATED' },
+    positive:   { color: 'var(--green)', label: 'POSITIVE' },
+  };
+  const p = palette[sentiment];
+  if (!p) return '';
+  return ` <span title="AI sentiment: ${sentiment}" style="margin-left:8px;display:inline-flex;align-items:center;gap:4px;padding:1px 6px;font-size:9px;font-weight:600;color:${p.color};background:transparent;border:1px solid ${p.color};border-radius:3px;font-family:'DM Mono',monospace;letter-spacing:.04em">${p.label}</span>`;
+}
+
 export function openTicket(id) {
   CURRENT_TICKET = id;
   const t = TICKETS.find(x => x.id === id);
@@ -356,9 +372,10 @@ export function openTicket(id) {
     const bodyHtml = m.r === 'note'
       ? renderTextWithMentions(bodyText)
       : window.escHtml(bodyText).replace(/\n/g, '<br>');
+    const sentimentBadge = m.r === 'customer' ? renderSentimentBadge(m.sentiment) : '';
     return `
     <div class="msg msg-${m.r}">
-      <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${window.escHtml(m.ts)}</span></div>
+      <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${window.escHtml(m.ts)}</span></div>
       ${bodyHtml}
       ${bodyNote}
       ${translateBlock}

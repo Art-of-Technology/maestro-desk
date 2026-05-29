@@ -9,6 +9,17 @@ import {
 } from './postmark.ts';
 import { triageTicket } from './triage.ts';
 import { BudgetExceededError } from './budget.ts';
+import { scoreMessageSentiment } from './sentiment.ts';
+
+// Fire-and-forget wrapper around scoreMessageSentiment used by the
+// inbound-email and reply paths. We never want sentiment to break the
+// webhook response — log + swallow on any throw so Postmark still
+// gets its 200 and the message row is already persisted.
+function scoreInboundMessage(args: { sb: SupabaseClient; workspaceId: string; ticketId: string; messageId: string; body: string }): void {
+  void scoreMessageSentiment(args).catch((err) => {
+    console.warn('[sentiment] inbound score failed:', err instanceof Error ? err.message : err);
+  });
+}
 
 // ─── Display ID generation ───────────────────────────────────────────────
 //
@@ -319,15 +330,18 @@ export async function processInboundEmail(args: {
   //    the top is stored so we can thread our reply via In-Reply-To when
   //    auto-reply fires.
   const authorLabel = name?.trim() || email;
-  const { error: mErr } = await sb.from('ticket_messages').insert({
+  const { data: newMessage, error: mErr } = await sb.from('ticket_messages').insert({
     workspace_id: workspaceId,
     ticket_id: newTicket.id,
     role: 'customer',
     author_label: authorLabel,
     body,
     external_message_id: externalMessageId,
-  });
+  })
+    .select('id')
+    .single();
   if (mErr) throw new Error(`Message create failed: ${mErr.message}`);
+  void scoreInboundMessage({ sb, workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
   // 3b. Audit row in the inbox view. Failures are logged but don't fail
   //     the webhook — the customer-facing ticket has already been created.
@@ -395,15 +409,18 @@ async function attachReplyToTicket(args: {
   const { sb, workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload } = args;
 
   const authorLabel = name?.trim() || email;
-  const { error: mErr } = await sb.from('ticket_messages').insert({
+  const { data: replyMessage, error: mErr } = await sb.from('ticket_messages').insert({
     workspace_id: workspaceId,
     ticket_id: ticketId,
     role: 'customer',
     author_label: authorLabel,
     body,
     external_message_id: externalMessageId,
-  });
+  })
+    .select('id')
+    .single();
   if (mErr) throw new Error(`Reply attach failed: ${mErr.message}`);
+  void scoreInboundMessage({ sb, workspaceId, ticketId, messageId: replyMessage.id, body });
 
   // Audit the threaded reply in the inbox view too, so the agent can see
   // the email arrived even if they don't immediately notice the ticket

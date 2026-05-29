@@ -496,6 +496,7 @@ export async function loadTicketDetail(displayId) {
     t:          m.body,
     ts:         fmtTime(m.created_at),
     mentions:   m.mentions || [],
+    sentiment:  m.sentiment || null,
     mergedFrom: m.merged_from_id ? (ticketByUuid[m.merged_from_id] || null) : undefined,
   }));
   t.tags        = d.tags || [];
