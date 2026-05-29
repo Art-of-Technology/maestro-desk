@@ -20,7 +20,7 @@ function nextTicketDisplayId(): string {
 // Returns the raw DB shape; the SPA remaps fields to data.js's INBOX
 // view-model on the client.
 inbox.get('/', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
 
   // Two FKs link inbox_messages ↔ tickets (converted_ticket_id and the
@@ -64,7 +64,7 @@ const PatchInbox = z.object({
 });
 
 inbox.patch('/:id', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -106,7 +106,7 @@ inbox.patch('/:id', async (c) => {
 // the inbox row converted on success.
 
 inbox.post('/:id/convert', async (c) => {
-  const sb = c.get('sb');
+  const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
