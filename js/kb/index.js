@@ -18,6 +18,7 @@
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { startPresence } from '../core/presence.js';
 
 function kbApiBacked() {
   return KB_ARTICLES.some((a) => a._uuid);
@@ -247,6 +248,10 @@ export function renderKB() {
 function renderKBArticle(id) {
   const a = KB_ARTICLES.find(x => x.id === id);
   if (!a) { KB_SELECTED = null; return renderKB(); }
+  // Real-time presence — no-ops for demo articles (no _uuid). Useful
+  // on the edit path when two admins might fight over the same article;
+  // also nice on read so authors see when their article is hot.
+  if (a._uuid && SESSION?.userId) startPresence('kb_article', a._uuid);
   const admin = window.isAdmin();
   const views = getKBViews(id);
   const votes = getKBNetVote(id);
@@ -261,11 +266,14 @@ function renderKBArticle(id) {
           <span data-action="kb.close">Knowledge Base</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${a.id}</span>
-          ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
+          <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this article"></div>
+            ${admin ? `
             <button class="btn btn-sm" data-action="kb.toggleFeatured" data-id="${window.escAttr(a.id)}">${a.featured?'★ Unfeature':'☆ Feature'}</button>
             <button class="btn btn-sm" data-action="kb.edit" data-id="${window.escAttr(a.id)}">Edit</button>
             <button class="btn btn-sm btn-danger" data-action="kb.delete" data-id="${window.escAttr(a.id)}">Delete</button>
-          </span>` : ''}
+            ` : ''}
+          </span>
         </div>
       </div>
       <div class="page-scroll">

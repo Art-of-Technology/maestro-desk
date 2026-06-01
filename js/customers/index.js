@@ -32,6 +32,7 @@ import { registerActions, registerChangeActions, registerInputActions, registerM
 import { openTicket } from '../tickets/detail.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { apiGet, apiPut } from '../core/api-client.js';
+import { startPresence } from '../core/presence.js';
 
 // Lazy-loaded per-customer Stripe context. We only fetch once per
 // customer detail open (Map keyed by customer.id). Pending fetches
@@ -740,6 +741,10 @@ function renderShopifyContextBlock(c) {
 function renderCustomerDetail(custId) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c) { CUSTOMER_SELECTED = null; return renderCustomers(); }
+  // Real-time presence — no-ops for demo personas (no _uuid). Chip
+  // slot is in the topbar below; the first heartbeat resolves after
+  // main.innerHTML is set, so the slot is in the DOM by then.
+  if (c._uuid && SESSION?.userId) startPresence('customer', c._uuid);
   const s = getCustomerStats(custId);
   const admin = window.isAdmin();
   const activity = getCustomerActivity(custId);
@@ -835,6 +840,9 @@ function renderCustomerDetail(custId) {
           <span data-action="cust.closeProfile">Customers</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${c.first} ${c.last}</span>
+          <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+            <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this customer"></div>
+          </span>
         </div>
       </div>
       <div class="page-scroll">

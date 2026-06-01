@@ -22,7 +22,7 @@ const VIEWER_WINDOW_S = 15;
 // entity_type is free-form text in the table; the API gates it to a
 // known set so a typo can't write a row that nobody else reads. Add
 // entries here as new surfaces opt in to presence.
-const KNOWN_ENTITY_TYPES = new Set(['ticket']);
+const KNOWN_ENTITY_TYPES = new Set(['ticket', 'customer', 'kb_article']);
 
 const PostPresence = z.object({
   composing: z.boolean().optional().default(false),
