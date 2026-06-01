@@ -1,64 +1,66 @@
-// Real-time presence + collaboration on a single ticket. Tracks which
-// agents currently have this ticket open and which of them are typing
-// a reply, so the rest of the team can see at a glance and avoid
-// double-handling.
+// Real-time presence + collaboration, generalised across entity types.
+// Originally per-ticket (PR #236, in js/tickets/presence.js); lifted
+// to core/ in PR #239 so customer detail, KB editor, etc. can opt in
+// with the same lifecycle:
+//
+//   startPresence(entityType, entityId)  — call on entity-open
+//   stopPresence()                       — call on nav-away / logout
+//   setComposing(bool)                   — call from compose oninput
+//   confirmIfOthersComposing()           — call before destructive send
+//   setTicketChangedCallback(cb)         — ticket-only: fires when the
+//                                          server's ticket_updated_at
+//                                          advances since last beat
+//                                          (drives live-detail sync)
 //
 // Transport: short-poll the API every HEARTBEAT_MS. Each heartbeat
-// POSTs our composing flag and returns the OTHER viewers' chips —
-// one round-trip per beat. No SDK, no websocket, no extra dependency.
+// POSTs the composing flag and returns the OTHER viewers' chips plus
+// (for entity_type='ticket') the current ticket_updated_at. One
+// round-trip per beat. No SDK.
 //
-// Lifecycle:
-//   startPresence(ticketUuid)  — call from openTicket()
-//   stopPresence()             — call from app.js renderPage() (any
-//                                navigation away clears CURRENT_TICKET)
-//   setComposing(bool)         — call from the compose textarea oninput
-//   confirmIfOthersComposing() — call from sendCompose() to surface
-//                                the soft warning before send
-//
-// Demo personas have no t._uuid, so this whole module no-ops for them
-// — they keep working in the localStorage-only world they're used to.
+// Demo personas have no _uuid, so callers gate startPresence on a
+// real UUID. This module no-ops cleanly when nothing is active.
 
-import { apiPost, apiDelete, API_BASE, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiPost, API_BASE, getJwt, getWorkspaceId } from './api-client.js';
 
 const HEARTBEAT_MS = 5000;
 
 const state = {
-  ticketUuid:           null,     // current ticket's real UUID, or null
-  intervalId:           null,     // setInterval handle
-  composing:            false,    // local composing flag (driven by oninput)
-  viewers:              [],       // last known other-viewers array
-  inFlight:             false,    // in-flight beat guard so a slow request can't queue
-  lastTicketUpdatedAt:  null,     // last server-stamped tickets.updated_at; drives live-sync diff
+  entityType:          null,   // 'ticket' | 'customer' | ... or null when idle
+  entityId:            null,   // UUID of the active entity, or null
+  intervalId:          null,
+  composing:           false,
+  viewers:             [],
+  inFlight:            false,
+  lastTicketUpdatedAt: null,   // only meaningful when entityType === 'ticket'
 };
 
-// Optional callback invoked when the heartbeat detects another agent
-// has mutated the ticket since the last beat. Detail.js registers this
-// to trigger a force-reload + re-render. Module-scoped so it's not lost
-// across tick() invocations.
+// Ticket-detail live-sync callback. Module-scoped so it survives
+// across openTicket re-renders. Registered once at detail.js module
+// load; fires from tick() when the server reports a newer ticket
+// updated_at than we've seen.
 let onTicketChanged = null;
-
 export function setTicketChangedCallback(cb) {
   onTicketChanged = typeof cb === 'function' ? cb : null;
 }
 
-export function startPresence(ticketUuid) {
-  if (!ticketUuid) { stopPresence(); return; }
-  if (state.ticketUuid === ticketUuid) {
-    // Same ticket reopened — likely a re-render after an edit. Re-paint
+export function startPresence(entityType, entityId) {
+  if (!entityType || !entityId) { stopPresence(); return; }
+  if (state.entityType === entityType && state.entityId === entityId) {
+    // Same entity reopened — likely a re-render after an edit. Re-paint
     // chips into the fresh DOM in case the slot got replaced.
     renderChips();
     renderBanner();
     return;
   }
-  // Different ticket — release the old one immediately.
-  if (state.ticketUuid) {
-    sendLeaveBeacon(state.ticketUuid);
+  // Different entity — release the old one immediately.
+  if (state.entityType && state.entityId) {
+    sendLeaveBeacon(state.entityType, state.entityId);
   }
-  state.ticketUuid          = ticketUuid;
+  state.entityType          = entityType;
+  state.entityId            = entityId;
   state.composing           = false;
   state.viewers             = [];
   state.lastTicketUpdatedAt = null;
-  // First beat is immediate so chips appear in <1s for everyone else.
   tick();
   if (state.intervalId) clearInterval(state.intervalId);
   state.intervalId = setInterval(tick, HEARTBEAT_MS);
@@ -69,13 +71,13 @@ export function stopPresence() {
     clearInterval(state.intervalId);
     state.intervalId = null;
   }
-  if (state.ticketUuid) {
-    sendLeaveBeacon(state.ticketUuid);
-    state.ticketUuid = null;
+  if (state.entityType && state.entityId) {
+    sendLeaveBeacon(state.entityType, state.entityId);
+    state.entityType = null;
+    state.entityId   = null;
   }
   state.composing = false;
   state.viewers   = [];
-  // Wipe any leftover chips/banner since the host element survives.
   renderChips();
   renderBanner();
 }
@@ -84,9 +86,7 @@ export function setComposing(next) {
   const want = !!next;
   if (state.composing === want) return;
   state.composing = want;
-  // Beat immediately on transition so the other side sees the typing dot
-  // (or its absence) without waiting up to 5s.
-  if (state.ticketUuid) tick();
+  if (state.entityType && state.entityId) tick();
 }
 
 /**
@@ -156,31 +156,29 @@ function showPresenceConfirm(names, verb) {
 }
 
 async function tick() {
-  if (!state.ticketUuid) return;
-  if (state.inFlight) return;          // skip; next interval will retry
+  if (!state.entityType || !state.entityId) return;
+  if (state.inFlight) return;
   state.inFlight = true;
-  const uuid = state.ticketUuid;
+  const { entityType, entityId } = state;
   try {
-    const res = await apiPost(`/api/v1/tickets/${uuid}/presence`, { composing: state.composing });
-    // Ignore late responses for a ticket we've since left.
-    if (state.ticketUuid !== uuid) return;
+    const res = await apiPost(`/api/v1/presence/${entityType}/${entityId}`, { composing: state.composing });
+    // Ignore late responses for an entity we've since left.
+    if (state.entityType !== entityType || state.entityId !== entityId) return;
     state.viewers = Array.isArray(res?.viewers) ? res.viewers : [];
     renderChips();
     renderBanner();
-    // Live-sync probe: if the ticket's updated_at has moved since our
-    // last beat, fire the change callback so detail.js can refetch and
-    // re-render. First beat just stamps the baseline (lastTicketUpdatedAt
-    // null on entry) so we don't fire spuriously on the initial open.
+
+    // Ticket-detail live-sync probe: if the server's ticket_updated_at
+    // moved since our last beat, fire the change callback. Other entity
+    // types skip this branch.
     //
     // Several mutations within one HEARTBEAT_MS window collapse to a
     // single reload — we only ever see the latest updated_at, never the
-    // intermediate timestamps. Acceptable for help-desk concurrency
-    // (intermediate states are transient; what the agent needs to see
-    // is the current state).
-    if (res?.ticket_updated_at) {
+    // intermediate timestamps. Acceptable for help-desk concurrency.
+    if (entityType === 'ticket' && res?.ticket_updated_at) {
       if (state.lastTicketUpdatedAt && res.ticket_updated_at !== state.lastTicketUpdatedAt) {
         if (onTicketChanged) {
-          try { onTicketChanged({ uuid, updatedAt: res.ticket_updated_at }); }
+          try { onTicketChanged({ uuid: entityId, updatedAt: res.ticket_updated_at }); }
           catch (err) { console.warn('[presence] onTicketChanged callback threw:', err); }
         }
       }
@@ -194,7 +192,8 @@ async function tick() {
     if (err?.status === 401 || err?.status === 403) {
       console.warn('[presence] auth failed — stopping heartbeat');
       if (state.intervalId) { clearInterval(state.intervalId); state.intervalId = null; }
-      state.ticketUuid = null;
+      state.entityType = null;
+      state.entityId   = null;
       state.viewers    = [];
       renderChips();
       renderBanner();
@@ -207,15 +206,14 @@ async function tick() {
   }
 }
 
-// sendBeacon doesn't natively support DELETE, but it sends keepalive on
-// page unload — using fetch with keepalive:true gives us the same
-// fire-and-forget guarantee for the DELETE shape we need.
-function sendLeaveBeacon(uuid) {
+// fetch keepalive:true gives us the same fire-and-forget guarantee that
+// navigator.sendBeacon offers, but supports DELETE (sendBeacon doesn't).
+function sendLeaveBeacon(entityType, entityId) {
   const jwt = getJwt();
   const wsId = getWorkspaceId();
   if (!jwt || !wsId) return;
   try {
-    fetch(`${API_BASE}/api/v1/tickets/${uuid}/presence`, {
+    fetch(`${API_BASE}/api/v1/presence/${entityType}/${entityId}`, {
       method:    'DELETE',
       keepalive: true,
       headers: {
@@ -274,6 +272,6 @@ function escAttr(s) { return escHtml(s); }
 // Last-ditch cleanup if the tab closes while we're still heartbeating.
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
-    if (state.ticketUuid) sendLeaveBeacon(state.ticketUuid);
+    if (state.entityType && state.entityId) sendLeaveBeacon(state.entityType, state.entityId);
   });
 }

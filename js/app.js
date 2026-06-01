@@ -177,7 +177,7 @@ import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
-import { stopPresence } from './tickets/presence.js';
+import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 

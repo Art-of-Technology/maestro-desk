@@ -60,7 +60,7 @@ import { runAssignmentRulesOnTicket } from './assignment-rules.js';
 import {
   startPresence, setComposing, confirmIfOthersComposing,
   setTicketChangedCallback,
-} from './presence.js';
+} from '../core/presence.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 // Live-sync hook: presence reports the server's tickets.updated_at on
@@ -116,7 +116,7 @@ export function openTicket(id) {
   // Real-time presence — heartbeat starts on first open and re-paints
   // chips on every re-render. No-ops for demo personas (no _uuid) so
   // the localStorage-only flow stays untouched.
-  if (t._uuid && SESSION?.userId) startPresence(t._uuid);
+  if (t._uuid && SESSION?.userId) startPresence('ticket', t._uuid);
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
   const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
   const snoozeBanner = (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) ? `
