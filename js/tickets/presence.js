@@ -90,13 +90,57 @@ export function composingViewers() {
  * Soft-block on send when another agent is also composing. Resolves
  * to true when the agent confirms (or no-one else is composing), and
  * false when the agent cancels.
+ *
+ * Uses an in-app modal rather than native window.confirm so the
+ * dialog matches the rest of the app visually and doesn't freeze
+ * the JS thread the way native confirm does on some browsers.
  */
 export function confirmIfOthersComposing() {
   const composers = composingViewers();
   if (composers.length === 0) return Promise.resolve(true);
   const names = composers.map(v => v.name).join(', ');
   const verb  = composers.length === 1 ? 'is also replying' : 'are also replying';
-  return Promise.resolve(window.confirm(`${names} ${verb} to this ticket. Send anyway?`));
+  return showPresenceConfirm(names, verb);
+}
+
+// Custom-rolled dialog instead of core/modal.js' showModal — that helper's
+// background-click and × dismiss bypass the onConfirm callback (they call
+// closeModal directly), which would leak the pending promise on cancel.
+// Every dismiss path here routes through finish() so the promise always
+// settles. window.__presenceConfirm carries the inline-onclick callback
+// since the markup is dropped in via innerHTML.
+function showPresenceConfirm(names, verb) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      delete window.__presenceConfirm;
+      const c = document.getElementById('modal-container');
+      if (c) c.innerHTML = '';
+      resolve(ok);
+    };
+    window.__presenceConfirm = finish;
+    const container = document.getElementById('modal-container');
+    if (!container) return finish(true);  // no modal slot — fall through optimistically
+    container.innerHTML = `
+      <div class="modal-bg" onclick="window.__presenceConfirm(false)">
+        <div class="modal" onclick="event.stopPropagation()">
+          <div class="modal-head">
+            <div class="modal-title">Others are replying</div>
+            <div class="modal-close" onclick="window.__presenceConfirm(false)">×</div>
+          </div>
+          <div class="modal-body">
+            <p style="margin:0 0 6px;font-size:13px;color:var(--ink);line-height:1.5"><strong>${escHtml(names)}</strong> ${escHtml(verb)} to this ticket.</p>
+            <p style="margin:0;font-size:12px;color:var(--ink2);line-height:1.5">Sending now could result in conflicting replies to the customer.</p>
+          </div>
+          <div class="modal-foot">
+            <button class="btn" onclick="window.__presenceConfirm(false)">Cancel</button>
+            <button class="btn btn-solid" onclick="window.__presenceConfirm(true)">Send anyway</button>
+          </div>
+        </div>
+      </div>`;
+  });
 }
 
 async function tick() {

@@ -1024,6 +1024,11 @@ const PostPresence = z.object({
 }).strict();
 
 type UserRef = { name: string | null; initials: string | null };
+// PostgREST returns a to-one FK embed as either a single object OR a
+// single-element array depending on the generated relationship cardinality.
+// Both shapes happen in practice for `users(...)` embeds on this codebase;
+// flattenUser() collapses to UserRef | null at the boundary so call sites
+// don't have to think about it.
 type ViewerRow = {
   user_id: string;
   last_seen_at: string;
@@ -1031,6 +1036,11 @@ type ViewerRow = {
   composing_at: string | null;
   users: UserRef | UserRef[] | null;
 };
+
+function flattenUser(u: ViewerRow['users']): UserRef | null {
+  if (!u) return null;
+  return Array.isArray(u) ? (u[0] ?? null) : u;
+}
 
 function deriveInitials(name: string | null | undefined): string {
   if (!name) return '?';
@@ -1084,10 +1094,17 @@ tickets.post('/:id/presence', async (c) => {
   // Read the live roster — other viewers active within the window. We
   // exclude self so the SPA doesn't have to filter; embedding users()
   // gives us name + initials for the chip.
+  //
+  // The .eq('workspace_id', workspaceId) is redundant with the tightened
+  // RLS policy on writes (rows are guaranteed to share workspace_id with
+  // the ticket since 20260601130000), but it's defense-in-depth + gives
+  // the planner a more selective predicate for the eventual composite
+  // (workspace_id, ticket_id, last_seen_at) index.
   const cutoff = new Date(Date.now() - VIEWER_WINDOW_S * 1000).toISOString();
   const { data: viewers, error: rosterErr } = await sb
     .from('ticket_viewers')
     .select('user_id, last_seen_at, composing, composing_at, users(name, initials)')
+    .eq('workspace_id', workspaceId)
     .eq('ticket_id', ticketId)
     .neq('user_id', userId)
     .gte('last_seen_at', cutoff)
@@ -1097,7 +1114,7 @@ tickets.post('/:id/presence', async (c) => {
 
   return c.json({
     viewers: (viewers || []).map((v) => {
-      const u = Array.isArray(v.users) ? v.users[0] : v.users;
+      const u = flattenUser(v.users);
       return {
         user_id:      v.user_id,
         name:         u?.name || 'Someone',
