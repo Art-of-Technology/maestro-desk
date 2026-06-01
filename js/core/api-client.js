@@ -60,11 +60,25 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
     const wsId = getWorkspaceId();
     if (wsId) headers['X-Workspace-Id'] = wsId;
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    body: body == null ? undefined : JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body == null ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    // fetch() rejects (TypeError "Failed to fetch") when the request never
+    // reached a server at all — backend down, wrong API_BASE, offline, or a
+    // CORS rejection. The raw message is opaque to users; normalise it to
+    // something actionable. status 0 means "no HTTP response", so callers can
+    // tell a connectivity failure apart from a 4xx/5xx the server returned.
+    throw new ApiError(
+      `Can't reach the Maestro Desk server at ${API_BASE}. Check that the API is running and that you're online.`,
+      0,
+      null,
+    );
+  }
   const text = await res.text();
   let parsed;
   try { parsed = text ? JSON.parse(text) : null; }
