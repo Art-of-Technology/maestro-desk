@@ -112,10 +112,21 @@ async function tick() {
     renderChips();
     renderBanner();
   } catch (err) {
-    // Presence failures shouldn't surface to the user; log and let the
-    // next beat retry. 401/403 means the JWT expired — chips just stop
-    // updating, which is graceful.
-    console.warn('[presence] heartbeat failed:', err.status || '', err.message);
+    // JWT expired or membership revoked — every subsequent beat would
+    // also fail. Stop the interval and wipe state so we don't churn the
+    // network indefinitely. Skip the leave beacon (it would 401 too) —
+    // the row will age out of the read window in VIEWER_WINDOW_S.
+    if (err?.status === 401 || err?.status === 403) {
+      console.warn('[presence] auth failed — stopping heartbeat');
+      if (state.intervalId) { clearInterval(state.intervalId); state.intervalId = null; }
+      state.ticketUuid = null;
+      state.viewers    = [];
+      renderChips();
+      renderBanner();
+      return;
+    }
+    // Transient failure — log and let the next beat retry.
+    console.warn('[presence] heartbeat failed:', err?.status || '', err?.message);
   } finally {
     state.inFlight = false;
   }

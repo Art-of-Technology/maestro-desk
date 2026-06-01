@@ -1023,6 +1023,20 @@ const PostPresence = z.object({
   composing: z.boolean().optional().default(false),
 }).strict();
 
+type UserRef = { name: string | null; initials: string | null };
+type ViewerRow = {
+  user_id: string;
+  last_seen_at: string;
+  composing: boolean;
+  composing_at: string | null;
+  users: UserRef | UserRef[] | null;
+};
+
+function deriveInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  return name.split(/\s+/).map((w) => w[0] || '').join('').slice(0, 2).toUpperCase();
+}
+
 tickets.post('/:id/presence', async (c) => {
   const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
@@ -1050,23 +1064,11 @@ tickets.post('/:id/presence', async (c) => {
 
   const nowIso = new Date().toISOString();
 
-  // Read the prior row so we know whether this is a fresh composing
-  // transition — we want composing_at to track when the agent STARTED
-  // composing (for "Emma has been typing for 30s" UX), not the latest
-  // beat. If already composing, leave composing_at; if turning composing
-  // on now, stamp; if turning off, null it.
-  const { data: prior } = await sb
-    .from('ticket_viewers')
-    .select('composing, composing_at')
-    .eq('ticket_id', ticketId)
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  let composingAt: string | null;
-  if (composing && prior?.composing) composingAt = prior.composing_at ?? nowIso;
-  else if (composing)                composingAt = nowIso;
-  else                                composingAt = null;
-
+  // composing_at tracks the latest beat where composing was true (not
+  // "first started typing"). Skipping the prior-row read keeps the
+  // heartbeat at 2 DB round-trips instead of 3 — at 5s × N viewers the
+  // savings add up. If we ever surface "typing for 30s" in the UI,
+  // bring the prior read back behind a flag.
   const { error: upsertErr } = await sb
     .from('ticket_viewers')
     .upsert({
@@ -1075,7 +1077,7 @@ tickets.post('/:id/presence', async (c) => {
       workspace_id: workspaceId,
       last_seen_at: nowIso,
       composing,
-      composing_at: composingAt,
+      composing_at: composing ? nowIso : null,
     }, { onConflict: 'ticket_id,user_id' });
   if (upsertErr) return c.json({ error: upsertErr.message }, 500);
 
@@ -1089,16 +1091,17 @@ tickets.post('/:id/presence', async (c) => {
     .eq('ticket_id', ticketId)
     .neq('user_id', userId)
     .gte('last_seen_at', cutoff)
-    .order('last_seen_at', { ascending: false });
+    .order('last_seen_at', { ascending: false })
+    .returns<ViewerRow[]>();
   if (rosterErr) return c.json({ error: rosterErr.message }, 500);
 
   return c.json({
-    viewers: (viewers || []).map((v: any) => {
+    viewers: (viewers || []).map((v) => {
       const u = Array.isArray(v.users) ? v.users[0] : v.users;
       return {
         user_id:      v.user_id,
         name:         u?.name || 'Someone',
-        initials:     u?.initials || (u?.name ? u.name.split(/\s+/).map((w: string) => w[0]).join('').slice(0,2).toUpperCase() : '?'),
+        initials:     u?.initials || deriveInitials(u?.name),
         composing:    !!v.composing,
         composing_at: v.composing_at,
         last_seen_at: v.last_seen_at,
