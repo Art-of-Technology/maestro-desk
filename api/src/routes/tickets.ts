@@ -56,47 +56,74 @@ tickets.get('/', async (c) => {
 // updated_at moved since (capped by `limit`) plus the new cursor to use
 // next time.
 //
-// `deleted_at` rides on each row so the client can drop merged/deleted
-// tickets from its local TICKETS array via the same delta path — no
-// separate deleted-IDs list. The trigger added in PR #237 means child
-// mutations (new messages, tag changes, AI accepts, time logged) all
-// bubble through here too via the parent's updated_at.
+// `deleted_at` rides on tombstone rows (slimmed to {id, updated_at,
+// deleted_at}) so the client can drop them from its local TICKETS
+// array via the same delta path — no separate deleted-IDs list, and
+// no over-sharing of the soft-deleted row's content. The trigger
+// added in PR #237 means child mutations (new messages, tag changes,
+// AI accepts, time logged) all bubble through here via the parent's
+// updated_at.
 //
-// First call with no cursor just stamps the current time and returns an
-// empty list — the SPA already has the full set from bootstrap, so we
-// don't want to redundantly dump it. Subsequent calls flow naturally
-// from there.
+// First call with no cursor just stamps the current time and returns
+// an empty list — the SPA already has the full set from bootstrap, so
+// we don't want to redundantly dump it.
 //
-// Ascending order + cursor = last-row's updated_at lets the loop
-// self-paginate: if a backlog of >limit rows accumulates (long
-// disconnect, large workspace), each beat eats one chunk and the
-// cursor walks forward until caught up.
+// Cursor is composite `<iso>|<uuid>` so two rows that share the same
+// `updated_at` microsecond can't silently skip past a `limit`-truncated
+// batch. The query is the standard tie-breaker shape:
+// (updated_at > t) OR (updated_at = t AND id > i)
+// ordered by (updated_at, id). Plain-ISO cursors still parse for
+// backwards compat with anyone holding an older one.
 tickets.get('/sync', async (c) => {
   const sb = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
-  const cursor = c.req.query('cursor');
+  const rawCursor = c.req.query('cursor');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '200', 10), 500);
 
-  if (!cursor) {
-    return c.json({ tickets: [], cursor: new Date().toISOString() });
+  if (!rawCursor) {
+    return c.json({ tickets: [], cursor: `${new Date().toISOString()}|` });
   }
 
-  const { data, error } = await sb
+  const pipeIdx = rawCursor.indexOf('|');
+  const cursorTs = pipeIdx === -1 ? rawCursor : rawCursor.slice(0, pipeIdx);
+  const cursorId = pipeIdx === -1 ? ''        : rawCursor.slice(pipeIdx + 1);
+
+  let q = sb
     .from('tickets')
     .select('id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at')
-    .eq('workspace_id', workspaceId)
-    .gt('updated_at', cursor)
+    .eq('workspace_id', workspaceId);
+
+  if (cursorId) {
+    // Composite-cursor tie-break: rows strictly later in (updated_at, id) order.
+    q = q.or(`updated_at.gt.${cursorTs},and(updated_at.eq.${cursorTs},id.gt.${cursorId})`);
+  } else {
+    q = q.gt('updated_at', cursorTs);
+  }
+
+  const { data, error } = await q
     .order('updated_at', { ascending: true })
+    .order('id',         { ascending: true })
     .limit(limit);
 
   if (error) return c.json({ error: error.message }, 500);
 
   const rows = data || [];
-  const newCursor = rows.length > 0
-    ? rows[rows.length - 1].updated_at
-    : new Date().toISOString();
+  const last = rows[rows.length - 1];
+  const newCursor = last
+    ? `${last.updated_at}|${last.id}`
+    : `${new Date().toISOString()}|`;
 
-  return c.json({ tickets: rows, cursor: newCursor });
+  // Slim tombstone rows so the response doesn't carry subject / status /
+  // customer_id / etc. of soft-deleted tickets. The client only needs
+  // `id` to splice the row out of its local TICKETS array — anything
+  // more is over-sharing for a row the agent shouldn't actively see.
+  const responseRows = rows.map((r: any) =>
+    r.deleted_at
+      ? { id: r.id, updated_at: r.updated_at, deleted_at: r.deleted_at }
+      : r
+  );
+
+  return c.json({ tickets: responseRows, cursor: newCursor });
 });
 
 // Full ticket detail — the row itself plus all of its child collections.

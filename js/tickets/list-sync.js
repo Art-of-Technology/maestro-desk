@@ -18,7 +18,7 @@
 // deltas since the last cursor.
 
 import { apiGet } from '../core/api-client.js';
-import { updateOrInsertTicket } from '../core/bootstrap.js';
+import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -61,9 +61,13 @@ async function tick() {
     const rows = Array.isArray(res?.tickets) ? res.tickets : [];
     if (rows.length === 0) return;
 
+    // Build customer + user lookup maps once per batch (rather than once
+    // per row inside updateOrInsertTicket) so a 50-row response doesn't
+    // rebuild them 50 times.
+    const lookups = buildTicketLookups();
     let dirty = false;
     for (const row of rows) {
-      if (updateOrInsertTicket(row)) dirty = true;
+      if (updateOrInsertTicket(row, lookups)) dirty = true;
     }
     if (!dirty) return;
 

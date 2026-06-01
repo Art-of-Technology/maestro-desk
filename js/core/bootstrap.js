@@ -61,6 +61,17 @@ export async function loadMoreTickets() {
   return newMapped.length;
 }
 
+// Build the customer + user lookup maps once per batch so a 50-row
+// sync response doesn't rebuild them 50 times. updateOrInsertTicket
+// accepts the result via its optional second arg; if absent it
+// rebuilds (back-compat for one-off call sites).
+export function buildTicketLookups() {
+  return {
+    customerByUuid: Object.fromEntries(CUSTOMERS.map((c) => [c._uuid || c.id, c])),
+    userByUuid:     Object.fromEntries(AGENTS.map((a)    => [a.userId, a])),
+  };
+}
+
 // Merge a raw ticket row from the API (list shape) into the local
 // TICKETS array. Three outcomes:
 //
@@ -73,10 +84,9 @@ export async function loadMoreTickets() {
 // Returns false when nothing changed (e.g., a deleted_at row for a
 // ticket we don't have locally). Caller uses the return value to decide
 // whether a re-render is worth firing.
-export function updateOrInsertTicket(row) {
+export function updateOrInsertTicket(row, lookups) {
   if (!row || !row.id) return false;
-  const customerByUuid = Object.fromEntries(CUSTOMERS.map((c) => [c._uuid || c.id, c]));
-  const userByUuid     = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
+  const { customerByUuid, userByUuid } = lookups || buildTicketLookups();
 
   const idx = TICKETS.findIndex((x) => x._uuid === row.id);
 
