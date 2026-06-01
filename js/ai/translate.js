@@ -10,11 +10,14 @@
 // Imports callClaude + AI_API_KEY from ./client.js. Reads TICKETS and
 // CURRENT_TICKET from the global lexical env (data.js + state.js).
 //
-// openTicket, showModal, and escHtml are reached through window — they
-// still live in app.js as bridged functions. Once tickets/detail.js and
-// core/dom.js are their own modules, these become proper imports.
+// openTicket is now a direct ES import from tickets/detail.js (the cycle
+// with detail.js is tolerated — each binding is only used inside a
+// function body, never at module top level). showModal and escHtml are
+// still reached through window — they live in app.js / core/modal.js
+// and the lifts haven't happened yet.
 
 import { AI_API_KEY, callClaude } from './client.js';
+import { openTicket } from '../tickets/detail.js';
 
 export let AGENT_PREFERRED_LANG = localStorage.getItem('agent_preferred_lang') || 'English';
 
@@ -42,18 +45,18 @@ export async function translateMessage(ticketId, msgIdx) {
   if (!t || !t.msgs[msgIdx]) return;
   const m = t.msgs[msgIdx];
   m.translating = true;
-  window.openTicket(ticketId);
+  openTicket(ticketId);
   const res = await translateText(m.t, 'English');
   m.translating = false;
   m.translation = res.translation || ('⚠ ' + (res.error || 'Translation failed'));
-  window.openTicket(ticketId);
+  openTicket(ticketId);
 }
 
 export function hideMessageTranslation(ticketId, msgIdx) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || !t.msgs[msgIdx]) return;
   delete t.msgs[msgIdx].translation;
-  window.openTicket(ticketId);
+  openTicket(ticketId);
 }
 
 export async function detectLanguage(text) {
@@ -96,7 +99,7 @@ export async function detectAndTranslateThread(ticketId) {
       }
     }));
   }
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
   return stale.length > 0;
 }
 
@@ -105,7 +108,7 @@ export function toggleThreadTranslate(ticketId, on) {
   if (!t) return;
   t.translateThread = !!on;
   if (on) detectAndTranslateThread(ticketId);
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function toggleAutoTranslateReplies(ticketId, on) {
@@ -116,10 +119,10 @@ export function toggleAutoTranslateReplies(ticketId, on) {
   if (on && !t.detectedCustomerLang) {
     const firstCust = (t.msgs || []).find(m => m.r === 'customer');
     if (firstCust) detectLanguage(firstCust.t).then(lang => {
-      if (lang) { t.detectedCustomerLang = lang; if (CURRENT_TICKET === ticketId) window.openTicket(ticketId); }
+      if (lang) { t.detectedCustomerLang = lang; if (CURRENT_TICKET === ticketId) openTicket(ticketId); }
     });
   }
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function setCustomerLanguage(ticketId, lang) {
@@ -129,7 +132,7 @@ export function setCustomerLanguage(ticketId, lang) {
   // No need to re-translate customer messages (target = AGENT_PREFERRED_LANG, unchanged) —
   // but if the agent had auto-translate-replies on, the new language becomes the target for
   // outgoing replies, so just re-render so the toolbar reflects the override.
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function setAgentPreferredLang(v) {
