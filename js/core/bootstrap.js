@@ -61,6 +61,76 @@ export async function loadMoreTickets() {
   return newMapped.length;
 }
 
+// Build the customer + user lookup maps once per batch so a 50-row
+// sync response doesn't rebuild them 50 times. updateOrInsertTicket
+// accepts the result via its optional second arg; if absent it
+// rebuilds (back-compat for one-off call sites).
+export function buildTicketLookups() {
+  return {
+    customerByUuid: Object.fromEntries(CUSTOMERS.map((c) => [c._uuid || c.id, c])),
+    userByUuid:     Object.fromEntries(AGENTS.map((a)    => [a.userId, a])),
+  };
+}
+
+// Merge a raw ticket row from the API (list shape) into the local
+// TICKETS array. Three outcomes:
+//
+//   - row.deleted_at set + ticket exists locally → splice out, return true
+//   - ticket exists locally → mutate in place (preserve _detailLoaded,
+//     msgs/tags/aiTags/timeEntries/csat populated by loadTicketDetail —
+//     these come from a richer endpoint than /sync returns), return true
+//   - ticket new → map via mapTicket + unshift to front, return true
+//
+// Returns false when nothing changed (e.g., a deleted_at row for a
+// ticket we don't have locally). Caller uses the return value to decide
+// whether a re-render is worth firing.
+export function updateOrInsertTicket(row, lookups) {
+  if (!row || !row.id) return false;
+  const { customerByUuid, userByUuid } = lookups || buildTicketLookups();
+
+  const idx = TICKETS.findIndex((x) => x._uuid === row.id);
+
+  if (row.deleted_at) {
+    if (idx === -1) return false;
+    TICKETS.splice(idx, 1);
+    return true;
+  }
+
+  if (idx === -1) {
+    TICKETS.unshift(mapTicket(row, customerByUuid, userByUuid));
+    return true;
+  }
+
+  // Update in place. Only mutate fields the list endpoint actually
+  // returns + that may change server-side; leave detail-loaded
+  // collections (msgs/tags/aiTags/timeEntries/csat) alone — those
+  // refresh through loadTicketDetail on the detail view's own path.
+  const t = TICKETS[idx];
+  t.subject       = row.subject;
+  t.status        = row.status_key;
+  t.priority      = row.priority_key;
+  t.category      = labelCase(row.category_key) || 'Other';
+  t.agent         = row.assigned_user_id == null ? '' : (userByUuid[row.assigned_user_id]?.name || t.agent);
+  t.customerId    = customerByUuid[row.customer_id]?.id || customerByUuid[row.customer_id]?.display_id || t.customerId;
+  t.updated       = fmtRelative(row.updated_at);
+  t.sla           = row.sla_state || 'ok';
+  t.snoozedUntil  = row.snoozed_until  || null;
+  t.snoozedAt     = row.snoozed_at     || null;
+  t.snoozeReason  = row.snooze_reason  || null;
+  t.snoozeWokenAt = row.snooze_woken_at || null;
+  t.mergedAt      = row.merged_at      || null;
+  t._statusBeforeMerge = row.status_before_merge || null;
+  t.sentiment     = row.latest_customer_sentiment || null;
+  // mergedInto display_id resolves from the uuid + current TICKETS state
+  if (row.merged_into_id) {
+    const parent = TICKETS.find((x) => x._uuid === row.merged_into_id);
+    if (parent) t.mergedInto = parent.id;
+  } else {
+    t.mergedInto = null;
+  }
+  return true;
+}
+
 // Mapping helper extracted so loadMoreTickets and the initial bootstrap
 // share the exact same shape.
 function mapTicket(t, customerByUuid, userByUuid) {
@@ -91,6 +161,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     csat:            null,
     msgs:            [],
     timeEntries:     [],
+    sentiment:       t.latest_customer_sentiment || null,
   };
 }
 

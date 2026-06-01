@@ -178,6 +178,7 @@ import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import { stopPresence } from './tickets/presence.js';
+import { startListSync, stopListSync } from './tickets/list-sync.js';
 import * as AssignmentRules from './tickets/assignment-rules.js';
 
 function login(role, name, initials, userId = null) {
@@ -205,6 +206,10 @@ function login(role, name, initials, userId = null) {
       if (woke) refreshNotifBadge();
     }, 30 * 1000);
   }
+  // Real-auth users (userId != null) get the always-on list-sync poll so
+  // TICKETS / nav badges / inbox stay live. Demo personas skip — they
+  // have no API to talk to and TICKETS comes from data.js seeds.
+  if (userId) startListSync();
   renderPage('dashboard');
 }
 // Swap the sidebar brand block (and the browser tab title) to the
@@ -260,6 +265,9 @@ function logout() {
   // Release any presence row before we wipe the JWT — sendLeaveBeacon
   // needs the token to authorise the DELETE.
   stopPresence();
+  // Stop the background list-sync poll. Always safe to call even when
+  // never started (demo persona path).
+  stopListSync();
   SESSION = null;
   resetWorkspaceBrand();
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
