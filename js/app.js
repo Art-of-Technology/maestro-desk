@@ -102,7 +102,6 @@ import {
 } from './customers/modals.js';
 import {
   renderDashboard,
-  openAgentFromDash, openKBFromDash,
   DASH_WIDGETS, DEFAULT_DASH_LAYOUT,
 } from './dashboard/index.js';
 import {
@@ -146,7 +145,6 @@ import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomerModals from './customers/modals.js';
-import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import { stopPresence } from './core/presence.js';
@@ -407,14 +405,19 @@ Object.assign(
     // Platform admin sign-in panel — onclick handlers in static index.html
     showPlatformAdminLogin, submitPlatformAdminLogin,
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin },
+    showAgentLogin, submitAgentLogin,
+    // Widget catalogs: core/widget-shell.js reads window.DASH_WIDGETS /
+    // window.DEFAULT_DASH_LAYOUT by scope (the generic shell doesn't import
+    // the per-page catalogs). Kept window-reachable after the Dashboard
+    // namespace retired.
+    DASH_WIDGETS, DEFAULT_DASH_LAYOUT },
   Theme, AIClient, Summarize, Translate, AIReply,
   Macros,
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
   Settings,
-  CustomerModals, Dashboard,
+  CustomerModals,
   TicketsList, TicketDetail,
   AssignmentRules,
 );
