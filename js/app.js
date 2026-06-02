@@ -110,11 +110,7 @@ import {
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
 } from './layouts/index.js';
-import {
-  renderCustomFields,
-  cfNew, cfEdit, cfDelete, cfFormToggleOptions,
-  showManageFieldsModal,
-} from './custom-fields/index.js';
+import { renderCustomFields } from './custom-fields/index.js';
 import { renderRoles } from './roles/index.js';
 import { renderWorkflows } from './workflows/index.js';
 import { renderTags } from './tags/index.js';
@@ -172,7 +168,6 @@ import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
-import * as CustomFields from './custom-fields/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
@@ -442,7 +437,7 @@ Object.assign(
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
-  Settings, CustomFields,
+  Settings,
   CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,

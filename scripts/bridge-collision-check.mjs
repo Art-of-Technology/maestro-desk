@@ -19,7 +19,6 @@ const modules = [
   ['Keybindings',            '../js/core/keybindings.js'],
   ['GlobalSearch',           '../js/global-search/index.js'],
   ['Settings',               '../js/settings/index.js'],
-  ['CustomFields',           '../js/custom-fields/index.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
   ['Dashboard',              '../js/dashboard/index.js'],
   ['TicketsList',            '../js/tickets/list.js'],
