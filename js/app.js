@@ -47,8 +47,11 @@ import { renderProfile } from './profile/index.js';
 import { renderAgents } from './agents/index.js';
 import { toggleProfileMenu, profileMenuGo } from './profile-menu/index.js';
 import {
-  SEARCH_PAGES, globalSearch, gsGo, gsKey, gsOpenAllResults,
-  renderSearchResults, searchPageSetQuery,
+  renderSearchResults,
+  // globalSearch + gsKey: the static index.html top-bar search input calls
+  // them inline (oninput/onfocus/onkeydown) — kept as explicit bridge entries
+  // until the index.html pass migrates that markup.
+  globalSearch, gsKey,
 } from './global-search/index.js';
 import {
   showAuthPanel, togglePassword, ssoLogin,
@@ -132,7 +135,6 @@ import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
-import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as TicketsList from './tickets/list.js';
@@ -394,11 +396,12 @@ Object.assign(
     // Platform admin sign-in panel — onclick handlers in static index.html
     showPlatformAdminLogin, submitPlatformAdminLogin,
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin },
+    showAgentLogin, submitAgentLogin,
+    // Top-bar search input in static index.html (oninput/onfocus/onkeydown)
+    globalSearch, gsKey },
   Theme, AIClient, Summarize, Translate, AIReply,
   KBIntegration,
   Modal, Collapsible, Keybindings,
-  GlobalSearch,
   Settings,
   CustomerModals,
   TicketsList, TicketDetail,

@@ -13,9 +13,8 @@
 // renderQuickSwitcher() rebuilds the overlay — too dynamic for delegation,
 // not worth a per-event harness extension.
 //
-// External reaches (interim, via window): escHtml, navTo, openTicket,
-// isAgentOOO, SEARCH_PAGES — all still in app.js (SEARCH_PAGES is bridged
-// on window so both the quick switcher and global search can read it).
+// External reaches (interim, via window): escHtml, navTo, openTicket — all
+// still in app.js. isAgentOOO and SEARCH_PAGES are direct ES imports.
 //
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES come from data.js via the global
 // lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from
@@ -23,6 +22,7 @@
 
 import { registerActions } from '../core/event-delegation.js';
 import { isAgentOOO } from '../tickets/assignment-rules.js';
+import { SEARCH_PAGES } from '../global-search/index.js';
 
 let QS_OPEN = false;
 let QS_QUERY = '';
@@ -45,7 +45,7 @@ export function toggleQuickSwitcher(open) {
 
 function quickSwitcherSearch(rawQ) {
   const q = (rawQ || '').trim().toLowerCase();
-  const pageDefs = window.SEARCH_PAGES || [];
+  const pageDefs = SEARCH_PAGES || [];
   // Always show pages so empty query lists the full nav surface.
   const pages = pageDefs.map(p => ({
     kind: 'page', label: p.l, sub: p.p, payload: { page: p.p },

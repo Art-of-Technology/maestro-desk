@@ -9,17 +9,30 @@
 //      counts per group with kind-filter chips.
 //
 // SEARCH_PAGES is the nav lookup table — the static list of pages the
-// search surfaces can jump to. It's also consumed by quick-switcher, which
-// reads it from the window bridge; app.js re-exports it from this module
-// onto window so that path keeps working.
+// search surfaces can jump to. It's also consumed by quick-switcher via a
+// direct ES import.
 //
-// External reaches (interim, via window): escHtml, escAttr, nav, navTo,
-// openTicket, openCustomerModal, renderPage — all still in app.js.
+// External reaches (interim, via window): escHtml, escAttr, renderPage —
+// all still in app.js. navTo and openTicket are direct ES imports.
+//
+// The page's own inline on*= handlers are delegated as gs.* actions (bottom
+// of file). globalSearch + gsKey stay exported AND window-reachable via
+// explicit app.js bridge entries — the top-bar search input in static
+// index.html still calls them inline (migrates with the index.html pass).
+// renderSearchResults is the router entry; SEARCH_PAGES is imported by
+// quick-switcher. gsGo / gsOpenAllResults / searchPageSetQuery are now
+// module-internal.
 //
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES, TAG_LIBRARY come from data.js
 // via the global lexical env; CUSTOMER_SELECTED, AGENT_SELECTED,
 // KB_SELECTED, TAG_SELECTED, ROLES_VIEW_AGENTS, SEARCH_PAGE_FILTER come
 // from core/state.js the same way.
+
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from '../tickets/detail.js';
+import {
+  registerActions, registerMousedownActions, registerInputActions,
+} from '../core/event-delegation.js';
 
 export const SEARCH_PAGES = [
   {p:'dashboard', l:'Dashboard'},
@@ -97,40 +110,40 @@ export function globalSearch(q) {
     html += tickets.map(t => {
       const cust = CUSTOMERS.find(c => c.id === t.customerId);
       const meta = cust ? `${cust.first} ${cust.last}` : '—';
-      return `<div class="gs-result" onmousedown="gsGo('ticket','${window.escAttr(t.id)}')"><span class="gs-result-type">${t.id}</span><span class="gs-result-main">${t.subject}</span><span class="gs-result-meta">${meta}</span></div>`;
+      return `<div class="gs-result" data-mousedown-action="gs.go" data-type="ticket" data-ref="${window.escAttr(t.id)}"><span class="gs-result-type">${t.id}</span><span class="gs-result-main">${t.subject}</span><span class="gs-result-meta">${meta}</span></div>`;
     }).join('');
   }
   if (customers.length) {
     html += '<div class="gs-group">Customers</div>';
-    html += customers.map(c => `<div class="gs-result" onmousedown="gsGo('customer','${window.escAttr(c.id)}')"><span class="gs-result-type">${c.id}</span><span class="gs-result-main">${c.first} ${c.last}</span><span class="gs-result-meta">${c.email}</span></div>`).join('');
+    html += customers.map(c => `<div class="gs-result" data-mousedown-action="gs.go" data-type="customer" data-ref="${window.escAttr(c.id)}"><span class="gs-result-type">${c.id}</span><span class="gs-result-main">${c.first} ${c.last}</span><span class="gs-result-meta">${c.email}</span></div>`).join('');
   }
   if (agents.length) {
     html += '<div class="gs-group">Agents</div>';
-    html += agents.map(a => `<div class="gs-result" onmousedown="gsGo('agent','${window.escAttr(a.name)}')"><span class="gs-result-type">${a.role}</span><span class="gs-result-main">${a.name}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
+    html += agents.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="agent" data-ref="${window.escAttr(a.name)}"><span class="gs-result-type">${a.role}</span><span class="gs-result-main">${a.name}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
   }
   if (articles.length) {
     html += '<div class="gs-group">Knowledge Base</div>';
-    html += articles.map(a => `<div class="gs-result" onmousedown="gsGo('article','${window.escAttr(a.id)}')"><span class="gs-result-type">${a.id}</span><span class="gs-result-main">${a.title}</span><span class="gs-result-meta">${a.category}</span></div>`).join('');
+    html += articles.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="article" data-ref="${window.escAttr(a.id)}"><span class="gs-result-type">${a.id}</span><span class="gs-result-main">${a.title}</span><span class="gs-result-meta">${a.category}</span></div>`).join('');
   }
   if (pages.length) {
     html += '<div class="gs-group">Pages</div>';
-    html += pages.map(pg => `<div class="gs-result" onmousedown="gsGo('page','${pg.p}')"><span class="gs-result-type">Page</span><span class="gs-result-main">${pg.l}</span><span class="gs-result-meta"></span></div>`).join('');
+    html += pages.map(pg => `<div class="gs-result" data-mousedown-action="gs.go" data-type="page" data-ref="${window.escAttr(pg.p)}"><span class="gs-result-type">Page</span><span class="gs-result-main">${pg.l}</span><span class="gs-result-meta"></span></div>`).join('');
   }
   if (!html) html = `<div class="gs-empty">No matches for "<strong style="color:var(--ink2)">${window.escHtml(q)}</strong>"</div>`;
-  else html += `<div style="padding:9px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" onmousedown="gsOpenAllResults(${JSON.stringify(q)})" style="font-size:11px;font-weight:500">See all results for "${window.escHtml(q)}" →</span></div>`;
+  else html += `<div style="padding:9px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" data-mousedown-action="gs.openAll" data-q="${window.escAttr(q)}" style="font-size:11px;font-weight:500">See all results for "${window.escHtml(q)}" →</span></div>`;
 
   results.innerHTML = html;
   results.classList.add('show');
 }
 
-export function gsGo(type, id) {
+function gsGo(type, id) {
   const input = document.getElementById('gs-input');
   const results = document.getElementById('gs-results');
   if (input) input.value = '';
   if (results) { results.classList.remove('show'); results.innerHTML = ''; }
   if (input) input.blur();
 
-  if (type === 'ticket') window.openTicket(id);
+  if (type === 'ticket') openTicket(id);
   else if (type === 'customer') window.openCustomerModal(id);
   else if (type === 'article') {
     KB_SELECTED = id;
@@ -176,7 +189,7 @@ export function gsKey(e) {
   else if (e.key === 'ArrowUp')   { e.preventDefault(); idx = Math.max(0, idx - 1); }
   else if (e.key === 'Enter')     {
     e.preventDefault();
-    if (idx >= 0) items[idx].dispatchEvent(new MouseEvent('mousedown'));
+    if (idx >= 0) items[idx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     else { gsOpenAllResults(e.target.value); }
     return;
   }
@@ -186,7 +199,7 @@ export function gsKey(e) {
   items[idx].scrollIntoView({ block: 'nearest' });
 }
 
-export function gsOpenAllResults(q) {
+function gsOpenAllResults(q) {
   const trimmed = (q || '').trim();
   if (!trimmed) return;
   const input = document.getElementById('gs-input');
@@ -194,7 +207,7 @@ export function gsOpenAllResults(q) {
   if (input) input.value = '';
   if (dd) { dd.classList.remove('show'); dd.innerHTML = ''; }
   SEARCH_PAGE_QUERY = trimmed;
-  window.navTo('search');
+  navTo('search');
 }
 
 export function renderSearchResults() {
@@ -260,7 +273,7 @@ export function renderSearchResults() {
     <div style="display:flex;flex-direction:column;gap:5px">
       ${tickets.slice(0, 50).map(t => {
         const cust = CUSTOMERS.find(c => c.id === t.customerId);
-        return `<div onclick="openTicket('${window.escAttr(t.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+        return `<div data-action="gs.openTicket" data-id="${window.escAttr(t.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
           <span class="tag tag-${t.status}" style="font-size:9px">${t.status}</span>
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${t.id}</span>
           <span style="flex:1;font-size:12.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(t.subject)}</span>
@@ -271,7 +284,7 @@ export function renderSearchResults() {
 
   const customersHtml = sectionHtml('Customers', customers, `
     <div style="display:flex;flex-direction:column;gap:5px">
-      ${customers.slice(0, 50).map(c => `<div onclick="CUSTOMER_SELECTED='${window.escAttr(c.id)}';navTo('customers')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      ${customers.slice(0, 50).map(c => `<div data-action="gs.openCustomer" data-id="${window.escAttr(c.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
         <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${c.id}</span>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(c.first + ' ' + c.last)}</span>
@@ -282,7 +295,7 @@ export function renderSearchResults() {
 
   const agentsHtml = sectionHtml('Agents', agents, `
     <div style="display:flex;flex-direction:column;gap:5px">
-      ${agents.slice(0, 50).map(a => `<div onclick="AGENT_SELECTED='${window.escAttr(a.name)}';navTo('agents')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      ${agents.slice(0, 50).map(a => `<div data-action="gs.openAgent" data-name="${window.escAttr(a.name)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
         <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(a.name)}</span>
         <span class="tag tag-neutral" style="font-size:10px">${window.escHtml(a.role)}</span>
@@ -292,7 +305,7 @@ export function renderSearchResults() {
 
   const articlesHtml = sectionHtml('Knowledge Base', articles, `
     <div style="display:flex;flex-direction:column;gap:5px">
-      ${articles.slice(0, 50).map(a => `<div onclick="KB_SELECTED='${window.escAttr(a.id)}';navTo('kb')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      ${articles.slice(0, 50).map(a => `<div data-action="gs.openKB" data-id="${window.escAttr(a.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${a.id}</span>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(a.title)}</span>
         <span class="tag tag-neutral" style="font-size:10px">${window.escHtml(a.category)}</span>
@@ -301,12 +314,12 @@ export function renderSearchResults() {
 
   const tagsHtml = sectionHtml('Tags', tags, `
     <div style="display:flex;flex-wrap:wrap;gap:6px">
-      ${tags.slice(0, 50).map(t => `<span onclick="TAG_SELECTED='${window.escAttr(t.tag)}';navTo('tags')" class="tag tag-neutral" style="font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">${window.escHtml(t.tag)}<span style="color:var(--ink3);font-family:'DM Mono',monospace">${t.count}</span></span>`).join('')}
+      ${tags.slice(0, 50).map(t => `<span data-action="gs.openTag" data-tag="${window.escAttr(t.tag)}" class="tag tag-neutral" style="font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px">${window.escHtml(t.tag)}<span style="color:var(--ink3);font-family:'DM Mono',monospace">${t.count}</span></span>`).join('')}
     </div>`);
 
   const pagesHtml = sectionHtml('Pages', pages, `
     <div style="display:flex;flex-direction:column;gap:5px">
-      ${pages.map(pg => `<div onclick="navTo('${window.escAttr(pg.p)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      ${pages.map(pg => `<div data-action="gs.nav" data-page="${window.escAttr(pg.p)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
         <span class="tag tag-neutral" style="font-size:10px">Page</span>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(pg.l)}</span>
       </div>`).join('')}
@@ -327,20 +340,42 @@ export function renderSearchResults() {
     <div class="page">
       <div class="topbar"><div class="tb-title">Search</div></div>
       <div class="filter-bar" style="gap:10px">
-        <input class="filter-select" id="search-page-input" placeholder="Search across the workspace…" style="flex:1;max-width:520px" value="${window.escHtml(SEARCH_PAGE_QUERY)}" oninput="searchPageSetQuery(this.value)" autofocus/>
+        <input class="filter-select" id="search-page-input" placeholder="Search across the workspace…" style="flex:1;max-width:520px" value="${window.escHtml(SEARCH_PAGE_QUERY)}" data-input-action="gs.setQuery" autofocus/>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${ql ? `${totalCount} result${totalCount===1?'':'s'}` : ''}</span>
       </div>
       ${ql ? `<div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
-        ${filters.map(f => `<span class="filter-tag" style="cursor:pointer;${SEARCH_PAGE_FILTER===f.k?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="SEARCH_PAGE_FILTER='${f.k}';renderPage('search')">${f.l}</span>`).join('')}
+        ${filters.map(f => `<span class="filter-tag" style="cursor:pointer;${SEARCH_PAGE_FILTER===f.k?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="gs.setFilter" data-filter="${window.escAttr(f.k)}">${f.l}</span>`).join('')}
       </div>` : ''}
       <div class="page-scroll">${body}</div>
     </div>`;
 }
 
-export function searchPageSetQuery(q) {
+function searchPageSetQuery(q) {
   SEARCH_PAGE_QUERY = q;
   window.renderPage('search');
   const input = document.getElementById('search-page-input');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
+
+// Search-results page actions. The top-bar dropdown items use mousedown
+// (fire before the #gs-input blur dismisses the dropdown); gsKey dispatches a
+// bubbling mousedown on Enter so it reaches this delegated handler.
+registerActions({
+  'gs.openTicket':   (ds) => openTicket(ds.id),
+  'gs.openCustomer': (ds) => { CUSTOMER_SELECTED = ds.id;   navTo('customers'); },
+  'gs.openAgent':    (ds) => { AGENT_SELECTED = ds.name;    navTo('agents'); },
+  'gs.openKB':       (ds) => { KB_SELECTED = ds.id;         navTo('kb'); },
+  'gs.openTag':      (ds) => { TAG_SELECTED = ds.tag;       navTo('tags'); },
+  'gs.nav':          (ds) => navTo(ds.page),
+  'gs.setFilter':    (ds) => { SEARCH_PAGE_FILTER = ds.filter; window.renderPage('search'); },
+});
+
+registerMousedownActions({
+  'gs.go':      (ds) => gsGo(ds.type, ds.ref),
+  'gs.openAll': (ds) => gsOpenAllResults(ds.q),
+});
+
+registerInputActions({
+  'gs.setQuery': (ds, el) => searchPageSetQuery(el.value),
+});
