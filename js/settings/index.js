@@ -6,11 +6,10 @@
 // in app.js because the composer and ticket sidebar also depend on it.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage, navTo, logout — all still in app.js. KB_INTEGRATION,
-// KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles
-// are bridged onto window by app.js so this module can read/mutate them.
+// renderPage, navTo, logout — all still in app.js.
 // refreshNotifBadge, setTheme, setAIKey/setAIModel, setAgentPreferredLang,
-// showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS are
+// showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
+// KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
 // direct ES imports.
 //
 // No window-bridge namespace spread: the page's inline on*= handlers are
@@ -32,6 +31,7 @@ import { refreshNotifBadge } from '../notifications/index.js';
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { COLLAPSED_SECTIONS, resetAllCollapsedSections } from '../core/collapsible.js';
+import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -683,7 +683,7 @@ async function setAutoPriorityBump(enabled) {
 }
 
 function settingsKnowledgeBase() {
-  const cfg = window.KB_INTEGRATION;
+  const cfg = KB_INTEGRATION;
   const esc = s => String(s||'').replace(/"/g,'&quot;');
   const testState = KB_TEST_STATE || null;
   return `
@@ -756,16 +756,16 @@ function settingsKnowledgeBase() {
 }
 
 function setKbCfg(key, value) {
-  window.KB_INTEGRATION[key] = value;
-  window.saveKbIntegration();
-  window.KB_TICKET_CACHE.clear();
+  KB_INTEGRATION[key] = value;
+  saveKbIntegration();
+  KB_TICKET_CACHE.clear();
 }
 
 async function testKbConnection() {
   const q = document.getElementById('kb-test-q')?.value?.trim() || 'password reset';
   KB_TEST_STATE = { query: q, loading: true };
   window.renderPage('settings');
-  const result = await window.fetchKbArticles(q);
+  const result = await fetchKbArticles(q);
   KB_TEST_STATE = { query: q, articles: result.articles || [], error: result.error || null };
   window.renderPage('settings');
 }

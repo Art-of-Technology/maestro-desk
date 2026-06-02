@@ -8,14 +8,12 @@
 // gate concurrent AI calls and disable the AI-page input) lives in
 // core/state.js so all three callers share one flag.
 //
-// buildKbQuery and fetchKbArticles still live in app.js
-// and are reached through window. onComposeInput is a direct ES import.
-// (composer inline `oninput`), buildKbQuery and fetchKbArticles are added
-// to the bridge in this PR. Once the composer + KB-integration code is
-// extracted to its own module, these become proper imports.
+// buildKbQuery and fetchKbArticles are direct ES imports from
+// kb-integration; onComposeInput is a direct import from tickets/detail.
 
 import { AI_API_KEY, callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';
+import { buildKbQuery, fetchKbArticles } from '../kb-integration/index.js';
 
 export async function aiAction(id, action) {
   // Close the AI-action menu (one-line helper; inlined to avoid a bridge entry).
@@ -47,8 +45,8 @@ export async function aiAction(id, action) {
     userMsg = `Ticket: ${t.subject}\n\n${hist}\n\nDraft a reply:`;
   } else if (action === 'kb-reply') {
     const hist = (t.msgs || []).map(m => `${m.from}: ${m.t}`).join('\n\n');
-    const query = window.buildKbQuery(t);
-    const kb = await window.fetchKbArticles(query);
+    const query = buildKbQuery(t);
+    const kb = await fetchKbArticles(query);
     if (kb.error) {
       el.value = `KB lookup failed: ${kb.error}\n\n(Check Settings → Knowledge Base.)`;
       onComposeInput(id);

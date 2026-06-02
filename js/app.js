@@ -20,10 +20,6 @@ import { renderPortal } from './portal/preview.js';
 import { renderInbox } from './inbox/index.js';
 import { renderChannels } from './channels/index.js';
 import { fireWebhook, ticketPayload, renderWebhooks } from './webhooks/index.js';
-import {
-  KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration,
-  fetchKbArticles, buildKbQuery, refreshTicketKbSuggestions,
-} from './kb-integration/index.js';
 import { showModal, closeModal } from './core/modal.js';
 import { applyCollapsibleHeaders } from './core/collapsible.js';
 import './core/dismiss.js';
@@ -78,7 +74,6 @@ import { renderCSAT } from './tickets/csat.js';
 // import here. The bridge below spreads each namespace, so the explicit
 // per-function list (~318 entries) is gone — bun dedupes the duplicate
 // imports at bundle time.
-import * as KBIntegration from './kb-integration/index.js';
 import * as Keybindings from './core/keybindings.js';
 import * as CustomerModals from './customers/modals.js';
 import { stopPresence } from './core/presence.js';
@@ -332,7 +327,6 @@ Object.assign(
     fmtMinutes, escHtml, escAttr, isAdmin,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
-  KBIntegration,
   Keybindings,
   CustomerModals,
 );
