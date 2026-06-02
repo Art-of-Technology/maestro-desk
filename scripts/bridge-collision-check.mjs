@@ -7,7 +7,6 @@ const modules = [
   ['Summarize',              '../js/ai/summarize.js'],
   ['Translate',              '../js/ai/translate.js'],
   ['AIReply',                '../js/ai/reply.js'],
-  ['TimeTracking',           '../js/tickets/time-tracking.js'],
   ['Snooze',                 '../js/tickets/snooze.js'],
   ['Linked',                 '../js/tickets/linked.js'],
   ['Mentions',               '../js/tickets/mentions.js'],
