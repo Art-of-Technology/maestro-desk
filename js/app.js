@@ -44,7 +44,7 @@ import {
   macAddStep, macRemoveStep, macStepKindChange,
   macNew, macEdit, macDelete, renderMacros,
 } from './tickets/macros.js';
-import { addMockAttachment, removeAttachment, showAttachPanel } from './tickets/attachments.js';
+import { showAttachPanel } from './tickets/attachments.js';
 import { renderAI, initAI } from './ai/page.js';
 import { renderPortal } from './portal/preview.js';
 import { renderInbox } from './inbox/index.js';
@@ -106,11 +106,7 @@ import {
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
 } from './layouts/index.js';
-import {
-  renderCustomFields,
-  cfNew, cfEdit, cfDelete, cfFormToggleOptions,
-  showManageFieldsModal,
-} from './custom-fields/index.js';
+import { renderCustomFields } from './custom-fields/index.js';
 import { renderRoles } from './roles/index.js';
 import { renderWorkflows } from './workflows/index.js';
 import { renderTags } from './tags/index.js';
@@ -160,14 +156,12 @@ import * as Snooze from './tickets/snooze.js';
 import * as Linked from './tickets/linked.js';
 import * as Mentions from './tickets/mentions.js';
 import * as Macros from './tickets/macros.js';
-import * as Attachments from './tickets/attachments.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
-import * as CustomFields from './custom-fields/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
@@ -433,11 +427,11 @@ Object.assign(
     showAgentLogin, submitAgentLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
   Snooze, Linked, Mentions,
-  Macros, Attachments,
+  Macros,
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
-  Settings, CustomFields,
+  Settings,
   CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,
