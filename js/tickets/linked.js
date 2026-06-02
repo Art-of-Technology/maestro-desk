@@ -24,6 +24,7 @@
 import { refreshTicketSLA } from './sla.js';
 import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
+import { logTicketEvent } from '../core/activity-log.js';
 import { closeModal, showModal } from '../core/modal.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
 
@@ -36,8 +37,8 @@ function linkTickets(id, otherId) {
   if (!t.linked.includes(otherId)) {
     t.linked.push(otherId);
     other.linked.push(id);
-    window.logTicketEvent(id, 'system', `Linked to ${otherId}`);
-    window.logTicketEvent(otherId, 'system', `Linked to ${id}`);
+    logTicketEvent(id, 'system', `Linked to ${otherId}`);
+    logTicketEvent(otherId, 'system', `Linked to ${id}`);
   }
   if (CURRENT_TICKET === id) openTicket(id);
 }
@@ -48,8 +49,8 @@ export function unlinkTicket(id, otherId) {
   if (!t || !other) return;
   if (t.linked) t.linked = t.linked.filter(x => x !== otherId);
   if (other.linked) other.linked = other.linked.filter(x => x !== id);
-  window.logTicketEvent(id, 'system', `Unlinked from ${otherId}`);
-  window.logTicketEvent(otherId, 'system', `Unlinked from ${id}`);
+  logTicketEvent(id, 'system', `Unlinked from ${otherId}`);
+  logTicketEvent(otherId, 'system', `Unlinked from ${id}`);
   if (CURRENT_TICKET === id) openTicket(id);
 }
 
@@ -103,12 +104,12 @@ async function mergeTickets(srcId, primaryId) {
   (src.msgs || []).forEach(m => primary.msgs.push({ ...m, mergedFrom: srcId }));
   if (src.status !== 'resolved') {
     src._statusBeforeMerge = src.status;
-    window.logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
+    logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
     src.status = 'resolved';
     refreshTicketSLA(src);
   }
-  window.logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
-  window.logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
+  logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
+  logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
   window.updateNavBadges();
   if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
   else window.renderPage('tickets');
@@ -134,13 +135,13 @@ export async function unmergeTicket(srcId) {
   // so the un-merged ticket re-enters the queue rather than staying resolved-but-active.
   const restored = src._statusBeforeMerge || 'open';
   if (src.status === 'resolved' && src.status !== restored) {
-    window.logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
+    logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
     src.status = restored;
     refreshTicketSLA(src);
   }
   delete src._statusBeforeMerge;
-  window.logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
-  if (primary) window.logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
+  logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
+  if (primary) logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
   window.updateNavBadges();
   if (CURRENT_TICKET === srcId) openTicket(srcId);
   else if (CURRENT_TICKET === primaryId) openTicket(primaryId);

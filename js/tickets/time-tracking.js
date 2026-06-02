@@ -18,6 +18,7 @@
 // (the minutes quick-preset) is delegated as tt.preset below.
 
 import { apiPost, apiDelete } from '../core/api-client.js';
+import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';
 import { registerActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -73,7 +74,7 @@ export async function addTimeEntry(ticketId, minutes, note, billable) {
     };
   }
   t.timeEntries.unshift(entry);
-  window.logTicketEvent(ticketId, 'system', `Logged ${window.fmtMinutes(m)}${entry.billable ? '' : ' (non-billable)'}${entry.note ? ' · ' + entry.note : ''}`);
+  logTicketEvent(ticketId, 'system', `Logged ${window.fmtMinutes(m)}${entry.billable ? '' : ' (non-billable)'}${entry.note ? ' · ' + entry.note : ''}`);
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
@@ -92,7 +93,7 @@ export async function removeTimeEntry(ticketId, entryId) {
     catch (err) { alert(`Couldn't remove entry: ${err?.message || err}`); return; }
   }
   t.timeEntries.splice(idx, 1);
-  window.logTicketEvent(ticketId, 'system', `Removed time entry · ${window.fmtMinutes(entry.minutes)}`);
+  logTicketEvent(ticketId, 'system', `Removed time entry · ${window.fmtMinutes(entry.minutes)}`);
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 

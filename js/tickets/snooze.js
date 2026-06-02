@@ -23,6 +23,7 @@
 // rendered by tickets/list.js but is owned here (this module owns the fn).
 
 import { refreshNotifBadge } from '../notifications/index.js';
+import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';
 import { refreshTicketSLA } from './sla.js';
 import { apiPost, apiDelete } from '../core/api-client.js';
@@ -47,7 +48,7 @@ async function snoozeTicket(id, untilIso, reason) {
   t.snoozeReason = reason || null;
   delete t.snoozeWokenAt;
   refreshTicketSLA(t);
-  window.logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
+  logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
   if (CURRENT_TICKET === id) openTicket(id);
   else window.renderPage(CURRENT_PAGE || 'tickets');
   refreshNotifBadge();
@@ -71,7 +72,7 @@ export async function unsnoozeTicket(id, viaWakeup) {
   delete t.snoozeReason;
   if (viaWakeup) t.snoozeWokenAt = new Date().toISOString();
   refreshTicketSLA(t);
-  window.logTicketEvent(id, 'system', viaWakeup ? 'Snooze elapsed — ticket woke up' : 'Snooze cleared by agent');
+  logTicketEvent(id, 'system', viaWakeup ? 'Snooze elapsed — ticket woke up' : 'Snooze cleared by agent');
   if (CURRENT_TICKET === id) openTicket(id);
   refreshNotifBadge();
 }

@@ -13,14 +13,14 @@
 // Click handlers route through core/event-delegation.js. `renderPortal` is
 // the only export consumed (app.js's router).
 //
-// External reaches (interim, via window): logTicketEvent (TODO: switch
-// to import from core/activity-log.js as a follow-on cleanup),
-// updateNavBadges, fireWebhook, ticketPayload,
-// applyAssignmentRules, renderPage, navTo, escHtml, escAttr — all
-// still in app.js. refreshTicketSLA is a direct ES import.
+// External reaches (interim, via window): updateNavBadges, fireWebhook,
+// ticketPayload, renderPage, escHtml, escAttr — all still in app.js.
+// refreshTicketSLA, applyAssignmentRules, navTo, logTicketEvent are direct
+// ES imports.
 // TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
 
 import { refreshTicketSLA } from '../tickets/sla.js';
+import { logTicketEvent } from '../core/activity-log.js';
 import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -72,7 +72,7 @@ function portalSendReply(ticketId) {
   // Reopen if the customer replies on a resolved ticket — matches typical
   // portal behaviour and lets the agent flow react to follow-ups.
   if (t.status === 'resolved') {
-    window.logTicketEvent(ticketId, 'status', `Status: resolved → open (customer reply via portal)`);
+    logTicketEvent(ticketId, 'status', `Status: resolved → open (customer reply via portal)`);
     t.status = 'open';
     refreshTicketSLA(t);
     window.updateNavBadges();
