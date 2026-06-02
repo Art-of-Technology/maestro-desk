@@ -22,6 +22,7 @@
 
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
+import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { navTo } from '../core/keybindings.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { apiPatch, apiPost } from '../core/api-client.js';
@@ -125,7 +126,7 @@ async function convertEmailToTicket(emailId) {
     fromChannelId: e.channelId,
   };
   TICKETS.unshift(newT);
-  if (!newT.agent && typeof window.applyAssignmentRules === 'function') window.applyAssignmentRules(newT);
+  if (!newT.agent) applyAssignmentRules(newT);
   refreshTicketSLA(newT);
   window.fireWebhook('ticket.created', { ...window.ticketPayload(newT), source: 'inbox', emailId: e.id });
   e.status = 'converted';

@@ -22,6 +22,7 @@
 // core/state.js the same way.
 
 import { registerActions } from '../core/event-delegation.js';
+import { isAgentOOO } from '../tickets/assignment-rules.js';
 
 let QS_OPEN = false;
 let QS_QUERY = '';
@@ -71,7 +72,7 @@ function quickSwitcherSearch(rawQ) {
   const agents = AGENTS.filter(a => match(a.name) || match(a.role)).slice(0, 6).map(a => ({
     kind: 'agent',
     label: a.name,
-    sub: `${a.role}${window.isAgentOOO?.(a.name) ? ' · OOO' : ''}`,
+    sub: `${a.role}${isAgentOOO(a.name) ? ' · OOO' : ''}`,
     payload: { agentName: a.name },
   }));
   const kbs = KB_ARTICLES.filter(a => match(a.title) || match(a.category)).slice(0, 6).map(a => ({

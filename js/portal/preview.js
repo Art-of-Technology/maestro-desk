@@ -21,6 +21,7 @@
 // TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
 
 import { refreshTicketSLA } from '../tickets/sla.js';
+import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { registerActions } from '../core/event-delegation.js';
 
 let PORTAL_CUSTOMER_ID = null;
@@ -97,7 +98,7 @@ function portalCreateTicket() {
     msgs: body ? [{ from: `${cust.first} ${cust.last}`, r: 'customer', t: body, ts: new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) }] : [],
   };
   TICKETS.unshift(newT);
-  if (typeof window.applyAssignmentRules === 'function') window.applyAssignmentRules(newT);
+  applyAssignmentRules(newT);
   refreshTicketSLA(newT);
   window.fireWebhook('ticket.created', window.ticketPayload(newT));
   window.updateNavBadges();

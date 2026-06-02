@@ -114,13 +114,7 @@ import {
   renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
 } from './reports/index.js';
 import { renderBusinessHours } from './core/business-hours.js';
-import {
-  renderAssignmentRules,
-  // isAgentOOO + applyAssignmentRules are still reached via window.X from other
-  // modules' render code (agents/profile/quick-switcher; inbox/portal) — kept as
-  // explicit bridge entries below until those callers are lifted to imports.
-  isAgentOOO, applyAssignmentRules,
-} from './tickets/assignment-rules.js';
+import { renderAssignmentRules } from './tickets/assignment-rules.js';
 import { renderTemplates } from './tickets/templates.js';
 import { renderCSAT } from './tickets/csat.js';
 
@@ -400,11 +394,7 @@ Object.assign(
     // Platform admin sign-in panel — onclick handlers in static index.html
     showPlatformAdminLogin, submitPlatformAdminLogin,
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin,
-    // Reached via window.X from other modules' render code (not inline on*=):
-    // isAgentOOO (agents/profile/quick-switcher), applyAssignmentRules
-    // (inbox/portal). Explicit entries until those callers lift to imports.
-    isAgentOOO, applyAssignmentRules },
+    showAgentLogin, submitAgentLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
   KBIntegration,
   Modal, Collapsible, Keybindings,

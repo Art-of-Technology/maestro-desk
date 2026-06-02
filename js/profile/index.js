@@ -15,9 +15,9 @@
 // these should become CSS `:hover` rules across the codebase, but that's
 // an unrelated cleanup.
 //
-// External reaches (interim, via window): escAttr, escHtml, isAgentOOO,
-// logout — all still in app.js. Cross-module function calls are direct
-// ES imports.
+// External reaches (interim, via window): escAttr, escHtml, logout — all
+// still in app.js. Cross-module function calls (showAgentOOOModal,
+// isAgentOOO, …) are direct ES imports.
 //
 // SESSION, TICKETS, AGENTS come from data.js / state.js (global lex env);
 // SETTINGS_TAB is assigned inside the registered actions (also state.js).
@@ -25,7 +25,7 @@
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
-import { showAgentOOOModal } from '../tickets/assignment-rules.js';
+import { showAgentOOOModal, isAgentOOO } from '../tickets/assignment-rules.js';
 import { setTicketView } from '../tickets/list.js';
 
 export function renderProfile() {
@@ -83,11 +83,11 @@ export function renderProfile() {
             <div style="font-size:11px;color:var(--ink3);margin-top:6px">Member since ${since}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn btn-sm" data-action="profile.editOOO">${window.isAgentOOO(SESSION.name) ? 'Edit OOO' : 'Set OOO'}</button>
+            <button class="btn btn-sm" data-action="profile.editOOO">${isAgentOOO(SESSION.name) ? 'Edit OOO' : 'Set OOO'}</button>
             <button class="btn btn-sm" data-action="profile.gotoSettings" data-tab="profile">Edit profile</button>
           </div>
         </div>
-        ${window.isAgentOOO(SESSION.name) ? (() => {
+        ${isAgentOOO(SESSION.name) ? (() => {
           const me = AGENTS.find(a => a.name === SESSION.name);
           // If a note is present, the dates go on the right; with no note,
           // the dates are the only content so we don't double-render them.

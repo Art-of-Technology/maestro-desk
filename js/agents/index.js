@@ -11,8 +11,8 @@
 // inline — pure `this.style.X = Y`, no module dep.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage, showModal, closeModal, fmtMinutes, isAgentOOO — all still
-// in app.js. navTo, openTicket, showAgentOOOModal, reassignAgent,
+// renderPage, showModal, closeModal, fmtMinutes — all still in app.js.
+// navTo, openTicket, showAgentOOOModal, isAgentOOO, reassignAgent,
 // setAgentActive, deleteAgentPrompt are direct ES imports.
 //
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
@@ -22,7 +22,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
-import { showAgentOOOModal } from '../tickets/assignment-rules.js';
+import { showAgentOOOModal, isAgentOOO } from '../tickets/assignment-rules.js';
 import { reassignAgent, setAgentActive, deleteAgentPrompt } from '../roles/index.js';
 
 let AGENT_FILTER_ROLE = 'all';
@@ -66,7 +66,7 @@ export function renderAgents() {
 
   const cards = list.map(a => {
     const s = getAgentStats(a.name);
-    const ooo = window.isAgentOOO(a.name);
+    const ooo = isAgentOOO(a.name);
     return `
       <div class="agent-card ${a.active?'':'inactive'}" data-action="agents.openDetail" data-name="${window.escAttr(a.name)}">
         <div class="agent-card-head">
@@ -273,21 +273,21 @@ function renderAgentDetail(name) {
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${a.name}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:2px">${a.role}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>
           </div>
-          ${window.isAgentOOO(a.name)
+          ${isAgentOOO(a.name)
             ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + window.escHtml(a.oooTo) : ''}</span>`
             : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>`}
           ${admin || (SESSION && SESSION.name === a.name) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             ${admin ? `<select class="filter-select" data-change-action="agents.reassign" data-name="${window.escAttr(a.name)}" style="font-size:12px">
               ${allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('')}
             </select>` : ''}
-            <button class="btn btn-sm" data-action="agents.editOOO" data-name="${window.escAttr(a.name)}">${window.isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
+            <button class="btn btn-sm" data-action="agents.editOOO" data-name="${window.escAttr(a.name)}">${isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
             ${admin ? (a.active
               ? `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
               : `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`) : ''}
             ${admin ? `<button class="btn btn-sm btn-danger" data-action="agents.delete" data-name="${window.escAttr(a.name)}">Delete</button>` : ''}
           </div>` : ''}
         </div>
-        ${window.isAgentOOO(a.name) ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
+        ${isAgentOOO(a.name) ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px;color:var(--amber);display:flex;gap:10px;align-items:center">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:11px">Out of office</span>
           ${a.oooNote ? `<span style="color:var(--ink2);font-style:italic">${window.escHtml(a.oooNote)}</span>` : ''}
           <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(a.oooFrom)}${a.oooTo ? ' → ' + window.escHtml(a.oooTo) : ''}</span>
