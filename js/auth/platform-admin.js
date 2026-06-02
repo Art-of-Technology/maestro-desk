@@ -17,14 +17,15 @@
 
 import { platformAdminSignIn, rehydrateUser, signOut, isPlatformAdmin } from '../core/auth-client.js';
 import { showAuthPanel } from './index.js';
+import { registerActions } from '../core/event-delegation.js';
 
-export function showPlatformAdminLogin() {
+function showPlatformAdminLogin() {
   showAuthPanel('platform-admin');
   const errEl = document.getElementById('pa-error');
   if (errEl) errEl.style.display = 'none';
 }
 
-export async function submitPlatformAdminLogin() {
+async function submitPlatformAdminLogin() {
   const email = document.getElementById('pa-email')?.value.trim() || '';
   const pw    = document.getElementById('pa-password')?.value || '';
   const errEl = document.getElementById('pa-error');
@@ -77,3 +78,13 @@ export async function autoResumePlatformAdmin() {
   window.nav('god', document.getElementById('nav-god'));
   return true;
 }
+
+registerActions({
+  // static index.html platform-admin sign-in panel
+  'auth.showPlatform':   () => showPlatformAdminLogin(),
+  'auth.submitPlatform': () => submitPlatformAdminLogin(),
+});
+
+// Enter-to-submit on the (static) platform-admin password field.
+document.getElementById('pa-password')
+  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitPlatformAdminLogin(); });

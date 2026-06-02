@@ -31,7 +31,7 @@ import { showAuthPanel } from './index.js';
 let _memberships = null;
 let _user = null;
 
-export function showAgentLogin() {
+function showAgentLogin() {
   showAuthPanel('agent');
   resetAgentPanel();
 }
@@ -44,7 +44,7 @@ function resetAgentPanel() {
   const pickEl = document.getElementById('ag-picker');   if (pickEl) pickEl.style.display = 'none';
 }
 
-export async function submitAgentLogin() {
+async function submitAgentLogin() {
   const email = document.getElementById('ag-email')?.value.trim() || '';
   const pw    = document.getElementById('ag-password')?.value || '';
   const errEl = document.getElementById('ag-error');
@@ -116,7 +116,14 @@ function pickAgentWorkspace(ds) {
 
 registerActions({
   'agent.pickWorkspace': (ds) => pickAgentWorkspace(ds),
+  // static index.html auth screen
+  'auth.showAgent':   () => showAgentLogin(),
+  'auth.submitAgent': () => submitAgentLogin(),
 });
+
+// Enter-to-submit on the (static) agent-login password field.
+document.getElementById('ag-password')
+  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAgentLogin(); });
 
 async function enterWorkspace(m) {
   if (m.suspended) {
