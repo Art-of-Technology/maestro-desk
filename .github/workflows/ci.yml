@@ -1,0 +1,55 @@
+name: CI
+
+# Runs the bridge/render guards on every PR and on pushes to main. These are
+# the same checks documented in scripts/ and in the module-split notes; until
+# now they were manual-only, which is how the #273 (open-ticket crash) and the
+# #275–#279 window-reach bugs reached main. CI makes them automatic gates.
+#
+# No package.json — this is a static SPA bundled with `bun build`. state.js and
+# data.js are classic <script>s, so the smokes concatenate them ahead of the
+# bundle in one script scope (see scripts/bridge-smoke-shim-prefix.js).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    name: build + collision + smokes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Bundle build (app.js)
+        run: bun build js/app.js > scripts/app.bundled.js
+
+      - name: Bridge collision check
+        run: bun scripts/bridge-collision-check.mjs
+
+      - name: Route smoke — every route renders
+        run: |
+          cat scripts/bridge-smoke-shim-prefix.js \
+              js/core/state.js js/core/data.js \
+              scripts/app.bundled.js \
+              scripts/bridge-smoke-shim-suffix.js > scripts/full-smoke.js
+          bun scripts/full-smoke.js
+
+      - name: Detail-render smoke — openTicket every demo ticket
+        run: |
+          bun build scripts/detail-smoke-entry.js > scripts/detail-entry.bundled.js
+          cat scripts/bridge-smoke-shim-prefix.js \
+              js/core/state.js js/core/data.js \
+              scripts/detail-entry.bundled.js \
+              scripts/detail-smoke-suffix.js > scripts/detail-smoke.js
+          bun scripts/detail-smoke.js
