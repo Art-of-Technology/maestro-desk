@@ -11,10 +11,6 @@ import {
 } from './ai/translate.js';
 import { aiAction } from './ai/reply.js';
 import {
-  ticketTotalMinutes, ticketBillableMinutes,
-  addTimeEntry, removeTimeEntry, showLogTimeModal,
-} from './tickets/time-tracking.js';
-import {
   snoozeTicket, unsnoozeTicket, checkSnoozeWakeups,
   formatSnoozeUntil, snoozePresetIso,
   showSnoozeModal, bulkSnoozeTickets,
@@ -160,7 +156,6 @@ import * as AIClient from './ai/client.js';
 import * as Summarize from './ai/summarize.js';
 import * as Translate from './ai/translate.js';
 import * as AIReply from './ai/reply.js';
-import * as TimeTracking from './tickets/time-tracking.js';
 import * as Snooze from './tickets/snooze.js';
 import * as Linked from './tickets/linked.js';
 import * as Mentions from './tickets/mentions.js';
@@ -437,7 +432,7 @@ Object.assign(
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
     showAgentLogin, submitAgentLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
-  TimeTracking, Snooze, Linked, Mentions,
+  Snooze, Linked, Mentions,
   Macros, Attachments,
   KBIntegration,
   Modal, Collapsible, Keybindings,
