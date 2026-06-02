@@ -41,7 +41,7 @@ import {
   applyCollapsibleHeaders, resetAllCollapsedSections,
 } from './core/collapsible.js';
 import './core/dismiss.js';
-import './core/event-delegation.js';
+import { registerActions } from './core/event-delegation.js';
 import { navTo, focusGlobalSearch } from './core/keybindings.js';
 import { renderProfile } from './profile/index.js';
 import { renderAgents } from './agents/index.js';
@@ -379,6 +379,14 @@ Object.assign(
   Collapsible, Keybindings,
   CustomerModals,
 );
+
+// Static index.html shell handlers (sidebar nav items + the sign-out foot).
+// nav/logout stay on the bridge above too — they're app-local bootstrap that
+// other modules still reach via window.nav / window.logout.
+registerActions({
+  'app.nav':    (ds, el) => nav(ds.page, el),
+  'app.logout': () => logout(),
+});
 
 // ─── Startup: resume a real-auth session if one is in sessionStorage ───
 // Agent resume wins if a workspace_id is stored — that's the user's
