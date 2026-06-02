@@ -133,7 +133,7 @@ function closeNotifAndGo() {
   navTo('notifications');
 }
 
-export function toggleNotifications() {
+function toggleNotifications() {
   const dd = document.getElementById('notif-dropdown');
   const btn = document.getElementById('notif-btn');
   if (!dd) return;
@@ -266,6 +266,8 @@ export function renderNotificationsPage() {
 }
 
 registerActions({
+  // top-bar bell button in static index.html
+  'notif.toggle':          () => toggleNotifications(),
   'notif.openFromPage':    (ds) => openNotificationFromPage(ds.notifId, ds.ticketId),
   'notif.markRead':        (ds) => markNotifRead(ds.notifId),
   'notif.dismiss':         (ds) => dismissNotif(ds.notifId),

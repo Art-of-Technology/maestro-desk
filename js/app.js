@@ -45,7 +45,7 @@ import './core/event-delegation.js';
 import { navTo, focusGlobalSearch } from './core/keybindings.js';
 import { renderProfile } from './profile/index.js';
 import { renderAgents } from './agents/index.js';
-import { toggleProfileMenu, profileMenuGo } from './profile-menu/index.js';
+import './profile-menu/index.js';  // side-effect: registers profmenu.* actions for the static top-bar dropdown
 import {
   renderSearchResults,
   // globalSearch + gsKey: the static index.html top-bar search input calls
@@ -58,9 +58,7 @@ import {
   submitLogin, submitForgot, submitCreate, updatePwStrength,
 } from './auth/index.js';
 import { renderTicketTemplates } from './ticket-templates/index.js';
-import {
-  refreshNotifBadge, renderNotificationsPage, toggleNotifications,
-} from './notifications/index.js';
+import { refreshNotifBadge, renderNotificationsPage } from './notifications/index.js';
 import { renderKB } from './kb/index.js';
 import { renderHelp } from './help/index.js';
 import { renderGod } from './god/index.js';
@@ -366,8 +364,6 @@ Object.assign(
   { login, logout, nav, renderPage, updateNavBadges, applyWorkspaceBrand, resetWorkspaceBrand,
     fmtMinutes, escHtml, escAttr, isAdmin,
     // Single-fn entries: callers in static index.html (sidebar/auth/top-bar)
-    toggleNotifications,
-    toggleProfileMenu, profileMenuGo,
     showAuthPanel, togglePassword, ssoLogin,
     submitLogin, submitForgot, submitCreate, updatePwStrength,
     // Platform admin sign-in panel — onclick handlers in static index.html

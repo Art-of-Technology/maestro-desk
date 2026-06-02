@@ -6,12 +6,14 @@
 //
 // External reaches (interim, via window): navTo, logout — still in app.js.
 //
-// showTranslatorModal is imported directly from ai/translate.js since it's
-// already a proper export there.
+// showTranslatorModal is imported directly from ai/translate.js. The dropdown
+// markup in static index.html dispatches profmenu.toggle / profmenu.go
+// (data-target) — registered below; neither function is exported any more.
 
 import { showTranslatorModal } from '../ai/translate.js';
+import { registerActions } from '../core/event-delegation.js';
 
-export function toggleProfileMenu() {
+function toggleProfileMenu() {
   const dd = document.getElementById('profile-dropdown');
   const btn = document.getElementById('profile-btn');
   if (!dd) return;
@@ -19,7 +21,7 @@ export function toggleProfileMenu() {
   else { dd.classList.add('show'); btn?.classList.add('active'); }
 }
 
-export function profileMenuGo(action) {
+function profileMenuGo(action) {
   document.getElementById('profile-dropdown')?.classList.remove('show');
   document.getElementById('profile-btn')?.classList.remove('active');
   if (action === 'profile')        { window.navTo('profile'); }
@@ -28,3 +30,8 @@ export function profileMenuGo(action) {
   else if (action === 'translator'){ showTranslatorModal(''); }
   else if (action === 'signout')   { window.logout(); }
 }
+
+registerActions({
+  'profmenu.toggle': () => toggleProfileMenu(),
+  'profmenu.go':     (ds) => profileMenuGo(ds.target),
+});

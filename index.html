@@ -317,14 +317,14 @@
       </div>
       <div class="gs-actions">
         <div class="notif-wrap">
-          <button class="notif-btn" id="notif-btn" onclick="toggleNotifications()" title="Notifications">
+          <button class="notif-btn" id="notif-btn" data-action="notif.toggle" title="Notifications">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 6a4 4 0 1 1 8 0c0 3 1 4.5 1 4.5H2s1-1.5 1-4.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 11.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
             <span class="notif-badge" id="notif-badge">0</span>
           </button>
           <div class="notif-dropdown" id="notif-dropdown"></div>
         </div>
         <div class="profile-wrap">
-          <button class="profile-btn" id="profile-btn" onclick="toggleProfileMenu()">
+          <button class="profile-btn" id="profile-btn" data-action="profmenu.toggle">
             <div class="pf-av" id="pf-av-sm">EC</div>
             <span class="pf-name-sm" id="pf-name-sm">Emma Clarke</span>
             <span class="pf-chev">▾</span>
@@ -338,24 +338,24 @@
               </div>
             </div>
             <div class="profile-menu">
-              <div class="profile-menu-item" onclick="profileMenuGo('profile')">
+              <div class="profile-menu-item" data-action="profmenu.go" data-target="profile">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="4" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M2 11c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
                 My profile
               </div>
-              <div class="profile-menu-item" onclick="profileMenuGo('settings')">
+              <div class="profile-menu-item" data-action="profmenu.go" data-target="settings">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="1.6" stroke="currentColor" stroke-width="1.2"/><path d="M6 1.5v1.4M6 9.1v1.4M10.5 6h-1.4M2.9 6H1.5M9.2 9.2l-1-1M3.8 3.8l-1-1M9.2 2.8l-1 1M3.8 8.2l-1 1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
                 Settings
               </div>
-              <div class="profile-menu-item" onclick="profileMenuGo('help')">
+              <div class="profile-menu-item" data-action="profmenu.go" data-target="help">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 4.7c0-.9.7-1.6 1.5-1.6.9 0 1.5.7 1.5 1.5 0 .9-1.5 1-1.5 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.8" r=".6" fill="currentColor"/></svg>
                 Help & Support
               </div>
-              <div class="profile-menu-item" onclick="profileMenuGo('translator')">
+              <div class="profile-menu-item" data-action="profmenu.go" data-target="translator">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 3h5M3.5 2v1M2 3c0 2.5 1.5 4 4 4M5 3c0 1.5-2 3.5-4 4.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><path d="M5.5 11l2-5 2 5M6 9.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Translator
               </div>
               <div class="profile-menu-divider"></div>
-              <div class="profile-menu-item danger" onclick="profileMenuGo('signout')">
+              <div class="profile-menu-item danger" data-action="profmenu.go" data-target="signout">
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M5 2H2v8h3M7 4l2 2-2 2M9 6H4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 Sign out
               </div>
