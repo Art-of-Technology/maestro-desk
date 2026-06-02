@@ -9,8 +9,18 @@
 // state (MENTION_DD_*); it manipulates the DOM directly via #mention-dd.
 //
 // External reach (interim, via window): escHtml, escAttr, onComposeInput
-// still live in app.js. AGENTS and SESSION come from data.js + state.js
-// via the global lexical env.
+// still live in app.js (onComposeInput is a tickets/detail.js export bridged
+// through window — reverts when detail.js retires). AGENTS and SESSION come
+// from data.js + state.js via the global lexical env.
+//
+// No window-bridge namespace: parse/render + the dropdown lifecycle
+// (updateMentionDropdown/hideMentionDropdown/mentionDropdownKey) are
+// consumed by tickets/detail.js via direct ES import. The dropdown items'
+// only inline handler is delegated as mentions.insert below — kept on
+// `mousedown` (not click) so it fires before the compose textarea's
+// focusout hides the dropdown (detail.js delays hide by 150ms).
+
+import { registerMousedownActions } from '../core/event-delegation.js';
 
 export function parseMentions(text) {
   const out = [];
@@ -97,7 +107,7 @@ function showMentionDropdown(ticketId, el, matches, query) {
     dd.innerHTML = `<div class="mention-dd-empty">No agents match "${window.escHtml(query)}"</div>`;
   } else {
     dd.innerHTML = matches.map((name, i) => `
-      <div class="mention-dd-item ${i === MENTION_DD_ACTIVE_INDEX ? 'active' : ''}" onmousedown="insertMention('${window.escAttr(ticketId)}', ${i})">
+      <div class="mention-dd-item ${i === MENTION_DD_ACTIVE_INDEX ? 'active' : ''}" data-mousedown-action="mentions.insert" data-ticket-id="${window.escAttr(ticketId)}" data-idx="${i}">
         <span style="width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--w);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;flex-shrink:0">${window.escHtml(name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase())}</span>
         <span>${window.escHtml(name)}</span>
       </div>`).join('');
@@ -115,7 +125,7 @@ export function hideMentionDropdown() {
   MENTION_DD_MATCHES = [];
 }
 
-export function insertMention(ticketId, idx) {
+function insertMention(ticketId, idx) {
   const name = MENTION_DD_MATCHES[idx];
   const el = document.getElementById('compose-' + ticketId);
   if (!el || !name) return;
@@ -163,3 +173,7 @@ function updateMentionDDActive() {
   const items = document.querySelectorAll('#mention-dd .mention-dd-item');
   items.forEach((el, i) => el.classList.toggle('active', i === MENTION_DD_ACTIVE_INDEX));
 }
+
+registerMousedownActions({
+  'mentions.insert': (ds) => insertMention(ds.ticketId, parseInt(ds.idx, 10)),
+});

@@ -10,7 +10,6 @@ const modules = [
   ['TimeTracking',           '../js/tickets/time-tracking.js'],
   ['Snooze',                 '../js/tickets/snooze.js'],
   ['Linked',                 '../js/tickets/linked.js'],
-  ['Mentions',               '../js/tickets/mentions.js'],
   ['Macros',                 '../js/tickets/macros.js'],
   ['Attachments',            '../js/tickets/attachments.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
