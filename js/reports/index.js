@@ -16,7 +16,7 @@
 // TICKETS comes from data.js via the global lexical env; REPORT_LAYOUT
 // comes from core/state.js the same way.
 
-import { renderWidgetGrid } from '../core/widget-shell.js';
+import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -323,6 +323,8 @@ export function renderReports() {
 registerActions({
   'reports.export': () => exportReport(),
 });
+
+registerWidgetCatalog('report', REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT);
 
 registerChangeActions({
   'reports.setTF': (ds, el) => setReportTF(el.value),

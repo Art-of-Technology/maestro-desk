@@ -405,12 +405,7 @@ Object.assign(
     // Platform admin sign-in panel — onclick handlers in static index.html
     showPlatformAdminLogin, submitPlatformAdminLogin,
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin,
-    // Widget catalogs: core/widget-shell.js reads window.DASH_WIDGETS /
-    // window.DEFAULT_DASH_LAYOUT by scope (the generic shell doesn't import
-    // the per-page catalogs). Kept window-reachable after the Dashboard
-    // namespace retired.
-    DASH_WIDGETS, DEFAULT_DASH_LAYOUT },
+    showAgentLogin, submitAgentLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
   Macros,
   KBIntegration,

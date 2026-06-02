@@ -12,16 +12,16 @@
 // No window-bridge namespace: the inline on*= handlers are delegated as
 // dash.* actions (see the registerActions block at the bottom).
 // openAgentFromDash stays exported — roles/index.js imports it directly
-// (roles.openAgent). DASH_WIDGETS / DEFAULT_DASH_LAYOUT stay exported AND
-// stay window-reachable via explicit entries on the app.js bridge, because
-// core/widget-shell.js reads window.DASH_WIDGETS by scope.
+// (roles.openAgent). DASH_WIDGETS / DEFAULT_DASH_LAYOUT stay exported (app.js
+// hydrates the layout from them) and are registered with the widget shell via
+// registerWidgetCatalog('dash', …) at the bottom — no window exposure.
 //
 // TICKETS, AGENTS, WORKFLOWS, KB_ARTICLES, CUSTOMERS come from data.js via
 // the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, CUSTOMER_SELECTED,
 // DASH_LAYOUT come from core/state.js the same way.
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
-import { renderWidgetGrid } from '../core/widget-shell.js';
+import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { computeReportStats } from '../reports/index.js';
 import { navTo } from '../core/keybindings.js';
@@ -369,6 +369,8 @@ export function renderDashboard() {
       </div>
     </div>`;
 }
+
+registerWidgetCatalog('dash', DASH_WIDGETS, DEFAULT_DASH_LAYOUT);
 
 registerActions({
   'dash.nav':          (ds) => navTo(ds.page),

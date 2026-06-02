@@ -12,15 +12,29 @@
 // rather than in the shared harness.
 //
 // External reaches (interim, via window): escAttr, escHtml, renderPage —
-// app.js utilities. DASH_WIDGETS / DEFAULT_DASH_LAYOUT come from
-// `js/dashboard/index.js` (re-bridged through app.js); REPORT_WIDGETS /
-// DEFAULT_REPORT_LAYOUT come from app.js (still alongside Reports).
+// app.js utilities.
+//
+// Widget catalogs (the per-page widget definitions + default layout) are
+// pushed in by the owning page module at load time via
+// registerWidgetCatalog(scope, ...): dashboard registers 'dash', reports
+// registers 'report'. This keeps the generic shell from importing the
+// per-page catalogs (which would invert the dependency / cycle) and removes
+// the old reliance on window.DASH_WIDGETS / window.REPORT_WIDGETS.
 //
 // DASH_LAYOUT and REPORT_LAYOUT live in core/state.js so this module and
 // app.js (top-level hydration + reports renderers) share one binding.
 
 import { showModal, closeModal } from './modal.js';
 import { registerActions, registerChangeActions } from './event-delegation.js';
+
+// scope ('dash' | 'report') → { widgets, defaultLayout }
+const _CATALOGS = Object.create(null);
+
+export function registerWidgetCatalog(scope, widgets, defaultLayout) {
+  _CATALOGS[scope] = { widgets, defaultLayout };
+}
+function catalogWidgets(scope)       { return _CATALOGS[scope]?.widgets || []; }
+function catalogDefaultLayout(scope) { return _CATALOGS[scope]?.defaultLayout; }
 
 export function loadLayout(key, fallback) {
   // Always deep-clone the fallback so any mutation through the returned
@@ -185,7 +199,8 @@ function setWidgetChart(scope, id, chartType) {
 }
 function resetWidgetLayout(scope) {
   const isDash = scope === 'dash';
-  const src = isDash ? window.DEFAULT_DASH_LAYOUT : window.DEFAULT_REPORT_LAYOUT;
+  const src = catalogDefaultLayout(scope);
+  if (!src) return;
   const layout = { order: [...src.order], hidden: [...src.hidden], charts: { ...src.charts } };
   if (isDash) DASH_LAYOUT = layout; else REPORT_LAYOUT = layout;
   saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
@@ -195,7 +210,7 @@ function resetWidgetLayout(scope) {
 
 function showWidgetMenu(anchor, scope, id, kind) {
   document.querySelectorAll('.widget-menu').forEach(el => el.remove());
-  const widgets = scope === 'dash' ? window.DASH_WIDGETS : window.REPORT_WIDGETS;
+  const widgets = catalogWidgets(scope);
   const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   const w = widgets.find(x => x.id === id);
   if (!w || kind !== 'chart' || !w.charts) return;
@@ -217,7 +232,7 @@ function showWidgetMenu(anchor, scope, id, kind) {
 }
 
 function showManageWidgetsModal(scope) {
-  const widgets = scope === 'dash' ? window.DASH_WIDGETS : window.REPORT_WIDGETS;
+  const widgets = catalogWidgets(scope);
   const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   const body = widgets.map(w => {
     const visible = !layout.hidden.includes(w.id);
