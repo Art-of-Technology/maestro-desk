@@ -47,21 +47,14 @@ import { renderProfile } from './profile/index.js';
 import { renderAgents } from './agents/index.js';
 import './profile-menu/index.js';  // side-effect: registers profmenu.* actions for the static top-bar dropdown
 import { renderSearchResults, initGlobalSearchInput } from './global-search/index.js';
-import {
-  showAuthPanel, togglePassword, ssoLogin,
-  submitLogin, submitForgot, submitCreate, updatePwStrength,
-} from './auth/index.js';
+import './auth/index.js';  // side-effect: registers auth.* actions for the static auth screen
 import { renderTicketTemplates } from './ticket-templates/index.js';
 import { refreshNotifBadge, renderNotificationsPage } from './notifications/index.js';
 import { renderKB } from './kb/index.js';
 import { renderHelp } from './help/index.js';
 import { renderGod } from './god/index.js';
-import {
-  showPlatformAdminLogin, submitPlatformAdminLogin, autoResumePlatformAdmin,
-} from './auth/platform-admin.js';
-import {
-  showAgentLogin, submitAgentLogin, autoResumeAgent,
-} from './auth/agent-login.js';
+import { autoResumePlatformAdmin } from './auth/platform-admin.js';
+import { autoResumeAgent } from './auth/agent-login.js';
 import { signOut as authSignOut } from './core/auth-client.js';
 import {
   renderSettings,
@@ -357,13 +350,6 @@ Object.assign(
   window,
   { login, logout, nav, renderPage, updateNavBadges, applyWorkspaceBrand, resetWorkspaceBrand,
     fmtMinutes, escHtml, escAttr, isAdmin,
-    // Single-fn entries: callers in static index.html (sidebar/auth/top-bar)
-    showAuthPanel, togglePassword, ssoLogin,
-    submitLogin, submitForgot, submitCreate, updatePwStrength,
-    // Platform admin sign-in panel — onclick handlers in static index.html
-    showPlatformAdminLogin, submitPlatformAdminLogin,
-    // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
   Theme, AIClient, Summarize, Translate, AIReply,
@@ -378,6 +364,8 @@ Object.assign(
 registerActions({
   'app.nav':    (ds, el) => nav(ds.page, el),
   'app.logout': () => logout(),
+  // demo-persona quick-login buttons on the static auth screen
+  'app.login':  (ds) => login(ds.role, ds.name, ds.initials),
 });
 
 // Wire the static top-bar search input (#gs-input) — its input/focus/keydown

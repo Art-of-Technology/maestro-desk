@@ -5,11 +5,16 @@
 // which lives in app.js and owns the app-shell setup (sidebar avatar,
 // SLA refresh, snooze polling, dashboard render).
 //
-// External reaches (interim, via window): login — still in app.js.
+// External reaches (interim, via window): login — still in app.js (app-local
+// bootstrap; ssoLogin/submitLogin call window.login).
 //
-// The auth screen DOM lives in index.html (#auth-screen + the three
-// #auth-{login,forgot,create} panels); this module never touches anything
-// outside that subtree.
+// The auth screen DOM lives in static index.html; its inline handlers are
+// delegated as auth.* actions (registered below). showAuthPanel stays
+// exported (agent-login + platform-admin import it); the rest are
+// module-internal. The login-password Enter-to-submit keydown is wired
+// programmatically at the bottom (sparse event on a static element).
+
+import { registerActions, registerInputActions } from '../core/event-delegation.js';
 
 export function showAuthPanel(panel) {
   ['login','forgot','create','platform-admin','agent'].forEach(p => {
@@ -24,12 +29,12 @@ export function showAuthPanel(panel) {
 
 function isValidEmail(e) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); }
 
-export function togglePassword(id) {
+function togglePassword(id) {
   const el = document.getElementById(id); if (!el) return;
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
-export function ssoLogin(provider) {
+function ssoLogin(provider) {
   const presets = {
     google:    { name: 'Sofia Reyes',  initials: 'SR', role: 'Senior Agent' },
     microsoft: { name: 'James Webb',   initials: 'JW', role: 'Senior Agent' },
@@ -48,7 +53,7 @@ function deriveNameFromEmail(email) {
   return { name: (first + ' ' + last).trim(), initials: ((first[0]||'') + (last[0]||'')).toUpperCase() || first[0] };
 }
 
-export function submitLogin() {
+function submitLogin() {
   const email = document.getElementById('login-email').value.trim();
   const pw    = document.getElementById('login-password').value;
   const errEl = document.getElementById('login-error');
@@ -60,7 +65,7 @@ export function submitLogin() {
   window.login('Senior Agent', name, initials);
 }
 
-export function submitForgot() {
+function submitForgot() {
   const email = document.getElementById('forgot-email')?.value.trim() || '';
   const c = document.getElementById('forgot-confirm');
   if (!isValidEmail(email)) {
@@ -81,7 +86,7 @@ function pwScore(pw) {
   return s;
 }
 
-export function updatePwStrength(pw) {
+function updatePwStrength(pw) {
   const wrap = document.getElementById('pw-strength-wrap');
   const bar  = document.getElementById('pw-strength-bar');
   const text = document.getElementById('pw-strength-text');
@@ -97,7 +102,7 @@ export function updatePwStrength(pw) {
   text.style.color = colors[score];
 }
 
-export function submitCreate() {
+function submitCreate() {
   const first = document.getElementById('ca-first').value.trim();
   const last  = document.getElementById('ca-last').value.trim();
   const email = document.getElementById('ca-email').value.trim();
@@ -113,3 +118,21 @@ export function submitCreate() {
   if (!terms)                  { errEl.textContent = 'Please accept the terms.';              errEl.style.display = 'block'; return; }
   okEl.style.display = 'block';
 }
+
+registerActions({
+  'auth.ssoLogin':     (ds) => ssoLogin(ds.provider),
+  'auth.togglePw':     (ds) => togglePassword(ds.target),
+  'auth.showPanel':    (ds) => showAuthPanel(ds.panel),
+  'auth.submitLogin':  () => submitLogin(),
+  'auth.submitForgot': () => submitForgot(),
+  'auth.submitCreate': () => submitCreate(),
+});
+
+registerInputActions({
+  'auth.pwStrength': (ds, el) => updatePwStrength(el.value),
+});
+
+// Enter-to-submit on the (static) login password field. Sparse keydown event
+// on a single always-present element → wired directly, not via the harness.
+document.getElementById('login-password')
+  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(); });
