@@ -19,6 +19,7 @@
 import { AI_API_KEY, callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';
+import { registerActions } from '../core/event-delegation.js';
 
 export let AGENT_PREFERRED_LANG = localStorage.getItem('agent_preferred_lang') || 'English';
 
@@ -159,14 +160,14 @@ export function showTranslatorModal(prefillText) {
         <select class="form-input" id="tx-target">${langs}</select>
       </div>
       <div class="form-row" style="display:flex;align-items:flex-end">
-        <button class="btn btn-solid" onclick="runTranslator()" style="width:100%;justify-content:center">Translate</button>
+        <button class="btn btn-solid" data-action="tx.run" style="width:100%;justify-content:center">Translate</button>
       </div>
     </div>
     <div id="tx-result-wrap" style="display:none">
       <div class="form-label" style="margin-top:6px">Result</div>
       <div id="tx-result" style="padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);font-size:13px;color:var(--ink);line-height:1.6;white-space:pre-wrap;min-height:80px;transition:background .3s"></div>
       <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
-        <button class="btn btn-sm" onclick="copyTxResult()">Copy</button>
+        <button class="btn btn-sm" data-action="tx.copy">Copy</button>
         <span id="tx-status" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)"></span>
       </div>
     </div>
@@ -174,7 +175,7 @@ export function showTranslatorModal(prefillText) {
   `, null, null);
 }
 
-export async function runTranslator() {
+async function runTranslator() {
   const src    = document.getElementById('tx-src')?.value || '';
   const target = document.getElementById('tx-target')?.value || 'English';
   const wrap   = document.getElementById('tx-result-wrap');
@@ -203,7 +204,7 @@ export async function runTranslator() {
   }
 }
 
-export function copyTxResult() {
+function copyTxResult() {
   const result = document.getElementById('tx-result');
   const status = document.getElementById('tx-status');
   if (!result) return;
@@ -235,3 +236,10 @@ export function copyTxResult() {
     flash('Copy not supported — select the text and use Ctrl+C');
   }
 }
+
+// The standalone Translator modal's two buttons. The modal HTML is injected by
+// showModal, so document-level click delegation catches these.
+registerActions({
+  'tx.run':  () => runTranslator(),
+  'tx.copy': () => copyTxResult(),
+});

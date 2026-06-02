@@ -1,12 +1,4 @@
 import { THEME, applyTheme } from './core/theme.js';
-import {
-  AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
-  translateText, translateMessage, hideMessageTranslation,
-  detectLanguage, detectAndTranslateThread,
-  toggleThreadTranslate, toggleAutoTranslateReplies,
-  setCustomerLanguage, setAgentPreferredLang,
-  showTranslatorModal, runTranslator, copyTxResult,
-} from './ai/translate.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
 import {
   SLA_WARN_FRACTION, BUSINESS_HOURS,
@@ -89,7 +81,6 @@ import { renderCSAT } from './tickets/csat.js';
 // import here. The bridge below spreads each namespace, so the explicit
 // per-function list (~318 entries) is gone — bun dedupes the duplicate
 // imports at bundle time.
-import * as Translate from './ai/translate.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
@@ -345,7 +336,6 @@ Object.assign(
     fmtMinutes, escHtml, escAttr, isAdmin,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
-  Translate,
   KBIntegration,
   Collapsible, Keybindings,
   CustomerModals,

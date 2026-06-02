@@ -2,7 +2,6 @@
 // name that appears in more than one module. Run with `bun scripts/bridge-collision-check.mjs`.
 
 const modules = [
-  ['Translate',              '../js/ai/translate.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
   ['Collapsible',            '../js/core/collapsible.js'],
   ['Keybindings',            '../js/core/keybindings.js'],
