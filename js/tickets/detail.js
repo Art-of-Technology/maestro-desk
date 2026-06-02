@@ -44,7 +44,7 @@ import {
 } from './mentions.js';
 import { loadDraft, saveDraft, clearDraft } from './drafts.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
-import { showApplyMacroModal } from './macros.js';
+import { showMacroPanel, showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
