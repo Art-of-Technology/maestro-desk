@@ -26,18 +26,23 @@ if (typeof TICKETS === 'undefined' || !Array.isArray(TICKETS) || TICKETS.length 
 console.log(`init OK — bridge populated, ${TICKETS.length} demo tickets`);
 
 let _failed = 0;
+let _firstStack = null;
 for (const _t of TICKETS) {
   try {
     globalThis.__openTicket(_t.id);
     console.log(`  openTicket('${_t.id}') [${_t.status}] OK`);
   } catch (e) {
     _failed++;
-    console.error(`  openTicket('${_t.id}') FAILED: ${e.message}`);
+    if (!_firstStack) _firstStack = e.stack || String(e);
+    console.error(`  openTicket('${_t.id}') [${_t.status}] FAILED: ${e.message}`);
   }
 }
 
 if (_failed > 0) {
   console.error(`\n${_failed}/${TICKETS.length} ticket detail renders failed`);
+  // Print one stack (they're usually the same dead-reference) so the failing
+  // file:line is right there — e.g. the #273 bug pointed at detail.js:598.
+  console.error(`\nFirst failure:\n${_firstStack}`);
   process.exit(1);
 }
 console.log(`\nALL ${TICKETS.length} ticket details rendered without throwing.`);
