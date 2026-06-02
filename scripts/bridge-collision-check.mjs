@@ -3,7 +3,6 @@
 
 const modules = [
   ['KBIntegration',          '../js/kb-integration/index.js'],
-  ['Collapsible',            '../js/core/collapsible.js'],
   ['Keybindings',            '../js/core/keybindings.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
 ];

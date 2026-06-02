@@ -25,10 +25,7 @@ import {
   fetchKbArticles, buildKbQuery, refreshTicketKbSuggestions,
 } from './kb-integration/index.js';
 import { showModal, closeModal } from './core/modal.js';
-import {
-  COLLAPSED_SECTIONS,
-  applyCollapsibleHeaders, resetAllCollapsedSections,
-} from './core/collapsible.js';
+import { applyCollapsibleHeaders } from './core/collapsible.js';
 import './core/dismiss.js';
 import { registerActions } from './core/event-delegation.js';
 import { navTo, focusGlobalSearch } from './core/keybindings.js';
@@ -82,7 +79,6 @@ import { renderCSAT } from './tickets/csat.js';
 // per-function list (~318 entries) is gone — bun dedupes the duplicate
 // imports at bundle time.
 import * as KBIntegration from './kb-integration/index.js';
-import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as CustomerModals from './customers/modals.js';
 import { stopPresence } from './core/presence.js';
@@ -337,7 +333,7 @@ Object.assign(
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
   KBIntegration,
-  Collapsible, Keybindings,
+  Keybindings,
   CustomerModals,
 );
 

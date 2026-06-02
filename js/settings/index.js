@@ -7,10 +7,11 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // renderPage, navTo, logout — all still in app.js. KB_INTEGRATION,
-// KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles, COLLAPSED_SECTIONS
+// KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles
 // are bridged onto window by app.js so this module can read/mutate them.
 // refreshNotifBadge, setTheme, setAIKey/setAIModel, setAgentPreferredLang,
-// showModal/closeModal, resetAllCollapsedSections are direct ES imports.
+// showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS are
+// direct ES imports.
 //
 // No window-bridge namespace spread: the page's inline on*= handlers are
 // delegated as settings.* actions (bottom of file). renderSettings is the
@@ -30,7 +31,7 @@ import {
 import { refreshNotifBadge } from '../notifications/index.js';
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { resetAllCollapsedSections } from '../core/collapsible.js';
+import { COLLAPSED_SECTIONS, resetAllCollapsedSections } from '../core/collapsible.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -146,7 +147,7 @@ function settingsAppearance() {
   const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const isDark = THEME === 'dark' || (isSystem && sysDark);
   const fallback = isDark ? 'dark' : 'light';
-  const collapsedN = window.COLLAPSED_SECTIONS?.size || 0;
+  const collapsedN = COLLAPSED_SECTIONS.size;
   return `
     <div class="settings-section">
       <div class="settings-h">Theme</div>
