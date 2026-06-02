@@ -11,14 +11,22 @@
 //               and a webhook fires. Reversible via unmergeTicket().
 //
 // External reaches (interim, via window): escAttr, escHtml, showModal,
-// closeModal, logTicketEvent, openTicket, renderPage, updateNavBadges,
-// fireWebhook, ticketPayload — all still in app.js. refreshTicketSLA
-// is a direct ES import.
+// logTicketEvent, openTicket, renderPage, updateNavBadges, fireWebhook,
+// ticketPayload — all still in app.js. refreshTicketSLA and closeModal are
+// direct ES imports.
+//
+// No window-bridge namespace: unlink/unmerge + the show*Modal pickers are
+// consumed by tickets/detail.js via direct ES import (td.unlink / td.unmerge
+// / td.linkTicket / td.mergeTicket). The two picker-row handlers are
+// delegated as linked.linkAndClose / linked.mergeAndClose below — kept on
+// `mousedown` (the original event) so the close + action fire together.
 
 import { refreshTicketSLA } from './sla.js';
 import { apiPost } from '../core/api-client.js';
+import { closeModal } from '../core/modal.js';
+import { registerMousedownActions } from '../core/event-delegation.js';
 
-export function linkTickets(id, otherId) {
+function linkTickets(id, otherId) {
   const t = TICKETS.find(x => x.id === id);
   const other = TICKETS.find(x => x.id === otherId);
   if (!t || !other || id === otherId) return;
@@ -49,7 +57,7 @@ export function showMergeTicketModal(id) {
   if (!t) return;
   if (t.mergedInto) { alert(`Already merged into ${t.mergedInto}.`); return; }
   const card = x => `
-      <div onmousedown="closeModal();mergeTickets('${window.escAttr(id)}','${window.escAttr(x.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+      <div data-mousedown-action="linked.mergeAndClose" data-id="${window.escAttr(id)}" data-other-id="${window.escAttr(x.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
         <span class="tag tag-${window.escAttr(x.status)}" style="font-size:9px">${window.escHtml(x.status)}</span>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(x.id)}</span>
         <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(x.subject)}</span>
@@ -64,7 +72,7 @@ export function showMergeTicketModal(id) {
   `, null, null);
 }
 
-export async function mergeTickets(srcId, primaryId) {
+async function mergeTickets(srcId, primaryId) {
   if (srcId === primaryId) return;
   const src = TICKETS.find(x => x.id === srcId);
   const primary = TICKETS.find(x => x.id === primaryId);
@@ -144,7 +152,7 @@ export function showLinkTicketModal(id) {
   const candidates = TICKETS.filter(x => x.id !== id && !current.includes(x.id));
   const list = candidates.length
     ? candidates.map(x => `
-        <div onmousedown="closeModal();linkTickets('${id}','${window.escAttr(x.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+        <div data-mousedown-action="linked.linkAndClose" data-id="${window.escAttr(id)}" data-other-id="${window.escAttr(x.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
           <span class="tag tag-${x.status}" style="font-size:9px">${x.status}</span>
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${x.id}</span>
           <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.subject}</span>
@@ -155,3 +163,8 @@ export function showLinkTicketModal(id) {
     <div style="max-height:380px;overflow-y:auto">${list}</div>
   `, null, null);
 }
+
+registerMousedownActions({
+  'linked.linkAndClose':  (ds) => { closeModal(); linkTickets(ds.id, ds.otherId); },
+  'linked.mergeAndClose': (ds) => { closeModal(); mergeTickets(ds.id, ds.otherId); },
+});

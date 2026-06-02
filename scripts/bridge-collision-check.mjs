@@ -8,7 +8,6 @@ const modules = [
   ['Translate',              '../js/ai/translate.js'],
   ['AIReply',                '../js/ai/reply.js'],
   ['Snooze',                 '../js/tickets/snooze.js'],
-  ['Linked',                 '../js/tickets/linked.js'],
   ['Macros',                 '../js/tickets/macros.js'],
   ['KBIntegration',          '../js/kb-integration/index.js'],
   ['Modal',                  '../js/core/modal.js'],
