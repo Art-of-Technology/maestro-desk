@@ -115,9 +115,11 @@ import {
 } from './reports/index.js';
 import { renderBusinessHours } from './core/business-hours.js';
 import {
-  isAgentOOO, showAgentOOOModal, clearAgentOOO,
-  applyAssignmentRules, runAssignmentRulesOnTicket, bulkApplyAssignmentRules,
-  arToggle, arModeChanged, arNew, arEdit, arDelete, renderAssignmentRules,
+  renderAssignmentRules,
+  // isAgentOOO + applyAssignmentRules are still reached via window.X from other
+  // modules' render code (agents/profile/quick-switcher; inbox/portal) — kept as
+  // explicit bridge entries below until those callers are lifted to imports.
+  isAgentOOO, applyAssignmentRules,
 } from './tickets/assignment-rules.js';
 import { renderTemplates } from './tickets/templates.js';
 import { renderCSAT } from './tickets/csat.js';
@@ -143,7 +145,6 @@ import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
-import * as AssignmentRules from './tickets/assignment-rules.js';
 
 function login(role, name, initials, userId = null) {
   SESSION = { role, name, initials, userId };
@@ -399,7 +400,11 @@ Object.assign(
     // Platform admin sign-in panel — onclick handlers in static index.html
     showPlatformAdminLogin, submitPlatformAdminLogin,
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
-    showAgentLogin, submitAgentLogin },
+    showAgentLogin, submitAgentLogin,
+    // Reached via window.X from other modules' render code (not inline on*=):
+    // isAgentOOO (agents/profile/quick-switcher), applyAssignmentRules
+    // (inbox/portal). Explicit entries until those callers lift to imports.
+    isAgentOOO, applyAssignmentRules },
   Theme, AIClient, Summarize, Translate, AIReply,
   KBIntegration,
   Modal, Collapsible, Keybindings,
@@ -407,7 +412,6 @@ Object.assign(
   Settings,
   CustomerModals,
   TicketsList, TicketDetail,
-  AssignmentRules,
 );
 
 // ─── Startup: resume a real-auth session if one is in sessionStorage ───

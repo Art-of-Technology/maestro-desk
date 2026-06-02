@@ -16,7 +16,6 @@ const modules = [
   ['CustomerModals',         '../js/customers/modals.js'],
   ['TicketsList',            '../js/tickets/list.js'],
   ['TicketDetail',           '../js/tickets/detail.js'],
-  ['AssignmentRules',        '../js/tickets/assignment-rules.js'],
 ];
 
 // state.js + data.js are classic scripts that reference `document`/`localStorage`

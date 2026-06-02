@@ -5,7 +5,18 @@
 // round-robin and least-busy modes need to skip agents on leave.
 //
 // External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// showModal, closeModal, renderPage, openTicket — all still in app.js.
+// renderPage, openTicket — all still in app.js. showModal / closeModal are
+// direct ES imports from core/modal.js.
+//
+// No window-bridge namespace spread: the page's own inline on*= handlers are
+// delegated as ar.* actions (bottom of file). showAgentOOOModal (agents +
+// profile) and runAssignmentRulesOnTicket (detail.js td.runRules) are consumed
+// via direct ES import; renderAssignmentRules is the router entry. Two exports
+// — isAgentOOO and applyAssignmentRules — are still reached via window.X from
+// OTHER modules' render code (isAgentOOO in agents/profile/quick-switcher,
+// applyAssignmentRules in inbox/portal), so they're kept as explicit single-fn
+// entries on the app.js bridge until a follow-up lifts those callers to direct
+// imports.
 //
 // logTicketEvent is imported from core/activity-log.js (already extracted).
 //
@@ -15,6 +26,8 @@
 
 import { logTicketEvent } from '../core/activity-log.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { showModal, closeModal } from '../core/modal.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 function arApiBacked() {
   return ASSIGN_RULES.some((r) => r._uuid);
@@ -166,7 +179,7 @@ async function setAgentOOO(name, from, to, note) {
   a.oooNote = trimmedNote;
 }
 
-export async function clearAgentOOO(name) {
+async function clearAgentOOO(name) {
   if (!canEditAgentOOO(name)) return;
   await setAgentOOO(name, null);
 }
@@ -179,7 +192,7 @@ export function showAgentOOOModal(name) {
   const a = AGENTS.find(x => x.name === name);
   if (!a) return;
   const today = new Date().toISOString().slice(0, 10);
-  window.showModal(`Out of office · ${window.escHtml(name)}`, `
+  showModal(`Out of office · ${window.escHtml(name)}`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">While ${window.escHtml(a.name.split(' ')[0])} is OOO, the assignment rules engine skips them in round-robin and least-busy modes. Direct assignment still works — admins may intentionally page someone on leave.</div>
     <div class="form-grid">
       <div class="form-row"><label class="form-label">From</label><input class="form-input" type="date" id="ooo-from" value="${window.escAttr(a.oooFrom || today)}"/></div>
@@ -188,7 +201,7 @@ export function showAgentOOOModal(name) {
     <div class="form-row"><label class="form-label">Auto-reply note (optional)</label>
       <input class="form-input" id="ooo-note" value="${window.escAttr(a.oooNote || '')}" placeholder="e.g. Annual leave — back Friday"/>
     </div>
-    ${a.oooFrom ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-sm btn-danger" onclick="clearAgentOOO('${window.escAttr(name)}');closeModal();renderPage(CURRENT_PAGE)">Clear OOO</button></div>` : ''}
+    ${a.oooFrom ? `<div style="margin-top:14px;text-align:right"><button class="btn btn-sm btn-danger" data-action="ar.clearOOO" data-name="${window.escAttr(name)}">Clear OOO</button></div>` : ''}
   `, async () => {
     const from = document.getElementById('ooo-from').value;
     const to   = document.getElementById('ooo-to').value;
@@ -196,7 +209,7 @@ export function showAgentOOOModal(name) {
     if (!from) { alert('Pick a start date.'); return; }
     if (to && to < from) { alert('End date must be on or after the start date.'); return; }
     await setAgentOOO(name, from, to, note);
-    window.closeModal();
+    closeModal();
     window.renderPage(CURRENT_PAGE);
   }, 'Save');
 }
@@ -254,7 +267,7 @@ export async function runAssignmentRulesOnTicket(id) {
   else window.renderPage(CURRENT_PAGE || 'tickets');
 }
 
-export async function bulkApplyAssignmentRules() {
+async function bulkApplyAssignmentRules() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   const ids = [...TICKET_SELECTED_IDS];
   const apiBacked = ids.some(id => TICKETS.find(t => t.id === id)?._uuid);
@@ -291,7 +304,7 @@ export async function bulkApplyAssignmentRules() {
   alert(matched ? `Assignment rules matched ${matched} ticket${matched===1?'':'s'}.` : 'No active rule matched any ticket in the selection.');
 }
 
-export async function arToggle(id, active) {
+async function arToggle(id, active) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id);
   if (!r) return;
@@ -351,7 +364,7 @@ function arFormBody(r) {
     </div>
     <div style="font-size:11px;font-weight:600;color:var(--ink2);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Then assign</div>
     <div class="form-row"><label class="form-label">Mode</label>
-      <select class="form-input" id="ar-mode" onchange="arModeChanged(this.value)">
+      <select class="form-input" id="ar-mode" data-change-action="ar.modeChanged">
         <option value="specific-agent" ${a.mode==='specific-agent'?'selected':''}>Specific agent</option>
         <option value="round-robin"    ${a.mode==='round-robin'?'selected':''}>Round-robin (cycle through team)</option>
         <option value="least-busy"     ${a.mode==='least-busy'?'selected':''}>Least-busy (fewest open tickets)</option>
@@ -368,7 +381,7 @@ function arFormBody(r) {
     </div>`;
 }
 
-export function arModeChanged(mode) {
+function arModeChanged(mode) {
   const agentRow = document.getElementById('ar-agent-row');
   const teamRow  = document.getElementById('ar-team-row');
   if (agentRow) agentRow.style.display = mode === 'specific-agent' ? 'block' : 'none';
@@ -397,9 +410,9 @@ function arReadForm() {
   };
 }
 
-export function arNew() {
+function arNew() {
   if (!window.isAdmin()) return;
-  window.showModal('New assignment rule', arFormBody(null), async () => {
+  showModal('New assignment rule', arFormBody(null), async () => {
     const data = arReadForm();
     if (!data.name) { alert('Name is required.'); return; }
     if (data.assignment.mode === 'specific-agent' && !data.assignment.agent) { alert('Pick an agent.'); return; }
@@ -421,14 +434,14 @@ export function arNew() {
     } else {
       ASSIGN_RULES.push({ id: arNextId(), matchCount: 0, lastMatchAt: null, ...data });
     }
-    window.closeModal(); window.renderPage('assignment-rules');
+    closeModal(); window.renderPage('assignment-rules');
   }, 'Create');
 }
 
-export function arEdit(id) {
+function arEdit(id) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
-  window.showModal('Edit rule · ' + r.id, arFormBody(r), async () => {
+  showModal('Edit rule · ' + r.id, arFormBody(r), async () => {
     const data = arReadForm();
     if (!data.name) { alert('Name is required.'); return; }
     if (data.assignment.mode === 'specific-agent' && !data.assignment.agent) { alert('Pick an agent.'); return; }
@@ -448,14 +461,14 @@ export function arEdit(id) {
     }
     Object.assign(r, data);
     delete ASSIGN_RULES_RR_INDEX[r.id];
-    window.closeModal(); window.renderPage('assignment-rules');
+    closeModal(); window.renderPage('assignment-rules');
   }, 'Save');
 }
 
-export function arDelete(id) {
+function arDelete(id) {
   if (!window.isAdmin()) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
-  window.showModal('Delete rule', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(r.name)}</strong>?</div>`, async () => {
+  showModal('Delete rule', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(r.name)}</strong>?</div>`, async () => {
     if (r._uuid) {
       try { await apiDelete(`/api/v1/assign-rules/${r._uuid}`); }
       catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
@@ -463,7 +476,7 @@ export function arDelete(id) {
     const i = ASSIGN_RULES.findIndex(x => x.id === id);
     if (i >= 0) ASSIGN_RULES.splice(i, 1);
     delete ASSIGN_RULES_RR_INDEX[id];
-    window.closeModal(); window.renderPage('assignment-rules');
+    closeModal(); window.renderPage('assignment-rules');
   }, 'Delete');
 }
 
@@ -487,13 +500,13 @@ export function renderAssignmentRules() {
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(r.lastMatchAt || '—')}</td>
       <td style="text-align:center">
         <label class="toggle">
-          <input type="checkbox" ${r.status==='active'?'checked':''} ${admin?'':'disabled'} onchange="arToggle('${window.escAttr(r.id)}',this.checked)">
+          <input type="checkbox" ${r.status==='active'?'checked':''} ${admin?'':'disabled'} data-change-action="ar.toggle" data-id="${window.escAttr(r.id)}">
           <span class="toggle-slider"></span>
         </label>
       </td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm" onclick="arEdit('${window.escAttr(r.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="arDelete('${window.escAttr(r.id)}')">Delete</button>
+        <button class="btn btn-sm" data-action="ar.edit" data-id="${window.escAttr(r.id)}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-action="ar.delete" data-id="${window.escAttr(r.id)}">Delete</button>
       </td>` : ''}
     </tr>`).join('');
 
@@ -502,7 +515,7 @@ export function renderAssignmentRules() {
       <div class="topbar">
         <div class="tb-title">Assignment Rules</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" onclick="arNew()">+ New Rule</button>`
+          ? `<button class="btn btn-solid btn-sm" data-action="ar.new">+ New Rule</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -513,7 +526,7 @@ export function renderAssignmentRules() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <select class="filter-select" onchange="AR_FILTER=this.value;renderPage('assignment-rules')">
+        <select class="filter-select" data-change-action="ar.setFilter">
           <option value="all"      ${AR_FILTER==='all'?'selected':''}>All rules</option>
           <option value="active"   ${AR_FILTER==='active'?'selected':''}>Active</option>
           <option value="inactive" ${AR_FILTER==='inactive'?'selected':''}>Inactive</option>
@@ -534,3 +547,20 @@ export function renderAssignmentRules() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'ar.new':      () => arNew(),
+  'ar.edit':     (ds) => arEdit(ds.id),
+  'ar.delete':   (ds) => arDelete(ds.id),
+  // bulk "Run rules" button rendered by tickets/list.js
+  'ar.bulkRun':  () => bulkApplyAssignmentRules(),
+  // OOO modal "Clear OOO" button — await so the cleared state is reflected
+  // before the re-render (matches the Save handler in showAgentOOOModal).
+  'ar.clearOOO': async (ds) => { await clearAgentOOO(ds.name); closeModal(); window.renderPage(CURRENT_PAGE); },
+});
+
+registerChangeActions({
+  'ar.modeChanged': (ds, el) => arModeChanged(el.value),
+  'ar.toggle':      (ds, el) => arToggle(ds.id, el.checked),
+  'ar.setFilter':   (ds, el) => { AR_FILTER = el.value; window.renderPage('assignment-rules'); },
+});
