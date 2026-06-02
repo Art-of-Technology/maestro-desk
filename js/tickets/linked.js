@@ -25,6 +25,7 @@ import { refreshTicketSLA } from './sla.js';
 import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { closeModal, showModal } from '../core/modal.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
 
@@ -113,7 +114,7 @@ async function mergeTickets(srcId, primaryId) {
   window.updateNavBadges();
   if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
   else window.renderPage('tickets');
-  window.fireWebhook('ticket.merged', { source: window.ticketPayload(src), primary: window.ticketPayload(primary) });
+  fireWebhook('ticket.merged', { source: ticketPayload(src), primary: ticketPayload(primary) });
 }
 
 export async function unmergeTicket(srcId) {

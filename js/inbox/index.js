@@ -22,6 +22,7 @@
 
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
+import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { navTo } from '../core/keybindings.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
@@ -128,7 +129,7 @@ async function convertEmailToTicket(emailId) {
   TICKETS.unshift(newT);
   if (!newT.agent) applyAssignmentRules(newT);
   refreshTicketSLA(newT);
-  window.fireWebhook('ticket.created', { ...window.ticketPayload(newT), source: 'inbox', emailId: e.id });
+  fireWebhook('ticket.created', { ...ticketPayload(newT), source: 'inbox', emailId: e.id });
   e.status = 'converted';
   e.convertedTicketId = newId;
   e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');

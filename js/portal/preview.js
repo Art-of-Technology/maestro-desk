@@ -13,14 +13,15 @@
 // Click handlers route through core/event-delegation.js. `renderPortal` is
 // the only export consumed (app.js's router).
 //
-// External reaches (interim, via window): updateNavBadges, fireWebhook,
-// ticketPayload, renderPage, escHtml, escAttr — all still in app.js.
-// refreshTicketSLA, applyAssignmentRules, navTo, logTicketEvent are direct
-// ES imports.
+// External reaches (interim, via window): updateNavBadges, renderPage,
+// escHtml, escAttr — all still in app.js. refreshTicketSLA,
+// applyAssignmentRules, navTo, logTicketEvent, fireWebhook, ticketPayload
+// are direct ES imports.
 // TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
 
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -101,7 +102,7 @@ function portalCreateTicket() {
   TICKETS.unshift(newT);
   applyAssignmentRules(newT);
   refreshTicketSLA(newT);
-  window.fireWebhook('ticket.created', window.ticketPayload(newT));
+  fireWebhook('ticket.created', ticketPayload(newT));
   window.updateNavBadges();
   PORTAL_TICKET_ID = newId;
   PORTAL_VIEW = 'ticket';
