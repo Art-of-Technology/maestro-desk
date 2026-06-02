@@ -6,25 +6,35 @@
 // chart-type switcher, layout persistence) lives in `core/widget-shell.js`
 // and is shared with the Reports page.
 //
-// External reaches (interim, via window): escAttr, escHtml, navTo —
-// still in app.js.
+// External reaches (interim, via window): escAttr, escHtml — still in app.js.
+// navTo and openTicket are now direct ES imports.
+//
+// No window-bridge namespace: the inline on*= handlers are delegated as
+// dash.* actions (see the registerActions block at the bottom).
+// openAgentFromDash stays exported — roles/index.js imports it directly
+// (roles.openAgent). DASH_WIDGETS / DEFAULT_DASH_LAYOUT stay exported AND
+// stay window-reachable via explicit entries on the app.js bridge, because
+// core/widget-shell.js reads window.DASH_WIDGETS by scope.
 //
 // TICKETS, AGENTS, WORKFLOWS, KB_ARTICLES, CUSTOMERS come from data.js via
-// the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, DASH_LAYOUT
-// come from core/state.js the same way.
+// the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, CUSTOMER_SELECTED,
+// DASH_LAYOUT come from core/state.js the same way.
 
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { computeReportStats } from '../reports/index.js';
+import { navTo } from '../core/keybindings.js';
+import { openTicket } from '../tickets/detail.js';
+import { registerActions } from '../core/event-delegation.js';
 
-export function openAgentFromDash(name) { AGENT_SELECTED = name; window.navTo('agents'); }
-export function openKBFromDash(id)      { KB_SELECTED = id;      window.navTo('kb'); }
+export function openAgentFromDash(name) { AGENT_SELECTED = name; navTo('agents'); }
+function openKBFromDash(id)      { KB_SELECTED = id;      navTo('kb'); }
 
 function dashRecentTickets() {
   const tickets = [...TICKETS].slice(0, 6);
   const rows = tickets.map(t => `
-    <div onclick="openTicket('${window.escAttr(t.id)}')" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
+    <div data-action="dash.openTicket" data-id="${window.escAttr(t.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <span class="tag tag-${t.status}" style="font-size:9px">${t.status}</span>
       <span class="tag tag-${t.priority}" style="font-size:9px">${t.priority}</span>
       <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${t.id}</span>
@@ -36,7 +46,7 @@ function dashRecentTickets() {
     <div class="card span-8">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Recent activity</div>
-        <span class="link" onclick="navTo('tickets')" style="font-size:11px">View all →</span>
+        <span class="link" data-action="dash.nav" data-page="tickets" style="font-size:11px">View all →</span>
       </div>
       ${rows || '<div style="color:var(--ink3);font-size:12px">No tickets yet</div>'}
     </div>`;
@@ -83,7 +93,7 @@ function dashAgentLoad() {
   const rows = agents.map(a => {
     const pct = (a.open / max) * 100;
     return `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" onclick="openAgentFromDash('${window.escAttr(a.name)}')">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" data-action="dash.openAgent" data-name="${window.escAttr(a.name)}">
         <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
         <div style="font-size:12px;color:var(--ink2);width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name}</div>
         <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--purple);height:100%;width:${pct}%"></div></div>
@@ -94,7 +104,7 @@ function dashAgentLoad() {
     <div class="card span-4">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Top open load</div>
-        <span class="link" onclick="navTo('agents')" style="font-size:11px">All →</span>
+        <span class="link" data-action="dash.nav" data-page="agents" style="font-size:11px">All →</span>
       </div>
       ${rows}
     </div>`;
@@ -122,7 +132,7 @@ function dashWorkflows() {
     <div class="card span-4">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Automation</div>
-        <span class="link" onclick="navTo('workflows')" style="font-size:11px">All →</span>
+        <span class="link" data-action="dash.nav" data-page="workflows" style="font-size:11px">All →</span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
         <div class="r-tile" style="padding:12px"><div class="r-tile-n" style="color:var(--green);font-size:22px">${active}</div><div class="r-tile-l" style="color:var(--ink3);font-size:10px">Active</div></div>
@@ -136,7 +146,7 @@ function dashWorkflows() {
 function dashKB() {
   const articles = [...KB_ARTICLES].sort((a, b) => b.updated.localeCompare(a.updated)).slice(0, 4);
   const rows = articles.map(a => `
-    <div onclick="openKBFromDash('${window.escAttr(a.id)}')" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
+    <div data-action="dash.openKB" data-id="${window.escAttr(a.id)}" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
       <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${a.category}</div>
       <div style="font-size:12px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.title}</div>
     </div>`).join('');
@@ -144,7 +154,7 @@ function dashKB() {
     <div class="card span-4">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
         <div class="card-title" style="margin:0">Knowledge base</div>
-        <span class="link" onclick="navTo('kb')" style="font-size:11px">All →</span>
+        <span class="link" data-action="dash.nav" data-page="kb" style="font-size:11px">All →</span>
       </div>
       ${rows || '<div style="color:var(--ink3);font-size:12px">No articles</div>'}
     </div>`;
@@ -245,7 +255,7 @@ function dashTopCustomers() {
   const max = top[0].count;
   const rows = top.map(({ cust, count }) => {
     const pct = (count / max) * 100;
-    return `<div onclick="CUSTOMER_SELECTED='${window.escAttr(cust.id)}';navTo('customers')" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
+    return `<div data-action="dash.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
       <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
       <div style="font-size:12px;color:var(--ink2);width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
@@ -256,7 +266,7 @@ function dashTopCustomers() {
     <div class="card span-4">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Top customers</div>
-        <span class="link" onclick="navTo('customers')" style="font-size:11px">All →</span>
+        <span class="link" data-action="dash.nav" data-page="customers" style="font-size:11px">All →</span>
       </div>
       ${rows}
     </div>`;
@@ -274,7 +284,7 @@ function dashPersonal() {
   })).sort((a, b) => b.open - a.open);
   const myRank = ranks.findIndex(r => r.name === SESSION.name) + 1;
   return `
-    <div class="card span-4" onclick="navTo('profile')" style="cursor:pointer">
+    <div class="card span-4" data-action="dash.nav" data-page="profile" style="cursor:pointer">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">Your stats</div>
         <span class="link" style="font-size:11px">Profile →</span>
@@ -304,7 +314,7 @@ function dashCSAT(s) {
         <div style="font-size:42px;font-weight:700;color:${color};font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1">${score?score.toFixed(1):'—'}</div>
         <div style="font-size:11px;color:var(--ink3);margin-top:8px">${s.csatCount} of ${s.total} tickets rated</div>
       </div>
-      <div style="margin-top:6px;font-size:11px;color:var(--ink3);text-align:center"><span class="link" onclick="navTo('reports')">View report →</span></div>
+      <div style="margin-top:6px;font-size:11px;color:var(--ink3);text-align:center"><span class="link" data-action="dash.nav" data-page="reports">View report →</span></div>
     </div>`;
 }
 
@@ -359,3 +369,11 @@ export function renderDashboard() {
       </div>
     </div>`;
 }
+
+registerActions({
+  'dash.nav':          (ds) => navTo(ds.page),
+  'dash.openTicket':   (ds) => openTicket(ds.id),
+  'dash.openAgent':    (ds) => openAgentFromDash(ds.name),
+  'dash.openKB':       (ds) => openKBFromDash(ds.id),
+  'dash.openCustomer': (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+});

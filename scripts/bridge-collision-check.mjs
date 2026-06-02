@@ -15,7 +15,6 @@ const modules = [
   ['GlobalSearch',           '../js/global-search/index.js'],
   ['Settings',               '../js/settings/index.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
-  ['Dashboard',              '../js/dashboard/index.js'],
   ['TicketsList',            '../js/tickets/list.js'],
   ['TicketDetail',           '../js/tickets/detail.js'],
   ['AssignmentRules',        '../js/tickets/assignment-rules.js'],
