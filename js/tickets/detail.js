@@ -56,7 +56,7 @@ import {
 import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
-import { runAssignmentRulesOnTicket } from './assignment-rules.js';
+import { runAssignmentRulesOnTicket, isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { navTo } from '../core/keybindings.js';
 import {
