@@ -8,13 +8,14 @@
 // gate concurrent AI calls and disable the AI-page input) lives in
 // core/state.js so all three callers share one flag.
 //
-// onComposeInput, buildKbQuery, and fetchKbArticles still live in app.js
-// and are reached through window — onComposeInput is bridged already
+// buildKbQuery and fetchKbArticles still live in app.js
+// and are reached through window. onComposeInput is a direct ES import.
 // (composer inline `oninput`), buildKbQuery and fetchKbArticles are added
 // to the bridge in this PR. Once the composer + KB-integration code is
 // extracted to its own module, these become proper imports.
 
 import { AI_API_KEY, callClaude } from './client.js';
+import { onComposeInput } from '../tickets/detail.js';
 
 export async function aiAction(id, action) {
   // Close the AI-action menu (one-line helper; inlined to avoid a bridge entry).
@@ -26,13 +27,13 @@ export async function aiAction(id, action) {
   if (!t || !el) return;
   if (!AI_API_KEY) {
     el.value = 'No Claude API key configured. Add one in Settings → AI Assistant.';
-    window.onComposeInput(id);
+    onComposeInput(id);
     return;
   }
   const current = el.value || '';
   if (action !== 'draft' && !current.trim()) {
     el.value = `Type something first — AI ${action} works on the current draft.`;
-    window.onComposeInput(id);
+    onComposeInput(id);
     return;
   }
   AI_THINKING = true;
@@ -50,7 +51,7 @@ export async function aiAction(id, action) {
     const kb = await window.fetchKbArticles(query);
     if (kb.error) {
       el.value = `KB lookup failed: ${kb.error}\n\n(Check Settings → Knowledge Base.)`;
-      window.onComposeInput(id);
+      onComposeInput(id);
       AI_THINKING = false;
       if (th) th.classList.remove('show');
       return;
@@ -89,7 +90,7 @@ export async function aiAction(id, action) {
   }
   AI_THINKING = false;
   if (th) th.classList.remove('show');
-  window.onComposeInput(id);
+  onComposeInput(id);
   el.focus();
 }
 

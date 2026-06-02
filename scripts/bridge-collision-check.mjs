@@ -12,7 +12,6 @@ const modules = [
   ['Collapsible',            '../js/core/collapsible.js'],
   ['Keybindings',            '../js/core/keybindings.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
-  ['TicketDetail',           '../js/tickets/detail.js'],
 ];
 
 // state.js + data.js are classic scripts that reference `document`/`localStorage`

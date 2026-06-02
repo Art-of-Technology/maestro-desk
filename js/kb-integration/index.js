@@ -10,9 +10,12 @@
 // KB_TICKET_CACHE (the LRU Map). Neither is ever reassigned, so app.js and
 // the Settings page see the same live references through their imports.
 //
-// External reaches (interim, via window): openTicket — still in app.js.
+// openTicket is a direct ES import from tickets/detail.js (used only inside
+// functions, so the kb-integration↔detail cycle resolves lazily).
 //
 // TICKETS comes from data.js; CURRENT_TICKET from state.js (global lex env).
+
+import { openTicket } from '../tickets/detail.js';
 
 const KB_INTEGRATION_DEFAULTS = {
   enabled: false,
@@ -103,8 +106,8 @@ export async function refreshTicketKbSuggestions(ticketId) {
   const query = buildKbQuery(t);
   if (!query) return;
   kbCacheSet(ticketId, { loading: true, articles: [], error: null });
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
   const result = await fetchKbArticles(query);
   kbCacheSet(ticketId, { loading: false, articles: result.articles, error: result.error || null });
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }

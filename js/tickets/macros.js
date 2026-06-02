@@ -30,7 +30,7 @@
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { navTo } from '../core/keybindings.js';
-import { insertMacro } from './detail.js';
+import { insertMacro, openTicket, changeTicketStatus, changeTicketPriority, changeTicketAgent, addTicketTag } from './detail.js';
 import {
   registerActions, registerChangeActions,
   registerMousedownActions, registerInputActions,
@@ -110,13 +110,13 @@ function runMacro(macroId, ticketId) {
   if (t.mergedInto) { alert(`${ticketId} is a merged duplicate. Open ${t.mergedInto} to apply macros.`); return; }
   let replyAppended = '';
   (macro.actions || []).forEach(a => {
-    if (a.kind === 'status' && a.value)   window.changeTicketStatus(ticketId, a.value);
-    else if (a.kind === 'priority' && a.value) window.changeTicketPriority(ticketId, a.value);
+    if (a.kind === 'status' && a.value)   changeTicketStatus(ticketId, a.value);
+    else if (a.kind === 'priority' && a.value) changeTicketPriority(ticketId, a.value);
     else if (a.kind === 'assign') {
-      if (a.value === 'unassign') window.changeTicketAgent(ticketId, '');
-      else if (a.value) window.changeTicketAgent(ticketId, a.value);
+      if (a.value === 'unassign') changeTicketAgent(ticketId, '');
+      else if (a.value) changeTicketAgent(ticketId, a.value);
     }
-    else if (a.kind === 'tag' && a.value) window.addTicketTag(ticketId, a.value);
+    else if (a.kind === 'tag' && a.value) addTicketTag(ticketId, a.value);
     else if (a.kind === 'reply' && a.templateId) {
       const tpl = CANNED_RESPONSES.find(r => r.id === a.templateId);
       if (tpl) {
@@ -144,7 +144,7 @@ function runMacro(macroId, ticketId) {
   macro.lastUsed = new Date().toISOString().slice(0, 10);
   logTicketEvent(ticketId, 'system', `Macro applied: ${macro.name}`);
   if (CURRENT_TICKET === ticketId) {
-    window.openTicket(ticketId);
+    openTicket(ticketId);
     if (replyAppended) {
       const el = document.getElementById('compose-' + ticketId);
       if (el) {

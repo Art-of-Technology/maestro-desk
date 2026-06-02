@@ -7,7 +7,7 @@
 //   • fmtMinutes      — number formatter, still in app.js
 //   • isAdmin         — auth helper, still in app.js
 //   • logTicketEvent  — activity-log writer, still in app.js
-//   • openTicket      — composer/detail render, still in app.js
+//   • openTicket      — composer/detail render, direct ES import (tickets/detail.js)
 //   • showModal, escHtml, closeModal — modal infra, still in app.js
 //
 // SESSION and CURRENT_TICKET come from core/state.js via the global lexical env.
@@ -18,6 +18,7 @@
 // (the minutes quick-preset) is delegated as tt.preset below.
 
 import { apiPost, apiDelete } from '../core/api-client.js';
+import { openTicket } from './detail.js';
 import { registerActions } from '../core/event-delegation.js';
 
 function timeEntryNextId() {
@@ -72,7 +73,7 @@ export async function addTimeEntry(ticketId, minutes, note, billable) {
   }
   t.timeEntries.unshift(entry);
   window.logTicketEvent(ticketId, 'system', `Logged ${window.fmtMinutes(m)}${entry.billable ? '' : ' (non-billable)'}${entry.note ? ' · ' + entry.note : ''}`);
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export async function removeTimeEntry(ticketId, entryId) {
@@ -91,7 +92,7 @@ export async function removeTimeEntry(ticketId, entryId) {
   }
   t.timeEntries.splice(idx, 1);
   window.logTicketEvent(ticketId, 'system', `Removed time entry · ${window.fmtMinutes(entry.minutes)}`);
-  if (CURRENT_TICKET === ticketId) window.openTicket(ticketId);
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function showLogTimeModal(ticketId) {

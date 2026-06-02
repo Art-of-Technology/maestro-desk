@@ -117,7 +117,6 @@ import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as CustomerModals from './customers/modals.js';
-import * as TicketDetail from './tickets/detail.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 
@@ -384,7 +383,6 @@ Object.assign(
   KBIntegration,
   Modal, Collapsible, Keybindings,
   CustomerModals,
-  TicketDetail,
 );
 
 // ─── Startup: resume a real-auth session if one is in sessionStorage ───

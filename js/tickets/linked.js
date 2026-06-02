@@ -11,7 +11,7 @@
 //               and a webhook fires. Reversible via unmergeTicket().
 //
 // External reaches (interim, via window): escAttr, escHtml, showModal,
-// logTicketEvent, openTicket, renderPage, updateNavBadges, fireWebhook,
+// logTicketEvent, renderPage, updateNavBadges, fireWebhook,
 // ticketPayload — all still in app.js. refreshTicketSLA and closeModal are
 // direct ES imports.
 //
@@ -22,6 +22,7 @@
 // `mousedown` (the original event) so the close + action fire together.
 
 import { refreshTicketSLA } from './sla.js';
+import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
 import { closeModal } from '../core/modal.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
@@ -38,7 +39,7 @@ function linkTickets(id, otherId) {
     window.logTicketEvent(id, 'system', `Linked to ${otherId}`);
     window.logTicketEvent(otherId, 'system', `Linked to ${id}`);
   }
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
 }
 
 export function unlinkTicket(id, otherId) {
@@ -49,7 +50,7 @@ export function unlinkTicket(id, otherId) {
   if (other.linked) other.linked = other.linked.filter(x => x !== id);
   window.logTicketEvent(id, 'system', `Unlinked from ${otherId}`);
   window.logTicketEvent(otherId, 'system', `Unlinked from ${id}`);
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
 }
 
 export function showMergeTicketModal(id) {
@@ -109,7 +110,7 @@ async function mergeTickets(srcId, primaryId) {
   window.logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
   window.logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
   window.updateNavBadges();
-  if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) window.openTicket(primaryId);
+  if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
   else window.renderPage('tickets');
   window.fireWebhook('ticket.merged', { source: window.ticketPayload(src), primary: window.ticketPayload(primary) });
 }
@@ -141,8 +142,8 @@ export async function unmergeTicket(srcId) {
   window.logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
   if (primary) window.logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
   window.updateNavBadges();
-  if (CURRENT_TICKET === srcId) window.openTicket(srcId);
-  else if (CURRENT_TICKET === primaryId) window.openTicket(primaryId);
+  if (CURRENT_TICKET === srcId) openTicket(srcId);
+  else if (CURRENT_TICKET === primaryId) openTicket(primaryId);
   else window.renderPage('tickets');
 }
 

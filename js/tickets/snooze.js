@@ -7,8 +7,8 @@
 // shows in the bell for ~24h.
 //
 // External reaches (interim, via window):
-// logTicketEvent, openTicket, renderPage, showModal, escHtml, closeModal. All
-// still live in app.js and are bridged. refreshNotifBadge and
+// logTicketEvent, renderPage, showModal, escHtml, closeModal. All
+// still live in app.js and are bridged. openTicket, refreshNotifBadge and
 // refreshTicketSLA are direct ES imports.
 //
 // SESSION, CURRENT_TICKET, CURRENT_PAGE, TICKET_SELECTED_IDS come from
@@ -23,6 +23,7 @@
 // rendered by tickets/list.js but is owned here (this module owns the fn).
 
 import { refreshNotifBadge } from '../notifications/index.js';
+import { openTicket } from './detail.js';
 import { refreshTicketSLA } from './sla.js';
 import { apiPost, apiDelete } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -46,7 +47,7 @@ async function snoozeTicket(id, untilIso, reason) {
   delete t.snoozeWokenAt;
   refreshTicketSLA(t);
   window.logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
   else window.renderPage(CURRENT_PAGE || 'tickets');
   refreshNotifBadge();
 }
@@ -70,7 +71,7 @@ export async function unsnoozeTicket(id, viaWakeup) {
   if (viaWakeup) t.snoozeWokenAt = new Date().toISOString();
   refreshTicketSLA(t);
   window.logTicketEvent(id, 'system', viaWakeup ? 'Snooze elapsed — ticket woke up' : 'Snooze cleared by agent');
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
   refreshNotifBadge();
 }
 

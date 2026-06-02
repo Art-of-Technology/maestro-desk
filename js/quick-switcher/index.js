@@ -13,14 +13,15 @@
 // renderQuickSwitcher() rebuilds the overlay — too dynamic for delegation,
 // not worth a per-event harness extension.
 //
-// External reaches (interim, via window): escHtml, navTo, openTicket — all
-// still in app.js. isAgentOOO and SEARCH_PAGES are direct ES imports.
+// External reaches (interim, via window): escHtml, navTo — all
+// still in app.js. openTicket, isAgentOOO and SEARCH_PAGES are direct ES imports.
 //
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES come from data.js via the global
 // lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from
 // core/state.js the same way.
 
 import { registerActions } from '../core/event-delegation.js';
+import { openTicket } from '../tickets/detail.js';
 import { isAgentOOO } from '../tickets/assignment-rules.js';
 import { SEARCH_PAGES } from '../global-search/index.js';
 
@@ -182,7 +183,7 @@ function quickSwitcherPick(idx) {
   if (!item) return;
   toggleQuickSwitcher(false);
   if (item.kind === 'page')          window.navTo(item.payload.page);
-  else if (item.kind === 'ticket')   window.openTicket(item.payload.ticketId);
+  else if (item.kind === 'ticket')   openTicket(item.payload.ticketId);
   else if (item.kind === 'customer') { CUSTOMER_SELECTED = item.payload.customerId; window.navTo('customers'); }
   else if (item.kind === 'agent')    { AGENT_SELECTED = item.payload.agentName; window.navTo('agents'); }
   else if (item.kind === 'kb')       { KB_SELECTED = item.payload.kbId; window.navTo('kb'); }

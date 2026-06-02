@@ -85,7 +85,7 @@ async function requestCSAT(id) {
   }
   t.csatRequestedAt = stamp;
   logTicketEvent(id, 'system', 'CSAT survey sent to customer');
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
   openCSATSurveyModal(id);
 }
 
@@ -176,7 +176,7 @@ async function submitCSAT(id, score, comment) {
   logTicketEvent(id, 'system', `CSAT submitted: ${clamped}/5${comment ? ' with comment' : ''}`);
   fireWebhook('csat.submitted', { ...ticketPayload(t), csat: clamped, comment: comment || null });
   window.closeModal();
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
   if (CURRENT_PAGE === 'csat') window.renderPage('csat');
 }
 

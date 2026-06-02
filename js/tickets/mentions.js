@@ -8,9 +8,9 @@
 // / mentionDropdownKey — lives here too. The dropdown owns its own internal
 // state (MENTION_DD_*); it manipulates the DOM directly via #mention-dd.
 //
-// External reach (interim, via window): escHtml, escAttr, onComposeInput
-// still live in app.js (onComposeInput is a tickets/detail.js export bridged
-// through window — reverts when detail.js retires). AGENTS and SESSION come
+// External reach (interim, via window): escHtml, escAttr. onComposeInput
+// is a direct ES import from tickets/detail.js.
+// AGENTS and SESSION come
 // from data.js + state.js via the global lexical env.
 //
 // No window-bridge namespace: parse/render + the dropdown lifecycle
@@ -21,6 +21,7 @@
 // focusout hides the dropdown (detail.js delays hide by 150ms).
 
 import { registerMousedownActions } from '../core/event-delegation.js';
+import { onComposeInput } from './detail.js';
 
 export function parseMentions(text) {
   const out = [];
@@ -139,7 +140,7 @@ function insertMention(ticketId, idx) {
   el.focus();
   el.setSelectionRange(newPos, newPos);
   hideMentionDropdown();
-  window.onComposeInput(ticketId);
+  onComposeInput(ticketId);
 }
 
 export function mentionDropdownKey(e, ticketId) {

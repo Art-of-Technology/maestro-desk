@@ -5,7 +5,7 @@
 // round-robin and least-busy modes need to skip agents on leave.
 //
 // External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// renderPage, openTicket — all still in app.js. showModal / closeModal are
+// renderPage — all still in app.js. openTicket, showModal / closeModal are
 // direct ES imports from core/modal.js.
 //
 // No window-bridge namespace spread: the page's own inline on*= handlers are
@@ -25,6 +25,7 @@
 // CURRENT_TICKET, CURRENT_PAGE, AR_FILTER come from core/state.js the same way.
 
 import { logTicketEvent } from '../core/activity-log.js';
+import { openTicket } from './detail.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -256,14 +257,14 @@ export async function runAssignmentRulesOnTicket(id) {
       localRule.matchCount = (localRule.matchCount || 0) + 1;
       localRule.lastMatchAt = new Date().toISOString().slice(0, 10);
     }
-    if (CURRENT_TICKET === id) window.openTicket(id);
+    if (CURRENT_TICKET === id) openTicket(id);
     else window.renderPage(CURRENT_PAGE || 'tickets');
     return;
   }
   // Demo persona — keep the local engine.
   const rule = applyAssignmentRules(t);
   if (!rule) { alert('No active rule matched this ticket.'); return; }
-  if (CURRENT_TICKET === id) window.openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
   else window.renderPage(CURRENT_PAGE || 'tickets');
 }
 
