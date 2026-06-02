@@ -75,7 +75,10 @@ async function tick() {
 
     // Re-render the active list view if we're on one. Other pages
     // pull the fresh TICKETS data on their next render naturally.
-    const page = (typeof window !== 'undefined') ? window.CURRENT_PAGE : null;
+    // CURRENT_PAGE is a state.js global (classic <script>), read bare like
+    // every other module — it is NOT a window property (a top-level `let`
+    // doesn't attach to window, so window.CURRENT_PAGE was always undefined).
+    const page = CURRENT_PAGE;
     if (page === 'tickets') {
       renderTickets();
     } else if (page === 'inbox') {
