@@ -102,16 +102,7 @@ import {
   renderDashboard,
   DASH_WIDGETS, DEFAULT_DASH_LAYOUT,
 } from './dashboard/index.js';
-import {
-  renderTickets, initTicketsPage,
-  setStatusFilter, sortTickets,
-  setAgentFilter, setTicketView, setTicketQuery, setTicketGroupBy,
-  toggleTicketSelected, toggleAllTickets, clearTicketSelection,
-  bulkAssignTickets, bulkSetStatus, bulkSetPriority,
-  bulkAddTag, bulkExportTickets, bulkDeleteTickets,
-  exportTicketList,
-  saveCurrentSearch, applySavedSearch, manageSavedSearches, deleteSavedSearch,
-} from './tickets/list.js';
+import { renderTickets, initTicketsPage } from './tickets/list.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import {
   renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
@@ -137,7 +128,6 @@ import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as Settings from './settings/index.js';
 import * as CustomerModals from './customers/modals.js';
-import * as TicketsList from './tickets/list.js';
 import * as TicketDetail from './tickets/detail.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
@@ -404,7 +394,7 @@ Object.assign(
   Modal, Collapsible, Keybindings,
   Settings,
   CustomerModals,
-  TicketsList, TicketDetail,
+  TicketDetail,
 );
 
 // ─── Startup: resume a real-auth session if one is in sessionStorage ───

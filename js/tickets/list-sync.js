@@ -19,6 +19,7 @@
 
 import { apiGet } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
+import { renderTickets } from './list.js';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -74,8 +75,8 @@ async function tick() {
     // Re-render the active list view if we're on one. Other pages
     // pull the fresh TICKETS data on their next render naturally.
     const page = (typeof window !== 'undefined') ? window.CURRENT_PAGE : null;
-    if (page === 'tickets' && typeof window.renderTickets === 'function') {
-      window.renderTickets();
+    if (page === 'tickets') {
+      renderTickets();
     } else if (page === 'inbox' && typeof window.renderInbox === 'function') {
       window.renderInbox();
     }

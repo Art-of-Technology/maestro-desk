@@ -13,7 +13,6 @@ const modules = [
   ['Keybindings',            '../js/core/keybindings.js'],
   ['Settings',               '../js/settings/index.js'],
   ['CustomerModals',         '../js/customers/modals.js'],
-  ['TicketsList',            '../js/tickets/list.js'],
   ['TicketDetail',           '../js/tickets/detail.js'],
 ];
 

@@ -5,27 +5,32 @@
 // ticket table with row checkboxes.
 //
 // External reaches (interim, via window): escAttr, escHtml, fmtMinutes,
-// renderPage, updateNavBadges — all still in app.js. openTicket and the
-// bulk-action helpers from sibling tickets/ modules (bulkSnoozeTickets,
-// bulkApplyAssignmentRules, bulkRunMacro) and the new-ticket modal entry
-// point (showNewTicketModal) are called from inline onclick handlers and
-// resolve through window at click time, so they don't need imports here.
+// renderPage, updateNavBadges — all still in app.js. openTicket and
+// showNewTicketModal are direct ES imports from tickets/detail.js.
+//
+// No window-bridge namespace: the page's inline on*= handlers are delegated
+// as list.* actions (bottom of file). renderTickets (router + list-sync) and
+// initTicketsPage (post-render hook) stay exported; setTicketView stays
+// exported (profile.gotoMyTickets imports it). The bulk snooze / run-rules /
+// run-macro controls dispatch to actions owned by those modules
+// (snooze.bulkSnooze / ar.bulkRun / macros.bulkRun). The FILTER_* set/clear
+// handlers assign the core/state.js globals directly, as before.
 //
 // TICKETS, CUSTOMERS, AGENTS, TAG_LIBRARY come from data.js via the global
 // lexical env; SESSION, TICKET_SELECTED_IDS, FILTER_CATEGORY, FILTER_PRIORITY,
-// FILTER_AGENT, FILTER_QUERY come from core/state.js the same way (FILTER_*
-// values are written from inline onchange handlers via direct assignment,
-// which requires the global lex env binding).
+// FILTER_AGENT, FILTER_SENTIMENT, FILTER_QUERY come from core/state.js the
+// same way.
 
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
 import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
+import { openTicket, showNewTicketModal } from './detail.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
-import { registerActions } from '../core/event-delegation.js';
+import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
@@ -59,13 +64,13 @@ function renderSavedSearchesControls() {
   const ownGroup    = own.length    ? `<optgroup label="My searches">${own.map(renderOpt).join('')}</optgroup>` : '';
   const sharedGroup = shared.length ? `<optgroup label="Shared with workspace">${shared.map(renderOpt).join('')}</optgroup>` : '';
   return `
-    <select class="filter-select" onchange="applySavedSearch(this.value); this.value=''" title="Apply a saved search">
+    <select class="filter-select" data-change-action="tickets.applySearchSelect" title="Apply a saved search">
       <option value="">— Saved searches${SAVED_SEARCHES.length ? '' : ' (none yet)'} —</option>
       ${ownGroup}
       ${sharedGroup}
     </select>
-    <button class="btn btn-sm" onclick="saveCurrentSearch()" title="Save the current filter state">Save current</button>
-    ${SAVED_SEARCHES.length ? `<button class="btn btn-sm" onclick="manageSavedSearches()" title="Manage saved searches">Manage</button>` : ''}
+    <button class="btn btn-sm" data-action="tickets.saveSearch" title="Save the current filter state">Save current</button>
+    ${SAVED_SEARCHES.length ? `<button class="btn btn-sm" data-action="tickets.manageSearches" title="Manage saved searches">Manage</button>` : ''}
   `;
 }
 
@@ -85,7 +90,7 @@ function renderPinnedSavedSearchChips() {
     const sharedMark = s.is_shared && !isOwnedByMe(s)
       ? ` <span style="font-size:9px;color:var(--ink3);font-weight:400" title="Shared by ${window.escAttr(s.owner_name || 'someone')}">★</span>`
       : '';
-    return `<span class="filter-tag" style="cursor:pointer" onclick="applySavedSearch('${window.escAttr(s.id)}')" title="${window.escAttr(s.is_shared ? `Shared by ${s.owner_name || 'someone'}` : 'Pinned saved search')}">${window.escHtml(s.name)}${sharedMark}</span>`;
+    return `<span class="filter-tag" style="cursor:pointer" data-action="tickets.applySearch" data-id="${window.escAttr(s.id)}" title="${window.escAttr(s.is_shared ? `Shared by ${s.owner_name || 'someone'}` : 'Pinned saved search')}">${window.escHtml(s.name)}${sharedMark}</span>`;
   }).join('');
 }
 
@@ -113,7 +118,7 @@ export function initTicketsPage() {
 
 export function renderTickets() {
   const statuses = ['all','open','pending','escalated','gdpr','resolved'];
-  const tabs = statuses.map(s => `<div class="tab ${FILTER_STATUS===s?'active':''}" onclick="setStatusFilter('${s}')">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}${s!=='all'?' ('+TICKETS.filter(t=>t.status===s).length+')':' ('+TICKETS.length+')'}</div>`).join('');
+  const tabs = statuses.map(s => `<div class="tab ${FILTER_STATUS===s?'active':''}" data-action="tickets.setStatus" data-status="${s}">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}${s!=='all'?' ('+TICKETS.filter(t=>t.status===s).length+')':' ('+TICKETS.length+')'}</div>`).join('');
 
   const list = getFilteredTickets();
   const groups = groupTicketsBy(list, TICKET_GROUP_BY);
@@ -141,9 +146,9 @@ export function renderTickets() {
   const rowFor = t => {
     const cust = CUSTOMERS.find(c => c.id === t.customerId);
     const checked = TICKET_SELECTED_IDS.has(t.id);
-    return `<tr onclick="openTicket('${window.escAttr(t.id)}')" style="cursor:pointer${checked?';background:var(--purple-lt)':''}">
-      <td style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-        <input type="checkbox" ${checked?'checked':''} onchange="toggleTicketSelected('${window.escAttr(t.id)}')" style="cursor:pointer;accent-color:var(--purple)" />
+    return `<tr data-action="tickets.openTicket" data-id="${window.escAttr(t.id)}" style="cursor:pointer${checked?';background:var(--purple-lt)':''}">
+      <td style="width:32px;padding-right:0" data-action="">
+        <input type="checkbox" ${checked?'checked':''} data-change-action="tickets.toggleSelected" data-id="${window.escAttr(t.id)}" style="cursor:pointer;accent-color:var(--purple)" />
       </td>
       <td class="bold">${window.escHtml(t.id)}</td>
       <td>${cust ? window.escHtml(cust.first+' '+cust.last) : '—'}</td>
@@ -169,39 +174,39 @@ export function renderTickets() {
   const bulkBar = TICKET_SELECTED_IDS.size > 0 ? `
     <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--purple);font-weight:600">${TICKET_SELECTED_IDS.size} selected</span>
-      <button class="btn btn-sm" onclick="bulkAssignTickets()">Assign…</button>
-      <select class="filter-select" onchange="bulkSetStatus(this.value)">
+      <button class="btn btn-sm" data-action="tickets.bulkAssign">Assign…</button>
+      <select class="filter-select" data-change-action="tickets.bulkStatus">
         <option value="">Set status…</option>
         <option value="open">Open</option>
         <option value="pending">Pending</option>
         <option value="escalated">Escalated</option>
         <option value="resolved">Resolved</option>
       </select>
-      <select class="filter-select" onchange="bulkSetPriority(this.value)">
+      <select class="filter-select" data-change-action="tickets.bulkPriority">
         <option value="">Set priority…</option>
         <option value="urgent">Urgent</option>
         <option value="high">High</option>
         <option value="normal">Normal</option>
         <option value="low">Low</option>
       </select>
-      <button class="btn btn-sm" onclick="bulkAddTag()">Add tag…</button>
+      <button class="btn btn-sm" data-action="tickets.bulkTag">Add tag…</button>
       <button class="btn btn-sm" data-action="snooze.bulkSnooze">💤 Snooze…</button>
       <button class="btn btn-sm" data-action="ar.bulkRun">⇄ Run rules</button>
       <select class="filter-select" data-change-action="macros.bulkRun">
         <option value="">Run macro…</option>
         ${MACROS.map(m => `<option value="${window.escAttr(m.id)}">${window.escHtml(m.icon || '⚡')} ${window.escHtml(m.name)}</option>`).join('')}
       </select>
-      <button class="btn btn-sm" onclick="bulkExportTickets()">Export selected</button>
-      <button class="btn btn-sm btn-danger" onclick="bulkDeleteTickets()">Delete</button>
-      <button class="btn btn-sm" onclick="clearTicketSelection()" style="margin-left:auto">Clear selection</button>
+      <button class="btn btn-sm" data-action="tickets.bulkExport">Export selected</button>
+      <button class="btn btn-sm btn-danger" data-action="tickets.bulkDelete">Delete</button>
+      <button class="btn btn-sm" data-action="tickets.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
   return `
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Tickets</div>
-        <button class="btn btn-sm" onclick="exportTicketList()">Export CSV</button>
-        <button class="btn btn-solid btn-sm" onclick="showNewTicketModal()">+ New Ticket</button>
+        <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
+        <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total</div></div>
@@ -213,46 +218,46 @@ export function renderTickets() {
       <div class="tab-bar">${tabs}</div>
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Search</span>
-        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${FILTER_QUERY}" oninput="setTicketQuery(this.value)"/>
-        <select class="filter-select" onchange="FILTER_CATEGORY=this.value;renderPage('tickets')">
+        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${FILTER_QUERY}" data-input-action="tickets.setQuery"/>
+        <select class="filter-select" data-change-action="tickets.setFilter" data-filter="category">
           <option value="all">All categories</option>
           ${cats.map(c=>`<option value="${c}" ${FILTER_CATEGORY===c?'selected':''}>${c}</option>`).join('')}
         </select>
-        <select class="filter-select" onchange="FILTER_PRIORITY=this.value;renderPage('tickets')">
+        <select class="filter-select" data-change-action="tickets.setFilter" data-filter="priority">
           <option value="all">All priorities</option>
           <option value="urgent" ${FILTER_PRIORITY==='urgent'?'selected':''}>Urgent</option>
           <option value="high" ${FILTER_PRIORITY==='high'?'selected':''}>High</option>
           <option value="normal" ${FILTER_PRIORITY==='normal'?'selected':''}>Normal</option>
           <option value="low" ${FILTER_PRIORITY==='low'?'selected':''}>Low</option>
         </select>
-        <select class="filter-select" onchange="setAgentFilter(this.value)">
+        <select class="filter-select" data-change-action="tickets.setAgent">
           <option value="all">All agents</option>
           ${AGENTS.map(a=>`<option value="${a.name}" ${FILTER_AGENT===a.name?'selected':''}>${a.name}</option>`).join('')}
         </select>
-        <select class="filter-select" onchange="FILTER_SENTIMENT=this.value;renderPage('tickets')" title="Filter by latest customer sentiment">
+        <select class="filter-select" data-change-action="tickets.setFilter" data-filter="sentiment" title="Filter by latest customer sentiment">
           <option value="all">All sentiments</option>
           <option value="angry"      ${FILTER_SENTIMENT==='angry'?'selected':''}>Angry</option>
           <option value="frustrated" ${FILTER_SENTIMENT==='frustrated'?'selected':''}>Frustrated</option>
           <option value="neutral"    ${FILTER_SENTIMENT==='neutral'?'selected':''}>Neutral</option>
           <option value="positive"   ${FILTER_SENTIMENT==='positive'?'selected':''}>Positive</option>
         </select>
-        <select class="filter-select" onchange="setTicketGroupBy(this.value)" title="Group rows">
+        <select class="filter-select" data-change-action="tickets.setGroupBy" title="Group rows">
           <option value="none"     ${TICKET_GROUP_BY==='none'?'selected':''}>No grouping</option>
           <option value="status"   ${TICKET_GROUP_BY==='status'?'selected':''}>Group by status</option>
           <option value="priority" ${TICKET_GROUP_BY==='priority'?'selected':''}>Group by priority</option>
           <option value="category" ${TICKET_GROUP_BY==='category'?'selected':''}>Group by category</option>
           <option value="agent"    ${TICKET_GROUP_BY==='agent'?'selected':''}>Group by agent</option>
         </select>
-        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${FILTER_CATEGORY}<span class="rm" onclick="FILTER_CATEGORY='all';renderPage('tickets')">×</span></span>`:''}
-        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" onclick="FILTER_PRIORITY='all';renderPage('tickets')">×</span></span>`:''}
-        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${FILTER_AGENT}<span class="rm" onclick="FILTER_AGENT='all';renderPage('tickets')">×</span></span>`:''}
-        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" onclick="FILTER_SENTIMENT='all';renderPage('tickets')">×</span></span>`:''}
-        ${FILTER_QUERY?`<span class="filter-tag">"${FILTER_QUERY}"<span class="rm" onclick="FILTER_QUERY='';renderPage('tickets')">×</span></span>`:''}
+        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${FILTER_CATEGORY}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
+        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
+        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${FILTER_AGENT}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
+        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
+        ${FILTER_QUERY?`<span class="filter-tag">"${FILTER_QUERY}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
-        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" onclick="setTicketView('${v.k}')">${v.l}</span>`).join('')}
+        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
         ${renderPinnedSavedSearchChips()}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           ${renderSavedSearchesControls()}
@@ -261,10 +266,10 @@ export function renderTickets() {
       <div style="flex:1;overflow-y:auto">
         <table class="tbl">
           <thead><tr>
-            <th style="width:32px;padding-right:0" onclick="event.stopPropagation()">
-              <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} onchange="toggleAllTickets()" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+            <th style="width:32px;padding-right:0" data-action="">
+              <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} data-change-action="tickets.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
             </th>
-            ${[['id','ID'],['customerId','Customer'],['subject','Subject'],['status','Status'],['priority','Priority'],['category','Category'],['agent','Agent'],['updated','Updated'],['sla','SLA']].map(([k,l])=>`<th onclick="sortTickets('${k}')">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
+            ${[['id','ID'],['customerId','Customer'],['subject','Subject'],['status','Status'],['priority','Priority'],['category','Category'],['agent','Agent'],['updated','Updated'],['sla','SLA']].map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
           </tr></thead>
           <tbody>${tableBody}</tbody>
         </table>
@@ -292,12 +297,12 @@ async function ticketsLoadMore() {
   }
 }
 
-export function setStatusFilter(s) { FILTER_STATUS = s; window.renderPage('tickets'); }
-export function sortTickets(col) {
+function setStatusFilter(s) { FILTER_STATUS = s; window.renderPage('tickets'); }
+function sortTickets(col) {
   if (SORT_COL === col) SORT_DIR *= -1; else { SORT_COL = col; SORT_DIR = 1; }
   window.renderPage('tickets');
 }
-export function setAgentFilter(v)  { FILTER_AGENT = v; window.renderPage('tickets'); }
+function setAgentFilter(v)  { FILTER_AGENT = v; window.renderPage('tickets'); }
 export function setTicketView(v)   { FILTER_VIEW = v;  window.renderPage('tickets'); }
 
 // ─── Saved searches ─────────────────────────────────────────────────────
@@ -314,7 +319,7 @@ function currentFilterSnapshot() {
   };
 }
 
-export async function saveCurrentSearch() {
+async function saveCurrentSearch() {
   const name = (prompt('Name this search:') || '').trim();
   if (!name) return;
   try {
@@ -326,7 +331,7 @@ export async function saveCurrentSearch() {
   }
 }
 
-export function applySavedSearch(id) {
+function applySavedSearch(id) {
   if (!id) return;
   const s = SAVED_SEARCHES.find((x) => x.id === id);
   if (!s) return;
@@ -341,7 +346,7 @@ export function applySavedSearch(id) {
   window.renderPage('tickets');
 }
 
-export function manageSavedSearches() {
+function manageSavedSearches() {
   if (SAVED_SEARCHES.length === 0) return;
   const body = SAVED_SEARCHES.map((s) => {
     const owned = isOwnedByMe(s);
@@ -349,13 +354,13 @@ export function manageSavedSearches() {
       ? `<span style="color:var(--ink3)"> · shared by ${window.escHtml(s.owner_name || 'someone')}</span>`
       : (s.is_shared ? '<span style="color:var(--purple)"> · shared with workspace</span>' : '');
     const pinBtn = owned ? `
-      <button class="btn btn-sm" onclick="toggleSavedSearchPin('${window.escAttr(s.id)}', ${s.is_pinned ? 'false' : 'true'})" title="${s.is_pinned ? 'Remove from view chips' : 'Pin as a view chip'}">${s.is_pinned ? 'Unpin' : 'Pin'}</button>
+      <button class="btn btn-sm" data-action="tickets.togglePin" data-id="${window.escAttr(s.id)}" data-pinned="${s.is_pinned ? 'false' : 'true'}" title="${s.is_pinned ? 'Remove from view chips' : 'Pin as a view chip'}">${s.is_pinned ? 'Unpin' : 'Pin'}</button>
     ` : '';
     const shareBtn = owned ? `
-      <button class="btn btn-sm" onclick="toggleSavedSearchShare('${window.escAttr(s.id)}', ${s.is_shared ? 'false' : 'true'})" title="${s.is_shared ? 'Stop sharing with workspace' : 'Share with workspace'}">${s.is_shared ? 'Unshare' : 'Share'}</button>
+      <button class="btn btn-sm" data-action="tickets.toggleShare" data-id="${window.escAttr(s.id)}" data-shared="${s.is_shared ? 'false' : 'true'}" title="${s.is_shared ? 'Stop sharing with workspace' : 'Share with workspace'}">${s.is_shared ? 'Unshare' : 'Share'}</button>
     ` : '';
     const deleteBtn = owned ? `
-      <button class="btn btn-sm btn-danger" onclick="deleteSavedSearch('${window.escAttr(s.id)}')">Delete</button>
+      <button class="btn btn-sm btn-danger" data-action="tickets.deleteSearch" data-id="${window.escAttr(s.id)}">Delete</button>
     ` : '';
     return `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--rule)">
@@ -371,7 +376,7 @@ export function manageSavedSearches() {
   showModal('Saved searches', body, null, null, true);
 }
 
-export async function toggleSavedSearchShare(id, share) {
+async function toggleSavedSearchShare(id, share) {
   try {
     const res = await apiPatch(`/api/v1/saved-searches/${encodeURIComponent(id)}`, { is_shared: share });
     SAVED_SEARCHES = SAVED_SEARCHES.map((s) => s.id === id ? { ...s, ...res.saved_search } : s);
@@ -382,7 +387,7 @@ export async function toggleSavedSearchShare(id, share) {
   }
 }
 
-export async function toggleSavedSearchPin(id, pin) {
+async function toggleSavedSearchPin(id, pin) {
   try {
     const res = await apiPatch(`/api/v1/saved-searches/${encodeURIComponent(id)}`, { is_pinned: pin });
     SAVED_SEARCHES = SAVED_SEARCHES.map((s) => s.id === id ? { ...s, ...res.saved_search } : s);
@@ -393,7 +398,7 @@ export async function toggleSavedSearchPin(id, pin) {
   }
 }
 
-export async function deleteSavedSearch(id) {
+async function deleteSavedSearch(id) {
   if (!confirm('Delete this saved search?')) return;
   try {
     await apiDelete(`/api/v1/saved-searches/${encodeURIComponent(id)}`);
@@ -407,13 +412,13 @@ export async function deleteSavedSearch(id) {
     alert(`Couldn't delete: ${err?.message || err}`);
   }
 }
-export function setTicketQuery(q)  {
+function setTicketQuery(q)  {
   FILTER_QUERY = q;
   window.renderPage('tickets');
   const input = document.getElementById('ticket-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
-export function setTicketGroupBy(v) { TICKET_GROUP_BY = v; window.renderPage('tickets'); }
+function setTicketGroupBy(v) { TICKET_GROUP_BY = v; window.renderPage('tickets'); }
 
 function getFilteredTickets() {
   let list = [...TICKETS];
@@ -457,13 +462,13 @@ function groupTicketsBy(list, by) {
   return [...groups.entries()].map(([key, items]) => ({ key, items }));
 }
 
-export function toggleTicketSelected(id) {
+function toggleTicketSelected(id) {
   if (TICKET_SELECTED_IDS.has(id)) TICKET_SELECTED_IDS.delete(id);
   else TICKET_SELECTED_IDS.add(id);
   window.renderPage('tickets');
 }
 
-export function toggleAllTickets() {
+function toggleAllTickets() {
   const ids = getFilteredTickets().map(t => t.id);
   const allSelected = ids.length > 0 && ids.every(id => TICKET_SELECTED_IDS.has(id));
   if (allSelected) ids.forEach(id => TICKET_SELECTED_IDS.delete(id));
@@ -471,9 +476,9 @@ export function toggleAllTickets() {
   window.renderPage('tickets');
 }
 
-export function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); window.renderPage('tickets'); }
+function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); window.renderPage('tickets'); }
 
-export function bulkAssignTickets() {
+function bulkAssignTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   showModal(`Assign ${TICKET_SELECTED_IDS.size} ticket${TICKET_SELECTED_IDS.size===1?'':'s'}`, `
     <div class="form-row"><label class="form-label">Assign to</label>
@@ -494,7 +499,7 @@ export function bulkAssignTickets() {
   }, 'Assign');
 }
 
-export function bulkSetStatus(v) {
+function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
   TICKETS.forEach(t => {
     if (!TICKET_SELECTED_IDS.has(t.id)) return;
@@ -512,7 +517,7 @@ export function bulkSetStatus(v) {
   window.renderPage('tickets');
 }
 
-export function bulkSetPriority(v) {
+function bulkSetPriority(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
   TICKETS.forEach(t => {
     if (!TICKET_SELECTED_IDS.has(t.id)) return;
@@ -525,7 +530,7 @@ export function bulkSetPriority(v) {
   window.renderPage('tickets');
 }
 
-export function bulkAddTag() {
+function bulkAddTag() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   const n = TICKET_SELECTED_IDS.size;
   showModal(`Tag ${n} ticket${n===1?'':'s'}`, `
@@ -557,7 +562,7 @@ export function bulkAddTag() {
   }, 'Apply tag');
 }
 
-export function bulkExportTickets() {
+function bulkExportTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
   const list = TICKETS.filter(t => TICKET_SELECTED_IDS.has(t.id));
   const headers = ['ID','Customer','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','Tags','CSAT','Time logged','Time billable'];
@@ -578,7 +583,7 @@ export function bulkExportTickets() {
   }
 }
 
-export function bulkDeleteTickets() {
+function bulkDeleteTickets() {
   const n = TICKET_SELECTED_IDS.size;
   if (n === 0) return;
   showModal(`Delete ${n} ticket${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> ticket${n===1?'':'s'}? This cannot be undone.</div>`, () => {
@@ -597,7 +602,7 @@ export function bulkDeleteTickets() {
   }, 'Delete');
 }
 
-export function exportTicketList() {
+function exportTicketList() {
   const list = getFilteredTickets();
   const headers = ['ID','Customer','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','Tags','CSAT','Time logged','Time billable'];
   const rows = list.map(t => {
@@ -617,5 +622,55 @@ export function exportTicketList() {
 }
 
 registerActions({
-  'tickets.loadMore': () => ticketsLoadMore(),
+  'tickets.loadMore':      () => ticketsLoadMore(),
+  // saved searches
+  'tickets.saveSearch':    () => saveCurrentSearch(),
+  'tickets.manageSearches':() => manageSavedSearches(),
+  'tickets.applySearch':   (ds) => applySavedSearch(ds.id),
+  'tickets.togglePin':     (ds) => toggleSavedSearchPin(ds.id, ds.pinned === 'true'),
+  'tickets.toggleShare':   (ds) => toggleSavedSearchShare(ds.id, ds.shared === 'true'),
+  'tickets.deleteSearch':  (ds) => deleteSavedSearch(ds.id),
+  // status tabs / view chips / sort / row open / topbar
+  'tickets.setStatus':     (ds) => setStatusFilter(ds.status),
+  'tickets.setView':       (ds) => setTicketView(ds.view),
+  'tickets.sort':          (ds) => sortTickets(ds.col),
+  'tickets.openTicket':    (ds) => openTicket(ds.id),
+  'tickets.newTicket':     () => showNewTicketModal(),
+  'tickets.export':        () => exportTicketList(),
+  // bulk actions
+  'tickets.bulkAssign':    () => bulkAssignTickets(),
+  'tickets.bulkTag':       () => bulkAddTag(),
+  'tickets.bulkExport':    () => bulkExportTickets(),
+  'tickets.bulkDelete':    () => bulkDeleteTickets(),
+  'tickets.clearSelection':() => clearTicketSelection(),
+  // filter chips (clear)
+  'tickets.clearFilter':   (ds) => {
+    if      (ds.filter === 'category')  FILTER_CATEGORY  = 'all';
+    else if (ds.filter === 'priority')  FILTER_PRIORITY  = 'all';
+    else if (ds.filter === 'agent')     FILTER_AGENT     = 'all';
+    else if (ds.filter === 'sentiment') FILTER_SENTIMENT = 'all';
+    else if (ds.filter === 'query')     FILTER_QUERY     = '';
+    window.renderPage('tickets');
+  },
+});
+
+registerChangeActions({
+  'tickets.applySearchSelect': (ds, el) => { applySavedSearch(el.value); el.value = ''; },
+  'tickets.toggleSelected':    (ds) => toggleTicketSelected(ds.id),
+  'tickets.toggleAll':         () => toggleAllTickets(),
+  'tickets.bulkStatus':        (ds, el) => bulkSetStatus(el.value),
+  'tickets.bulkPriority':      (ds, el) => bulkSetPriority(el.value),
+  'tickets.setAgent':          (ds, el) => setAgentFilter(el.value),
+  'tickets.setGroupBy':        (ds, el) => setTicketGroupBy(el.value),
+  // category / priority / sentiment selects (no dedicated setter — assign the global)
+  'tickets.setFilter':         (ds, el) => {
+    if      (ds.filter === 'category')  FILTER_CATEGORY  = el.value;
+    else if (ds.filter === 'priority')  FILTER_PRIORITY  = el.value;
+    else if (ds.filter === 'sentiment') FILTER_SENTIMENT = el.value;
+    window.renderPage('tickets');
+  },
+});
+
+registerInputActions({
+  'tickets.setQuery': (ds, el) => setTicketQuery(el.value),
 });
