@@ -1,3 +1,5 @@
 scripts/app.bundled.js
 scripts/full-smoke.js
+scripts/detail-entry.bundled.js
+scripts/detail-smoke.js
 build.err
