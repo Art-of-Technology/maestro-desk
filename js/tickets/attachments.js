@@ -5,8 +5,15 @@
 //
 // External reaches (interim, via window): showModal, escAttr — still in
 // app.js.
+//
+// Inline on*= handlers were migrated to data-action delegation (see the
+// registerActions block at the bottom). showAttachPanel stays exported —
+// tickets/detail.js imports it directly (action td.showAttach). The add /
+// remove mutators are now module-internal (dispatched via att.* actions).
 
-export function addMockAttachment(id) {
+import { registerActions } from '../core/event-delegation.js';
+
+function addMockAttachment(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   if (!t.attachments) t.attachments = [];
@@ -21,7 +28,7 @@ export function addMockAttachment(id) {
   showAttachPanel(id);
 }
 
-export function removeAttachment(id, idx) {
+function removeAttachment(id, idx) {
   const t = TICKETS.find(x => x.id === id);
   if (t && t.attachments) t.attachments.splice(idx, 1);
   showAttachPanel(id);
@@ -36,12 +43,17 @@ export function showAttachPanel(id) {
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5h5l3 3v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M8 1.5v3h3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
           <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name}</span>
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${a.size}</span>
-          <button class="btn btn-sm btn-danger" onclick="removeAttachment('${window.escAttr(id)}',${i})" style="padding:2px 8px;font-size:11px">Remove</button>
+          <button class="btn btn-sm btn-danger" data-action="att.remove" data-id="${window.escAttr(id)}" data-idx="${i}" style="padding:2px 8px;font-size:11px">Remove</button>
         </div>`).join('')
     : '<div style="font-size:12px;color:var(--ink3);text-align:center;padding:18px 0">No attachments yet</div>';
   window.showModal('Attachments', `
-    <div class="attach-zone" onclick="addMockAttachment('${window.escAttr(id)}')">Click to add a sample attachment</div>
+    <div class="attach-zone" data-action="att.add" data-id="${window.escAttr(id)}">Click to add a sample attachment</div>
     <div style="margin-top:14px;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:8px">${t.attachments.length} file${t.attachments.length===1?'':'s'}</div>
     ${list}
   `, null, null);
 }
+
+registerActions({
+  'att.add':    (ds) => addMockAttachment(ds.id),
+  'att.remove': (ds) => removeAttachment(ds.id, parseInt(ds.idx, 10)),
+});

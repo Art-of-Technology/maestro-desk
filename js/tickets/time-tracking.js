@@ -11,8 +11,14 @@
 //   • showModal, escHtml, closeModal — modal infra, still in app.js
 //
 // SESSION and CURRENT_TICKET come from core/state.js via the global lexical env.
+//
+// No window-bridge namespace: every export is consumed via direct ES import
+// (reports/list/detail for the totals; detail.js for removeTimeEntry /
+// showLogTimeModal via td.removeTime / td.logTime). The one inline handler
+// (the minutes quick-preset) is delegated as tt.preset below.
 
 import { apiPost, apiDelete } from '../core/api-client.js';
+import { registerActions } from '../core/event-delegation.js';
 
 function timeEntryNextId() {
   return 'TE-' + Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -95,7 +101,7 @@ export function showLogTimeModal(ticketId) {
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">Logged time rolls up in the ticket sidebar, the agent's totals, and the Reports page.</div>
     <div class="form-row"><label class="form-label">Quick presets</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${[5, 15, 30, 60, 120].map(m => `<button type="button" class="btn btn-sm" style="flex:1" onclick="document.getElementById('te-min').value=${m}">${window.fmtMinutes(m)}</button>`).join('')}
+        ${[5, 15, 30, 60, 120].map(m => `<button type="button" class="btn btn-sm" style="flex:1" data-action="tt.preset" data-min="${m}">${window.fmtMinutes(m)}</button>`).join('')}
       </div>
     </div>
     <div class="form-row"><label class="form-label">Minutes</label>
@@ -116,3 +122,7 @@ export function showLogTimeModal(ticketId) {
     window.closeModal();
   }, 'Log time');
 }
+
+registerActions({
+  'tt.preset': (ds) => { const el = document.getElementById('te-min'); if (el) el.value = ds.min; },
+});

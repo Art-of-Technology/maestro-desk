@@ -11,10 +11,6 @@ import {
 } from './ai/translate.js';
 import { aiAction } from './ai/reply.js';
 import {
-  ticketTotalMinutes, ticketBillableMinutes,
-  addTimeEntry, removeTimeEntry, showLogTimeModal,
-} from './tickets/time-tracking.js';
-import {
   snoozeTicket, unsnoozeTicket, checkSnoozeWakeups,
   formatSnoozeUntil, snoozePresetIso,
   showSnoozeModal, bulkSnoozeTickets,
@@ -28,11 +24,6 @@ import {
   fmtSLAMinutes,
 } from './tickets/sla.js';
 import { renderSLA } from './tickets/sla-policies.js';
-import {
-  parseMentions, renderTextWithMentions,
-  updateMentionDropdown, hideMentionDropdown,
-  insertMention, mentionDropdownKey,
-} from './tickets/mentions.js';
 import { loadDraft, saveDraft, clearDraft } from './tickets/drafts.js';
 import {
   logTicketEvent, getTicketEvents, renderActivityLog,
@@ -43,7 +34,7 @@ import {
   macAddStep, macRemoveStep, macStepKindChange,
   macNew, macEdit, macDelete, renderMacros,
 } from './tickets/macros.js';
-import { addMockAttachment, removeAttachment, showAttachPanel } from './tickets/attachments.js';
+import { showAttachPanel } from './tickets/attachments.js';
 import { renderAI, initAI } from './ai/page.js';
 import { renderPortal } from './portal/preview.js';
 import { renderInbox } from './inbox/index.js';
@@ -105,11 +96,7 @@ import {
 import {
   renderLayouts, isFieldVisible, isFieldRequired,
 } from './layouts/index.js';
-import {
-  renderCustomFields,
-  cfNew, cfEdit, cfDelete, cfFormToggleOptions,
-  showManageFieldsModal,
-} from './custom-fields/index.js';
+import { renderCustomFields } from './custom-fields/index.js';
 import { renderRoles } from './roles/index.js';
 import { renderWorkflows } from './workflows/index.js';
 import { renderTags } from './tags/index.js';
@@ -155,18 +142,14 @@ import * as AIClient from './ai/client.js';
 import * as Summarize from './ai/summarize.js';
 import * as Translate from './ai/translate.js';
 import * as AIReply from './ai/reply.js';
-import * as TimeTracking from './tickets/time-tracking.js';
 import * as Snooze from './tickets/snooze.js';
-import * as Mentions from './tickets/mentions.js';
 import * as Macros from './tickets/macros.js';
-import * as Attachments from './tickets/attachments.js';
 import * as KBIntegration from './kb-integration/index.js';
 import * as Modal from './core/modal.js';
 import * as Collapsible from './core/collapsible.js';
 import * as Keybindings from './core/keybindings.js';
 import * as GlobalSearch from './global-search/index.js';
 import * as Settings from './settings/index.js';
-import * as CustomFields from './custom-fields/index.js';
 import * as CustomerModals from './customers/modals.js';
 import * as Dashboard from './dashboard/index.js';
 import * as TicketsList from './tickets/list.js';
@@ -431,12 +414,12 @@ Object.assign(
     // Agent (real-auth) sign-in panel — onclick handlers in static index.html
     showAgentLogin, submitAgentLogin },
   Theme, AIClient, Summarize, Translate, AIReply,
-  TimeTracking, Snooze, Mentions,
-  Macros, Attachments,
+  Snooze,
+  Macros,
   KBIntegration,
   Modal, Collapsible, Keybindings,
   GlobalSearch,
-  Settings, CustomFields,
+  Settings,
   CustomerModals, Dashboard,
   TicketsList, TicketDetail,
   AssignmentRules,

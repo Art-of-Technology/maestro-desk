@@ -10,8 +10,14 @@
 //
 // CUSTOM_FIELDS comes from data.js via the global lexical env;
 // CF_FILTER_ENTITY comes from core/state.js the same way.
+//
+// Inline on*= handlers were migrated to data-action delegation (see the
+// registerActions block at the bottom). renderCustomFields stays exported
+// for the router; showManageFieldsModal stays exported for customers/index.js
+// (direct ES import). The cf* mutators are now module-internal.
 
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 function cfApiBacked() {
   return CUSTOM_FIELDS.some((f) => f._uuid);
@@ -58,8 +64,8 @@ export function renderCustomFields() {
       <td style="font-size:12px;color:var(--ink2);font-family:'DM Mono',monospace">${def !== '' ? window.escHtml(String(def)) : '—'}</td>
       <td style="text-align:center">${f.required ? '<span class="tag tag-gdpr" style="font-size:10px">required</span>' : '<span style="color:var(--ink4);font-size:11px">—</span>'}</td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm" onclick="cfEdit('${window.escAttr(f.id)}')">Edit</button>
-        <button class="btn btn-sm btn-danger" onclick="cfDelete('${window.escAttr(f.id)}')">Delete</button>
+        <button class="btn btn-sm" data-action="cf.edit" data-id="${window.escAttr(f.id)}">Edit</button>
+        <button class="btn btn-sm btn-danger" data-action="cf.delete" data-id="${window.escAttr(f.id)}">Delete</button>
       </td>` : ''}
     </tr>`;
   }).join('');
@@ -68,7 +74,7 @@ export function renderCustomFields() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Custom Fields</div>
-        ${admin ? `<button class="btn btn-solid btn-sm" onclick="cfNew()">+ New Field</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
+        ${admin ? `<button class="btn btn-solid btn-sm" data-action="cf.new">+ New Field</button>` : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only</span>`}
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Fields</div></div>
@@ -78,7 +84,7 @@ export function renderCustomFields() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Entity</span>
-        <select class="filter-select" onchange="CF_FILTER_ENTITY=this.value;renderPage('custom-fields')">
+        <select class="filter-select" data-change-action="cf.filterEntity">
           <option value="all"      ${CF_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
           <option value="customer" ${CF_FILTER_ENTITY==='customer'?'selected':''}>Customer fields</option>
           <option value="ticket"   ${CF_FILTER_ENTITY==='ticket'?'selected':''}>Ticket fields</option>
@@ -103,7 +109,7 @@ function cfFormBody(f) {
     <div class="form-grid">
       <div class="form-row"><label class="form-label">Label</label><input class="form-input" id="cf-label" value="${esc(f?.label)}" placeholder="e.g. Renewal Date"/></div>
       <div class="form-row"><label class="form-label">Type</label>
-        <select class="form-input" id="cf-type" onchange="cfFormToggleOptions(this.value)">
+        <select class="form-input" id="cf-type" data-change-action="cf.toggleOptions">
           ${CF_TYPES.map(t => `<option value="${t.v}" ${(f?.type||'text')===t.v?'selected':''}>${t.l}</option>`).join('')}
         </select>
       </div>
@@ -127,7 +133,7 @@ function cfFormBody(f) {
     </div>`;
 }
 
-export function cfFormToggleOptions(type) {
+function cfFormToggleOptions(type) {
   const row = document.getElementById('cf-options-row');
   if (row) row.style.display = type === 'select' ? 'block' : 'none';
 }
@@ -149,7 +155,7 @@ function cfNextId() {
   return 'cf' + (max + 1);
 }
 
-export function cfNew() {
+function cfNew() {
   if (!window.isAdmin()) return;
   window.showModal('New custom field', cfFormBody(null), async () => {
     const data = cfReadForm();
@@ -176,7 +182,7 @@ export function cfNew() {
   }, 'Create');
 }
 
-export function cfEdit(id) {
+function cfEdit(id) {
   if (!window.isAdmin()) return;
   const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
   window.showModal(`Edit ${f.id}`, cfFormBody(f), async () => {
@@ -206,7 +212,7 @@ export function cfEdit(id) {
   }, 'Save');
 }
 
-export function cfDelete(id) {
+function cfDelete(id) {
   if (!window.isAdmin()) return;
   const f = CUSTOM_FIELDS.find(x => x.id === id); if (!f) return;
   window.showModal('Delete custom field', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(f.label)}</strong>? Existing values stored on customer / ticket records will become orphaned (not deleted).</div>`, async () => {
@@ -226,3 +232,14 @@ export function showManageFieldsModal() {
     <div style="font-size:11px;color:var(--ink3);margin-top:14px">Custom fields appear as toggleable columns in the customer table.</div>
   `, null, null);
 }
+
+registerActions({
+  'cf.new':    () => cfNew(),
+  'cf.edit':   (ds) => cfEdit(ds.id),
+  'cf.delete': (ds) => cfDelete(ds.id),
+});
+
+registerChangeActions({
+  'cf.filterEntity': (ds, el) => { CF_FILTER_ENTITY = el.value; window.renderPage('custom-fields'); },
+  'cf.toggleOptions': (ds, el) => cfFormToggleOptions(el.value),
+});
