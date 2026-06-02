@@ -23,6 +23,7 @@
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { registerActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
 
 let PORTAL_CUSTOMER_ID = null;
 let PORTAL_VIEW = 'tickets';
@@ -38,7 +39,7 @@ function portalSetCustomer(id) {
 function portalExit() {
   PORTAL_CUSTOMER_ID = null;
   PORTAL_TICKET_ID = null;
-  window.navTo('dashboard');
+  navTo('dashboard');
 }
 
 function portalNav(view) {

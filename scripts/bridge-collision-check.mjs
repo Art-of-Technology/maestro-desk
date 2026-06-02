@@ -1,9 +1,11 @@
 // Imports every module spread into the window bridge and reports any export
 // name that appears in more than one module. Run with `bun scripts/bridge-collision-check.mjs`.
-
-const modules = [
-  ['Keybindings',            '../js/core/keybindings.js'],
-];
+//
+// As of the leaf-namespace cleanup, NO feature module is spread onto the bridge
+// any more — every module reaches its callers via direct ES imports or its own
+// data-action handlers. This list is intentionally empty; re-add a `[Alias, path]`
+// row here if a future change ever reintroduces a `Object.assign(window, NS)` spread.
+const modules = [];
 
 // state.js + data.js are classic scripts that reference `document`/`localStorage`
 // at top level; stub the bits each module's module-init code touches so we can

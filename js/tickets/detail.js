@@ -58,6 +58,7 @@ import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
 import { runAssignmentRulesOnTicket } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
+import { navTo } from '../core/keybindings.js';
 import {
   startPresence, setComposing, confirmIfOthersComposing,
   setTicketChangedCallback,
@@ -1129,11 +1130,11 @@ registerActions({
   'td.acceptAllAITags':(ds) => acceptAllAITags(ds.ticketId),
   // Sidebar info rows / SLA / KB
   'td.showAttach':     (ds) => showAttachPanel(ds.ticketId),
-  'td.navTo':          (ds) => window.navTo(ds.target),
+  'td.navTo':          (ds) => navTo(ds.target),
   'td.summarize':      (ds) => summarizeTicket(ds.ticketId),
   'td.clearSummary':   (ds) => clearTicketSummary(ds.ticketId),
   'td.toggleWatch':    (ds) => toggleWatch(ds.ticketId),
-  'td.openKB':         (ds) => { KB_SELECTED = ds.kbId; window.navTo('kb'); },
+  'td.openKB':         (ds) => { KB_SELECTED = ds.kbId; navTo('kb'); },
   'td.refreshKB':      (ds) => refreshTicketKbSuggestions(ds.ticketId),
   // Time tracking
   'td.logTime':        (ds) => showLogTimeModal(ds.ticketId),

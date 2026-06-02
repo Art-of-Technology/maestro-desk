@@ -23,6 +23,7 @@
 import { registerActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { isAgentOOO } from '../tickets/assignment-rules.js';
+import { navTo } from '../core/keybindings.js';
 import { SEARCH_PAGES } from '../global-search/index.js';
 
 let QS_OPEN = false;
@@ -182,11 +183,11 @@ function quickSwitcherPick(idx) {
   const item = quickSwitcherFlatItems()[idx];
   if (!item) return;
   toggleQuickSwitcher(false);
-  if (item.kind === 'page')          window.navTo(item.payload.page);
+  if (item.kind === 'page')          navTo(item.payload.page);
   else if (item.kind === 'ticket')   openTicket(item.payload.ticketId);
-  else if (item.kind === 'customer') { CUSTOMER_SELECTED = item.payload.customerId; window.navTo('customers'); }
-  else if (item.kind === 'agent')    { AGENT_SELECTED = item.payload.agentName; window.navTo('agents'); }
-  else if (item.kind === 'kb')       { KB_SELECTED = item.payload.kbId; window.navTo('kb'); }
+  else if (item.kind === 'customer') { CUSTOMER_SELECTED = item.payload.customerId; navTo('customers'); }
+  else if (item.kind === 'agent')    { AGENT_SELECTED = item.payload.agentName; navTo('agents'); }
+  else if (item.kind === 'kb')       { KB_SELECTED = item.payload.kbId; navTo('kb'); }
 }
 
 registerActions({

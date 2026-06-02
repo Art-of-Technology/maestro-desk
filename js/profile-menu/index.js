@@ -12,6 +12,7 @@
 
 import { showTranslatorModal } from '../ai/translate.js';
 import { registerActions } from '../core/event-delegation.js';
+import { navTo } from '../core/keybindings.js';
 
 function toggleProfileMenu() {
   const dd = document.getElementById('profile-dropdown');
@@ -24,9 +25,9 @@ function toggleProfileMenu() {
 function profileMenuGo(action) {
   document.getElementById('profile-dropdown')?.classList.remove('show');
   document.getElementById('profile-btn')?.classList.remove('active');
-  if (action === 'profile')        { window.navTo('profile'); }
-  else if (action === 'settings')  { window.navTo('settings'); }
-  else if (action === 'help')      { window.navTo('help'); }
+  if (action === 'profile')        { navTo('profile'); }
+  else if (action === 'settings')  { navTo('settings'); }
+  else if (action === 'help')      { navTo('help'); }
   else if (action === 'translator'){ showTranslatorModal(''); }
   else if (action === 'signout')   { window.logout(); }
 }

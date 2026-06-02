@@ -24,7 +24,6 @@ import { showModal, closeModal } from './core/modal.js';
 import { applyCollapsibleHeaders } from './core/collapsible.js';
 import './core/dismiss.js';
 import { registerActions } from './core/event-delegation.js';
-import { navTo, focusGlobalSearch } from './core/keybindings.js';
 import { renderProfile } from './profile/index.js';
 import { renderAgents } from './agents/index.js';
 import './profile-menu/index.js';  // side-effect: registers profmenu.* actions for the static top-bar dropdown
@@ -66,12 +65,13 @@ import { renderAssignmentRules } from './tickets/assignment-rules.js';
 import { renderTemplates } from './tickets/templates.js';
 import { renderCSAT } from './tickets/csat.js';
 
-// ─── Namespace imports (window-bridge use only) ────────────────────────────────
-// Every module re-exposed on window for inline on*= handlers gets a namespace
-// import here. The bridge below spreads each namespace, so the explicit
-// per-function list (~318 entries) is gone — bun dedupes the duplicate
-// imports at bundle time.
-import * as Keybindings from './core/keybindings.js';
+// keybindings.js registers the global `/` and Cmd-K shortcuts as a side effect
+// of import. app.js no longer uses navTo/focusGlobalSearch directly — every
+// caller imports them from core/keybindings.js — so this is a side-effect
+// import. No feature module is spread onto the window bridge any more (see the
+// bridge block below); every module's exports reach their callers through
+// direct ES imports or that module's own data-action handlers.
+import './core/keybindings.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 
@@ -299,31 +299,27 @@ function isAdmin() { return SESSION?.role === 'Admin'; }
 function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 
 // ─── Window bridge ─────────────────────────────────────────────────────────────
-// Re-exposes module-scope functions onto window for inline on*= handlers
-// (which resolve identifiers via the global scope and don't see ES-module
-// bindings). Each feature module is spread in as a whole namespace below —
-// any of its exports becomes available on window. The named imports above
-// remain for app.js's own use; bun dedupes them at bundle time.
+// Re-exposes a handful of app.js-local functions onto window. Every feature
+// module has now retired from the bridge — their exports reach callers via
+// direct ES imports or each module's own data-action handlers, so there are
+// no namespace spreads left here.
 //
-// App.js-local fns (login/logout/nav/renderPage/updateNavBadges and the
-// app-wide utilities fmtMinutes/escHtml/escAttr/isAdmin) get explicit
-// entries because they aren't owned by any feature module.
-//
-// To kill a bridge entry: stop calling it from inline on*= handlers. To
-// retire a whole module from the bridge: confirm no on*= handlers reference
-// any of its exports, then drop the namespace spread.
-//
-// Some functions are kept as explicit single-fn entries (alongside the
-// app-local fns above) because their only inline-handler callers are
-// static markup in index.html — the namespace spread retires, but the
-// specific functions stay window-reachable until index.html migrates.
+// What remains, and why it can't simply drop:
+//   • login/logout/nav/renderPage — bootstrap + routing, still in app.js;
+//     reached by window.nav/window.logout from several modules and by the
+//     static index.html shell. They retire only when routing leaves app.js.
+//   • updateNavBadges — post-render hook called via window.
+//   • applyWorkspaceBrand/resetWorkspaceBrand — white-label hooks.
+//   • fmtMinutes/escHtml/escAttr/isAdmin — app-wide utilities used from many
+//     module-rendered HTML strings.
+//   • setSettingsTab — notifications reaches it via window to dodge the
+//     settings↔notifications import cycle.
 Object.assign(
   window,
   { login, logout, nav, renderPage, updateNavBadges, applyWorkspaceBrand, resetWorkspaceBrand,
     fmtMinutes, escHtml, escAttr, isAdmin,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
-  Keybindings,
 );
 
 // Static index.html shell handlers (sidebar nav items + the sign-out foot).
