@@ -20,6 +20,7 @@
 import { apiGet } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 import { renderTickets } from './list.js';
+import { renderInbox } from '../inbox/index.js';
 
 const POLL_INTERVAL_MS = 10000;
 
@@ -77,8 +78,8 @@ async function tick() {
     const page = (typeof window !== 'undefined') ? window.CURRENT_PAGE : null;
     if (page === 'tickets') {
       renderTickets();
-    } else if (page === 'inbox' && typeof window.renderInbox === 'function') {
-      window.renderInbox();
+    } else if (page === 'inbox') {
+      renderInbox();
     }
     // Nav badges read off TICKETS too — refresh regardless of page so
     // the sidebar counts don't go stale while the agent is elsewhere.
