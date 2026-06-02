@@ -554,8 +554,9 @@ registerActions({
   'ar.delete':   (ds) => arDelete(ds.id),
   // bulk "Run rules" button rendered by tickets/list.js
   'ar.bulkRun':  () => bulkApplyAssignmentRules(),
-  // OOO modal "Clear OOO" button
-  'ar.clearOOO': (ds) => { clearAgentOOO(ds.name); closeModal(); window.renderPage(CURRENT_PAGE); },
+  // OOO modal "Clear OOO" button — await so the cleared state is reflected
+  // before the re-render (matches the Save handler in showAgentOOOModal).
+  'ar.clearOOO': async (ds) => { await clearAgentOOO(ds.name); closeModal(); window.renderPage(CURRENT_PAGE); },
 });
 
 registerChangeActions({
