@@ -1,7 +1,8 @@
 // DOM/runtime shim — concatenated AHEAD of the bundle, evaluated in the same
-// script scope. Lets the bundle's top-level `let` declarations (state.js,
-// data.js) become script-scope bindings that nested module fns see by bare
-// name — which is what the renderPage page-guard relies on.
+// script scope. Lets data.js's top-level `let`/`const` declarations become
+// script-scope bindings that nested module fns see by bare name (TICKETS,
+// CUSTOMERS, …). state.js is now an ES module bundled via the entry's import
+// graph, so it is no longer concatenated here.
 
 globalThis.localStorage = {
   store: {},

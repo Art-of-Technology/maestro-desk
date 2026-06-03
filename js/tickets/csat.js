@@ -22,6 +22,7 @@
 // CURRENT_TICKET, CURRENT_PAGE, CSAT_FILTER_AGENT, CSAT_FILTER_SCORE come
 // from core/state.js the same way.
 
+import { CSAT_FILTER_AGENT, CSAT_FILTER_SCORE, CURRENT_PAGE, CURRENT_TICKET, setCsatFilterAgent, setCsatFilterScore } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
@@ -295,6 +296,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'csat.setFilterScore': (ds, el) => { CSAT_FILTER_SCORE = el.value; renderPage('csat'); },
-  'csat.setFilterAgent': (ds, el) => { CSAT_FILTER_AGENT = el.value; renderPage('csat'); },
+  'csat.setFilterScore': (ds, el) => { setCsatFilterScore(el.value); renderPage('csat'); },
+  'csat.setFilterAgent': (ds, el) => { setCsatFilterAgent(el.value); renderPage('csat'); },
 });

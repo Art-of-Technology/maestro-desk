@@ -25,6 +25,7 @@
 // the global lexical env; CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS,
 // CUST_COLUMNS, CUST_DRAG_COL come from core/state.js the same way.
 
+import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, SESSION, setCustColumns, setCustDragCol, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -50,7 +51,7 @@ function getCustColumns() {
   customCols.forEach(cc=>{
     if(!CUST_COLUMNS.find(c=>c.id===cc.id)) CUST_COLUMNS.push({...cc,visible:false});
   });
-  CUST_COLUMNS = CUST_COLUMNS.filter(c=>!c.isCustom||CUSTOM_FIELDS.find(f=>'cf_'+f.id===c.id));
+  setCustColumns(CUST_COLUMNS.filter(c=>!c.isCustom||CUSTOM_FIELDS.find(f=>'cf_'+f.id===c.id)));
   return CUST_COLUMNS;
 }
 
@@ -98,7 +99,7 @@ function dropCustCol(targetIdx) {
   if(!src||!tgt||src.fixed||tgt.fixed) return;
   const si=all.indexOf(src), ti=all.indexOf(tgt);
   all.splice(si,1); all.splice(ti,0,src);
-  CUST_DRAG_COL=null;
+  setCustDragCol(null);
   refreshCustTable(CUSTOMERS);
 }
 
@@ -415,8 +416,8 @@ function deleteCustomerNote(custId, idx) {
   renderPage('customers');
 }
 
-function openCustomerProfile(id) { CUSTOMER_SELECTED = id; renderPage('customers'); }
-function closeCustomerProfile()  { CUSTOMER_SELECTED = null; renderPage('customers'); }
+function openCustomerProfile(id) { setCustomerSelected(id); renderPage('customers'); }
+function closeCustomerProfile()  { setCustomerSelected(null); renderPage('customers'); }
 
 // ─── Customer merge ─────────────────────────────────────────────────────────
 // Combines a duplicate customer record into a primary. Tickets reassign their
@@ -500,7 +501,7 @@ function mergeCustomers(srcId, primaryId) {
   primary.mergedFrom = primary.mergedFrom || [];
   if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
   // Navigate to the primary so the agent sees the consolidated view.
-  CUSTOMER_SELECTED = primaryId;
+  setCustomerSelected(primaryId);
   renderPage('customers');
 }
 
@@ -532,7 +533,7 @@ function unmergeCustomer(srcId) {
   if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
   delete src.mergedInto;
   delete src.mergedAt;
-  CUSTOMER_SELECTED = srcId;
+  setCustomerSelected(srcId);
   renderPage('customers');
 }
 
@@ -742,7 +743,7 @@ function renderShopifyContextBlock(c) {
 
 function renderCustomerDetail(custId) {
   const c = CUSTOMERS.find(x => x.id === custId);
-  if (!c) { CUSTOMER_SELECTED = null; return renderCustomers(); }
+  if (!c) { setCustomerSelected(null); return renderCustomers(); }
   // Real-time presence — no-ops for demo personas (no _uuid). Chip
   // slot is in the topbar below; the first heartbeat resolves after
   // main.innerHTML is set, so the slot is in the DOM by then.
@@ -968,7 +969,7 @@ registerActions({
   // Switch the active customer + re-render — used by the
   // mergedInto link and the per-original-customer list items in the
   // un-merge undo block.
-  'cust.selectAndRender': (ds) => { CUSTOMER_SELECTED = ds.custId; renderPage('customers'); },
+  'cust.selectAndRender': (ds) => { setCustomerSelected(ds.custId); renderPage('customers'); },
 });
 
 registerChangeActions({
@@ -1001,7 +1002,7 @@ registerMousedownActions({
 function _dragTh(e) { return e.target.closest('th[draggable="true"]'); }
 document.addEventListener('dragstart', e => {
   const th = _dragTh(e); if (!th) return;
-  CUST_DRAG_COL = parseInt(th.dataset.colIdx, 10);
+  setCustDragCol(parseInt(th.dataset.colIdx, 10));
 });
 document.addEventListener('dragover', e => {
   const th = _dragTh(e); if (!th) return;

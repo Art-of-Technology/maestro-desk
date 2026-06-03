@@ -15,6 +15,7 @@
 // KB_ARTICLES comes from data.js via the global lexical env; KB_SELECTED
 // and SESSION come from core/state.js the same way.
 
+import { KB_SELECTED, SESSION, setKbSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
@@ -249,7 +250,7 @@ export function renderKB() {
 
 function renderKBArticle(id) {
   const a = KB_ARTICLES.find(x => x.id === id);
-  if (!a) { KB_SELECTED = null; return renderKB(); }
+  if (!a) { setKbSelected(null); return renderKB(); }
   // Real-time presence — no-ops for demo articles (no _uuid). Useful
   // on the edit path when two admins might fight over the same article;
   // also nice on read so authors see when their article is hot.
@@ -334,8 +335,8 @@ function kbSetQuery(q) {
   }
 }
 function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
-function openKBArticle(id) { incrementKBView(id); KB_SELECTED = id; renderPage('kb'); }
-function closeKBArticle()  { KB_SELECTED = null; renderPage('kb'); }
+function openKBArticle(id) { incrementKBView(id); setKbSelected(id); renderPage('kb'); }
+function closeKBArticle()  { setKbSelected(null); renderPage('kb'); }
 
 function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
@@ -397,7 +398,7 @@ function kbDeleteArticle(id) {
     }
     const i = KB_ARTICLES.findIndex(x => x.id === id);
     if (i >= 0) KB_ARTICLES.splice(i, 1);
-    KB_SELECTED = null;
+    setKbSelected(null);
     closeModal(); renderPage('kb');
   }, 'Delete');
 }

@@ -26,6 +26,7 @@
 // KB_SELECTED, TAG_SELECTED, ROLES_VIEW_AGENTS, SEARCH_PAGE_FILTER come
 // from core/state.js the same way.
 
+import { SEARCH_PAGE_FILTER, setAgentSelected, setCustomerSelected, setKbSelected, setRolesViewAgents, setSearchPageFilter, setTagSelected } from '../core/state.js';
 import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
@@ -146,7 +147,7 @@ function gsGo(type, id) {
   if (type === 'ticket') openTicket(id);
   else if (type === 'customer') openCustomerModal(id);
   else if (type === 'article') {
-    KB_SELECTED = id;
+    setKbSelected(id);
     document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
     let target = null;
     document.querySelectorAll('.sb-item').forEach(i => {
@@ -158,7 +159,7 @@ function gsGo(type, id) {
   else if (type === 'agent') {
     const a = AGENTS.find(x => x.name === id);
     if (!a) return;
-    ROLES_VIEW_AGENTS = a.role;
+    setRolesViewAgents(a.role);
     document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
     const rolesItem = document.getElementById('nav-roles');
     if (rolesItem) rolesItem.classList.add('active');
@@ -363,12 +364,12 @@ function searchPageSetQuery(q) {
 // bubbling mousedown on Enter so it reaches this delegated handler.
 registerActions({
   'gs.openTicket':   (ds) => openTicket(ds.id),
-  'gs.openCustomer': (ds) => { CUSTOMER_SELECTED = ds.id;   navTo('customers'); },
-  'gs.openAgent':    (ds) => { AGENT_SELECTED = ds.name;    navTo('agents'); },
-  'gs.openKB':       (ds) => { KB_SELECTED = ds.id;         navTo('kb'); },
-  'gs.openTag':      (ds) => { TAG_SELECTED = ds.tag;       navTo('tags'); },
+  'gs.openCustomer': (ds) => { setCustomerSelected(ds.id);   navTo('customers'); },
+  'gs.openAgent':    (ds) => { setAgentSelected(ds.name);    navTo('agents'); },
+  'gs.openKB':       (ds) => { setKbSelected(ds.id);         navTo('kb'); },
+  'gs.openTag':      (ds) => { setTagSelected(ds.tag);       navTo('tags'); },
   'gs.nav':          (ds) => navTo(ds.page),
-  'gs.setFilter':    (ds) => { SEARCH_PAGE_FILTER = ds.filter; renderPage('search'); },
+  'gs.setFilter':    (ds) => { setSearchPageFilter(ds.filter); renderPage('search'); },
 });
 
 registerMousedownActions({

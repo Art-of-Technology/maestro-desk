@@ -28,6 +28,7 @@
 // TICKETS comes from data.js via the global lexical env; SESSION and
 // NOTIF_PREFS come from core/state.js the same way.
 
+import { NOTIF_PREFS, SESSION } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';

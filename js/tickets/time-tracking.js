@@ -16,6 +16,7 @@
 // showLogTimeModal via td.removeTime / td.logTime). The one inline handler
 // (the minutes quick-preset) is delegated as tt.preset below.
 
+import { CURRENT_TICKET, SESSION } from '../core/state.js';
 import { apiPost, apiDelete } from '../core/api-client.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';

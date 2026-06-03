@@ -16,6 +16,7 @@
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
 // AGENT_SELECTED, CUSTOMER_SELECTED come from state.js (global lex env).
 
+import { AGENT_SELECTED, SESSION, setAgentSelected, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
@@ -191,7 +192,7 @@ function agentBarRow(label, count, max, color) {
 
 function renderAgentDetail(name) {
   const a = AGENTS.find(x => x.name === name);
-  if (!a) { AGENT_SELECTED = null; return renderAgents(); }
+  if (!a) { setAgentSelected(null); return renderAgents(); }
   const s = getAgentStats(name);
   const d = getAgentDeepStats(name);
   const admin = window.isAdmin();
@@ -350,8 +351,8 @@ function renderAgentDetail(name) {
     </div>`;
 }
 
-function openAgentDetail(name) { AGENT_SELECTED = name; renderPage('agents'); }
-function closeAgentDetail()    { AGENT_SELECTED = null; renderPage('agents'); }
+function openAgentDetail(name) { setAgentSelected(name); renderPage('agents'); }
+function closeAgentDetail()    { setAgentSelected(null); renderPage('agents'); }
 function agentSetRole(v)       { AGENT_FILTER_ROLE = v; renderPage('agents'); }
 function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; renderPage('agents'); }
 function agentSetQuery(v) {
@@ -387,7 +388,7 @@ registerActions({
   'agents.openDetail':    (ds) => openAgentDetail(ds.name),
   'agents.closeDetail':   () => closeAgentDetail(),
   'agents.new':           () => agentNew(),
-  'agents.openCustomer':  (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+  'agents.openCustomer':  (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
   'agents.openTicket':    (ds) => openTicket(ds.ticketId),
   'agents.editOOO':       (ds) => showAgentOOOModal(ds.name),
   'agents.setActive':     (ds) => setAgentActive(ds.name, ds.active === 'true'),

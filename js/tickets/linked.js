@@ -20,6 +20,7 @@
 // delegated as linked.linkAndClose / linked.mergeAndClose below — kept on
 // `mousedown` (the original event) so the close + action fire together.
 
+import { CURRENT_TICKET } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from './sla.js';
 import { openTicket } from './detail.js';

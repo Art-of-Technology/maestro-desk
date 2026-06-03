@@ -21,6 +21,7 @@
 // FILTER_AGENT, FILTER_SENTIMENT, FILTER_QUERY come from core/state.js the
 // same way.
 
+import { FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
@@ -303,7 +304,7 @@ function sortTickets(col) {
   if (SORT_COL === col) SORT_DIR *= -1; else { SORT_COL = col; SORT_DIR = 1; }
   renderPage('tickets');
 }
-function setAgentFilter(v)  { FILTER_AGENT = v; renderPage('tickets'); }
+function setAgentFilter(v)  { setFilterAgent(v); renderPage('tickets'); }
 export function setTicketView(v)   { FILTER_VIEW = v;  renderPage('tickets'); }
 
 // ─── Saved searches ─────────────────────────────────────────────────────
@@ -338,12 +339,12 @@ function applySavedSearch(id) {
   if (!s) return;
   const f = s.filters || {};
   FILTER_STATUS    = f.status    || 'all';
-  FILTER_CATEGORY  = f.category  || 'all';
-  FILTER_PRIORITY  = f.priority  || 'all';
-  FILTER_AGENT     = f.agent     || 'all';
-  FILTER_SENTIMENT = f.sentiment || 'all';
+  setFilterCategory(f.category  || 'all');
+  setFilterPriority(f.priority  || 'all');
+  setFilterAgent(f.agent     || 'all');
+  setFilterSentiment(f.sentiment || 'all');
   FILTER_VIEW      = f.view      || 'all';
-  FILTER_QUERY     = f.query     || '';
+  setFilterQuery(f.query     || '');
   renderPage('tickets');
 }
 
@@ -414,7 +415,7 @@ async function deleteSavedSearch(id) {
   }
 }
 function setTicketQuery(q)  {
-  FILTER_QUERY = q;
+  setFilterQuery(q);
   renderPage('tickets');
   const input = document.getElementById('ticket-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
@@ -646,11 +647,11 @@ registerActions({
   'tickets.clearSelection':() => clearTicketSelection(),
   // filter chips (clear)
   'tickets.clearFilter':   (ds) => {
-    if      (ds.filter === 'category')  FILTER_CATEGORY  = 'all';
-    else if (ds.filter === 'priority')  FILTER_PRIORITY  = 'all';
-    else if (ds.filter === 'agent')     FILTER_AGENT     = 'all';
-    else if (ds.filter === 'sentiment') FILTER_SENTIMENT = 'all';
-    else if (ds.filter === 'query')     FILTER_QUERY     = '';
+    if      (ds.filter === 'category')  setFilterCategory('all');
+    else if (ds.filter === 'priority')  setFilterPriority('all');
+    else if (ds.filter === 'agent')     setFilterAgent('all');
+    else if (ds.filter === 'sentiment') setFilterSentiment('all');
+    else if (ds.filter === 'query')     setFilterQuery('');
     renderPage('tickets');
   },
 });
@@ -665,9 +666,9 @@ registerChangeActions({
   'tickets.setGroupBy':        (ds, el) => setTicketGroupBy(el.value),
   // category / priority / sentiment selects (no dedicated setter — assign the global)
   'tickets.setFilter':         (ds, el) => {
-    if      (ds.filter === 'category')  FILTER_CATEGORY  = el.value;
-    else if (ds.filter === 'priority')  FILTER_PRIORITY  = el.value;
-    else if (ds.filter === 'sentiment') FILTER_SENTIMENT = el.value;
+    if      (ds.filter === 'category')  setFilterCategory(el.value);
+    else if (ds.filter === 'priority')  setFilterPriority(el.value);
+    else if (ds.filter === 'sentiment') setFilterSentiment(el.value);
     renderPage('tickets');
   },
 });

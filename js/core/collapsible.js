@@ -13,6 +13,7 @@
 // .size for the "N section(s) collapsed" counter + the "Show all" button's
 // disabled state. ES module bindings are live so the imported reference
 // in app.js sees mutations made here.
+import { CURRENT_PAGE, SETTINGS_TAB } from './state.js';
 import { renderPage } from './router.js';
 
 export let COLLAPSED_SECTIONS = new Set(JSON.parse(localStorage.getItem('collapsed_sections') || '[]'));

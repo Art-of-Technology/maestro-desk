@@ -25,6 +25,7 @@
 // inside app.js for now; once core/dom.js extracts the escapers these become
 // proper imports. navTo and setSettingsTab are direct ES imports.
 
+import { AI_MESSAGES, AI_THINKING, SESSION, setAiMessages, setAiThinking } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -54,7 +55,7 @@ let AI_CURRENT_ID = localStorage.getItem('ai_current_id') || null;
 (function hydrateAIMessages() {
   if (!AI_CURRENT_ID) return;
   const c = AI_CONVERSATIONS.find(x => x.id === AI_CURRENT_ID);
-  if (c) AI_MESSAGES = [...(c.messages || [])];
+  if (c) setAiMessages([...(c.messages || [])]);
 })();
 
 export function renderMarkdown(text) {
@@ -126,7 +127,7 @@ function newAIConv() {
   const id = 'ai-' + Date.now();
   AI_CONVERSATIONS.unshift({ id, title: 'New chat', messages: [], createdAt: Date.now() });
   AI_CURRENT_ID = id;
-  AI_MESSAGES = [];
+  setAiMessages([]);
   saveAIConversations();
   renderPage('ai');
 }
@@ -134,7 +135,7 @@ function newAIConv() {
 function selectAIConv(id) {
   AI_CURRENT_ID = id;
   const c = getCurrentAIConv();
-  AI_MESSAGES = c ? [...(c.messages || [])] : [];
+  setAiMessages(c ? [...(c.messages || [])] : []);
   saveAIConversations();
   renderPage('ai');
 }
@@ -146,7 +147,7 @@ function deleteAIConv(id) {
   if (AI_CURRENT_ID === id) {
     AI_CURRENT_ID = AI_CONVERSATIONS[0]?.id || null;
     const c = getCurrentAIConv();
-    AI_MESSAGES = c ? [...(c.messages || [])] : [];
+    setAiMessages(c ? [...(c.messages || [])] : []);
   }
   saveAIConversations();
   renderPage('ai');
@@ -269,7 +270,7 @@ function aiUsePrompt(p) {
 }
 
 function aiClear() {
-  AI_MESSAGES = [];
+  setAiMessages([]);
   const c = getCurrentAIConv();
   if (c) { c.messages = []; saveAIConversations(); }
   renderPage('ai');
@@ -330,7 +331,7 @@ async function aiSend() {
     return;
   }
 
-  AI_THINKING = true;
+  setAiThinking(true);
   renderPage('ai');
 
   const ctx = buildAIContext();
@@ -349,7 +350,7 @@ async function aiSend() {
   } catch (e) {
     AI_MESSAGES.push({r:'ai', t:'AI unavailable: ' + (e?.message || 'network error')});
   }
-  AI_THINKING = false;
+  setAiThinking(false);
   syncCurrentAIConv();
   renderPage('ai');
 }

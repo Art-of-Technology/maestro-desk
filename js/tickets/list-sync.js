@@ -17,6 +17,7 @@
 // just stamps the server's clock as the cursor; subsequent calls pull
 // deltas since the last cursor.
 
+import { CURRENT_PAGE } from '../core/state.js';
 import { updateNavBadges } from '../core/router.js';
 import { apiGet } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';

@@ -20,6 +20,7 @@
 // `mousedown` (not click) so it fires before the compose textarea's
 // focusout hides the dropdown (detail.js delays hide by 150ms).
 
+import { SESSION } from '../core/state.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
 import { onComposeInput } from './detail.js';
 

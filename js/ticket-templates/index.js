@@ -17,6 +17,7 @@
 // TICKET_TEMPLATES and TICKETS come from data.js via the global lexical env;
 // TT_FILTER_CAT comes from core/state.js the same way.
 
+import { TT_FILTER_CAT, setTtFilterCat } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { showNewTicketModal } from '../tickets/detail.js';
@@ -209,7 +210,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'ticket-templates.setFilterCat': (ds, el) => { TT_FILTER_CAT = el.value; renderPage('ticket-templates'); },
+  'ticket-templates.setFilterCat': (ds, el) => { setTtFilterCat(el.value); renderPage('ticket-templates'); },
 });
 
 registerInputActions({

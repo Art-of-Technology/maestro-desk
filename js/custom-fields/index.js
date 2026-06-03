@@ -16,6 +16,7 @@
 // for the router; showManageFieldsModal stays exported for customers/index.js
 // (direct ES import). The cf* mutators are now module-internal.
 
+import { CF_FILTER_ENTITY, setCfFilterEntity } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -242,6 +243,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'cf.filterEntity': (ds, el) => { CF_FILTER_ENTITY = el.value; renderPage('custom-fields'); },
+  'cf.filterEntity': (ds, el) => { setCfFilterEntity(el.value); renderPage('custom-fields'); },
   'cf.toggleOptions': (ds, el) => cfFormToggleOptions(el.value),
 });

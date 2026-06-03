@@ -13,6 +13,7 @@
 // global lexical env; SESSION, CURRENT_TICKET, COMPOSE_TAB, AI_THINKING,
 // AI_MESSAGES come from core/state.js the same way.
 
+import { COMPOSE_TAB, CURRENT_TICKET, SESSION, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
@@ -100,12 +101,12 @@ function renderSentimentBadge(sentiment) {
 }
 
 export function openTicket(id) {
-  CURRENT_TICKET = id;
+  setCurrentTicket(id);
   const t = TICKETS.find(x => x.id === id);
   // Bad ticket IDs can reach here from stale notifications, deep-links
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
-  if (!t) { CURRENT_TICKET = null; return renderPage('tickets'); }
+  if (!t) { setCurrentTicket(null); return renderPage('tickets'); }
   // Fire-and-forget API load of messages/tags/ai_tags/time_entries. The
   // ticket renders immediately with whatever's already in `t`; when the
   // fetch completes, the entry is mutated in place and we re-render iff
@@ -623,7 +624,7 @@ export function openTicket(id) {
     </div>`;
 }
 
-function setComposeTab(tab, id) { COMPOSE_TAB = tab; openTicket(id); }
+function setComposeTab(tab, id) { setComposeTabValue(tab); openTicket(id); }
 
 function getTicketTimes(t) {
   const msgs = t.msgs || [];
@@ -939,7 +940,7 @@ async function sendCompose(id) {
     && t.detectedCustomerLang.toLowerCase() !== AGENT_PREFERRED_LANG.toLowerCase()
     && AI_API_KEY;
   if (shouldAutoTranslate) {
-    AI_THINKING = true;
+    setAiThinking(true);
     try {
       if (CURRENT_TICKET === id) openTicket(id);
       const res = await translateText(txt, t.detectedCustomerLang);
@@ -949,7 +950,7 @@ async function sendCompose(id) {
         translatedTo = t.detectedCustomerLang;
       }
     } finally {
-      AI_THINKING = false;
+      setAiThinking(false);
     }
   }
 
@@ -1135,7 +1136,7 @@ registerActions({
   'td.summarize':      (ds) => summarizeTicket(ds.ticketId),
   'td.clearSummary':   (ds) => clearTicketSummary(ds.ticketId),
   'td.toggleWatch':    (ds) => toggleWatch(ds.ticketId),
-  'td.openKB':         (ds) => { KB_SELECTED = ds.kbId; navTo('kb'); },
+  'td.openKB':         (ds) => { setKbSelected(ds.kbId); navTo('kb'); },
   'td.refreshKB':      (ds) => refreshTicketKbSuggestions(ds.ticketId),
   // Time tracking
   'td.logTime':        (ds) => showLogTimeModal(ds.ticketId),

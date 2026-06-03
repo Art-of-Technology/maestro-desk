@@ -12,6 +12,7 @@
 // CANNED_RESPONSES comes from data.js via the global lexical env;
 // TPL_FILTER_CAT and TPL_QUERY come from core/state.js the same way.
 
+import { TPL_FILTER_CAT, TPL_QUERY, setTplFilterCat, setTplQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -81,7 +82,7 @@ export function renderTemplates() {
 }
 
 function tplSetQuery(q) {
-  TPL_QUERY = q;
+  setTplQuery(q);
   renderPage('templates');
   const input = document.getElementById('tpl-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
@@ -197,7 +198,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'templates.setFilterCat': (ds, el) => { TPL_FILTER_CAT = el.value; renderPage('templates'); },
+  'templates.setFilterCat': (ds, el) => { setTplFilterCat(el.value); renderPage('templates'); },
 });
 
 registerInputActions({
