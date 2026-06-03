@@ -44,6 +44,14 @@ bun scripts/detail-smoke.js
 - **Adding a state/data global:** export it; add a `setX` setter only if it's *reassigned* anywhere (in-place mutation needs none); every consuming module must import it.
 - Bundling regex/script tip: `git ls-files js` (not a `**` pathspec); use `String.raw` for regex in scripts (template literals eat `\w`/`\b`); files are CRLF — make literal-replacement scripts EOL-aware.
 
+## Database / Supabase
+
+- **Every new `public` table MUST enable RLS** (`alter table … enable row level security`). Without it the Supabase advisor fires `rls_disabled_in_public` (CRITICAL) — PostgREST grants anon/authenticated full CRUD on public tables.
+- For tables touched **only** by the API's service-role client (`supabaseAdmin`), enable RLS **with no policies** — service-role bypasses RLS, anon/authenticated get denied. Confirm there's no anon-key/frontend access first.
+- **Don't move `citext` out of `public`** to silence `extension_in_public` — under a `search_path` lacking `extensions`, citext comparisons silently degrade to case-sensitive text (it backs `users.email`/`customers.email`). Acknowledge that WARN instead.
+- Auth-config advisor items (HIBP/OTP/MFA) are **dashboard** settings — never `supabase config push` (the repo `config.toml` holds dev/localhost values that would clobber prod).
+- Apply migrations with `supabase db push --linked` (works non-interactively; `--dry-run` first). Validate on Docker PG 17 before pushing.
+
 ## Workflow
 
 Feature branch per change, PR, then `/cem-pr-loop` (Octopus review) to a 4+/5 score before merge. When merging a stack, don't `--delete-branch` a PR that's still the base of another open PR (it auto-closes the child) — retarget children to `main` first.
