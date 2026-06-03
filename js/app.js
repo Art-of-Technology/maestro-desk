@@ -1,76 +1,32 @@
+// app.js is the bootstrap entry: it owns login/logout, the workspace-brand
+// swap, layout hydration, the window bridge, the static-shell action wiring,
+// and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
+// moved to core/router.js — imported below and re-exposed on the bridge.
 import { THEME, applyTheme } from './core/theme.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
-import {
-  SLA_WARN_FRACTION, BUSINESS_HOURS,
-  slaNowForDemo, invalidateSLAClock,
-  findMatchingSLAPolicy, ticketFirstResponseMinutes, ticketElapsedMinutes,
-  bhParseHM, isWithinBusinessHours, bhInvalidateCache, businessMinutesBetween,
-  computeTicketSLA, refreshTicketSLA, refreshAllSLA,
-  fmtSLAMinutes,
-} from './tickets/sla.js';
-import { renderSLA } from './tickets/sla-policies.js';
-import { loadDraft, saveDraft, clearDraft } from './tickets/drafts.js';
-import {
-  logTicketEvent, getTicketEvents, renderActivityLog,
-} from './core/activity-log.js';
-import { renderMacros } from './tickets/macros.js';
-import { showAttachPanel } from './tickets/attachments.js';
-import { renderAI, initAI } from './ai/page.js';
-import { renderPortal } from './portal/preview.js';
-import { renderInbox } from './inbox/index.js';
-import { renderChannels } from './channels/index.js';
-import { fireWebhook, ticketPayload, renderWebhooks } from './webhooks/index.js';
-import { showModal, closeModal } from './core/modal.js';
-import { applyCollapsibleHeaders } from './core/collapsible.js';
-import './core/dismiss.js';
+import { refreshAllSLA } from './tickets/sla.js';
 import { registerActions } from './core/event-delegation.js';
-import { renderProfile } from './profile/index.js';
-import { renderAgents } from './agents/index.js';
+import './core/dismiss.js';
+import { initGlobalSearchInput } from './global-search/index.js';
 import './profile-menu/index.js';  // side-effect: registers profmenu.* actions for the static top-bar dropdown
-import { renderSearchResults, initGlobalSearchInput } from './global-search/index.js';
 import './auth/index.js';  // side-effect: registers auth.* actions for the static auth screen
-import { renderTicketTemplates } from './ticket-templates/index.js';
-import { refreshNotifBadge, renderNotificationsPage } from './notifications/index.js';
-import { renderKB } from './kb/index.js';
-import { renderHelp } from './help/index.js';
-import { renderGod } from './god/index.js';
+import { refreshNotifBadge } from './notifications/index.js';
 import { autoResumePlatformAdmin } from './auth/platform-admin.js';
 import { autoResumeAgent } from './auth/agent-login.js';
 import { signOut as authSignOut } from './core/auth-client.js';
 import {
-  renderSettings,
   // setSettingsTab stays window-reachable: notifications reaches it via
   // window.setSettingsTab to dodge the settings↔notifications import cycle.
   setSettingsTab,
 } from './settings/index.js';
-import {
-  renderLayouts, isFieldVisible, isFieldRequired,
-} from './layouts/index.js';
-import { renderCustomFields } from './custom-fields/index.js';
-import { renderRoles } from './roles/index.js';
-import { renderWorkflows } from './workflows/index.js';
-import { renderTags } from './tags/index.js';
-import { renderCustomers } from './customers/index.js';
-import {
-  renderDashboard,
-  DASH_WIDGETS, DEFAULT_DASH_LAYOUT,
-} from './dashboard/index.js';
-import { renderTickets, initTicketsPage } from './tickets/list.js';
+import { DASH_WIDGETS, DEFAULT_DASH_LAYOUT } from './dashboard/index.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
-import {
-  renderReports, REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT,
-} from './reports/index.js';
-import { renderBusinessHours } from './core/business-hours.js';
-import { renderAssignmentRules } from './tickets/assignment-rules.js';
-import { renderTemplates } from './tickets/templates.js';
-import { renderCSAT } from './tickets/csat.js';
+import { REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT } from './reports/index.js';
+import { nav, renderPage, updateNavBadges } from './core/router.js';
 
 // keybindings.js registers the global `/` and Cmd-K shortcuts as a side effect
-// of import. app.js no longer uses navTo/focusGlobalSearch directly — every
-// caller imports them from core/keybindings.js — so this is a side-effect
-// import. No feature module is spread onto the window bridge any more (see the
-// bridge block below); every module's exports reach their callers through
-// direct ES imports or that module's own data-action handlers.
+// of import. Callers import navTo/focusGlobalSearch from core/keybindings.js
+// directly, so this is a pure side-effect import.
 import './core/keybindings.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
@@ -173,81 +129,9 @@ function logout() {
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
-function nav(page, el) {
-  document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
-  if (el) el.classList.add('active');
-  renderPage(page);
-}
-function renderPage(page) {
-  if (page !== 'roles')     ROLES_VIEW_AGENTS = null;
-  if (page !== 'kb')        KB_SELECTED = null;
-  if (page !== 'agents')    AGENT_SELECTED = null;
-  if (page !== 'customers') { CUSTOMER_SELECTED = null; CUSTOMER_SELECTED_IDS.clear(); }
-  if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
-  if (page !== 'inbox')     INBOX_SELECTED_ID = null;
-  if (page !== 'workflows') WF_SELECTED = null;
-  if (page !== 'tags')      { TAG_SELECTED = null; TAG_SELECTED_NAMES.clear(); }
-  CURRENT_PAGE = page;
-  CURRENT_TICKET = null;
-  // Release the presence row for any ticket we were viewing — openTicket
-  // re-acquires immediately if the new page lands on a detail view.
-  stopPresence();
-  const main = document.getElementById('main-area');
-  const pages = {
-    dashboard: renderDashboard,
-    tickets:   renderTickets,
-    inbox:     renderInbox,
-    customers: renderCustomers,
-    reports:   renderReports,
-    agents:    renderAgents,
-    ai:        renderAI,
-    kb:        renderKB,
-    workflows: renderWorkflows,
-    tags:      renderTags,
-    roles:     renderRoles,
-    sla:           renderSLA,
-    'business-hours': renderBusinessHours,
-    'assignment-rules': renderAssignmentRules,
-    csat:          renderCSAT,
-    templates:     renderTemplates,
-    macros:        renderMacros,
-    'ticket-templates': renderTicketTemplates,
-    'custom-fields': renderCustomFields,
-    layouts:       renderLayouts,
-    activity:      renderActivityLog,
-    portal:        renderPortal,
-    search:        renderSearchResults,
-    channels:      renderChannels,
-    webhooks:      renderWebhooks,
-    settings:      renderSettings,
-    help:          renderHelp,
-    notifications: renderNotificationsPage,
-    profile:       renderProfile,
-    god:           renderGod,
-  };
-  document.body.dataset.currentPage = page;
-  if (pages[page]) main.innerHTML = pages[page]();
-  if (page === 'ai') initAI();
-  if (page === 'tickets') initTicketsPage();
-  applyCollapsibleHeaders();
-  updateNavBadges();
-}
-
-// ─── Page-render hooks (updateNavBadges) ────────────────────────────────────
-// initTicketsPage moved to tickets/list.js; renderPage above still calls it
-// through the import so the table's "select all" indeterminate state lands
-// after innerHTML.
-function updateNavBadges() {
-  document.getElementById('nb-open').textContent = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
-  const inboxBadge = document.getElementById('nb-inbox');
-  if (inboxBadge) {
-    const newCount = INBOX.filter(e => e.status === 'new').length;
-    inboxBadge.textContent = newCount;
-    inboxBadge.style.display = newCount > 0 ? '' : 'none';
-  }
-  refreshNotifBadge();
-}
-
+// nav / renderPage / updateNavBadges now live in core/router.js (imported
+// above). app.js calls renderPage from login() and re-exposes all three on the
+// window bridge for the ~150 module call sites that reach them via window.
 
 // ─── Stub pages (placeholders so sidebar nav renders) ────────────────────────
 function placeholderPage(title, blurb) {
@@ -299,16 +183,17 @@ function isAdmin() { return SESSION?.role === 'Admin'; }
 function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 
 // ─── Window bridge ─────────────────────────────────────────────────────────────
-// Re-exposes a handful of app.js-local functions onto window. Every feature
-// module has now retired from the bridge — their exports reach callers via
-// direct ES imports or each module's own data-action handlers, so there are
-// no namespace spreads left here.
+// Re-exposes a handful of functions onto window. Every feature module has
+// retired from the bridge — their exports reach callers via direct ES imports
+// or each module's own data-action handlers, so there are no namespace spreads
+// left here.
 //
 // What remains, and why it can't simply drop:
-//   • login/logout/nav/renderPage — bootstrap + routing, still in app.js;
-//     reached by window.nav/window.logout from several modules and by the
-//     static index.html shell. They retire only when routing leaves app.js.
-//   • updateNavBadges — post-render hook called via window.
+//   • login/logout — bootstrap, still in app.js; reached by window.logout from
+//     several modules and by the static index.html shell.
+//   • nav/renderPage/updateNavBadges — routing, now imported from
+//     core/router.js; re-exposed here because ~150 module call sites still
+//     reach them via window.nav / window.renderPage / window.updateNavBadges.
 //   • applyWorkspaceBrand/resetWorkspaceBrand — white-label hooks.
 //   • fmtMinutes/escHtml/escAttr/isAdmin — app-wide utilities used from many
 //     module-rendered HTML strings.
