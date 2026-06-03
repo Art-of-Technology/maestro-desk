@@ -11,9 +11,7 @@
 // inline — pure `this.style.X = Y`, no module dep.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, fmtMinutes — all still in app.js.
-// navTo, openTicket, showAgentOOOModal, isAgentOOO, reassignAgent,
-// setAgentActive, deleteAgentPrompt are direct ES imports.
+// fmtMinutes — all still in app.js. Everything else is a direct ES import.
 //
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
 // AGENT_SELECTED, CUSTOMER_SELECTED come from state.js (global lex env).

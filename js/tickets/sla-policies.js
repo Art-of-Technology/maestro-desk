@@ -9,8 +9,8 @@
 // this module's exports — `renderSLA` is the only export consumed
 // elsewhere (app.js's router calls it directly).
 //
-// External reaches (interim, via window): isAdmin, escAttr,
-// showModal, closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr — all still in
+// app.js. showModal and closeModal are direct ES imports.
 //
 // SLA_POLICIES, TICKETS come from data.js via the global lexical env;
 // SLA_FILTER comes from core/state.js the same way.

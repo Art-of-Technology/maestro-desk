@@ -13,9 +13,9 @@
 // agents/index.js (the agent-detail page reuses them for the role
 // dropdown + activate/delete buttons).
 //
-// External reaches (interim, via window): isAdmin, escAttr, showModal,
-// closeModal — all still in app.js. openAgentFromDash is
-// a direct ES import from dashboard/index.js.
+// External reaches (interim, via window): isAdmin, escAttr — all still in
+// app.js. showModal, closeModal and openAgentFromDash (dashboard/index.js)
+// are direct ES imports.
 //
 // AGENTS, TICKETS, ROLES_MATRIX, PERMISSIONS come from data.js via the
 // global lexical env; ROLES_VIEW_AGENTS, AGENT_SELECTED, CURRENT_PAGE,

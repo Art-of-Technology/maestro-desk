@@ -21,9 +21,9 @@
 // after innerHTML rebuild (keydown is sparse — 3 callsites in 2 modules —
 // not worth a fifth dispatcher event type).
 //
-// External reaches (interim, via window): escHtml — still defined inside
-// app.js for now. Once core/dom.js extracts the escapers, this becomes a
-// proper import. navTo and setSettingsTab are direct ES imports.
+// External reaches (interim, via window): escHtml, escAttr — still defined
+// inside app.js for now; once core/dom.js extracts the escapers these become
+// proper imports. navTo and setSettingsTab are direct ES imports.
 
 import { renderPage } from '../core/router.js';
 import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';

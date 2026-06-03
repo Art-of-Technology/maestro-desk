@@ -13,8 +13,8 @@
 // renderQuickSwitcher() rebuilds the overlay — too dynamic for delegation,
 // not worth a per-event harness extension.
 //
-// External reaches (interim, via window): escHtml, navTo — all
-// still in app.js. openTicket, isAgentOOO and SEARCH_PAGES are direct ES imports.
+// External reaches (interim, via window): escHtml — still in app.js. navTo,
+// openTicket, isAgentOOO and SEARCH_PAGES are direct ES imports.
 //
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES come from data.js via the global
 // lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from

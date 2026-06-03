@@ -9,8 +9,8 @@
 // external module reaches into kb's exports — `renderKB` is the only
 // export consumed (app.js's router).
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr, escHtml — all
+// still in app.js.
 //
 // KB_ARTICLES comes from data.js via the global lexical env; KB_SELECTED
 // and SESSION come from core/state.js the same way.

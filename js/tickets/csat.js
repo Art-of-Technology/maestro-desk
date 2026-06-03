@@ -12,9 +12,8 @@
 // can of worms not worth opening for one-off interactive UI; quick-switcher
 // uses the same per-render-bind pattern for its hover).
 //
-// External reaches (interim, via window): escHtml, escAttr, showModal,
-// closeModal — all still in app.js. openTicket and navTo
-// are direct ES imports.
+// External reaches (interim, via window): escHtml, escAttr — all still in
+// app.js. showModal, closeModal, openTicket and navTo are direct ES imports.
 //
 // logTicketEvent is imported from core/activity-log.js; fireWebhook and
 // ticketPayload from webhooks/index.js — those are already extracted.

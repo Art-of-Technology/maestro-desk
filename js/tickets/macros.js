@@ -4,11 +4,11 @@
 // existing single-ticket mutators where possible so audit logging, SLA refresh,
 // CSAT triggers, etc all stay correct.
 //
-// External reaches (interim, via window): changeTicketStatus,
-// changeTicketPriority, changeTicketAgent, addTicketTag, openTicket,
-// isAdmin, escHtml, escAttr — still in app.js. showModal /
-// closeModal are direct ES imports from core/modal.js; navTo from
-// core/keybindings.js; insertMacro from tickets/detail.js.
+// External reaches (interim, via window): isAdmin, escHtml, escAttr — still
+// in app.js. changeTicketStatus, changeTicketPriority, changeTicketAgent,
+// addTicketTag, openTicket, showModal / closeModal (core/modal.js), navTo
+// (core/keybindings.js) and insertMacro (tickets/detail.js) are direct ES
+// imports.
 //
 // No window-bridge namespace: the inline on*= handlers are delegated as
 // macros.* actions (bottom of file). showMacroPanel / showApplyMacroModal

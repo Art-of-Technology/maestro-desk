@@ -12,8 +12,8 @@
 // Click/change handlers route through core/event-delegation.js as
 // `data-action="inbox.*"` / `data-change-action="inbox.*"`.
 //
-// External reaches (interim, via window): fireWebhook, ticketPayload,
-// applyAssignmentRules, escHtml, escAttr — all still in app.js. openTicket,
+// External reaches (interim, via window): escHtml, escAttr — all still in
+// app.js. fireWebhook, ticketPayload, applyAssignmentRules, openTicket,
 // navTo, refreshTicketSLA are direct ES imports.
 //
 // INBOX, TICKETS, CUSTOMERS, CHANNELS come from data.js; INBOX_SELECTED_ID,

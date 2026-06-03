@@ -6,9 +6,8 @@
 // an event, refreshes SLA, and stamps snoozeWokenAt so a wake notification
 // shows in the bell for ~24h.
 //
-// External reaches (interim, via window):
-// logTicketEvent, showModal, escHtml, closeModal. All
-// still live in app.js and are bridged. openTicket, refreshNotifBadge and
+// External reaches (interim, via window): escHtml — still in app.js.
+// logTicketEvent, showModal, closeModal, openTicket, refreshNotifBadge and
 // refreshTicketSLA are direct ES imports.
 //
 // SESSION, CURRENT_TICKET, CURRENT_PAGE, TICKET_SELECTED_IDS come from

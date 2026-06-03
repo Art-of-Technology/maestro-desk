@@ -10,9 +10,9 @@
 //               so unmerge can strip them), the source goes to 'resolved',
 //               and a webhook fires. Reversible via unmergeTicket().
 //
-// External reaches (interim, via window): escAttr, escHtml, showModal,
-// logTicketEvent, fireWebhook, ticketPayload — all still in app.js.
-// refreshTicketSLA and closeModal are direct ES imports.
+// External reaches (interim, via window): escAttr, escHtml — all still in
+// app.js. showModal, closeModal, logTicketEvent, fireWebhook, ticketPayload
+// and refreshTicketSLA are direct ES imports.
 //
 // No window-bridge namespace: unlink/unmerge + the show*Modal pickers are
 // consumed by tickets/detail.js via direct ES import (td.unlink / td.unmerge

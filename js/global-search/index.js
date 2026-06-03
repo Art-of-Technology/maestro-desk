@@ -16,12 +16,10 @@
 // all still in app.js. navTo and openTicket are direct ES imports.
 //
 // The page's own inline on*= handlers are delegated as gs.* actions (bottom
-// of file). globalSearch + gsKey stay exported AND window-reachable via
-// explicit app.js bridge entries — the top-bar search input in static
-// index.html still calls them inline (migrates with the index.html pass).
-// renderSearchResults is the router entry; SEARCH_PAGES is imported by
-// quick-switcher. gsGo / gsOpenAllResults / searchPageSetQuery are now
-// module-internal.
+// of file). The top-bar search input (#gs-input) is wired programmatically by
+// initGlobalSearchInput() (called from app.js); globalSearch / gsKey / gsGo /
+// gsOpenAllResults / searchPageSetQuery are module-internal. renderSearchResults
+// is the router entry; SEARCH_PAGES is imported by quick-switcher.
 //
 // TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES, TAG_LIBRARY come from data.js
 // via the global lexical env; CUSTOMER_SELECTED, AGENT_SELECTED,

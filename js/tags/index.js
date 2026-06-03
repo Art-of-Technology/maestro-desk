@@ -10,9 +10,8 @@
 // PR #105 rule — they're `this.style.X = Y` only).
 // `renderTags` is the only export consumed (app.js router).
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal — all still in app.js.
-// openTicket and navTo are direct ES imports.
+// External reaches (interim, via window): isAdmin, escAttr — all still in
+// app.js. showModal, closeModal, openTicket and navTo are direct ES imports.
 //
 // TAG_LIBRARY, TICKETS, CUSTOMERS come from data.js via the global lexical
 // env; TAG_SELECTED, TAG_FILTER_TYPE, TAG_QUERY, TAG_SELECTED_NAMES,

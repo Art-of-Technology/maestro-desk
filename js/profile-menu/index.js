@@ -4,7 +4,8 @@
 // (#profile-btn + #profile-dropdown); this module just owns the open/close
 // toggle and the action dispatcher.
 //
-// External reaches (interim, via window): navTo, logout — still in app.js.
+// External reaches (interim, via window): logout — still in app.js. navTo is
+// a direct ES import.
 //
 // showTranslatorModal is imported directly from ai/translate.js. The dropdown
 // markup in static index.html dispatches profmenu.toggle / profmenu.go

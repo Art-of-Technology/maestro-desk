@@ -16,14 +16,14 @@
 // Bell-dropdown actions use mousedown rather than click so they fire before
 // core/dismiss.js (which also listens on mousedown) sees outside-clicks.
 //
-// External reaches (interim, via window): escAttr, showModal, closeModal —
-// all still in app.js. navTo, openTicket, setSettingsTab are
-// direct ES imports.
+// External reaches (interim, via window): escAttr, setSettingsTab — still in
+// app.js (notifications calls window.setSettingsTab to dodge the
+// settings↔notifications import cycle). navTo and openTicket are direct ES
+// imports.
 //
-// toggleNotifications stays exported because index.html's bell button still
-// has an inline `onclick="toggleNotifications()"` and resolves through
-// window; app.js puts it on the bridge as an explicit entry. The rest of
-// this module's API is module-internal now.
+// The bell button in static index.html dispatches the notif.toggle action
+// (registered below); toggleNotifications and the rest of this module's API
+// are module-internal now.
 //
 // TICKETS comes from data.js via the global lexical env; SESSION and
 // NOTIF_PREFS come from core/state.js the same way.

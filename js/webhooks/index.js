@@ -12,8 +12,8 @@
 // (called from tickets/csat.js + tickets/detail.js via direct ES
 // imports) and `renderWebhooks` (the router).
 //
-// External reaches (interim, via window): isAdmin, showModal, closeModal,
-// escHtml, escAttr — all still in app.js.
+// External reaches (interim, via window): isAdmin, escHtml, escAttr — all
+// still in app.js. showModal and closeModal are direct ES imports.
 //
 // CURRENT_PAGE comes from state.js; CUSTOMERS from data.js (both in global
 // lex env, so direct refs work from the module).

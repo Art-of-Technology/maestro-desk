@@ -4,11 +4,10 @@
 // per-customer totals in reports, and a CSV column on tickets export.
 //
 // External reaches (interim, via window):
-//   • fmtMinutes      — number formatter, still in app.js
-//   • isAdmin         — auth helper, still in app.js
-//   • logTicketEvent  — activity-log writer, still in app.js
-//   • openTicket      — composer/detail render, direct ES import (tickets/detail.js)
-//   • showModal, escHtml, closeModal — modal infra, still in app.js
+//   • fmtMinutes  — number formatter, still in app.js
+//   • isAdmin     — auth helper, still in app.js
+//   • escHtml     — string escaper, still in app.js
+// logTicketEvent, openTicket, showModal and closeModal are direct ES imports.
 //
 // SESSION and CURRENT_TICKET come from core/state.js via the global lexical env.
 //

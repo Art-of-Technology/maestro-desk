@@ -5,8 +5,8 @@
 // The "Manage custom fields" mini-modal is also owned here — it's invoked
 // from the customer table's column panel via showManageFieldsModal().
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr, escHtml — all
+// still in app.js.
 //
 // CUSTOM_FIELDS comes from data.js via the global lexical env;
 // CF_FILTER_ENTITY comes from core/state.js the same way.

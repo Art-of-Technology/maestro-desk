@@ -6,8 +6,8 @@
 // Ticket modal entry point (the only "create" flow surfaced from this
 // page).
 //
-// External reaches (interim, via window): escAttr, escHtml, fmtMinutes,
-// isAdmin, navTo — all still in app.js.
+// External reaches (interim, via window): escAttr, escHtml, fmtMinutes —
+// all still in app.js. navTo is a direct ES import.
 //
 // TICKETS, CUSTOMERS, AGENTS, TICKET_TEMPLATES come from data.js via the
 // global lexical env; SESSION, CURRENT_TICKET, COMPOSE_TAB, AI_THINKING,

@@ -10,13 +10,9 @@
 //
 // No window-bridge namespace spread: the page's own inline on*= handlers are
 // delegated as ar.* actions (bottom of file). showAgentOOOModal (agents +
-// profile) and runAssignmentRulesOnTicket (detail.js td.runRules) are consumed
-// via direct ES import; renderAssignmentRules is the router entry. Two exports
-// — isAgentOOO and applyAssignmentRules — are still reached via window.X from
-// OTHER modules' render code (isAgentOOO in agents/profile/quick-switcher,
-// applyAssignmentRules in inbox/portal), so they're kept as explicit single-fn
-// entries on the app.js bridge until a follow-up lifts those callers to direct
-// imports.
+// profile), runAssignmentRulesOnTicket (detail.js td.runRules), isAgentOOO
+// (agents/profile/quick-switcher) and applyAssignmentRules (inbox/portal) are
+// all consumed via direct ES import; renderAssignmentRules is the router entry.
 //
 // logTicketEvent is imported from core/activity-log.js (already extracted).
 //

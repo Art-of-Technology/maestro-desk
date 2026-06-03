@@ -6,8 +6,8 @@
 // Click/change/input handlers route through core/event-delegation.js.
 // `renderTemplates` is the only export (the app.js router calls it).
 //
-// External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// showModal, closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escHtml, escAttr — all
+// still in app.js.
 //
 // CANNED_RESPONSES comes from data.js via the global lexical env;
 // TPL_FILTER_CAT and TPL_QUERY come from core/state.js the same way.

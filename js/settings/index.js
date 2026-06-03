@@ -6,7 +6,7 @@
 // in app.js because the composer and ticket sidebar also depend on it.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// navTo, logout — all still in app.js.
+// logout — all still in app.js. navTo is a direct ES import.
 // refreshNotifBadge, setTheme, setAIKey/setAIModel, setAgentPreferredLang,
 // showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are

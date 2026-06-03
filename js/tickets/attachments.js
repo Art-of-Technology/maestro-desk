@@ -3,8 +3,8 @@
 // build this would hook into a file picker / upload pipeline. The panel
 // re-renders itself after each add/remove so the count stays in sync.
 //
-// External reaches (interim, via window): showModal, escAttr — still in
-// app.js.
+// External reaches (interim, via window): escAttr — still in app.js.
+// showModal is a direct ES import.
 //
 // Inline on*= handlers were migrated to data-action delegation (see the
 // registerActions block at the bottom). showAttachPanel stays exported —

@@ -9,8 +9,8 @@
 // `renderTicketTemplates` is the only export (the app.js router calls
 // it).
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr, escHtml — all
+// still in app.js.
 // showNewTicketModal is a direct ES import from tickets/detail.js
 // (no cycle — detail.js doesn't import from this module).
 //

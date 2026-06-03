@@ -9,8 +9,8 @@
 // `data-action="ch.*"` / `data-change-action="ch.*"`. The toggle and
 // actions cells use `data-action=""` to absorb row-click bubbling.
 //
-// External reaches (interim, via window): showModal, closeModal, isAdmin,
-// escHtml, escAttr — all still in app.js.
+// External reaches (interim, via window): isAdmin, escHtml, escAttr — all
+// still in app.js.
 //
 // CHANNELS, TICKETS, AGENTS come from data.js; CH_FILTER comes from state.js.
 

@@ -7,8 +7,8 @@
 // Click/change/input handlers route through core/event-delegation.js.
 // `renderWorkflows` is the only export consumed (app.js router).
 //
-// External reaches (interim, via window): isAdmin, escAttr, showModal,
-// closeModal — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr — all still in
+// app.js. showModal and closeModal are direct ES imports.
 //
 // WORKFLOWS comes from data.js via the global lexical env; WF_SELECTED,
 // WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
