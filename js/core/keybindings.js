@@ -3,8 +3,8 @@
 //
 //   - navTo(page)            — sidebar-style nav from any context. Finds the
 //                              matching .sb-item by its onclick attribute and
-//                              calls window.nav(page, target). `nav` stays in
-//                              app.js (it's part of the bootstrap/routing).
+//                              calls nav(page, target), imported from
+//                              core/router.js.
 //   - focusGlobalSearch()    — focuses the #gs-input and selects it. Called
 //                              from an inline onclick in help/index.js, so
 //                              the window-bridge entry is required.
@@ -12,6 +12,7 @@
 //                              field; Cmd-K / Ctrl-K opens the quick switcher
 //                              from anywhere, including inside text inputs.
 
+import { nav } from './router.js';
 import { toggleQuickSwitcher } from '../quick-switcher/index.js';
 
 export function navTo(page) {
@@ -20,7 +21,7 @@ export function navTo(page) {
     const a = i.getAttribute('onclick') || '';
     if (a.includes(`'${page}'`)) target = i;
   });
-  window.nav(page, target);
+  nav(page, target);
 }
 
 export function focusGlobalSearch() {

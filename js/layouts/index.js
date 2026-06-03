@@ -15,11 +15,12 @@
 // tickets/detail.js use `isFieldVisible` / `isFieldRequired` via
 // direct ES imports.
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage — all still in app.js.
+// External reaches (interim, via window): isAdmin, escAttr, escHtml —
+// all still in app.js.
 //
 // LAYOUTS_TAB comes from core/state.js via the global lexical env.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 const FIELD_LAYOUTS = {
@@ -69,7 +70,7 @@ function setLayoutFieldFlag(entity, key, flag, val) {
   f[flag] = !!val;
   if (flag === 'visible' && !f.visible) f.required = false;
   if (flag === 'required' && f.required) f.visible = true;
-  window.renderPage('layouts');
+  renderPage('layouts');
 }
 
 export function renderLayouts() {
@@ -131,7 +132,7 @@ export function renderLayouts() {
 }
 
 registerActions({
-  'layouts.setTab': (ds) => { LAYOUTS_TAB = ds.tab; window.renderPage('layouts'); },
+  'layouts.setTab': (ds) => { LAYOUTS_TAB = ds.tab; renderPage('layouts'); },
 });
 
 registerChangeActions({

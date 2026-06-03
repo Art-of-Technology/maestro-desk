@@ -13,7 +13,7 @@
 // uses the same per-render-bind pattern for its hover).
 //
 // External reaches (interim, via window): escHtml, escAttr, showModal,
-// closeModal, renderPage — all still in app.js. openTicket and navTo
+// closeModal — all still in app.js. openTicket and navTo
 // are direct ES imports.
 //
 // logTicketEvent is imported from core/activity-log.js; fireWebhook and
@@ -23,6 +23,7 @@
 // CURRENT_TICKET, CURRENT_PAGE, CSAT_FILTER_AGENT, CSAT_FILTER_SCORE come
 // from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -178,7 +179,7 @@ async function submitCSAT(id, score, comment) {
   fireWebhook('csat.submitted', { ...ticketPayload(t), csat: clamped, comment: comment || null });
   closeModal();
   if (CURRENT_TICKET === id) openTicket(id);
-  if (CURRENT_PAGE === 'csat') window.renderPage('csat');
+  if (CURRENT_PAGE === 'csat') renderPage('csat');
 }
 
 export function renderCSAT() {
@@ -295,6 +296,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'csat.setFilterScore': (ds, el) => { CSAT_FILTER_SCORE = el.value; window.renderPage('csat'); },
-  'csat.setFilterAgent': (ds, el) => { CSAT_FILTER_AGENT = el.value; window.renderPage('csat'); },
+  'csat.setFilterScore': (ds, el) => { CSAT_FILTER_SCORE = el.value; renderPage('csat'); },
+  'csat.setFilterAgent': (ds, el) => { CSAT_FILTER_AGENT = el.value; renderPage('csat'); },
 });

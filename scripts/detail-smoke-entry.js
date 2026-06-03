@@ -10,9 +10,11 @@
 // ticket.
 //
 // This entry imports app.js for its side effects — populating the window bridge
-// (escHtml / escAttr / renderPage / isAdmin / fmtMinutes) and loading every
-// module — and re-exposes openTicket so detail-smoke-suffix.js can render real
-// tickets. Build + concat recipe is documented in detail-smoke-suffix.js.
+// (escHtml / escAttr / isAdmin / fmtMinutes) and loading every module — and
+// re-exposes openTicket so detail-smoke-suffix.js can render real tickets.
+// openTicket reaches renderPage through a direct core/router.js import, so this
+// path no longer depends on renderPage being on the window bridge. Build +
+// concat recipe is documented in detail-smoke-suffix.js.
 import '../js/app.js';
 import { openTicket } from '../js/tickets/detail.js';
 

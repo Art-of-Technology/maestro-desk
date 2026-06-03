@@ -12,14 +12,15 @@
 // Click/change handlers route through core/event-delegation.js as
 // `data-action="inbox.*"` / `data-change-action="inbox.*"`.
 //
-// External reaches (interim, via window): updateNavBadges,
-// fireWebhook, ticketPayload, applyAssignmentRules, escHtml, escAttr — all
-// still in app.js. openTicket, navTo, refreshTicketSLA are direct ES imports.
+// External reaches (interim, via window): fireWebhook, ticketPayload,
+// applyAssignmentRules, escHtml, escAttr — all still in app.js. openTicket,
+// navTo, refreshTicketSLA are direct ES imports.
 //
 // INBOX, TICKETS, CUSTOMERS, CHANNELS come from data.js; INBOX_SELECTED_ID,
 // INBOX_FILTER_STATUS, INBOX_FILTER_CHANNEL, CUSTOMER_SELECTED come from
 // state.js (the latter is mutated inline from the customer-match deep-link).
 
+import { renderPage, updateNavBadges } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
@@ -51,8 +52,8 @@ async function setInboxStatus(emailId, newStatus) {
     e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
   }
   if (newStatus !== 'new' && INBOX_SELECTED_ID === emailId) INBOX_SELECTED_ID = null;
-  window.updateNavBadges();
-  window.renderPage('inbox');
+  updateNavBadges();
+  renderPage('inbox');
 }
 
 function dismissEmail(emailId)   { return setInboxStatus(emailId, 'dismissed'); }
@@ -133,7 +134,7 @@ async function convertEmailToTicket(emailId) {
   e.status = 'converted';
   e.convertedTicketId = newId;
   e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
-  window.updateNavBadges();
+  updateNavBadges();
   openTicket(newId);
 }
 
@@ -260,7 +261,7 @@ export function renderInbox() {
 }
 
 registerActions({
-  'inbox.select':         (ds) => { INBOX_SELECTED_ID = ds.emailId; window.renderPage('inbox'); },
+  'inbox.select':         (ds) => { INBOX_SELECTED_ID = ds.emailId; renderPage('inbox'); },
   'inbox.convert':        (ds) => convertEmailToTicket(ds.emailId),
   'inbox.dismiss':        (ds) => dismissEmail(ds.emailId),
   'inbox.spam':           (ds) => markSpamEmail(ds.emailId),
@@ -271,6 +272,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'inbox.setFilterChannel': (ds, el) => { INBOX_FILTER_CHANNEL = el.value; window.renderPage('inbox'); },
-  'inbox.setFilterStatus':  (ds, el) => { INBOX_FILTER_STATUS  = el.value; window.renderPage('inbox'); },
+  'inbox.setFilterChannel': (ds, el) => { INBOX_FILTER_CHANNEL = el.value; renderPage('inbox'); },
+  'inbox.setFilterStatus':  (ds, el) => { INBOX_FILTER_STATUS  = el.value; renderPage('inbox'); },
 });

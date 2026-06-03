@@ -7,11 +7,12 @@
 // `renderTemplates` is the only export (the app.js router calls it).
 //
 // External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 //
 // CANNED_RESPONSES comes from data.js via the global lexical env;
 // TPL_FILTER_CAT and TPL_QUERY come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -81,7 +82,7 @@ export function renderTemplates() {
 
 function tplSetQuery(q) {
   TPL_QUERY = q;
-  window.renderPage('templates');
+  renderPage('templates');
   const input = document.getElementById('tpl-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -137,7 +138,7 @@ function tplNew() {
     } else {
       CANNED_RESPONSES.unshift({ id: tplNextId(), name, category:cat, text });
     }
-    closeModal(); window.renderPage('templates');
+    closeModal(); renderPage('templates');
   }, 'Create');
 }
 
@@ -154,7 +155,7 @@ function tplEdit(id) {
       catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
     }
     t.name = name; t.category = cat; t.text = text;
-    closeModal(); window.renderPage('templates');
+    closeModal(); renderPage('templates');
   }, 'Save');
 }
 
@@ -170,7 +171,7 @@ function tplDuplicate(id) {
     } else {
       CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text });
     }
-    window.renderPage('templates');
+    renderPage('templates');
   })();
 }
 
@@ -184,7 +185,7 @@ function tplDelete(id) {
     }
     const i = CANNED_RESPONSES.findIndex(x => x.id === id);
     if (i >= 0) CANNED_RESPONSES.splice(i, 1);
-    closeModal(); window.renderPage('templates');
+    closeModal(); renderPage('templates');
   }, 'Delete');
 }
 
@@ -196,7 +197,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'templates.setFilterCat': (ds, el) => { TPL_FILTER_CAT = el.value; window.renderPage('templates'); },
+  'templates.setFilterCat': (ds, el) => { TPL_FILTER_CAT = el.value; renderPage('templates'); },
 });
 
 registerInputActions({

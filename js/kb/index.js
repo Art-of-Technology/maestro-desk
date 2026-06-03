@@ -10,11 +10,12 @@
 // export consumed (app.js's router).
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 //
 // KB_ARTICLES comes from data.js via the global lexical env; KB_SELECTED
 // and SESSION come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -117,7 +118,7 @@ async function voteKB(id, dir) {
     a.myVote         = res.my_vote;
     a.helpfulCount   = res.helpful_count;
     a.unhelpfulCount = res.unhelpful_count;
-    window.renderPage('kb');
+    renderPage('kb');
     return;
   }
   // Demo persona — keep the localStorage path.
@@ -134,7 +135,7 @@ async function voteKB(id, dir) {
   }
   KB_VOTES[id] = v;
   saveKBState();
-  window.renderPage('kb');
+  renderPage('kb');
 }
 
 function toggleKBFeatured(id) {
@@ -142,7 +143,7 @@ function toggleKBFeatured(id) {
   const a = KB_ARTICLES.find(x => x.id === id);
   if (!a) return;
   a.featured = !a.featured;
-  window.renderPage('kb');
+  renderPage('kb');
 }
 
 function getRelatedArticles(article) {
@@ -324,7 +325,7 @@ function renderKBArticle(id) {
 function kbSetQuery(q) {
   const wasFocused = document.activeElement;
   KB_QUERY = q;
-  window.renderPage('kb');
+  renderPage('kb');
   // restore focus to the input that had it
   const input = document.querySelector('.filter-bar input');
   if (input && wasFocused?.tagName === 'INPUT') {
@@ -332,9 +333,9 @@ function kbSetQuery(q) {
     input.setSelectionRange(input.value.length, input.value.length);
   }
 }
-function kbSetCat(c) { KB_FILTER_CAT = c; window.renderPage('kb'); }
-function openKBArticle(id) { incrementKBView(id); KB_SELECTED = id; window.renderPage('kb'); }
-function closeKBArticle()  { KB_SELECTED = null; window.renderPage('kb'); }
+function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
+function openKBArticle(id) { incrementKBView(id); KB_SELECTED = id; renderPage('kb'); }
+function closeKBArticle()  { KB_SELECTED = null; renderPage('kb'); }
 
 function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
@@ -364,7 +365,7 @@ function kbNewArticle() {
       const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
       KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
     }
-    closeModal(); window.renderPage('kb');
+    closeModal(); renderPage('kb');
   }, 'Publish', true);
 }
 
@@ -382,7 +383,7 @@ function kbEditArticle(id) {
     }
     a.title = title; a.category = cat; a.body = body;
     a.updated = new Date().toISOString().slice(0,10);
-    closeModal(); window.renderPage('kb');
+    closeModal(); renderPage('kb');
   }, 'Save changes', true);
 }
 
@@ -397,7 +398,7 @@ function kbDeleteArticle(id) {
     const i = KB_ARTICLES.findIndex(x => x.id === id);
     if (i >= 0) KB_ARTICLES.splice(i, 1);
     KB_SELECTED = null;
-    closeModal(); window.renderPage('kb');
+    closeModal(); renderPage('kb');
   }, 'Delete');
 }
 

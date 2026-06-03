@@ -22,7 +22,7 @@ import {
 import { DASH_WIDGETS, DEFAULT_DASH_LAYOUT } from './dashboard/index.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import { REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT } from './reports/index.js';
-import { nav, renderPage, updateNavBadges } from './core/router.js';
+import { nav, renderPage } from './core/router.js';
 
 // keybindings.js registers the global `/` and Cmd-K shortcuts as a side effect
 // of import. Callers import navTo/focusGlobalSearch from core/keybindings.js
@@ -186,14 +186,13 @@ function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 // Re-exposes a handful of functions onto window. Every feature module has
 // retired from the bridge — their exports reach callers via direct ES imports
 // or each module's own data-action handlers, so there are no namespace spreads
-// left here.
+// left here. Routing (nav/renderPage/updateNavBadges) also left the bridge —
+// every former window.nav / window.renderPage / window.updateNavBadges call
+// site now imports directly from core/router.js.
 //
 // What remains, and why it can't simply drop:
 //   • login/logout — bootstrap, still in app.js; reached by window.logout from
 //     several modules and by the static index.html shell.
-//   • nav/renderPage/updateNavBadges — routing, now imported from
-//     core/router.js; re-exposed here because ~150 module call sites still
-//     reach them via window.nav / window.renderPage / window.updateNavBadges.
 //   • applyWorkspaceBrand/resetWorkspaceBrand — white-label hooks.
 //   • fmtMinutes/escHtml/escAttr/isAdmin — app-wide utilities used from many
 //     module-rendered HTML strings.
@@ -201,15 +200,15 @@ function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 //     settings↔notifications import cycle.
 Object.assign(
   window,
-  { login, logout, nav, renderPage, updateNavBadges, applyWorkspaceBrand, resetWorkspaceBrand,
+  { login, logout, applyWorkspaceBrand, resetWorkspaceBrand,
     fmtMinutes, escHtml, escAttr, isAdmin,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
 );
 
 // Static index.html shell handlers (sidebar nav items + the sign-out foot).
-// nav/logout stay on the bridge above too — they're app-local bootstrap that
-// other modules still reach via window.nav / window.logout.
+// nav is imported from core/router.js; logout is app-local. The shell reaches
+// both only through these data-action handlers.
 registerActions({
   'app.nav':    (ds, el) => nav(ds.page, el),
   'app.logout': () => logout(),

@@ -4,11 +4,13 @@
 // and updateNavBadges() (the open/inbox/notification badge refresh that every
 // page render ends with).
 //
-// Extracted from app.js. These three are still re-exposed on the window bridge
-// by app.js — ~150 call sites across feature modules reach them via
-// window.renderPage / window.nav / window.updateNavBadges. Those call sites are
-// unchanged by this extraction; they keep working because app.js imports these
-// and assigns them to window.
+// Extracted from app.js. Every caller (feature modules + app.js's own login /
+// shell wiring) imports nav / renderPage / updateNavBadges directly from here —
+// they are no longer on the window bridge. router.js statically imports the
+// per-page render modules, and several of those import renderPage back from
+// router.js; that import cycle is safe because nav/renderPage/updateNavBadges
+// are hoisted function declarations and are only ever called from event
+// handlers, never at module-evaluation time.
 //
 // State globals (CURRENT_PAGE, CURRENT_TICKET, the per-page *_SELECTED bindings,
 // TICKETS, INBOX) live in the classic-script global lexical env (state.js /

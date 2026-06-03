@@ -10,9 +10,10 @@
 // inline `on*=` references remain. `renderBusinessHours` is the only
 // export consumed externally (app.js's router).
 //
-// External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// renderPage — all still in app.js.
+// External reaches (interim, via window): isAdmin, escHtml, escAttr —
+// all still in app.js.
 
+import { renderPage } from './router.js';
 import {
   BUSINESS_HOURS,
   bhParseHM, invalidateSLAClock, refreshAllSLA, isWithinBusinessHours,
@@ -23,7 +24,7 @@ function bhSetEnabled(v) {
   BUSINESS_HOURS.enabled = !!v;
   invalidateSLAClock();
   refreshAllSLA();
-  window.renderPage('business-hours');
+  renderPage('business-hours');
 }
 
 function bhSetDayEnabled(idx, v) {
@@ -32,7 +33,7 @@ function bhSetDayEnabled(idx, v) {
   d.enabled = !!v;
   invalidateSLAClock();
   refreshAllSLA();
-  window.renderPage('business-hours');
+  renderPage('business-hours');
 }
 
 function bhSetDayTime(idx, field, v) {
@@ -53,7 +54,7 @@ function bhAddHoliday() {
   BUSINESS_HOURS.holidays.sort();
   invalidateSLAClock();
   refreshAllSLA();
-  window.renderPage('business-hours');
+  renderPage('business-hours');
 }
 
 function bhRemoveHoliday(date) {
@@ -62,7 +63,7 @@ function bhRemoveHoliday(date) {
   BUSINESS_HOURS.holidays.splice(i, 1);
   invalidateSLAClock();
   refreshAllSLA();
-  window.renderPage('business-hours');
+  renderPage('business-hours');
 }
 
 export function renderBusinessHours() {

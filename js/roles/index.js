@@ -14,13 +14,14 @@
 // dropdown + activate/delete buttons).
 //
 // External reaches (interim, via window): isAdmin, escAttr, showModal,
-// closeModal, renderPage — all still in app.js. openAgentFromDash is
+// closeModal — all still in app.js. openAgentFromDash is
 // a direct ES import from dashboard/index.js.
 //
 // AGENTS, TICKETS, ROLES_MATRIX, PERMISSIONS come from data.js via the
 // global lexical env; ROLES_VIEW_AGENTS, AGENT_SELECTED, CURRENT_PAGE,
 // SESSION come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -246,12 +247,12 @@ function renameRolePrompt(oldName) {
     delete ROLES_MATRIX[oldName];
     AGENTS.forEach(a => { if (a.role === oldName) a.role = newName; });
     if (ROLES_VIEW_AGENTS === oldName) ROLES_VIEW_AGENTS = newName;
-    closeModal(); window.renderPage('roles');
+    closeModal(); renderPage('roles');
   }, 'Rename');
 }
 
-function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; window.renderPage('roles'); }
-function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; window.renderPage('roles'); }
+function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; renderPage('roles'); }
+function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; renderPage('roles'); }
 
 async function togglePermission(role, perm, val) {
   if (!window.isAdmin() || !ROLES_MATRIX[role]) return;
@@ -267,7 +268,7 @@ async function togglePermission(role, perm, val) {
     } catch (err) {
       ROLES_MATRIX[role][perm] = prev;
       alert(`Couldn't update permission: ${err?.message || err}`);
-      window.renderPage('roles');
+      renderPage('roles');
       return;
     }
     return;
@@ -286,7 +287,7 @@ export async function reassignAgent(name, newRole) {
     catch (err) { alert(`Couldn't reassign: ${err?.message || err}`); return; }
   }
   a.role = newRole;
-  window.renderPage(CURRENT_PAGE);
+  renderPage(CURRENT_PAGE);
 }
 
 export async function setAgentActive(name, active) {
@@ -298,7 +299,7 @@ export async function setAgentActive(name, active) {
     catch (err) { alert(`Couldn't update status: ${err?.message || err}`); return; }
   }
   a.active = active;
-  window.renderPage(CURRENT_PAGE);
+  renderPage(CURRENT_PAGE);
 }
 
 export function deleteAgentPrompt(name) {
@@ -312,7 +313,7 @@ export function deleteAgentPrompt(name) {
     const i = AGENTS.findIndex(x => x.name === name);
     if (i >= 0) AGENTS.splice(i, 1);
     if (AGENT_SELECTED === name) AGENT_SELECTED = null;
-    closeModal(); window.renderPage(CURRENT_PAGE);
+    closeModal(); renderPage(CURRENT_PAGE);
   }, 'Delete');
 }
 
@@ -329,7 +330,7 @@ function addAgentToRolePrompt(role) {
     if (!name || AGENTS.find(a => a.name === name)) return;
     if (!init) init = name.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
     AGENTS.push({name, initials:init, role, active:true});
-    closeModal(); window.renderPage('roles');
+    closeModal(); renderPage('roles');
   }, 'Add');
 }
 
@@ -357,7 +358,7 @@ function addRolePrompt() {
       setRoleUuid(resp.role.name, resp.role.id);
     }
     ROLES_MATRIX[name] = perms;
-    closeModal(); window.renderPage('roles');
+    closeModal(); renderPage('roles');
   }, 'Create');
 }
 
@@ -374,7 +375,7 @@ function addPermissionPrompt() {
     if (!key || PERMISSIONS.find(p => p.key === key)) return;
     PERMISSIONS.push({key, label});
     Object.keys(ROLES_MATRIX).forEach(r => { if (ROLES_MATRIX[r][key] === undefined) ROLES_MATRIX[r][key] = false; });
-    closeModal(); window.renderPage('roles');
+    closeModal(); renderPage('roles');
   }, 'Add');
 }
 
@@ -393,7 +394,7 @@ function deleteRolePrompt(role) {
       clearRoleUuid(role);
     }
     delete ROLES_MATRIX[role];
-    closeModal(); window.renderPage('roles');
+    closeModal(); renderPage('roles');
   }, 'Delete');
 }
 
@@ -414,6 +415,6 @@ registerChangeActions({
   'roles.togglePerm':          (ds, el) => togglePermission(ds.role, ds.perm, el.checked),
   // Same as togglePerm but re-renders the page — used in the role-detail
   // view where other UI on the page reflects the current matrix state.
-  'roles.togglePermAndRender': (ds, el) => { togglePermission(ds.role, ds.perm, el.checked); window.renderPage('roles'); },
+  'roles.togglePermAndRender': (ds, el) => { togglePermission(ds.role, ds.perm, el.checked); renderPage('roles'); },
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });

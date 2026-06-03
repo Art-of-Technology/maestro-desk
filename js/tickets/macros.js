@@ -6,7 +6,7 @@
 //
 // External reaches (interim, via window): changeTicketStatus,
 // changeTicketPriority, changeTicketAgent, addTicketTag, openTicket,
-// isAdmin, escHtml, escAttr, renderPage — still in app.js. showModal /
+// isAdmin, escHtml, escAttr — still in app.js. showModal /
 // closeModal are direct ES imports from core/modal.js; navTo from
 // core/keybindings.js; insertMacro from tickets/detail.js.
 //
@@ -27,6 +27,7 @@
 // global lexical env; TICKET_SELECTED_IDS, CURRENT_TICKET, SESSION,
 // MACRO_FILTER_QUERY come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { navTo } from '../core/keybindings.js';
@@ -161,7 +162,7 @@ function bulkRunMacro(macroId) {
   const ids = [...TICKET_SELECTED_IDS];
   ids.forEach(id => runMacro(macroId, id));
   TICKET_SELECTED_IDS.clear();
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
 
 export function showApplyMacroModal(ticketId) {
@@ -287,7 +288,7 @@ function macNew() {
       usageCount: 0,
       lastUsed: null,
     });
-    closeModal(); window.renderPage('macros');
+    closeModal(); renderPage('macros');
   }, 'Create');
 }
 
@@ -303,7 +304,7 @@ function macEdit(id) {
     m.icon = document.getElementById('mac-icon').value.trim() || '⚡';
     m.description = document.getElementById('mac-desc').value.trim();
     m.actions = actions;
-    closeModal(); window.renderPage('macros');
+    closeModal(); renderPage('macros');
   }, 'Save');
 }
 
@@ -313,7 +314,7 @@ function macDelete(id) {
   showModal('Delete macro', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(m.name)}</strong>?</div>`, () => {
     const i = MACROS.findIndex(x => x.id === id);
     if (i >= 0) MACROS.splice(i, 1);
-    closeModal(); window.renderPage('macros');
+    closeModal(); renderPage('macros');
   }, 'Delete');
 }
 
@@ -402,5 +403,5 @@ registerMousedownActions({
 });
 
 registerInputActions({
-  'macros.filter': (ds, el) => { MACRO_FILTER_QUERY = el.value; window.renderPage('macros'); },
+  'macros.filter': (ds, el) => { MACRO_FILTER_QUERY = el.value; renderPage('macros'); },
 });

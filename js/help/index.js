@@ -9,6 +9,7 @@
 //
 // SESSION comes from core/state.js via the global lexical env.
 
+import { renderPage } from '../core/router.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo, focusGlobalSearch } from '../core/keybindings.js';
 import { setSettingsTab } from '../settings/index.js';
@@ -90,7 +91,7 @@ function helpFAQ() {
 
 function toggleFAQ(i) {
   if (HELP_FAQ_OPEN.has(i)) HELP_FAQ_OPEN.delete(i); else HELP_FAQ_OPEN.add(i);
-  window.renderPage('help');
+  renderPage('help');
 }
 
 function helpContact() {

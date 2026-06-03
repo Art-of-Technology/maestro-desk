@@ -17,6 +17,7 @@
 // just stamps the server's clock as the cursor; subsequent calls pull
 // deltas since the last cursor.
 
+import { updateNavBadges } from '../core/router.js';
 import { apiGet } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 import { renderTickets } from './list.js';
@@ -86,8 +87,8 @@ async function tick() {
     }
     // Nav badges read off TICKETS too — refresh regardless of page so
     // the sidebar counts don't go stale while the agent is elsewhere.
-    if (typeof window.updateNavBadges === 'function') {
-      window.updateNavBadges();
+    if (typeof updateNavBadges === 'function') {
+      updateNavBadges();
     }
   } catch (err) {
     // Auth expiry → stop. Same shape as presence's 401/403 path: every

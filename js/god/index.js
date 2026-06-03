@@ -19,6 +19,7 @@
 //
 // All actions wire through core/event-delegation (data-action="god.X").
 
+import { nav, updateNavBadges } from '../core/router.js';
 import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
@@ -367,8 +368,8 @@ async function enterBrand(brandId) {
   try {
     setWorkspaceId(brandId);
     await loadWorkspaceData();
-    if (typeof window.updateNavBadges === 'function') window.updateNavBadges();
-    window.nav('dashboard', document.getElementById('nav-dashboard'));
+    if (typeof updateNavBadges === 'function') updateNavBadges();
+    nav('dashboard', document.getElementById('nav-dashboard'));
   } catch (err) {
     // Clear the workspace selection so a refresh doesn't leave the user
     // stuck trying to resume into a half-loaded workspace.

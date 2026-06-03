@@ -39,9 +39,10 @@ jobs:
 
       - name: Route smoke — every route renders
         run: |
+          bun build scripts/route-smoke-entry.js > scripts/route-entry.bundled.js
           cat scripts/bridge-smoke-shim-prefix.js \
               js/core/state.js js/core/data.js \
-              scripts/app.bundled.js \
+              scripts/route-entry.bundled.js \
               scripts/bridge-smoke-shim-suffix.js > scripts/full-smoke.js
           bun scripts/full-smoke.js
 

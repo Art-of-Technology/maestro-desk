@@ -12,7 +12,7 @@
 // search surfaces can jump to. It's also consumed by quick-switcher via a
 // direct ES import.
 //
-// External reaches (interim, via window): escHtml, escAttr, renderPage —
+// External reaches (interim, via window): escHtml, escAttr —
 // all still in app.js. navTo and openTicket are direct ES imports.
 //
 // The page's own inline on*= handlers are delegated as gs.* actions (bottom
@@ -28,6 +28,7 @@
 // KB_SELECTED, TAG_SELECTED, ROLES_VIEW_AGENTS, SEARCH_PAGE_FILTER come
 // from core/state.js the same way.
 
+import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { openCustomerModal } from '../customers/modals.js';
@@ -154,7 +155,7 @@ function gsGo(type, id) {
       if ((i.getAttribute('onclick') || '').includes("'kb'")) target = i;
     });
     if (target) target.classList.add('active');
-    window.renderPage('kb');
+    renderPage('kb');
   }
   else if (type === 'agent') {
     const a = AGENTS.find(x => x.name === id);
@@ -163,7 +164,7 @@ function gsGo(type, id) {
     document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
     const rolesItem = document.getElementById('nav-roles');
     if (rolesItem) rolesItem.classList.add('active');
-    window.renderPage('roles');
+    renderPage('roles');
   }
   else if (type === 'page') {
     let target = null;
@@ -171,7 +172,7 @@ function gsGo(type, id) {
       const a = i.getAttribute('onclick') || '';
       if (a.includes(`'${id}'`)) target = i;
     });
-    window.nav(id, target);
+    nav(id, target);
   }
 }
 
@@ -354,7 +355,7 @@ export function renderSearchResults() {
 
 function searchPageSetQuery(q) {
   SEARCH_PAGE_QUERY = q;
-  window.renderPage('search');
+  renderPage('search');
   const input = document.getElementById('search-page-input');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -369,7 +370,7 @@ registerActions({
   'gs.openKB':       (ds) => { KB_SELECTED = ds.id;         navTo('kb'); },
   'gs.openTag':      (ds) => { TAG_SELECTED = ds.tag;       navTo('tags'); },
   'gs.nav':          (ds) => navTo(ds.page),
-  'gs.setFilter':    (ds) => { SEARCH_PAGE_FILTER = ds.filter; window.renderPage('search'); },
+  'gs.setFilter':    (ds) => { SEARCH_PAGE_FILTER = ds.filter; renderPage('search'); },
 });
 
 registerMousedownActions({

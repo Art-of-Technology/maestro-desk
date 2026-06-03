@@ -16,8 +16,8 @@
 // Bell-dropdown actions use mousedown rather than click so they fire before
 // core/dismiss.js (which also listens on mousedown) sees outside-clicks.
 //
-// External reaches (interim, via window): escAttr, showModal, closeModal,
-// renderPage — all still in app.js. navTo, openTicket, setSettingsTab are
+// External reaches (interim, via window): escAttr, showModal, closeModal —
+// all still in app.js. navTo, openTicket, setSettingsTab are
 // direct ES imports.
 //
 // toggleNotifications stays exported because index.html's bell button still
@@ -28,6 +28,7 @@
 // TICKETS comes from data.js via the global lexical env; SESSION and
 // NOTIF_PREFS come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
@@ -165,20 +166,20 @@ function markAllNotifRead() {
 function markNotifRead(id) {
   NOTIFICATIONS_READ.add(id);
   refreshNotifBadge();
-  window.renderPage('notifications');
+  renderPage('notifications');
 }
 
 function dismissNotif(id) {
   NOTIFICATIONS_DISMISSED.add(id);
   refreshNotifBadge();
-  window.renderPage('notifications');
+  renderPage('notifications');
 }
 
 function clearAllNotifications() {
   showModal('Clear notifications', '<div style="font-size:13px;color:var(--ink2);line-height:1.6">Dismiss all current notifications? They will be removed from the bell and the notifications page.</div>', () => {
     getNotifications().forEach(n => NOTIFICATIONS_DISMISSED.add(n.id));
     refreshNotifBadge();
-    closeModal(); window.renderPage('notifications');
+    closeModal(); renderPage('notifications');
   }, 'Clear all');
 }
 
@@ -190,7 +191,7 @@ function openNotificationFromPage(id, ticketId) {
 
 function markAllNotifReadAndRender() {
   markAllNotifRead();
-  window.renderPage('notifications');
+  renderPage('notifications');
 }
 
 export function renderNotificationsPage() {
@@ -277,8 +278,8 @@ registerActions({
 });
 
 registerChangeActions({
-  'notif.setFilterType': (ds, el) => { NOTIF_PAGE_FILTER_TYPE = el.value; window.renderPage('notifications'); },
-  'notif.setFilterRead': (ds, el) => { NOTIF_PAGE_FILTER_READ = el.value; window.renderPage('notifications'); },
+  'notif.setFilterType': (ds, el) => { NOTIF_PAGE_FILTER_TYPE = el.value; renderPage('notifications'); },
+  'notif.setFilterRead': (ds, el) => { NOTIF_PAGE_FILTER_READ = el.value; renderPage('notifications'); },
 });
 
 registerMousedownActions({

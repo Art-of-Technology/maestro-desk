@@ -6,7 +6,7 @@
 // in app.js because the composer and ticket sidebar also depend on it.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage, navTo, logout — all still in app.js.
+// navTo, logout — all still in app.js.
 // refreshNotifBadge, setTheme, setAIKey/setAIModel, setAgentPreferredLang,
 // showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
@@ -22,6 +22,7 @@
 // SESSION, SETTINGS_TAB, NOTIF_PREFS come from core/state.js via the global
 // lexical env.
 
+import { renderPage } from '../core/router.js';
 import { THEME, setTheme } from '../core/theme.js';
 import { AI_API_KEY, AI_MODEL, setAIKey, setAIModel } from '../ai/client.js';
 import {
@@ -93,7 +94,7 @@ export function renderSettings() {
     </div>`;
 }
 
-export function setSettingsTab(k) { SETTINGS_TAB = k; window.renderPage('settings'); }
+export function setSettingsTab(k) { SETTINGS_TAB = k; renderPage('settings'); }
 
 function settingsProfile() {
   return `
@@ -195,7 +196,7 @@ function settingsWorkspaceBranding() {
   if (!WORKSPACE_SETTINGS_LOADED) {
     WORKSPACE_SETTINGS_LOADED = true;
     apiGet('/api/v1/workspace/settings')
-      .then((res) => { WORKSPACE_SETTINGS = res.workspace; window.renderPage('settings'); })
+      .then((res) => { WORKSPACE_SETTINGS = res.workspace; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] workspace load failed:', err); });
   }
   const ws = WORKSPACE_SETTINGS;
@@ -331,7 +332,7 @@ async function savePortalDomain() {
     WORKSPACE_SETTINGS = res.workspace;
     msg.textContent = '✓ Saved';
     msg.style.color = 'var(--green)';
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -349,7 +350,7 @@ async function verifyPortalDomain() {
       msg.style.color = 'var(--green)';
       const fresh = await apiGet('/api/v1/workspace/settings');
       WORKSPACE_SETTINGS = fresh.workspace;
-      window.renderPage('settings');
+      renderPage('settings');
     } else {
       const reason = res.reason === 'no_txt_record'
         ? `No TXT record at ${res.record_name}`
@@ -433,7 +434,7 @@ async function uploadWorkspaceLogo() {
     msg.textContent = '✓ Uploaded';
     msg.style.color = 'var(--green)';
     fileEl.value = '';
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Upload failed';
     msg.style.color = 'var(--red)';
@@ -474,7 +475,7 @@ async function saveWorkspaceBranding() {
     });
     // Re-render the settings page so the preview row picks up the
     // new logo / color too.
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -496,7 +497,7 @@ function settingsNotifications() {
   if (!ME_PREFS_LOADED) {
     ME_PREFS_LOADED = true;
     apiGet('/api/v1/me')
-      .then((res) => { ME_PREFS = res.user; window.renderPage('settings'); })
+      .then((res) => { ME_PREFS = res.user; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] me load failed:', err); });
   }
   const mentionEmailOn = ME_PREFS ? ME_PREFS.mention_email_enabled !== false : true;
@@ -545,7 +546,7 @@ async function setMentionEmailPref(enabled) {
     if (msg) { msg.textContent = err?.message || 'Save failed'; msg.style.color = 'var(--red)'; }
     // Revert UI if the patch failed.
     ME_PREFS_LOADED = false;
-    window.renderPage('settings');
+    renderPage('settings');
   }
 }
 
@@ -567,7 +568,7 @@ function settingsAI() {
   if (!WORKSPACE_SETTINGS_LOADED) {
     WORKSPACE_SETTINGS_LOADED = true;
     apiGet('/api/v1/workspace/settings')
-      .then((res) => { WORKSPACE_SETTINGS = res.workspace; window.renderPage('settings'); })
+      .then((res) => { WORKSPACE_SETTINGS = res.workspace; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] workspace load failed:', err); });
   }
   const ws = WORKSPACE_SETTINGS;
@@ -678,7 +679,7 @@ async function setAutoPriorityBump(enabled) {
     if (msg) { msg.textContent = err?.message || 'Save failed'; msg.style.color = 'var(--red)'; }
     // Revert the visual state if the patch failed.
     WORKSPACE_SETTINGS_LOADED = false;
-    window.renderPage('settings');
+    renderPage('settings');
   }
 }
 
@@ -764,10 +765,10 @@ function setKbCfg(key, value) {
 async function testKbConnection() {
   const q = document.getElementById('kb-test-q')?.value?.trim() || 'password reset';
   KB_TEST_STATE = { query: q, loading: true };
-  window.renderPage('settings');
+  renderPage('settings');
   const result = await fetchKbArticles(q);
   KB_TEST_STATE = { query: q, articles: result.articles || [], error: result.error || null };
-  window.renderPage('settings');
+  renderPage('settings');
 }
 
 function settingsLanguage() {
@@ -793,7 +794,7 @@ function settingsIntegrations() {
   if (!SLACK_LOADED) {
     SLACK_LOADED = true;
     apiGet('/api/v1/integrations/slack')
-      .then((res) => { SLACK_INTEGRATION = res.integration; window.renderPage('settings'); })
+      .then((res) => { SLACK_INTEGRATION = res.integration; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] slack load failed:', err); });
   }
   const slack = SLACK_INTEGRATION;
@@ -864,7 +865,7 @@ function settingsStripeSection() {
   if (!STRIPE_LOADED) {
     STRIPE_LOADED = true;
     apiGet('/api/v1/integrations/stripe')
-      .then((res) => { STRIPE_INTEGRATION = res.integration; window.renderPage('settings'); })
+      .then((res) => { STRIPE_INTEGRATION = res.integration; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] stripe load failed:', err); });
   }
   const stripe = STRIPE_INTEGRATION;
@@ -919,7 +920,7 @@ async function saveStripeIntegration() {
     STRIPE_INTEGRATION = res.integration;
     document.getElementById('stripe-key').value = '';
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -938,7 +939,7 @@ async function deleteStripeIntegration() {
   try {
     await apiDelete('/api/v1/integrations/stripe');
     STRIPE_INTEGRATION = null;
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     alert(`Couldn't disconnect: ${err?.message || err}`);
   }
@@ -948,7 +949,7 @@ function settingsShopifySection() {
   if (!SHOPIFY_LOADED) {
     SHOPIFY_LOADED = true;
     apiGet('/api/v1/integrations/shopify')
-      .then((res) => { SHOPIFY_INTEGRATION = res.integration; window.renderPage('settings'); })
+      .then((res) => { SHOPIFY_INTEGRATION = res.integration; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] shopify load failed:', err); });
   }
   const shopify = SHOPIFY_INTEGRATION;
@@ -1012,7 +1013,7 @@ async function saveShopifyIntegration() {
     SHOPIFY_INTEGRATION = res.integration;
     document.getElementById('shopify-token').value = '';
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -1025,7 +1026,7 @@ async function deleteShopifyIntegration() {
   try {
     await apiDelete('/api/v1/integrations/shopify');
     SHOPIFY_INTEGRATION = null;
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     alert(`Couldn't disconnect: ${err?.message || err}`);
   }
@@ -1044,7 +1045,7 @@ function settingsOutgoingWebhooksSection() {
   if (!OUTGOING_WEBHOOKS_LOADED) {
     OUTGOING_WEBHOOKS_LOADED = true;
     apiGet('/api/v1/integrations/webhooks')
-      .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; window.renderPage('settings'); })
+      .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] webhooks load failed:', err); });
   }
   const list = OUTGOING_WEBHOOKS;
@@ -1139,7 +1140,7 @@ async function createOutgoingWebhook() {
     // Re-fetch the list so the new row appears.
     const list = await apiGet('/api/v1/integrations/webhooks');
     OUTGOING_WEBHOOKS = list.webhooks || [];
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Create failed';
     msg.style.color = 'var(--red)';
@@ -1152,7 +1153,7 @@ async function deleteOutgoingWebhook(id) {
   try {
     await apiDelete(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`);
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.filter((w) => w.id !== id);
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     alert(`Couldn't delete: ${err?.message || err}`);
   }
@@ -1171,7 +1172,7 @@ function settingsSuppressionListSection() {
   if (!SUPPRESSED_LOADED) {
     SUPPRESSED_LOADED = true;
     apiGet('/api/v1/integrations/postmark/suppressed')
-      .then((res) => { SUPPRESSED_CUSTOMERS = res.suppressed || []; window.renderPage('settings'); })
+      .then((res) => { SUPPRESSED_CUSTOMERS = res.suppressed || []; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] suppression load failed:', err); });
   }
   const list = SUPPRESSED_CUSTOMERS;
@@ -1223,7 +1224,7 @@ async function resetSuppressedCustomer(customerId) {
         cust.emailLastBounce  = null;
       }
     }
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     alert(`Couldn't reset: ${err?.message || err}`);
   }
@@ -1380,7 +1381,7 @@ async function saveOutgoingWebhookEdit() {
     // the new values without a full refetch.
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
     closeModal();
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -1399,7 +1400,7 @@ async function rotateOutgoingWebhookSecret() {
     LAST_REVEALED_SECRET = res.secret;
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
     closeModal();
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Rotation failed';
     msg.style.color = 'var(--red)';
@@ -1437,7 +1438,7 @@ async function saveSlackIntegration() {
     document.getElementById('slack-bot-token').value = '';
     document.getElementById('slack-signing-secret').value = '';
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
@@ -1450,7 +1451,7 @@ async function deleteSlackIntegration() {
   try {
     await apiDelete('/api/v1/integrations/slack');
     SLACK_INTEGRATION = null;
-    window.renderPage('settings');
+    renderPage('settings');
   } catch (err) {
     alert(`Couldn't disconnect: ${err?.message || err}`);
   }
@@ -1503,8 +1504,8 @@ registerActions({
 });
 
 registerChangeActions({
-  'settings.toggleDark':    (ds, el) => { setTheme(el.checked ? 'dark' : 'light'); window.renderPage('settings'); },
-  'settings.toggleSystem':  (ds, el) => { setTheme(el.checked ? 'system' : ds.fallback); window.renderPage('settings'); },
+  'settings.toggleDark':    (ds, el) => { setTheme(el.checked ? 'dark' : 'light'); renderPage('settings'); },
+  'settings.toggleSystem':  (ds, el) => { setTheme(el.checked ? 'system' : ds.fallback); renderPage('settings'); },
   'settings.toggleNotif':   (ds, el) => toggleNotifPref(ds.key, el.checked),
   'settings.setMentionEmail':(ds, el) => setMentionEmailPref(el.checked),
   'settings.setAiModel':    (ds, el) => setAIModel(el.value),

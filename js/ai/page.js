@@ -25,6 +25,7 @@
 // app.js for now. Once core/dom.js extracts the escapers, this becomes a
 // proper import. navTo and setSettingsTab are direct ES imports.
 
+import { renderPage } from '../core/router.js';
 import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -127,7 +128,7 @@ function newAIConv() {
   AI_CURRENT_ID = id;
   AI_MESSAGES = [];
   saveAIConversations();
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 function selectAIConv(id) {
@@ -135,7 +136,7 @@ function selectAIConv(id) {
   const c = getCurrentAIConv();
   AI_MESSAGES = c ? [...(c.messages || [])] : [];
   saveAIConversations();
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 function deleteAIConv(id) {
@@ -148,7 +149,7 @@ function deleteAIConv(id) {
     AI_MESSAGES = c ? [...(c.messages || [])] : [];
   }
   saveAIConversations();
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 function copyAIMessage(idx) {
@@ -259,7 +260,7 @@ export function renderAI() {
 
 function aiToggleSource(k) {
   AI_CONTEXT_SOURCES[k] = !AI_CONTEXT_SOURCES[k];
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 function aiUsePrompt(p) {
@@ -271,7 +272,7 @@ function aiClear() {
   AI_MESSAGES = [];
   const c = getCurrentAIConv();
   if (c) { c.messages = []; saveAIConversations(); }
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 function aiInputKey(e) {
@@ -325,12 +326,12 @@ async function aiSend() {
   if (!AI_API_KEY) {
     AI_MESSAGES.push({r:'ai', t:'No Claude API key configured. Add one in Settings → AI Assistant to enable the assistant.'});
     syncCurrentAIConv();
-    window.renderPage('ai');
+    renderPage('ai');
     return;
   }
 
   AI_THINKING = true;
-  window.renderPage('ai');
+  renderPage('ai');
 
   const ctx = buildAIContext();
   const conv = AI_MESSAGES
@@ -350,7 +351,7 @@ async function aiSend() {
   }
   AI_THINKING = false;
   syncCurrentAIConv();
-  window.renderPage('ai');
+  renderPage('ai');
 }
 
 export function initAI() {

@@ -6,7 +6,7 @@
 // from the customer table's column panel via showManageFieldsModal().
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 //
 // CUSTOM_FIELDS comes from data.js via the global lexical env;
 // CF_FILTER_ENTITY comes from core/state.js the same way.
@@ -16,6 +16,7 @@
 // for the router; showManageFieldsModal stays exported for customers/index.js
 // (direct ES import). The cf* mutators are now module-internal.
 
+import { renderPage } from '../core/router.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -179,7 +180,7 @@ function cfNew() {
       if (data.options) field.options = data.options;
       CUSTOM_FIELDS.unshift(field);
     }
-    closeModal(); window.renderPage('custom-fields');
+    closeModal(); renderPage('custom-fields');
   }, 'Create');
 }
 
@@ -209,7 +210,7 @@ function cfEdit(id) {
     f.label = data.label; f.type = data.type; f.entity = data.entity;
     f.required = data.required; f.defaultValue = data.defaultValue;
     if (data.options) f.options = data.options; else delete f.options;
-    closeModal(); window.renderPage('custom-fields');
+    closeModal(); renderPage('custom-fields');
   }, 'Save');
 }
 
@@ -223,7 +224,7 @@ function cfDelete(id) {
     }
     const i = CUSTOM_FIELDS.findIndex(x => x.id === id);
     if (i >= 0) CUSTOM_FIELDS.splice(i, 1);
-    closeModal(); window.renderPage('custom-fields');
+    closeModal(); renderPage('custom-fields');
   }, 'Delete');
 }
 
@@ -241,6 +242,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'cf.filterEntity': (ds, el) => { CF_FILTER_ENTITY = el.value; window.renderPage('custom-fields'); },
+  'cf.filterEntity': (ds, el) => { CF_FILTER_ENTITY = el.value; renderPage('custom-fields'); },
   'cf.toggleOptions': (ds, el) => cfFormToggleOptions(el.value),
 });
