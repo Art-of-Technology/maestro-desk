@@ -18,6 +18,7 @@
 // TAG_SORT_COL, TAG_SORT_DIR, CUSTOMER_SELECTED come from core/state.js
 // the same way.
 
+import { TAG_FILTER_TYPE, TAG_QUERY, TAG_SELECTED, TAG_SELECTED_NAMES, TAG_SORT_COL, TAG_SORT_DIR, setCustomerSelected, setTagFilterType, setTagQuery, setTagSelected, setTagSortCol, setTagSortDir } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
@@ -146,13 +147,13 @@ function applyTagFilters() {
 }
 
 function setTagSort(col) {
-  if (TAG_SORT_COL === col) TAG_SORT_DIR *= -1;
-  else { TAG_SORT_COL = col; TAG_SORT_DIR = col === 'tag' ? 1 : -1; }
+  if (TAG_SORT_COL === col) setTagSortDir(TAG_SORT_DIR * (-1));
+  else { setTagSortCol(col); setTagSortDir(col === 'tag' ? 1 : -1); }
   renderPage('tags');
 }
 
-function openTagDetail(tag) { TAG_SELECTED = tag; renderPage('tags'); }
-function closeTagDetail()   { TAG_SELECTED = null; renderPage('tags'); }
+function openTagDetail(tag) { setTagSelected(tag); renderPage('tags'); }
+function closeTagDetail()   { setTagSelected(null); renderPage('tags'); }
 
 function toggleTagSelected(tag) {
   if (TAG_SELECTED_NAMES.has(tag)) TAG_SELECTED_NAMES.delete(tag);
@@ -267,13 +268,13 @@ async function mergeTags(sourceName, targetName) {
   target.count = (target.count || 0) + (source.count || 0);
   const i = TAG_LIBRARY.findIndex(x => x.tag === sourceName);
   if (i >= 0) TAG_LIBRARY.splice(i, 1);
-  if (TAG_SELECTED === sourceName) TAG_SELECTED = targetName;
+  if (TAG_SELECTED === sourceName) setTagSelected(targetName);
   renderPage('tags');
 }
 
 function renderTagDetail(tagName) {
   const t = TAG_LIBRARY.find(x => x.tag === tagName);
-  if (!t) { TAG_SELECTED = null; return renderTags(); }
+  if (!t) { setTagSelected(null); return renderTags(); }
   const admin = window.isAdmin();
   const using = TICKETS.filter(tk => (tk.tags || []).includes(tagName) || (tk.aiTags || []).some(at => at.tag === tagName));
   const customerIds = new Set(using.map(tk => tk.customerId));
@@ -393,9 +394,9 @@ function renderTagDetail(tagName) {
     </div>`;
 }
 
-function tagSetType(v) { TAG_FILTER_TYPE = v; renderPage('tags'); }
+function tagSetType(v) { setTagFilterType(v); renderPage('tags'); }
 function tagSetQuery(v) {
-  TAG_QUERY = v;
+  setTagQuery(v);
   renderPage('tags');
   const input = document.getElementById('tag-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
@@ -507,7 +508,7 @@ registerActions({
   'tags.convertType':    (ds) => convertTagType(ds.tag),
   'tags.mergePrompt':    (ds) => mergeTagPrompt(ds.tag),
   'tags.openTicket':     (ds) => openTicket(ds.ticketId),
-  'tags.openCustomer':   (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+  'tags.openCustomer':   (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
 });
 
 registerChangeActions({

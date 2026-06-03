@@ -17,6 +17,7 @@
 // data.js) — visible to this module by bare name, no import needed. That's the
 // same arrangement renderPage relied on while it lived in app.js.
 
+import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setInboxSelectedId, setKbSelected, setRolesViewAgents, setTagSelected, setWfSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';
 import { renderInbox } from '../inbox/index.js';
@@ -57,16 +58,16 @@ export function nav(page, el) {
 }
 
 export function renderPage(page) {
-  if (page !== 'roles')     ROLES_VIEW_AGENTS = null;
-  if (page !== 'kb')        KB_SELECTED = null;
-  if (page !== 'agents')    AGENT_SELECTED = null;
-  if (page !== 'customers') { CUSTOMER_SELECTED = null; CUSTOMER_SELECTED_IDS.clear(); }
+  if (page !== 'roles')     setRolesViewAgents(null);
+  if (page !== 'kb')        setKbSelected(null);
+  if (page !== 'agents')    setAgentSelected(null);
+  if (page !== 'customers') { setCustomerSelected(null); CUSTOMER_SELECTED_IDS.clear(); }
   if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
-  if (page !== 'inbox')     INBOX_SELECTED_ID = null;
-  if (page !== 'workflows') WF_SELECTED = null;
-  if (page !== 'tags')      { TAG_SELECTED = null; TAG_SELECTED_NAMES.clear(); }
-  CURRENT_PAGE = page;
-  CURRENT_TICKET = null;
+  if (page !== 'inbox')     setInboxSelectedId(null);
+  if (page !== 'workflows') setWfSelected(null);
+  if (page !== 'tags')      { setTagSelected(null); TAG_SELECTED_NAMES.clear(); }
+  setCurrentPage(page);
+  setCurrentTicket(null);
   // Release the presence row for any ticket we were viewing — openTicket
   // re-acquires immediately if the new page lands on a detail view.
   stopPresence();

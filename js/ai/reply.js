@@ -11,6 +11,7 @@
 // buildKbQuery and fetchKbArticles are direct ES imports from
 // kb-integration; onComposeInput is a direct import from tickets/detail.
 
+import { AI_THINKING, setAiThinking } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';
 import { buildKbQuery, fetchKbArticles } from '../kb-integration/index.js';
@@ -34,7 +35,7 @@ export async function aiAction(id, action) {
     onComposeInput(id);
     return;
   }
-  AI_THINKING = true;
+  setAiThinking(true);
   const th = document.getElementById('thinking-' + id);
   if (th) th.classList.add('show');
 
@@ -50,7 +51,7 @@ export async function aiAction(id, action) {
     if (kb.error) {
       el.value = `KB lookup failed: ${kb.error}\n\n(Check Settings → Knowledge Base.)`;
       onComposeInput(id);
-      AI_THINKING = false;
+      setAiThinking(false);
       if (th) th.classList.remove('show');
       return;
     }
@@ -86,7 +87,7 @@ export async function aiAction(id, action) {
   } catch {
     el.value = el.value || 'AI unavailable. Please type your reply.';
   }
-  AI_THINKING = false;
+  setAiThinking(false);
   if (th) th.classList.remove('show');
   onComposeInput(id);
   el.focus();

@@ -15,6 +15,7 @@
 //
 // TICKETS comes from data.js; CURRENT_TICKET from state.js (global lex env).
 
+import { CURRENT_TICKET } from '../core/state.js';
 import { openTicket } from '../tickets/detail.js';
 
 const KB_INTEGRATION_DEFAULTS = {

@@ -14,6 +14,7 @@
 //
 // CHANNELS, TICKETS, AGENTS come from data.js; CH_FILTER comes from state.js.
 
+import { CH_FILTER, setChFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -215,5 +216,5 @@ registerActions({
 
 registerChangeActions({
   'ch.toggle':    (ds, el) => chToggle(ds.chId, el.checked),
-  'ch.setFilter': (ds, el) => { CH_FILTER = el.value; renderPage('channels'); },
+  'ch.setFilter': (ds, el) => { setChFilter(el.value); renderPage('channels'); },
 });

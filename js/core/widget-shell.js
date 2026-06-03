@@ -24,6 +24,7 @@
 // DASH_LAYOUT and REPORT_LAYOUT live in core/state.js so this module and
 // app.js (top-level hydration + reports renderers) share one binding.
 
+import { DASH_LAYOUT, REPORT_LAYOUT, setDashLayout, setReportLayout } from './state.js';
 import { renderPage } from './router.js';
 import { showModal, closeModal } from './modal.js';
 import { registerActions, registerChangeActions } from './event-delegation.js';
@@ -203,7 +204,7 @@ function resetWidgetLayout(scope) {
   const src = catalogDefaultLayout(scope);
   if (!src) return;
   const layout = { order: [...src.order], hidden: [...src.hidden], charts: { ...src.charts } };
-  if (isDash) DASH_LAYOUT = layout; else REPORT_LAYOUT = layout;
+  if (isDash) setDashLayout(layout); else setReportLayout(layout);
   saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
   closeModal();
   renderPage(isDash ? 'dashboard' : 'reports');

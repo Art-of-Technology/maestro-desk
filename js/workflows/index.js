@@ -13,6 +13,7 @@
 // WORKFLOWS comes from data.js via the global lexical env; WF_SELECTED,
 // WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
 
+import { SESSION, WF_FILTER, WF_QUERY, WF_SELECTED, setWfFilter, setWfQuery, setWfSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -117,7 +118,7 @@ export function renderWorkflows() {
     </div>`;
 }
 
-function wfSetFilter(v) { WF_FILTER = v; renderPage('workflows'); }
+function wfSetFilter(v) { setWfFilter(v); renderPage('workflows'); }
 
 async function wfToggle(id, active) {
   if (!window.isAdmin()) return;
@@ -204,7 +205,7 @@ function unwrap(val) {
 }
 
 function openWfDetail(id) {
-  WF_SELECTED = id;
+  setWfSelected(id);
   // Fire-and-forget load of the run history for this workflow. The
   // detail renders immediately with whatever's in w.history (usually
   // empty for API-backed workflows on first open); when the fetch
@@ -244,11 +245,11 @@ function closeWfDetail() {
   // history after firing it.
   const w = WORKFLOWS.find(x => x.id === WF_SELECTED);
   if (w) { w._historyLoaded = false; }
-  WF_SELECTED = null;
+  setWfSelected(null);
   renderPage('workflows');
 }
 function wfSetQuery(q) {
-  WF_QUERY = q;
+  setWfQuery(q);
   renderPage('workflows');
   const input = document.getElementById('wf-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
@@ -256,7 +257,7 @@ function wfSetQuery(q) {
 
 function renderWfDetail(id) {
   const w = WORKFLOWS.find(x => x.id === id);
-  if (!w) { WF_SELECTED = null; return renderWorkflows(); }
+  if (!w) { setWfSelected(null); return renderWorkflows(); }
   const admin = window.isAdmin();
   const history = w.history || [];
   return `

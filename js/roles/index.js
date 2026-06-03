@@ -21,6 +21,7 @@
 // global lexical env; ROLES_VIEW_AGENTS, AGENT_SELECTED, CURRENT_PAGE,
 // SESSION come from core/state.js the same way.
 
+import { AGENT_SELECTED, CURRENT_PAGE, ROLES_VIEW_AGENTS, setAgentSelected, setRolesViewAgents } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
@@ -246,13 +247,13 @@ function renameRolePrompt(oldName) {
     ROLES_MATRIX[newName] = ROLES_MATRIX[oldName];
     delete ROLES_MATRIX[oldName];
     AGENTS.forEach(a => { if (a.role === oldName) a.role = newName; });
-    if (ROLES_VIEW_AGENTS === oldName) ROLES_VIEW_AGENTS = newName;
+    if (ROLES_VIEW_AGENTS === oldName) setRolesViewAgents(newName);
     closeModal(); renderPage('roles');
   }, 'Rename');
 }
 
-function openRoleAgents(role) { ROLES_VIEW_AGENTS = role; renderPage('roles'); }
-function closeRoleAgents()    { ROLES_VIEW_AGENTS = null; renderPage('roles'); }
+function openRoleAgents(role) { setRolesViewAgents(role); renderPage('roles'); }
+function closeRoleAgents()    { setRolesViewAgents(null); renderPage('roles'); }
 
 async function togglePermission(role, perm, val) {
   if (!window.isAdmin() || !ROLES_MATRIX[role]) return;
@@ -312,7 +313,7 @@ export function deleteAgentPrompt(name) {
     }
     const i = AGENTS.findIndex(x => x.name === name);
     if (i >= 0) AGENTS.splice(i, 1);
-    if (AGENT_SELECTED === name) AGENT_SELECTED = null;
+    if (AGENT_SELECTED === name) setAgentSelected(null);
     closeModal(); renderPage(CURRENT_PAGE);
   }, 'Delete');
 }

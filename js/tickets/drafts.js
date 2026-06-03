@@ -1,3 +1,4 @@
+import { COMPOSE_TAB } from '../core/state.js';
 // ─── Composer drafts ─────────────────────────────────────────────────────────
 // Persist the composer textarea's content to localStorage per (ticket, tab)
 // so an agent can switch tickets mid-draft without losing work. The key

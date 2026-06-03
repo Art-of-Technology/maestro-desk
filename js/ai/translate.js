@@ -16,6 +16,7 @@
 // still reached through window — they live in app.js / core/modal.js
 // and the lifts haven't happened yet.
 
+import { CURRENT_TICKET } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';

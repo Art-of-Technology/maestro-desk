@@ -20,6 +20,7 @@
 // the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, CUSTOMER_SELECTED,
 // DASH_LAYOUT come from core/state.js the same way.
 
+import { DASH_LAYOUT, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
@@ -28,8 +29,8 @@ import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { registerActions } from '../core/event-delegation.js';
 
-export function openAgentFromDash(name) { AGENT_SELECTED = name; navTo('agents'); }
-function openKBFromDash(id)      { KB_SELECTED = id;      navTo('kb'); }
+export function openAgentFromDash(name) { setAgentSelected(name); navTo('agents'); }
+function openKBFromDash(id)      { setKbSelected(id);      navTo('kb'); }
 
 function dashRecentTickets() {
   const tickets = [...TICKETS].slice(0, 6);
@@ -377,5 +378,5 @@ registerActions({
   'dash.openTicket':   (ds) => openTicket(ds.id),
   'dash.openAgent':    (ds) => openAgentFromDash(ds.name),
   'dash.openKB':       (ds) => openKBFromDash(ds.id),
-  'dash.openCustomer': (ds) => { CUSTOMER_SELECTED = ds.custId; navTo('customers'); },
+  'dash.openCustomer': (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
 });

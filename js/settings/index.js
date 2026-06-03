@@ -22,6 +22,7 @@
 // SESSION, SETTINGS_TAB, NOTIF_PREFS come from core/state.js via the global
 // lexical env.
 
+import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { THEME, setTheme } from '../core/theme.js';
 import { AI_API_KEY, AI_MODEL, setAIKey, setAIModel } from '../ai/client.js';
@@ -94,7 +95,7 @@ export function renderSettings() {
     </div>`;
 }
 
-export function setSettingsTab(k) { SETTINGS_TAB = k; renderPage('settings'); }
+export function setSettingsTab(k) { setSettingsTabValue(k); renderPage('settings'); }
 
 function settingsProfile() {
   return `

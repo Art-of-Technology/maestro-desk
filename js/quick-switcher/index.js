@@ -20,6 +20,7 @@
 // lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from
 // core/state.js the same way.
 
+import { setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { isAgentOOO } from '../tickets/assignment-rules.js';
@@ -185,9 +186,9 @@ function quickSwitcherPick(idx) {
   toggleQuickSwitcher(false);
   if (item.kind === 'page')          navTo(item.payload.page);
   else if (item.kind === 'ticket')   openTicket(item.payload.ticketId);
-  else if (item.kind === 'customer') { CUSTOMER_SELECTED = item.payload.customerId; navTo('customers'); }
-  else if (item.kind === 'agent')    { AGENT_SELECTED = item.payload.agentName; navTo('agents'); }
-  else if (item.kind === 'kb')       { KB_SELECTED = item.payload.kbId; navTo('kb'); }
+  else if (item.kind === 'customer') { setCustomerSelected(item.payload.customerId); navTo('customers'); }
+  else if (item.kind === 'agent')    { setAgentSelected(item.payload.agentName); navTo('agents'); }
+  else if (item.kind === 'kb')       { setKbSelected(item.payload.kbId); navTo('kb'); }
 }
 
 registerActions({

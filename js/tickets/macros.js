@@ -27,6 +27,7 @@
 // global lexical env; TICKET_SELECTED_IDS, CURRENT_TICKET, SESSION,
 // MACRO_FILTER_QUERY come from core/state.js the same way.
 
+import { CURRENT_TICKET, MACRO_FILTER_QUERY, SESSION, TICKET_SELECTED_IDS, setMacroFilterQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -403,5 +404,5 @@ registerMousedownActions({
 });
 
 registerInputActions({
-  'macros.filter': (ds, el) => { MACRO_FILTER_QUERY = el.value; renderPage('macros'); },
+  'macros.filter': (ds, el) => { setMacroFilterQuery(el.value); renderPage('macros'); },
 });

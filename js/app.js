@@ -2,6 +2,7 @@
 // swap, layout hydration, the window bridge, the static-shell action wiring,
 // and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
 // moved to core/router.js — imported below and re-exposed on the bridge.
+import { DASH_LAYOUT, REPORT_LAYOUT, SESSION, setDashLayout, setReportLayout, setSession } from './core/state.js';
 import { THEME, applyTheme } from './core/theme.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
 import { refreshAllSLA } from './tickets/sla.js';
@@ -32,7 +33,7 @@ import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 
 function login(role, name, initials, userId = null) {
-  SESSION = { role, name, initials, userId };
+  setSession({ role, name, initials, userId });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('sb-av').textContent = initials;
@@ -118,7 +119,7 @@ function logout() {
   // Stop the background list-sync poll. Always safe to call even when
   // never started (demo persona path).
   stopListSync();
-  SESSION = null;
+  setSession(null);
   resetWorkspaceBrand();
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
   // demo personas (which never stored anything) and load-bearing for real-
@@ -154,8 +155,8 @@ function placeholderPage(title, blurb) {
 // Hydrate each layout from localStorage at startup, then reconcile against
 // its widget list so newly-added widgets land at the end of the order
 // rather than disappearing.
-DASH_LAYOUT   = loadLayout('dash_layout',   DEFAULT_DASH_LAYOUT);
-REPORT_LAYOUT = loadLayout('report_layout', DEFAULT_REPORT_LAYOUT);
+setDashLayout(loadLayout('dash_layout',   DEFAULT_DASH_LAYOUT));
+setReportLayout(loadLayout('report_layout', DEFAULT_REPORT_LAYOUT));
 reconcileLayout(DASH_LAYOUT,   DASH_WIDGETS);
 reconcileLayout(REPORT_LAYOUT, REPORT_WIDGETS);
 

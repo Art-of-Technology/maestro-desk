@@ -19,6 +19,7 @@
 // CUSTOMER_SELECTED, WF_SELECTED) come from core/state.js via the
 // global lexical env.
 
+import { ACT_FILTER_ENTITY, ACT_FILTER_TYPE, SESSION, setActFilterEntity, setActFilterType, setCustomerSelected, setWfSelected } from './state.js';
 import { renderPage } from './router.js';
 import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';
 import { navTo } from './keybindings.js';
@@ -135,8 +136,8 @@ function actSetQuery(q) {
 
 function actGotoEntity(entity, id) {
   if (entity === 'ticket')        openTicket(id);
-  else if (entity === 'customer') { CUSTOMER_SELECTED = id; navTo('customers'); }
-  else if (entity === 'workflow') { WF_SELECTED = id; navTo('workflows'); }
+  else if (entity === 'customer') { setCustomerSelected(id); navTo('customers'); }
+  else if (entity === 'workflow') { setWfSelected(id); navTo('workflows'); }
 }
 
 export function renderActivityLog() {
@@ -211,8 +212,8 @@ registerActions({
 });
 
 registerChangeActions({
-  'activity.setFilterEntity': (ds, el) => { ACT_FILTER_ENTITY = el.value; renderPage('activity'); },
-  'activity.setFilterType':   (ds, el) => { ACT_FILTER_TYPE   = el.value; renderPage('activity'); },
+  'activity.setFilterEntity': (ds, el) => { setActFilterEntity(el.value); renderPage('activity'); },
+  'activity.setFilterType':   (ds, el) => { setActFilterType(el.value); renderPage('activity'); },
 });
 
 registerInputActions({

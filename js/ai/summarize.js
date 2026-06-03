@@ -10,6 +10,7 @@
 // tolerated because each binding is only used inside a function body
 // (closure), never at module top level.
 
+import { CURRENT_TICKET } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';
 

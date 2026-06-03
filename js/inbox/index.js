@@ -20,6 +20,7 @@
 // INBOX_FILTER_STATUS, INBOX_FILTER_CHANNEL, CUSTOMER_SELECTED come from
 // state.js (the latter is mutated inline from the customer-match deep-link).
 
+import { INBOX_FILTER_CHANNEL, INBOX_FILTER_STATUS, INBOX_SELECTED_ID, setCustomerSelected, setInboxFilterChannel, setInboxFilterStatus, setInboxSelectedId } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
@@ -51,7 +52,7 @@ async function setInboxStatus(emailId, newStatus) {
   } else {
     e.actedAt = new Date().toISOString().slice(0, 16).replace('T', ' ');
   }
-  if (newStatus !== 'new' && INBOX_SELECTED_ID === emailId) INBOX_SELECTED_ID = null;
+  if (newStatus !== 'new' && INBOX_SELECTED_ID === emailId) setInboxSelectedId(null);
   updateNavBadges();
   renderPage('inbox');
 }
@@ -147,7 +148,7 @@ export function renderInbox() {
   // If the previously-selected email is no longer in the filtered view, drop
   // the selection so the detail pane reverts to the empty placeholder rather
   // than showing an item that's hidden in the list.
-  if (INBOX_SELECTED_ID && !list.some(e => e.id === INBOX_SELECTED_ID)) INBOX_SELECTED_ID = null;
+  if (INBOX_SELECTED_ID && !list.some(e => e.id === INBOX_SELECTED_ID)) setInboxSelectedId(null);
 
   const total    = INBOX.length;
   const newN     = INBOX.filter(e => e.status === 'new').length;
@@ -261,17 +262,17 @@ export function renderInbox() {
 }
 
 registerActions({
-  'inbox.select':         (ds) => { INBOX_SELECTED_ID = ds.emailId; renderPage('inbox'); },
+  'inbox.select':         (ds) => { setInboxSelectedId(ds.emailId); renderPage('inbox'); },
   'inbox.convert':        (ds) => convertEmailToTicket(ds.emailId),
   'inbox.dismiss':        (ds) => dismissEmail(ds.emailId),
   'inbox.spam':           (ds) => markSpamEmail(ds.emailId),
   'inbox.restore':        (ds) => restoreEmail(ds.emailId),
   'inbox.openTicket':     (ds) => openTicket(ds.ticketId),
-  'inbox.openCustomer':   (ds) => { CUSTOMER_SELECTED = ds.customerId; navTo('customers'); },
+  'inbox.openCustomer':   (ds) => { setCustomerSelected(ds.customerId); navTo('customers'); },
   'inbox.gotoCustomers':  () => navTo('customers'),
 });
 
 registerChangeActions({
-  'inbox.setFilterChannel': (ds, el) => { INBOX_FILTER_CHANNEL = el.value; renderPage('inbox'); },
-  'inbox.setFilterStatus':  (ds, el) => { INBOX_FILTER_STATUS  = el.value; renderPage('inbox'); },
+  'inbox.setFilterChannel': (ds, el) => { setInboxFilterChannel(el.value); renderPage('inbox'); },
+  'inbox.setFilterStatus':  (ds, el) => { setInboxFilterStatus(el.value); renderPage('inbox'); },
 });

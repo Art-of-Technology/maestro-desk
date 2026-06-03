@@ -22,6 +22,7 @@
 // SESSION, TICKETS, AGENTS come from data.js / state.js (global lex env);
 // SETTINGS_TAB is assigned inside the registered actions (also state.js).
 
+import { SESSION, setSettingsTabValue } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
@@ -141,7 +142,7 @@ export function renderProfile() {
 registerActions({
   'profile.openTicket':     (ds) => openTicket(ds.ticketId),
   'profile.editOOO':        () => showAgentOOOModal(SESSION.name),
-  'profile.gotoSettings':   (ds) => { SETTINGS_TAB = ds.tab; navTo('settings'); },
+  'profile.gotoSettings':   (ds) => { setSettingsTabValue(ds.tab); navTo('settings'); },
   'profile.gotoMyTickets':  () => { setTicketView('mine'); navTo('tickets'); },
   'profile.logout':         () => window.logout(),
 });

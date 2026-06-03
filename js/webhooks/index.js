@@ -18,6 +18,7 @@
 // CURRENT_PAGE comes from state.js; CUSTOMERS from data.js (both in global
 // lex env, so direct refs work from the module).
 
+import { CURRENT_PAGE } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';

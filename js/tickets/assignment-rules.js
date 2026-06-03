@@ -20,6 +20,7 @@
 // data.js via the global lexical env; SESSION, TICKET_SELECTED_IDS,
 // CURRENT_TICKET, CURRENT_PAGE, AR_FILTER come from core/state.js the same way.
 
+import { AR_FILTER, CURRENT_PAGE, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setArFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';
@@ -560,5 +561,5 @@ registerActions({
 registerChangeActions({
   'ar.modeChanged': (ds, el) => arModeChanged(el.value),
   'ar.toggle':      (ds, el) => arToggle(ds.id, el.checked),
-  'ar.setFilter':   (ds, el) => { AR_FILTER = el.value; renderPage('assignment-rules'); },
+  'ar.setFilter':   (ds, el) => { setArFilter(el.value); renderPage('assignment-rules'); },
 });

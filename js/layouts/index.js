@@ -20,6 +20,7 @@
 //
 // LAYOUTS_TAB comes from core/state.js via the global lexical env.
 
+import { LAYOUTS_TAB, setLayoutsTab } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
@@ -132,7 +133,7 @@ export function renderLayouts() {
 }
 
 registerActions({
-  'layouts.setTab': (ds) => { LAYOUTS_TAB = ds.tab; renderPage('layouts'); },
+  'layouts.setTab': (ds) => { setLayoutsTab(ds.tab); renderPage('layouts'); },
 });
 
 registerChangeActions({

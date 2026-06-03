@@ -15,6 +15,7 @@
 // SLA_POLICIES, TICKETS come from data.js via the global lexical env;
 // SLA_FILTER comes from core/state.js the same way.
 
+import { SLA_FILTER, setSlaFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { findMatchingSLAPolicy, fmtSLAMinutes } from './sla.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -245,5 +246,5 @@ registerActions({
 
 registerChangeActions({
   'sla.toggle':    (ds, el) => slaToggle(ds.policyId, el.checked),
-  'sla.setFilter': (ds, el) => { SLA_FILTER = el.value; renderPage('sla'); },
+  'sla.setFilter': (ds, el) => { setSlaFilter(el.value); renderPage('sla'); },
 });
