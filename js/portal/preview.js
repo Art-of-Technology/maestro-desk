@@ -13,12 +13,13 @@
 // Click handlers route through core/event-delegation.js. `renderPortal` is
 // the only export consumed (app.js's router).
 //
-// External reaches (interim, via window): updateNavBadges, renderPage,
-// escHtml, escAttr — all still in app.js. refreshTicketSLA,
+// External reaches (interim, via window): escHtml, escAttr — all still in
+// app.js. refreshTicketSLA,
 // applyAssignmentRules, navTo, logTicketEvent, fireWebhook, ticketPayload
 // are direct ES imports.
 // TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
 
+import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
@@ -34,7 +35,7 @@ function portalSetCustomer(id) {
   PORTAL_CUSTOMER_ID = id || null;
   PORTAL_VIEW = 'tickets';
   PORTAL_TICKET_ID = null;
-  window.renderPage('portal');
+  renderPage('portal');
 }
 
 function portalExit() {
@@ -46,13 +47,13 @@ function portalExit() {
 function portalNav(view) {
   PORTAL_VIEW = view;
   if (view !== 'ticket') PORTAL_TICKET_ID = null;
-  window.renderPage('portal');
+  renderPage('portal');
 }
 
 function portalOpenTicket(id) {
   PORTAL_TICKET_ID = id;
   PORTAL_VIEW = 'ticket';
-  window.renderPage('portal');
+  renderPage('portal');
 }
 
 function portalSendReply(ticketId) {
@@ -76,9 +77,9 @@ function portalSendReply(ticketId) {
     logTicketEvent(ticketId, 'status', `Status: resolved → open (customer reply via portal)`);
     t.status = 'open';
     refreshTicketSLA(t);
-    window.updateNavBadges();
+    updateNavBadges();
   }
-  window.renderPage('portal');
+  renderPage('portal');
 }
 
 function portalCreateTicket() {
@@ -103,10 +104,10 @@ function portalCreateTicket() {
   applyAssignmentRules(newT);
   refreshTicketSLA(newT);
   fireWebhook('ticket.created', ticketPayload(newT));
-  window.updateNavBadges();
+  updateNavBadges();
   PORTAL_TICKET_ID = newId;
   PORTAL_VIEW = 'ticket';
-  window.renderPage('portal');
+  renderPage('portal');
 }
 
 export function renderPortal() {

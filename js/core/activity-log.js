@@ -19,6 +19,7 @@
 // CUSTOMER_SELECTED, WF_SELECTED) come from core/state.js via the
 // global lexical env.
 
+import { renderPage } from './router.js';
 import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';
 import { navTo } from './keybindings.js';
 import { openTicket } from '../tickets/detail.js';
@@ -127,7 +128,7 @@ const ACT_KIND_META = {
 
 function actSetQuery(q) {
   ACT_QUERY = q;
-  window.renderPage('activity');
+  renderPage('activity');
   const input = document.getElementById('act-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -210,8 +211,8 @@ registerActions({
 });
 
 registerChangeActions({
-  'activity.setFilterEntity': (ds, el) => { ACT_FILTER_ENTITY = el.value; window.renderPage('activity'); },
-  'activity.setFilterType':   (ds, el) => { ACT_FILTER_TYPE   = el.value; window.renderPage('activity'); },
+  'activity.setFilterEntity': (ds, el) => { ACT_FILTER_ENTITY = el.value; renderPage('activity'); },
+  'activity.setFilterType':   (ds, el) => { ACT_FILTER_TYPE   = el.value; renderPage('activity'); },
 });
 
 registerInputActions({

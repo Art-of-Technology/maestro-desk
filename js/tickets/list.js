@@ -4,8 +4,8 @@
 // assignment-rules / macro / export / delete), and the sortable, groupable
 // ticket table with row checkboxes.
 //
-// External reaches (interim, via window): escAttr, escHtml, fmtMinutes,
-// renderPage, updateNavBadges — all still in app.js. openTicket and
+// External reaches (interim, via window): escAttr, escHtml, fmtMinutes —
+// all still in app.js. openTicket and
 // showNewTicketModal are direct ES imports from tickets/detail.js.
 //
 // No window-bridge namespace: the page's inline on*= handlers are delegated
@@ -21,6 +21,7 @@
 // FILTER_AGENT, FILTER_SENTIMENT, FILTER_QUERY come from core/state.js the
 // same way.
 
+import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
@@ -53,7 +54,7 @@ function renderSavedSearchesControls() {
   if (!SAVED_SEARCHES_LOADED) {
     SAVED_SEARCHES_LOADED = true;
     apiGet('/api/v1/saved-searches')
-      .then((res) => { SAVED_SEARCHES = res.saved_searches || []; window.renderPage('tickets'); })
+      .then((res) => { SAVED_SEARCHES = res.saved_searches || []; renderPage('tickets'); })
       .catch((err) => { console.warn('[tickets] saved searches load failed:', err); });
   }
   // Group: own searches first, then "Shared with workspace" (via
@@ -288,22 +289,22 @@ let TICKETS_LOAD_MORE_PENDING = false;
 async function ticketsLoadMore() {
   if (TICKETS_LOAD_MORE_PENDING || !ticketsHasMore()) return;
   TICKETS_LOAD_MORE_PENDING = true;
-  window.renderPage('tickets');
+  renderPage('tickets');
   try { await loadMoreTickets(); }
   catch (err) { alert(`Couldn't load more tickets: ${err?.message || err}`); }
   finally {
     TICKETS_LOAD_MORE_PENDING = false;
-    window.renderPage('tickets');
+    renderPage('tickets');
   }
 }
 
-function setStatusFilter(s) { FILTER_STATUS = s; window.renderPage('tickets'); }
+function setStatusFilter(s) { FILTER_STATUS = s; renderPage('tickets'); }
 function sortTickets(col) {
   if (SORT_COL === col) SORT_DIR *= -1; else { SORT_COL = col; SORT_DIR = 1; }
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
-function setAgentFilter(v)  { FILTER_AGENT = v; window.renderPage('tickets'); }
-export function setTicketView(v)   { FILTER_VIEW = v;  window.renderPage('tickets'); }
+function setAgentFilter(v)  { FILTER_AGENT = v; renderPage('tickets'); }
+export function setTicketView(v)   { FILTER_VIEW = v;  renderPage('tickets'); }
 
 // ─── Saved searches ─────────────────────────────────────────────────────
 
@@ -325,7 +326,7 @@ async function saveCurrentSearch() {
   try {
     const res = await apiPost('/api/v1/saved-searches', { name, filters: currentFilterSnapshot() });
     SAVED_SEARCHES = [res.saved_search, ...SAVED_SEARCHES];
-    window.renderPage('tickets');
+    renderPage('tickets');
   } catch (err) {
     alert(`Couldn't save: ${err?.message || err}`);
   }
@@ -343,7 +344,7 @@ function applySavedSearch(id) {
   FILTER_SENTIMENT = f.sentiment || 'all';
   FILTER_VIEW      = f.view      || 'all';
   FILTER_QUERY     = f.query     || '';
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
 
 function manageSavedSearches() {
@@ -380,7 +381,7 @@ async function toggleSavedSearchShare(id, share) {
   try {
     const res = await apiPatch(`/api/v1/saved-searches/${encodeURIComponent(id)}`, { is_shared: share });
     SAVED_SEARCHES = SAVED_SEARCHES.map((s) => s.id === id ? { ...s, ...res.saved_search } : s);
-    window.renderPage('tickets');
+    renderPage('tickets');
     manageSavedSearches();
   } catch (err) {
     alert(`Couldn't update sharing: ${err?.message || err}`);
@@ -391,7 +392,7 @@ async function toggleSavedSearchPin(id, pin) {
   try {
     const res = await apiPatch(`/api/v1/saved-searches/${encodeURIComponent(id)}`, { is_pinned: pin });
     SAVED_SEARCHES = SAVED_SEARCHES.map((s) => s.id === id ? { ...s, ...res.saved_search } : s);
-    window.renderPage('tickets');
+    renderPage('tickets');
     manageSavedSearches();
   } catch (err) {
     alert(`Couldn't update pin state: ${err?.message || err}`);
@@ -403,7 +404,7 @@ async function deleteSavedSearch(id) {
   try {
     await apiDelete(`/api/v1/saved-searches/${encodeURIComponent(id)}`);
     SAVED_SEARCHES = SAVED_SEARCHES.filter((s) => s.id !== id);
-    window.renderPage('tickets');
+    renderPage('tickets');
     // Re-open the manage modal with the row removed, unless we just
     // deleted the last one.
     if (SAVED_SEARCHES.length > 0) manageSavedSearches();
@@ -414,11 +415,11 @@ async function deleteSavedSearch(id) {
 }
 function setTicketQuery(q)  {
   FILTER_QUERY = q;
-  window.renderPage('tickets');
+  renderPage('tickets');
   const input = document.getElementById('ticket-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
-function setTicketGroupBy(v) { TICKET_GROUP_BY = v; window.renderPage('tickets'); }
+function setTicketGroupBy(v) { TICKET_GROUP_BY = v; renderPage('tickets'); }
 
 function getFilteredTickets() {
   let list = [...TICKETS];
@@ -465,7 +466,7 @@ function groupTicketsBy(list, by) {
 function toggleTicketSelected(id) {
   if (TICKET_SELECTED_IDS.has(id)) TICKET_SELECTED_IDS.delete(id);
   else TICKET_SELECTED_IDS.add(id);
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
 
 function toggleAllTickets() {
@@ -473,10 +474,10 @@ function toggleAllTickets() {
   const allSelected = ids.length > 0 && ids.every(id => TICKET_SELECTED_IDS.has(id));
   if (allSelected) ids.forEach(id => TICKET_SELECTED_IDS.delete(id));
   else ids.forEach(id => TICKET_SELECTED_IDS.add(id));
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
 
-function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); window.renderPage('tickets'); }
+function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); renderPage('tickets'); }
 
 function bulkAssignTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
@@ -495,7 +496,7 @@ function bulkAssignTickets() {
       changed++;
     });
     TICKET_SELECTED_IDS.clear();
-    closeModal(); window.renderPage('tickets');
+    closeModal(); renderPage('tickets');
   }, 'Assign');
 }
 
@@ -513,8 +514,8 @@ function bulkSetStatus(v) {
     }
   });
   TICKET_SELECTED_IDS.clear();
-  window.updateNavBadges();
-  window.renderPage('tickets');
+  updateNavBadges();
+  renderPage('tickets');
 }
 
 function bulkSetPriority(v) {
@@ -527,7 +528,7 @@ function bulkSetPriority(v) {
     refreshTicketSLA(t);
   });
   TICKET_SELECTED_IDS.clear();
-  window.renderPage('tickets');
+  renderPage('tickets');
 }
 
 function bulkAddTag() {
@@ -558,7 +559,7 @@ function bulkAddTag() {
     }
     TICKET_SELECTED_IDS.clear();
     closeModal();
-    window.renderPage('tickets');
+    renderPage('tickets');
   }, 'Apply tag');
 }
 
@@ -597,8 +598,8 @@ function bulkDeleteTickets() {
     }
     TICKET_SELECTED_IDS.clear();
     closeModal();
-    window.updateNavBadges();
-    window.renderPage('tickets');
+    updateNavBadges();
+    renderPage('tickets');
   }, 'Delete');
 }
 
@@ -650,7 +651,7 @@ registerActions({
     else if (ds.filter === 'agent')     FILTER_AGENT     = 'all';
     else if (ds.filter === 'sentiment') FILTER_SENTIMENT = 'all';
     else if (ds.filter === 'query')     FILTER_QUERY     = '';
-    window.renderPage('tickets');
+    renderPage('tickets');
   },
 });
 
@@ -667,7 +668,7 @@ registerChangeActions({
     if      (ds.filter === 'category')  FILTER_CATEGORY  = el.value;
     else if (ds.filter === 'priority')  FILTER_PRIORITY  = el.value;
     else if (ds.filter === 'sentiment') FILTER_SENTIMENT = el.value;
-    window.renderPage('tickets');
+    renderPage('tickets');
   },
 });
 

@@ -11,7 +11,7 @@
 // `renderTags` is the only export consumed (app.js router).
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 // openTicket and navTo are direct ES imports.
 //
 // TAG_LIBRARY, TICKETS, CUSTOMERS come from data.js via the global lexical
@@ -19,6 +19,7 @@
 // TAG_SORT_COL, TAG_SORT_DIR, CUSTOMER_SELECTED come from core/state.js
 // the same way.
 
+import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -148,25 +149,25 @@ function applyTagFilters() {
 function setTagSort(col) {
   if (TAG_SORT_COL === col) TAG_SORT_DIR *= -1;
   else { TAG_SORT_COL = col; TAG_SORT_DIR = col === 'tag' ? 1 : -1; }
-  window.renderPage('tags');
+  renderPage('tags');
 }
 
-function openTagDetail(tag) { TAG_SELECTED = tag; window.renderPage('tags'); }
-function closeTagDetail()   { TAG_SELECTED = null; window.renderPage('tags'); }
+function openTagDetail(tag) { TAG_SELECTED = tag; renderPage('tags'); }
+function closeTagDetail()   { TAG_SELECTED = null; renderPage('tags'); }
 
 function toggleTagSelected(tag) {
   if (TAG_SELECTED_NAMES.has(tag)) TAG_SELECTED_NAMES.delete(tag);
   else TAG_SELECTED_NAMES.add(tag);
-  window.renderPage('tags');
+  renderPage('tags');
 }
 function toggleAllTags() {
   const ids = applyTagFilters().map(t => t.tag);
   const all = ids.length > 0 && ids.every(id => TAG_SELECTED_NAMES.has(id));
   if (all) ids.forEach(id => TAG_SELECTED_NAMES.delete(id));
   else ids.forEach(id => TAG_SELECTED_NAMES.add(id));
-  window.renderPage('tags');
+  renderPage('tags');
 }
-function clearTagSelection() { TAG_SELECTED_NAMES.clear(); window.renderPage('tags'); }
+function clearTagSelection() { TAG_SELECTED_NAMES.clear(); renderPage('tags'); }
 
 function tagsApiBacked() {
   // ticket_tags-bootstrapped tags don't carry a per-row UUID (composite
@@ -194,7 +195,7 @@ async function bulkSetTagType(v) {
     }
   });
   TAG_SELECTED_NAMES.clear();
-  window.renderPage('tags');
+  renderPage('tags');
 }
 function bulkDeleteTags() {
   if (!window.isAdmin()) return;
@@ -219,7 +220,7 @@ function bulkDeleteTags() {
     });
     TAG_SELECTED_NAMES.clear();
     closeModal();
-    window.renderPage('tags');
+    renderPage('tags');
   }, 'Delete');
 }
 
@@ -234,7 +235,7 @@ async function convertTagType(tagName) {
   }
   if (nextKind === 'manual') { t.type = 'manual'; t.conf = null; }
   else                       { t.type = 'ai'; t.conf = t.conf || 90; }
-  window.renderPage('tags');
+  renderPage('tags');
 }
 
 function mergeTagPrompt(sourceName) {
@@ -268,7 +269,7 @@ async function mergeTags(sourceName, targetName) {
   const i = TAG_LIBRARY.findIndex(x => x.tag === sourceName);
   if (i >= 0) TAG_LIBRARY.splice(i, 1);
   if (TAG_SELECTED === sourceName) TAG_SELECTED = targetName;
-  window.renderPage('tags');
+  renderPage('tags');
 }
 
 function renderTagDetail(tagName) {
@@ -393,10 +394,10 @@ function renderTagDetail(tagName) {
     </div>`;
 }
 
-function tagSetType(v) { TAG_FILTER_TYPE = v; window.renderPage('tags'); }
+function tagSetType(v) { TAG_FILTER_TYPE = v; renderPage('tags'); }
 function tagSetQuery(v) {
   TAG_QUERY = v;
-  window.renderPage('tags');
+  renderPage('tags');
   const input = document.getElementById('tag-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -456,7 +457,7 @@ function tagNew() {
     const conf = type === 'ai' ? (parseInt(document.getElementById('tag-conf').value) || null) : null;
     if (!name || TAG_LIBRARY.find(t => t.tag === name)) return;
     TAG_LIBRARY.unshift({ tag: name, count: 0, type, conf });
-    closeModal(); window.renderPage('tags');
+    closeModal(); renderPage('tags');
   }, 'Create');
 }
 
@@ -476,7 +477,7 @@ function tagEdit(name) {
       });
     }
     t.tag = newName; t.type = type; t.conf = conf;
-    closeModal(); window.renderPage('tags');
+    closeModal(); renderPage('tags');
   }, 'Save');
 }
 
@@ -491,7 +492,7 @@ function tagDelete(name) {
     });
     const i = TAG_LIBRARY.findIndex(x => x.tag === name);
     if (i >= 0) TAG_LIBRARY.splice(i, 1);
-    closeModal(); window.renderPage('tags');
+    closeModal(); renderPage('tags');
   }, 'Delete');
 }
 

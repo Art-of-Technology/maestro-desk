@@ -6,8 +6,6 @@
 //
 // Cross-cutting concern (used by every page), so it lives under js/core/.
 //
-// External reaches (interim, via window): renderPage — still in app.js.
-//
 // CURRENT_PAGE + SETTINGS_TAB come from state.js (global lex env, so bare
 // refs work from this module).
 //
@@ -15,6 +13,7 @@
 // .size for the "N section(s) collapsed" counter + the "Show all" button's
 // disabled state. ES module bindings are live so the imported reference
 // in app.js sees mutations made here.
+import { renderPage } from './router.js';
 
 export let COLLAPSED_SECTIONS = new Set(JSON.parse(localStorage.getItem('collapsed_sections') || '[]'));
 const SEC_LABELS = {
@@ -54,7 +53,7 @@ function toggleSection(id, event) {
   syncCollapsedSectionDom(document.querySelector(`[data-sec-id="${CSS.escape(id)}"]`), id);
   // Settings → Appearance shows a counter of hidden sections; re-render so
   // the count and the "Show all" button's disabled state stay current.
-  if (CURRENT_PAGE === 'settings' && SETTINGS_TAB === 'appearance') window.renderPage('settings');
+  if (CURRENT_PAGE === 'settings' && SETTINGS_TAB === 'appearance') renderPage('settings');
 }
 
 export function applyCollapsibleHeaders() {
@@ -93,5 +92,5 @@ export function applyCollapsibleHeaders() {
 export function resetAllCollapsedSections() {
   COLLAPSED_SECTIONS.clear();
   persistCollapsedSections();
-  window.renderPage(CURRENT_PAGE || 'dashboard');
+  renderPage(CURRENT_PAGE || 'dashboard');
 }

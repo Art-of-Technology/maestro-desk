@@ -10,11 +10,12 @@
 // elsewhere (app.js's router calls it directly).
 //
 // External reaches (interim, via window): isAdmin, escAttr,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 //
 // SLA_POLICIES, TICKETS come from data.js via the global lexical env;
 // SLA_FILTER comes from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { findMatchingSLAPolicy, fmtSLAMinutes } from './sla.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -204,7 +205,7 @@ function slaNew() {
     } else {
       SLA_POLICIES.unshift({ id: slaNextId(), ...data });
     }
-    closeModal(); window.renderPage('sla');
+    closeModal(); renderPage('sla');
   }, 'Create');
 }
 
@@ -218,7 +219,7 @@ function slaEdit(id) {
       catch (err) { slaShowError(err?.message || String(err)); return; }
     }
     Object.assign(p, data);
-    closeModal(); window.renderPage('sla');
+    closeModal(); renderPage('sla');
   }, 'Save');
 }
 
@@ -232,7 +233,7 @@ function slaDelete(id) {
     }
     const i = SLA_POLICIES.findIndex(x => x.id === id);
     if (i >= 0) SLA_POLICIES.splice(i, 1);
-    closeModal(); window.renderPage('sla');
+    closeModal(); renderPage('sla');
   }, 'Delete');
 }
 
@@ -244,5 +245,5 @@ registerActions({
 
 registerChangeActions({
   'sla.toggle':    (ds, el) => slaToggle(ds.policyId, el.checked),
-  'sla.setFilter': (ds, el) => { SLA_FILTER = el.value; window.renderPage('sla'); },
+  'sla.setFilter': (ds, el) => { SLA_FILTER = el.value; renderPage('sla'); },
 });

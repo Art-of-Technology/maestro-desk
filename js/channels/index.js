@@ -10,10 +10,11 @@
 // actions cells use `data-action=""` to absorb row-click bubbling.
 //
 // External reaches (interim, via window): showModal, closeModal, isAdmin,
-// renderPage, escHtml, escAttr — all still in app.js.
+// escHtml, escAttr — all still in app.js.
 //
 // CHANNELS, TICKETS, AGENTS come from data.js; CH_FILTER comes from state.js.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
 
@@ -173,7 +174,7 @@ function chNew() {
       status:          document.getElementById('ch-active').checked ? 'active' : 'inactive',
       volume30d: 0,
     });
-    closeModal(); window.renderPage('channels');
+    closeModal(); renderPage('channels');
   }, 'Create');
 }
 
@@ -191,7 +192,7 @@ function chEdit(id) {
     c.defaultAgent = document.getElementById('ch-agent').value;
     c.signature = document.getElementById('ch-sig').value;
     c.status = document.getElementById('ch-active').checked ? 'active' : 'inactive';
-    closeModal(); window.renderPage('channels');
+    closeModal(); renderPage('channels');
   }, 'Save');
 }
 
@@ -201,7 +202,7 @@ function chDelete(id) {
   showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Inbound tickets attributed to this channel will lose the channel reference.</div>`, () => {
     const i = CHANNELS.findIndex(x => x.id === id);
     if (i >= 0) CHANNELS.splice(i, 1);
-    closeModal(); window.renderPage('channels');
+    closeModal(); renderPage('channels');
   }, 'Delete');
 }
 
@@ -214,5 +215,5 @@ registerActions({
 
 registerChangeActions({
   'ch.toggle':    (ds, el) => chToggle(ds.chId, el.checked),
-  'ch.setFilter': (ds, el) => { CH_FILTER = el.value; window.renderPage('channels'); },
+  'ch.setFilter': (ds, el) => { CH_FILTER = el.value; renderPage('channels'); },
 });

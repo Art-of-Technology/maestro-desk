@@ -1,12 +1,13 @@
 // Appended AFTER the bundle. Bundle has just executed in script scope, so
-// state.js declarations are bare-name visible. The bridge populated window.
+// state.js declarations are bare-name visible. The route-smoke entry re-exposed
+// renderPage as globalThis.__renderPage (it's no longer on the window bridge).
 // Exercise every route to catch missing-export / dead-reference bugs.
 
-if (typeof window.renderPage !== 'function') {
-  console.error('renderPage is not on window — bridge broken');
+if (typeof globalThis.__renderPage !== 'function') {
+  console.error('renderPage was not exposed — entry bundle broken');
   process.exit(1);
 }
-console.log('init OK — bridge populated');
+console.log('init OK — renderPage exposed');
 
 const _routes = [
   'dashboard', 'tickets', 'reports', 'customers',
@@ -20,7 +21,7 @@ const _routes = [
 let _failed = 0;
 for (const _r of _routes) {
   try {
-    window.renderPage(_r);
+    globalThis.__renderPage(_r);
     console.log(`  renderPage('${_r}') OK`);
   } catch (e) {
     _failed++;

@@ -11,9 +11,8 @@
 //               and a webhook fires. Reversible via unmergeTicket().
 //
 // External reaches (interim, via window): escAttr, escHtml, showModal,
-// logTicketEvent, renderPage, updateNavBadges, fireWebhook,
-// ticketPayload — all still in app.js. refreshTicketSLA and closeModal are
-// direct ES imports.
+// logTicketEvent, fireWebhook, ticketPayload — all still in app.js.
+// refreshTicketSLA and closeModal are direct ES imports.
 //
 // No window-bridge namespace: unlink/unmerge + the show*Modal pickers are
 // consumed by tickets/detail.js via direct ES import (td.unlink / td.unmerge
@@ -21,6 +20,7 @@
 // delegated as linked.linkAndClose / linked.mergeAndClose below — kept on
 // `mousedown` (the original event) so the close + action fire together.
 
+import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from './sla.js';
 import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
@@ -111,9 +111,9 @@ async function mergeTickets(srcId, primaryId) {
   }
   logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
   logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
-  window.updateNavBadges();
+  updateNavBadges();
   if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
-  else window.renderPage('tickets');
+  else renderPage('tickets');
   fireWebhook('ticket.merged', { source: ticketPayload(src), primary: ticketPayload(primary) });
 }
 
@@ -143,10 +143,10 @@ export async function unmergeTicket(srcId) {
   delete src._statusBeforeMerge;
   logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
   if (primary) logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
-  window.updateNavBadges();
+  updateNavBadges();
   if (CURRENT_TICKET === srcId) openTicket(srcId);
   else if (CURRENT_TICKET === primaryId) openTicket(primaryId);
-  else window.renderPage('tickets');
+  else renderPage('tickets');
 }
 
 export function showLinkTicketModal(id) {

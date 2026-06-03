@@ -10,13 +10,14 @@
 // it).
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// showModal, closeModal, renderPage — all still in app.js.
+// showModal, closeModal — all still in app.js.
 // showNewTicketModal is a direct ES import from tickets/detail.js
 // (no cycle — detail.js doesn't import from this module).
 //
 // TICKET_TEMPLATES and TICKETS come from data.js via the global lexical env;
 // TT_FILTER_CAT comes from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { showNewTicketModal } from '../tickets/detail.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -101,7 +102,7 @@ export function renderTicketTemplates() {
 
 function ttSetQuery(q) {
   TT_QUERY = q;
-  window.renderPage('ticket-templates');
+  renderPage('ticket-templates');
   const input = document.getElementById('tt-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -146,7 +147,7 @@ function ttNew() {
     } else {
       TICKET_TEMPLATES.unshift({ id: ttNextId(), name, category, priority, subject, body });
     }
-    closeModal(); window.renderPage('ticket-templates');
+    closeModal(); renderPage('ticket-templates');
   }, 'Create');
 }
 
@@ -165,7 +166,7 @@ function ttEdit(id) {
       catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
     }
     t.name = name; t.category = category; t.priority = priority; t.subject = subject; t.body = body;
-    closeModal(); window.renderPage('ticket-templates');
+    closeModal(); renderPage('ticket-templates');
   }, 'Save');
 }
 
@@ -181,7 +182,7 @@ function ttDuplicate(id) {
     } else {
       TICKET_TEMPLATES.unshift({ ...orig, id: ttNextId(), name: orig.name + ' (copy)' });
     }
-    window.renderPage('ticket-templates');
+    renderPage('ticket-templates');
   })();
 }
 
@@ -195,7 +196,7 @@ function ttDelete(id) {
     }
     const i = TICKET_TEMPLATES.findIndex(x => x.id === id);
     if (i >= 0) TICKET_TEMPLATES.splice(i, 1);
-    closeModal(); window.renderPage('ticket-templates');
+    closeModal(); renderPage('ticket-templates');
   }, 'Delete');
 }
 
@@ -208,7 +209,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'ticket-templates.setFilterCat': (ds, el) => { TT_FILTER_CAT = el.value; window.renderPage('ticket-templates'); },
+  'ticket-templates.setFilterCat': (ds, el) => { TT_FILTER_CAT = el.value; renderPage('ticket-templates'); },
 });
 
 registerInputActions({

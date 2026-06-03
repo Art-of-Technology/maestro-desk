@@ -7,7 +7,7 @@
 // shows in the bell for ~24h.
 //
 // External reaches (interim, via window):
-// logTicketEvent, renderPage, showModal, escHtml, closeModal. All
+// logTicketEvent, showModal, escHtml, closeModal. All
 // still live in app.js and are bridged. openTicket, refreshNotifBadge and
 // refreshTicketSLA are direct ES imports.
 //
@@ -22,6 +22,7 @@
 // and snooze.bulkSnooze below. snooze.bulkSnooze fires from a data-action
 // rendered by tickets/list.js but is owned here (this module owns the fn).
 
+import { renderPage } from '../core/router.js';
 import { refreshNotifBadge } from '../notifications/index.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';
@@ -50,7 +51,7 @@ async function snoozeTicket(id, untilIso, reason) {
   refreshTicketSLA(t);
   logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
   if (CURRENT_TICKET === id) openTicket(id);
-  else window.renderPage(CURRENT_PAGE || 'tickets');
+  else renderPage(CURRENT_PAGE || 'tickets');
   refreshNotifBadge();
 }
 
@@ -86,7 +87,7 @@ export function checkSnoozeWakeups() {
       anyWoke = true;
     }
   });
-  if (anyWoke && CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) window.renderPage('tickets');
+  if (anyWoke && CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
   return anyWoke;
 }
 
@@ -189,7 +190,7 @@ function bulkSnoozeTickets() {
     [...TICKET_SELECTED_IDS].forEach(id => snoozeTicket(id, iso, reason));
     TICKET_SELECTED_IDS.clear();
     closeModal();
-    window.renderPage('tickets');
+    renderPage('tickets');
   }, 'Snooze');
 }
 

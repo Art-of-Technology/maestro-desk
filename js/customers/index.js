@@ -13,8 +13,8 @@
 // Pure-style onmouseover/onmouseout hover effects stay inline (PR #105
 // rule).
 //
-// External reaches (interim, via window): escAttr, escHtml, isAdmin,
-// renderPage — all still in app.js. openTicket, showManageFieldsModal,
+// External reaches (interim, via window): escAttr, escHtml, isAdmin —
+// all still in app.js. openTicket, showManageFieldsModal,
 // showCSVModal and showNewCustomerModal are direct ES imports. The
 // customers↔customers/modals.js cycle (modals.js imports refreshCustTable
 // from this module; this module imports the modal openers back) is tolerated
@@ -25,6 +25,7 @@
 // the global lexical env; CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS,
 // CUST_COLUMNS, CUST_DRAG_COL come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { isFieldVisible } from '../layouts/index.js';
@@ -173,13 +174,13 @@ function groupCustomersBy(list, by) {
   return [...groups.entries()].map(([key, items]) => ({ key, items }));
 }
 
-function setCustView(v) { CUST_VIEW_FILTER = v; window.renderPage('customers'); }
-function setCustGroupBy(v) { CUST_GROUP_BY = v; window.renderPage('customers'); }
+function setCustView(v) { CUST_VIEW_FILTER = v; renderPage('customers'); }
+function setCustGroupBy(v) { CUST_GROUP_BY = v; renderPage('customers'); }
 
 function toggleCustSelected(id) {
   if (CUSTOMER_SELECTED_IDS.has(id)) CUSTOMER_SELECTED_IDS.delete(id);
   else CUSTOMER_SELECTED_IDS.add(id);
-  window.renderPage('customers');
+  renderPage('customers');
 }
 
 function toggleAllCustomers() {
@@ -187,22 +188,22 @@ function toggleAllCustomers() {
   const all = ids.length > 0 && ids.every(id => CUSTOMER_SELECTED_IDS.has(id));
   if (all) ids.forEach(id => CUSTOMER_SELECTED_IDS.delete(id));
   else ids.forEach(id => CUSTOMER_SELECTED_IDS.add(id));
-  window.renderPage('customers');
+  renderPage('customers');
 }
 
-function clearCustSelection() { CUSTOMER_SELECTED_IDS.clear(); window.renderPage('customers'); }
+function clearCustSelection() { CUSTOMER_SELECTED_IDS.clear(); renderPage('customers'); }
 
 function bulkSetCustVIP(v) {
   if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
   CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.vip = v; });
   CUSTOMER_SELECTED_IDS.clear();
-  window.renderPage('customers');
+  renderPage('customers');
 }
 function bulkSetCustConsent(v) {
   if (!v || CUSTOMER_SELECTED_IDS.size === 0) return;
   CUSTOMERS.forEach(c => { if (CUSTOMER_SELECTED_IDS.has(c.id)) c.consent = v === 'yes'; });
   CUSTOMER_SELECTED_IDS.clear();
-  window.renderPage('customers');
+  renderPage('customers');
 }
 function bulkDeleteCustomers() {
   const n = CUSTOMER_SELECTED_IDS.size;
@@ -213,7 +214,7 @@ function bulkDeleteCustomers() {
     }
     CUSTOMER_SELECTED_IDS.clear();
     closeModal();
-    window.renderPage('customers');
+    renderPage('customers');
   }, 'Delete');
 }
 
@@ -234,8 +235,8 @@ function refreshCustCounter() {
   const el = document.getElementById('cust-counter'); if (!el) return;
   el.textContent = `${applyCustFilters().length} of ${CUSTOMERS.length}`;
 }
-function custSetVIP(v)   { CUST_VIP_FILTER = v;   window.renderPage('customers'); }
-function custSetBrand(v) { CUST_BRAND_FILTER = v; window.renderPage('customers'); }
+function custSetVIP(v)   { CUST_VIP_FILTER = v;   renderPage('customers'); }
+function custSetBrand(v) { CUST_BRAND_FILTER = v; renderPage('customers'); }
 
 export function renderCustomers() {
   if (CUSTOMER_SELECTED) return renderCustomerDetail(CUSTOMER_SELECTED);
@@ -403,7 +404,7 @@ function addCustomerNote(custId) {
       ts: new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }),
       text,
     });
-    closeModal(); window.renderPage('customers');
+    closeModal(); renderPage('customers');
   }, 'Add note');
 }
 
@@ -411,11 +412,11 @@ function deleteCustomerNote(custId, idx) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c || !c.notes) return;
   c.notes.splice(idx, 1);
-  window.renderPage('customers');
+  renderPage('customers');
 }
 
-function openCustomerProfile(id) { CUSTOMER_SELECTED = id; window.renderPage('customers'); }
-function closeCustomerProfile()  { CUSTOMER_SELECTED = null; window.renderPage('customers'); }
+function openCustomerProfile(id) { CUSTOMER_SELECTED = id; renderPage('customers'); }
+function closeCustomerProfile()  { CUSTOMER_SELECTED = null; renderPage('customers'); }
 
 // ─── Customer merge ─────────────────────────────────────────────────────────
 // Combines a duplicate customer record into a primary. Tickets reassign their
@@ -500,7 +501,7 @@ function mergeCustomers(srcId, primaryId) {
   if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
   // Navigate to the primary so the agent sees the consolidated view.
   CUSTOMER_SELECTED = primaryId;
-  window.renderPage('customers');
+  renderPage('customers');
 }
 
 function unmergeCustomer(srcId) {
@@ -532,7 +533,7 @@ function unmergeCustomer(srcId) {
   delete src.mergedInto;
   delete src.mergedAt;
   CUSTOMER_SELECTED = srcId;
-  window.renderPage('customers');
+  renderPage('customers');
 }
 
 async function updateCustomField(custId, fieldId, value) {
@@ -967,7 +968,7 @@ registerActions({
   // Switch the active customer + re-render — used by the
   // mergedInto link and the per-original-customer list items in the
   // un-merge undo block.
-  'cust.selectAndRender': (ds) => { CUSTOMER_SELECTED = ds.custId; window.renderPage('customers'); },
+  'cust.selectAndRender': (ds) => { CUSTOMER_SELECTED = ds.custId; renderPage('customers'); },
 });
 
 registerChangeActions({

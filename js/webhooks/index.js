@@ -13,11 +13,12 @@
 // imports) and `renderWebhooks` (the router).
 //
 // External reaches (interim, via window): isAdmin, showModal, closeModal,
-// renderPage, escHtml, escAttr — all still in app.js.
+// escHtml, escAttr — all still in app.js.
 //
 // CURRENT_PAGE comes from state.js; CUSTOMERS from data.js (both in global
 // lex env, so direct refs work from the module).
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
 
@@ -113,7 +114,7 @@ export async function fireWebhook(event, payload) {
   const body = JSON.stringify({ event, at: new Date().toISOString(), payload });
   await Promise.all(hooks.map(h => deliverWebhook(h, event, body)));
   saveWebhooks();
-  if (CURRENT_PAGE === 'webhooks') window.renderPage('webhooks');
+  if (CURRENT_PAGE === 'webhooks') renderPage('webhooks');
 }
 
 // Helper to build a compact ticket payload — keep noise out of webhook POSTs.
@@ -246,7 +247,7 @@ function whFormModal(h) {
       WEBHOOKS.unshift({ id: whNextId(), name, url, secret, events, active: true, deliveries: [], createdAt: new Date().toISOString().slice(0,10) });
     }
     saveWebhooks();
-    closeModal(); window.renderPage('webhooks');
+    closeModal(); renderPage('webhooks');
   }, h ? 'Save' : 'Create');
 }
 function whToggle(id, active) {
@@ -261,7 +262,7 @@ function whDelete(id) {
     const i = WEBHOOKS.findIndex(x => x.id === id);
     if (i >= 0) WEBHOOKS.splice(i, 1);
     saveWebhooks();
-    closeModal(); window.renderPage('webhooks');
+    closeModal(); renderPage('webhooks');
   }, 'Delete');
 }
 async function whTestFire(id) {
@@ -275,7 +276,7 @@ async function whTestFire(id) {
   const body = JSON.stringify({ event, at: new Date().toISOString(), payload: samplePayload });
   await deliverWebhook(h, event, body);
   saveWebhooks();
-  window.renderPage('webhooks');
+  renderPage('webhooks');
 }
 
 export function renderWebhooks() {

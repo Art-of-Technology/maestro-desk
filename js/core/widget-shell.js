@@ -11,7 +11,7 @@
 // (only this module uses it across the whole codebase), so it lives here
 // rather than in the shared harness.
 //
-// External reaches (interim, via window): escAttr, escHtml, renderPage —
+// External reaches (interim, via window): escAttr, escHtml —
 // app.js utilities.
 //
 // Widget catalogs (the per-page widget definitions + default layout) are
@@ -24,6 +24,7 @@
 // DASH_LAYOUT and REPORT_LAYOUT live in core/state.js so this module and
 // app.js (top-level hydration + reports renderers) share one binding.
 
+import { renderPage } from './router.js';
 import { showModal, closeModal } from './modal.js';
 import { registerActions, registerChangeActions } from './event-delegation.js';
 
@@ -174,20 +175,20 @@ function reorderWidget(scope, srcId, targetId, before) {
   if (!before) j += 1;
   layout.order.splice(j, 0, srcId);
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
 
 function hideWidgetById(scope, id) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   if (!layout.hidden.includes(id)) layout.hidden.push(id);
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
 function showWidgetById(scope, id) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
   layout.hidden = layout.hidden.filter(x => x !== id);
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
 function setWidgetChart(scope, id, chartType) {
   const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
@@ -195,7 +196,7 @@ function setWidgetChart(scope, id, chartType) {
   layout.charts[id] = chartType;
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
   document.querySelectorAll('.widget-menu').forEach(el => el.remove());
-  window.renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
 function resetWidgetLayout(scope) {
   const isDash = scope === 'dash';
@@ -205,7 +206,7 @@ function resetWidgetLayout(scope) {
   if (isDash) DASH_LAYOUT = layout; else REPORT_LAYOUT = layout;
   saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
   closeModal();
-  window.renderPage(isDash ? 'dashboard' : 'reports');
+  renderPage(isDash ? 'dashboard' : 'reports');
 }
 
 function showWidgetMenu(anchor, scope, id, kind) {

@@ -8,11 +8,12 @@
 // `renderWorkflows` is the only export consumed (app.js router).
 //
 // External reaches (interim, via window): isAdmin, escAttr, showModal,
-// closeModal, renderPage — all still in app.js.
+// closeModal — all still in app.js.
 //
 // WORKFLOWS comes from data.js via the global lexical env; WF_SELECTED,
 // WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -116,7 +117,7 @@ export function renderWorkflows() {
     </div>`;
 }
 
-function wfSetFilter(v) { WF_FILTER = v; window.renderPage('workflows'); }
+function wfSetFilter(v) { WF_FILTER = v; renderPage('workflows'); }
 
 async function wfToggle(id, active) {
   if (!window.isAdmin()) return;
@@ -147,7 +148,7 @@ async function wfRunNow(id) {
     type: 'manual',
   });
   if (w.history.length > 50) w.history.length = 50;
-  window.renderPage('workflows');
+  renderPage('workflows');
 }
 
 async function duplicateWf(id) {
@@ -190,7 +191,7 @@ async function duplicateWf(id) {
       history: [],
     });
   }
-  window.renderPage('workflows');
+  renderPage('workflows');
 }
 
 // Mirror of bootstrap.js workflowRuleText so the create/duplicate paths
@@ -211,10 +212,10 @@ function openWfDetail(id) {
   const w = WORKFLOWS.find(x => x.id === id);
   if (w?._uuid && !w._historyLoaded) {
     loadWorkflowRuns(w).then(() => {
-      if (WF_SELECTED === id) window.renderPage('workflows');
+      if (WF_SELECTED === id) renderPage('workflows');
     }).catch(err => console.warn('[workflows] runs fetch failed:', err));
   }
-  window.renderPage('workflows');
+  renderPage('workflows');
 }
 
 // Fetch + map workflow run history into the SPA's history shape
@@ -244,11 +245,11 @@ function closeWfDetail() {
   const w = WORKFLOWS.find(x => x.id === WF_SELECTED);
   if (w) { w._historyLoaded = false; }
   WF_SELECTED = null;
-  window.renderPage('workflows');
+  renderPage('workflows');
 }
 function wfSetQuery(q) {
   WF_QUERY = q;
-  window.renderPage('workflows');
+  renderPage('workflows');
   const input = document.getElementById('wf-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -373,7 +374,7 @@ function wfNew() {
       const id = 'WF-' + String(WORKFLOWS.length + 1).padStart(3, '0');
       WORKFLOWS.unshift({ id, name, trigger, action, status, runCount:0, lastRun:null });
     }
-    closeModal(); window.renderPage('workflows');
+    closeModal(); renderPage('workflows');
   }, 'Create');
 }
 
@@ -393,7 +394,7 @@ function wfEdit(id) {
     }
     w.name = name; w.trigger = trigger; w.action = action;
     w.status = status;
-    closeModal(); window.renderPage('workflows');
+    closeModal(); renderPage('workflows');
   }, 'Save');
 }
 
@@ -407,7 +408,7 @@ function wfDelete(id) {
     }
     const i = WORKFLOWS.findIndex(x => x.id === id);
     if (i >= 0) WORKFLOWS.splice(i, 1);
-    closeModal(); window.renderPage('workflows');
+    closeModal(); renderPage('workflows');
   }, 'Delete');
 }
 
@@ -425,7 +426,7 @@ registerActions({
 registerChangeActions({
   'wf.toggle':          (ds, el) => wfToggle(ds.wfId, el.checked),
   // Detail page also re-renders so workload counts + history update.
-  'wf.toggleAndRender': (ds, el) => { wfToggle(ds.wfId, el.checked); window.renderPage('workflows'); },
+  'wf.toggleAndRender': (ds, el) => { wfToggle(ds.wfId, el.checked); renderPage('workflows'); },
   'wf.setFilter':       (ds, el) => wfSetFilter(el.value),
 });
 

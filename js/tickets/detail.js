@@ -7,12 +7,13 @@
 // page).
 //
 // External reaches (interim, via window): escAttr, escHtml, fmtMinutes,
-// isAdmin, renderPage, updateNavBadges, navTo — all still in app.js.
+// isAdmin, navTo — all still in app.js.
 //
 // TICKETS, CUSTOMERS, AGENTS, TICKET_TEMPLATES come from data.js via the
 // global lexical env; SESSION, CURRENT_TICKET, COMPOSE_TAB, AI_THINKING,
 // AI_MESSAGES come from core/state.js the same way.
 
+import { renderPage, updateNavBadges } from '../core/router.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
@@ -104,7 +105,7 @@ export function openTicket(id) {
   // Bad ticket IDs can reach here from stale notifications, deep-links
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
-  if (!t) { CURRENT_TICKET = null; return window.renderPage('tickets'); }
+  if (!t) { CURRENT_TICKET = null; return renderPage('tickets'); }
   // Fire-and-forget API load of messages/tags/ai_tags/time_entries. The
   // ticket renders immediately with whatever's already in `t`; when the
   // fetch completes, the entry is mutated in place and we re-render iff
@@ -716,7 +717,7 @@ export async function changeTicketStatus(id, val) {
     t.csatRequestedAt = stampCsat;
     logTicketEvent(id, 'system', 'CSAT survey sent to customer');
   }
-  window.updateNavBadges();
+  updateNavBadges();
   if (CURRENT_TICKET === id) openTicket(id);
   if (val === 'resolved')   fireWebhook('ticket.resolved',  ticketPayload(t));
   if (val === 'escalated')  fireWebhook('ticket.escalated', ticketPayload(t));
@@ -1086,7 +1087,7 @@ export function showNewTicketModal(templateId) {
     if (agentPick === '__auto__') applyAssignmentRules(TICKETS[0]);
     refreshTicketSLA(TICKETS[0]);
     fireWebhook('ticket.created', ticketPayload(TICKETS[0]));
-    closeModal(); window.renderPage('tickets');
+    closeModal(); renderPage('tickets');
   }, 'Create Ticket');
 }
 
@@ -1150,7 +1151,7 @@ registerActions({
   'td.gdprRedact':     () => alert('Data redacted'),
   'td.gdprExport':     () => alert('SAR export started'),
   // Toolbar
-  'td.openTicketsList':() => window.renderPage('tickets'),
+  'td.openTicketsList':() => renderPage('tickets'),
   'td.prev':           () => prevNextTicket(-1),
   'td.next':           () => prevNextTicket(1),
   'td.macroModal':     (ds) => showApplyMacroModal(ds.ticketId),

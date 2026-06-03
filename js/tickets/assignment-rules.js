@@ -4,8 +4,8 @@
 // least-busy). Also owns the agent out-of-office (OOO) helpers, since
 // round-robin and least-busy modes need to skip agents on leave.
 //
-// External reaches (interim, via window): isAdmin, escHtml, escAttr,
-// renderPage — all still in app.js. openTicket, showModal / closeModal are
+// External reaches (interim, via window): isAdmin, escHtml, escAttr —
+// all still in app.js. openTicket, showModal / closeModal are
 // direct ES imports from core/modal.js.
 //
 // No window-bridge namespace spread: the page's own inline on*= handlers are
@@ -24,6 +24,7 @@
 // data.js via the global lexical env; SESSION, TICKET_SELECTED_IDS,
 // CURRENT_TICKET, CURRENT_PAGE, AR_FILTER come from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { openTicket } from './detail.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -211,7 +212,7 @@ export function showAgentOOOModal(name) {
     if (to && to < from) { alert('End date must be on or after the start date.'); return; }
     await setAgentOOO(name, from, to, note);
     closeModal();
-    window.renderPage(CURRENT_PAGE);
+    renderPage(CURRENT_PAGE);
   }, 'Save');
 }
 
@@ -258,14 +259,14 @@ export async function runAssignmentRulesOnTicket(id) {
       localRule.lastMatchAt = new Date().toISOString().slice(0, 10);
     }
     if (CURRENT_TICKET === id) openTicket(id);
-    else window.renderPage(CURRENT_PAGE || 'tickets');
+    else renderPage(CURRENT_PAGE || 'tickets');
     return;
   }
   // Demo persona — keep the local engine.
   const rule = applyAssignmentRules(t);
   if (!rule) { alert('No active rule matched this ticket.'); return; }
   if (CURRENT_TICKET === id) openTicket(id);
-  else window.renderPage(CURRENT_PAGE || 'tickets');
+  else renderPage(CURRENT_PAGE || 'tickets');
 }
 
 async function bulkApplyAssignmentRules() {
@@ -301,7 +302,7 @@ async function bulkApplyAssignmentRules() {
     });
   }
   TICKET_SELECTED_IDS.clear();
-  window.renderPage('tickets');
+  renderPage('tickets');
   alert(matched ? `Assignment rules matched ${matched} ticket${matched===1?'':'s'}.` : 'No active rule matched any ticket in the selection.');
 }
 
@@ -435,7 +436,7 @@ function arNew() {
     } else {
       ASSIGN_RULES.push({ id: arNextId(), matchCount: 0, lastMatchAt: null, ...data });
     }
-    closeModal(); window.renderPage('assignment-rules');
+    closeModal(); renderPage('assignment-rules');
   }, 'Create');
 }
 
@@ -462,7 +463,7 @@ function arEdit(id) {
     }
     Object.assign(r, data);
     delete ASSIGN_RULES_RR_INDEX[r.id];
-    closeModal(); window.renderPage('assignment-rules');
+    closeModal(); renderPage('assignment-rules');
   }, 'Save');
 }
 
@@ -477,7 +478,7 @@ function arDelete(id) {
     const i = ASSIGN_RULES.findIndex(x => x.id === id);
     if (i >= 0) ASSIGN_RULES.splice(i, 1);
     delete ASSIGN_RULES_RR_INDEX[id];
-    closeModal(); window.renderPage('assignment-rules');
+    closeModal(); renderPage('assignment-rules');
   }, 'Delete');
 }
 
@@ -557,11 +558,11 @@ registerActions({
   'ar.bulkRun':  () => bulkApplyAssignmentRules(),
   // OOO modal "Clear OOO" button — await so the cleared state is reflected
   // before the re-render (matches the Save handler in showAgentOOOModal).
-  'ar.clearOOO': async (ds) => { await clearAgentOOO(ds.name); closeModal(); window.renderPage(CURRENT_PAGE); },
+  'ar.clearOOO': async (ds) => { await clearAgentOOO(ds.name); closeModal(); renderPage(CURRENT_PAGE); },
 });
 
 registerChangeActions({
   'ar.modeChanged': (ds, el) => arModeChanged(el.value),
   'ar.toggle':      (ds, el) => arToggle(ds.id, el.checked),
-  'ar.setFilter':   (ds, el) => { AR_FILTER = el.value; window.renderPage('assignment-rules'); },
+  'ar.setFilter':   (ds, el) => { AR_FILTER = el.value; renderPage('assignment-rules'); },
 });

@@ -11,13 +11,14 @@
 // inline — pure `this.style.X = Y`, no module dep.
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// renderPage, showModal, closeModal, fmtMinutes — all still in app.js.
+// showModal, closeModal, fmtMinutes — all still in app.js.
 // navTo, openTicket, showAgentOOOModal, isAgentOOO, reassignAgent,
 // setAgentActive, deleteAgentPrompt are direct ES imports.
 //
 // AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
 // AGENT_SELECTED, CUSTOMER_SELECTED come from state.js (global lex env).
 
+import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -351,13 +352,13 @@ function renderAgentDetail(name) {
     </div>`;
 }
 
-function openAgentDetail(name) { AGENT_SELECTED = name; window.renderPage('agents'); }
-function closeAgentDetail()    { AGENT_SELECTED = null; window.renderPage('agents'); }
-function agentSetRole(v)       { AGENT_FILTER_ROLE = v; window.renderPage('agents'); }
-function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; window.renderPage('agents'); }
+function openAgentDetail(name) { AGENT_SELECTED = name; renderPage('agents'); }
+function closeAgentDetail()    { AGENT_SELECTED = null; renderPage('agents'); }
+function agentSetRole(v)       { AGENT_FILTER_ROLE = v; renderPage('agents'); }
+function agentSetStatus(v)     { AGENT_FILTER_STATUS = v; renderPage('agents'); }
 function agentSetQuery(v) {
   AGENT_QUERY = v;
-  window.renderPage('agents');
+  renderPage('agents');
   const input = document.getElementById('agent-search');
   if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }
@@ -380,7 +381,7 @@ function agentNew() {
     if (!name || AGENTS.find(a => a.name === name)) return;
     if (!init) init = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
     AGENTS.push({ name, initials: init, role, active: true });
-    closeModal(); window.renderPage('agents');
+    closeModal(); renderPage('agents');
   }, 'Add');
 }
 

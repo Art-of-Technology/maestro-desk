@@ -10,12 +10,13 @@
 // this module's window-bridged functions — the only external consumer
 // (dashboard/index.js) uses a direct ES import for computeReportStats.
 //
-// External reaches (interim, via window): escHtml, fmtMinutes, renderPage
-// — still in app.js.
+// External reaches (interim, via window): escHtml, fmtMinutes — still in
+// app.js.
 //
 // TICKETS comes from data.js via the global lexical env; REPORT_LAYOUT
 // comes from core/state.js the same way.
 
+import { renderPage } from '../core/router.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
@@ -27,7 +28,7 @@ import { STATUS_COLORS, PRIORITY_COLORS, SENTIMENT_COLORS } from '../core/colors
 // stays module-local rather than going to core/state.js.
 let REPORT_TF = '30d';
 
-function setReportTF(v) { REPORT_TF = v; window.renderPage('reports'); }
+function setReportTF(v) { REPORT_TF = v; renderPage('reports'); }
 
 function getReportTickets() {
   if (REPORT_TF === 'all') return TICKETS.slice();

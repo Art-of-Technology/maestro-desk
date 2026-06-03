@@ -15,6 +15,7 @@
 // all. Mixing real auth in would either break the demo or layer real-auth
 // fallbacks on every fake login.
 
+import { nav } from '../core/router.js';
 import { platformAdminSignIn, rehydrateUser, signOut, isPlatformAdmin } from '../core/auth-client.js';
 import { showAuthPanel } from './index.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -51,7 +52,7 @@ async function submitPlatformAdminLogin() {
     // two chars of the email local-part.
     const initials = user.initials || (user.email || '').slice(0, 2).toUpperCase();
     window.login('Platform Admin', user.name || user.email, initials);
-    window.nav('god', document.getElementById('nav-god'));
+    nav('god', document.getElementById('nav-god'));
   } catch (err) {
     showError(err?.message || 'Sign-in failed.');
   } finally {
@@ -75,7 +76,7 @@ export async function autoResumePlatformAdmin() {
   revealGodNav();
   const initials = user.initials || (user.email || '').slice(0, 2).toUpperCase();
   window.login('Platform Admin', user.name || user.email, initials);
-  window.nav('god', document.getElementById('nav-god'));
+  nav('god', document.getElementById('nav-god'));
   return true;
 }
 
