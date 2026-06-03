@@ -10,7 +10,7 @@
 // it).
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml — all
-// still in app.js.
+// still in app.js. showModal and closeModal are direct ES imports.
 // showNewTicketModal is a direct ES import from tickets/detail.js
 // (no cycle — detail.js doesn't import from this module).
 //

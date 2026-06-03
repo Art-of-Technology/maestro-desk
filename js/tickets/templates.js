@@ -7,7 +7,7 @@
 // `renderTemplates` is the only export (the app.js router calls it).
 //
 // External reaches (interim, via window): isAdmin, escHtml, escAttr — all
-// still in app.js.
+// still in app.js. showModal and closeModal are direct ES imports.
 //
 // CANNED_RESPONSES comes from data.js via the global lexical env;
 // TPL_FILTER_CAT and TPL_QUERY come from core/state.js the same way.
