@@ -17,8 +17,6 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml —
 // all still in app.js.
-//
-// LAYOUTS_TAB comes from core/state.js via the global lexical env.
 
 import { LAYOUTS_TAB, setLayoutsTab } from '../core/state.js';
 import { renderPage } from '../core/router.js';

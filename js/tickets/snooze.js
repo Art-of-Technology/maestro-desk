@@ -10,8 +10,8 @@
 // logTicketEvent, showModal, closeModal, openTicket, refreshNotifBadge and
 // refreshTicketSLA are direct ES imports.
 //
-// SESSION, CURRENT_TICKET, CURRENT_PAGE, TICKET_SELECTED_IDS come from
-// core/state.js via the global lexical env.
+// SESSION, CURRENT_TICKET, CURRENT_PAGE, TICKET_SELECTED_IDS are imported
+// from core/state.js.
 //
 // No window-bridge namespace: unsnooze + showSnoozeModal are consumed by
 // tickets/detail.js (td.unsnooze / td.snooze) and formatSnoozeUntil by
@@ -21,6 +21,7 @@
 // and snooze.bulkSnooze below. snooze.bulkSnooze fires from a data-action
 // rendered by tickets/list.js but is owned here (this module owns the fn).
 
+import { TICKETS } from '../core/data.js';
 import { CURRENT_PAGE, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { refreshNotifBadge } from '../notifications/index.js';

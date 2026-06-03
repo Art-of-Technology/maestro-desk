@@ -18,10 +18,8 @@
 // External reaches (interim, via window): escAttr, escHtml, logout — all
 // still in app.js. Cross-module function calls (showAgentOOOModal,
 // isAgentOOO, …) are direct ES imports.
-//
-// SESSION, TICKETS, AGENTS come from data.js / state.js (global lex env);
-// SETTINGS_TAB is assigned inside the registered actions (also state.js).
 
+import { AGENTS, TICKETS } from '../core/data.js';
 import { SESSION, setSettingsTabValue } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';

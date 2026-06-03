@@ -16,11 +16,8 @@
 // External reaches (interim, via window): isAdmin, escAttr — all still in
 // app.js. showModal, closeModal and openAgentFromDash (dashboard/index.js)
 // are direct ES imports.
-//
-// AGENTS, TICKETS, ROLES_MATRIX, PERMISSIONS come from data.js via the
-// global lexical env; ROLES_VIEW_AGENTS, AGENT_SELECTED, CURRENT_PAGE,
-// SESSION come from core/state.js the same way.
 
+import { AGENTS, PERMISSIONS, ROLES_MATRIX, TICKETS } from '../core/data.js';
 import { AGENT_SELECTED, CURRENT_PAGE, ROLES_VIEW_AGENTS, setAgentSelected, setRolesViewAgents } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';

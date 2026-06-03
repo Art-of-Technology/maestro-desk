@@ -24,10 +24,8 @@
 // The bell button in static index.html dispatches the notif.toggle action
 // (registered below); toggleNotifications and the rest of this module's API
 // are module-internal now.
-//
-// TICKETS comes from data.js via the global lexical env; SESSION and
-// NOTIF_PREFS come from core/state.js the same way.
 
+import { TICKETS } from '../core/data.js';
 import { NOTIF_PREFS, SESSION } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerMousedownActions } from '../core/event-delegation.js';

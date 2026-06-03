@@ -1,8 +1,8 @@
 // DOM/runtime shim — concatenated AHEAD of the bundle, evaluated in the same
-// script scope. Lets data.js's top-level `let`/`const` declarations become
-// script-scope bindings that nested module fns see by bare name (TICKETS,
-// CUSTOMERS, …). state.js is now an ES module bundled via the entry's import
-// graph, so it is no longer concatenated here.
+// script scope. state.js and data.js are ES modules bundled via the entry's
+// import graph, so nothing is concatenated here except this shim; the smoke
+// entries re-expose what the suffix needs (globalThis.__renderPage /
+// __openTicket / __TICKETS).
 
 globalThis.localStorage = {
   store: {},

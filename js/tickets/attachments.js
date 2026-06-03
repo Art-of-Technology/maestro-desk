@@ -11,6 +11,7 @@
 // tickets/detail.js imports it directly (action td.showAttach). The add /
 // remove mutators are now module-internal (dispatched via att.* actions).
 
+import { TICKETS } from '../core/data.js';
 import { registerActions } from '../core/event-delegation.js';
 import { showModal } from '../core/modal.js';
 

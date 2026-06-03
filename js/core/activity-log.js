@@ -14,11 +14,8 @@
 // logTicketEvent, getTicketEvents, renderActivityLog stay exported —
 // the first two are reached by ~10 modules via direct ES import, and
 // renderActivityLog is called by app.js's router.
-//
-// SESSION and the page-state vars (ACT_FILTER_ENTITY, ACT_FILTER_TYPE,
-// CUSTOMER_SELECTED, WF_SELECTED) come from core/state.js via the
-// global lexical env.
 
+import { CUSTOMERS, TICKETS, WORKFLOWS } from './data.js';
 import { ACT_FILTER_ENTITY, ACT_FILTER_TYPE, SESSION, setActFilterEntity, setActFilterType, setCustomerSelected, setWfSelected } from './state.js';
 import { renderPage } from './router.js';
 import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';

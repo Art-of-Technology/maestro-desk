@@ -1,3 +1,4 @@
+import { SLA_POLICIES, TICKETS } from '../core/data.js';
 // ─── SLA evaluator + business hours ──────────────────────────────────────────
 // Two tightly-coupled features in one module:
 //
@@ -14,8 +15,8 @@
 //      refreshAllSLA reuses the same slaNow anchor across all tickets.
 //
 // No external reaches needed — this module only depends on TICKETS and
-// SLA_POLICIES (both from the global lexical env via data.js). Pure functions
-// over data, no UI side effects.
+// SLA_POLICIES (imported from core/data.js). Pure functions over data, no UI
+// side effects.
 
 // Demo "now" = 1 day after the latest seeded ticket creation date, so old fixture
 // dates produce believable SLA states without making everything a breach.

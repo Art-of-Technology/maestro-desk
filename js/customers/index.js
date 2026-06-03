@@ -20,11 +20,8 @@
 // from this module; this module imports the modal openers back) is tolerated
 // — the openers are only used inside registerActions closures, never at
 // module top level.
-//
-// CUSTOMERS, TICKETS, CUSTOM_FIELDS, SESSION come from data.js / state.js via
-// the global lexical env; CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS,
-// CUST_COLUMNS, CUST_DRAG_COL come from core/state.js the same way.
 
+import { CUSTOMERS, CUSTOM_FIELDS, TICKETS } from '../core/data.js';
 import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, SESSION, setCustColumns, setCustDragCol, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';

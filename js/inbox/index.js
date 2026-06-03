@@ -15,11 +15,8 @@
 // External reaches (interim, via window): escHtml, escAttr — all still in
 // app.js. fireWebhook, ticketPayload, applyAssignmentRules, openTicket,
 // navTo, refreshTicketSLA are direct ES imports.
-//
-// INBOX, TICKETS, CUSTOMERS, CHANNELS come from data.js; INBOX_SELECTED_ID,
-// INBOX_FILTER_STATUS, INBOX_FILTER_CHANNEL, CUSTOMER_SELECTED come from
-// state.js (the latter is mutated inline from the customer-match deep-link).
 
+import { CHANNELS, CUSTOMERS, INBOX, TICKETS } from '../core/data.js';
 import { INBOX_FILTER_CHANNEL, INBOX_FILTER_STATUS, INBOX_SELECTED_ID, setCustomerSelected, setInboxFilterChannel, setInboxFilterStatus, setInboxSelectedId } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';

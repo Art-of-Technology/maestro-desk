@@ -15,11 +15,8 @@
 //
 // External reaches (interim, via window): escHtml — still in app.js. navTo,
 // openTicket, isAgentOOO and SEARCH_PAGES are direct ES imports.
-//
-// TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES come from data.js via the global
-// lexical env; CUSTOMER_SELECTED, AGENT_SELECTED, KB_SELECTED come from
-// core/state.js the same way.
 
+import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';

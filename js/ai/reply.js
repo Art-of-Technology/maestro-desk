@@ -11,6 +11,7 @@
 // buildKbQuery and fetchKbArticles are direct ES imports from
 // kb-integration; onComposeInput is a direct import from tickets/detail.
 
+import { TICKETS } from '../core/data.js';
 import { AI_THINKING, setAiThinking } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';

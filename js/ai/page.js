@@ -12,9 +12,9 @@
 //     inline code, headers, bold/italic, lists, paragraphs).
 //
 // AI_MESSAGES (the active conversation buffer) lives in core/state.js
-// because composer auto-translate also reads it. AI_THINKING + SESSION
-// + CURRENT_TICKET also come from state.js via the global lexical env;
-// TICKETS / CUSTOMERS / AGENTS / KB_ARTICLES from data.js the same way.
+// because composer auto-translate also reads it. AI_THINKING, SESSION and
+// CURRENT_TICKET are imported from core/state.js; TICKETS / CUSTOMERS /
+// AGENTS / KB_ARTICLES from core/data.js.
 //
 // Click handlers route through core/event-delegation.js as `data-action`.
 // The textarea keydown handler is wired programmatically inside renderAI
@@ -25,6 +25,7 @@
 // inside app.js for now; once core/dom.js extracts the escapers these become
 // proper imports. navTo and setSettingsTab are direct ES imports.
 
+import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { AI_MESSAGES, AI_THINKING, SESSION, setAiMessages, setAiThinking } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';

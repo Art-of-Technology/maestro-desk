@@ -7,8 +7,8 @@
 //   • the auto-translate-replies toggle that wraps outgoing replies in the
 //     customer's language at send time (consumed by sendCompose in app.js)
 //
-// Imports callClaude + AI_API_KEY from ./client.js. Reads TICKETS and
-// CURRENT_TICKET from the global lexical env (data.js + state.js).
+// Imports callClaude + AI_API_KEY from ./client.js, TICKETS from
+// core/data.js, and CURRENT_TICKET from core/state.js.
 //
 // openTicket is now a direct ES import from tickets/detail.js (the cycle
 // with detail.js is tolerated — each binding is only used inside a
@@ -16,6 +16,7 @@
 // still reached through window — they live in app.js / core/modal.js
 // and the lifts haven't happened yet.
 
+import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';

@@ -15,12 +15,8 @@
 // run-macro controls dispatch to actions owned by those modules
 // (snooze.bulkSnooze / ar.bulkRun / macros.bulkRun). The FILTER_* set/clear
 // handlers assign the core/state.js globals directly, as before.
-//
-// TICKETS, CUSTOMERS, AGENTS, TAG_LIBRARY come from data.js via the global
-// lexical env; SESSION, TICKET_SELECTED_IDS, FILTER_CATEGORY, FILTER_PRIORITY,
-// FILTER_AGENT, FILTER_SENTIMENT, FILTER_QUERY come from core/state.js the
-// same way.
 
+import { AGENTS, CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';

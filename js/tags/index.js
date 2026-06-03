@@ -12,12 +12,8 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr — all still in
 // app.js. showModal, closeModal, openTicket and navTo are direct ES imports.
-//
-// TAG_LIBRARY, TICKETS, CUSTOMERS come from data.js via the global lexical
-// env; TAG_SELECTED, TAG_FILTER_TYPE, TAG_QUERY, TAG_SELECTED_NAMES,
-// TAG_SORT_COL, TAG_SORT_DIR, CUSTOMER_SELECTED come from core/state.js
-// the same way.
 
+import { CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { TAG_FILTER_TYPE, TAG_QUERY, TAG_SELECTED, TAG_SELECTED_NAMES, TAG_SORT_COL, TAG_SORT_DIR, setCustomerSelected, setTagFilterType, setTagQuery, setTagSelected, setTagSortCol, setTagSortDir } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';

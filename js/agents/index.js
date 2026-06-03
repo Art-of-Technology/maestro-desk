@@ -12,10 +12,8 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // fmtMinutes — all still in app.js. Everything else is a direct ES import.
-//
-// AGENTS, TICKETS, CUSTOMERS, ROLES_MATRIX, SESSION come from data.js;
-// AGENT_SELECTED, CUSTOMER_SELECTED come from state.js (global lex env).
 
+import { AGENTS, CUSTOMERS, ROLES_MATRIX, TICKETS } from '../core/data.js';
 import { AGENT_SELECTED, SESSION, setAgentSelected, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';

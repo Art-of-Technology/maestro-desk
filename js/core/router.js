@@ -12,11 +12,11 @@
 // are hoisted function declarations and are only ever called from event
 // handlers, never at module-evaluation time.
 //
-// State globals (CURRENT_PAGE, CURRENT_TICKET, the per-page *_SELECTED bindings,
-// TICKETS, INBOX) live in the classic-script global lexical env (state.js /
-// data.js) — visible to this module by bare name, no import needed. That's the
-// same arrangement renderPage relied on while it lived in app.js.
+// State is read/written through core/state.js imports: renderPage's per-page
+// resets call setKbSelected/setCurrentPage/… and read CURRENT_PAGE etc. as live
+// bindings. TICKETS and INBOX are imported from core/data.js for updateNavBadges.
 
+import { INBOX, TICKETS } from './data.js';
 import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setInboxSelectedId, setKbSelected, setRolesViewAgents, setTagSelected, setWfSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';

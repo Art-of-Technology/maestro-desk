@@ -12,9 +12,8 @@
 //
 // openTicket is a direct ES import from tickets/detail.js (used only inside
 // functions, so the kb-integration↔detail cycle resolves lazily).
-//
-// TICKETS comes from data.js; CURRENT_TICKET from state.js (global lex env).
 
+import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { openTicket } from '../tickets/detail.js';
 

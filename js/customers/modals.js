@@ -5,10 +5,8 @@
 //   - openCustomerModal   (compact customer card, opened from search results)
 //   - showCSVModal        (CSV import affordance on the customers list)
 //   - showNewCustomerModal (creates a new CUSTOMERS row + refreshes the table)
-//
-// CUSTOMERS comes from data.js via the global lexical env. refreshCustTable
-// is imported from the customers list module.
 
+import { CUSTOMERS } from '../core/data.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { refreshCustTable } from './index.js';
 

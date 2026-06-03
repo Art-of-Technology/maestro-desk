@@ -8,11 +8,8 @@
 //
 // External reaches (interim, via window): escAttr, escHtml, fmtMinutes —
 // all still in app.js. navTo is a direct ES import.
-//
-// TICKETS, CUSTOMERS, AGENTS, TICKET_TEMPLATES come from data.js via the
-// global lexical env; SESSION, CURRENT_TICKET, COMPOSE_TAB, AI_THINKING,
-// AI_MESSAGES come from core/state.js the same way.
 
+import { AGENTS, CANNED_RESPONSES, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
 import { COMPOSE_TAB, CURRENT_TICKET, SESSION, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
@@ -70,7 +67,7 @@ import { registerActions, registerChangeActions, registerInputActions } from '..
 // Live-sync hook: presence reports the server's tickets.updated_at on
 // every heartbeat. When it moves (because another agent replied, tagged,
 // re-assigned, etc.), force-reload the ticket detail and re-render iff
-// the user is still on it. CURRENT_TICKET is the global from state.js;
+// the user is still on it. CURRENT_TICKET comes from core/state.js; the
 // TICKETS lookup translates the heartbeat's uuid to our display_id.
 //
 // Locally-driven mutations also bump the server's updated_at, so the

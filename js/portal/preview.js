@@ -12,13 +12,8 @@
 //
 // Click handlers route through core/event-delegation.js. `renderPortal` is
 // the only export consumed (app.js's router).
-//
-// External reaches (interim, via window): escHtml, escAttr — all still in
-// app.js. refreshTicketSLA,
-// applyAssignmentRules, navTo, logTicketEvent, fireWebhook, ticketPayload
-// are direct ES imports.
-// TICKETS, CUSTOMERS, KB_ARTICLES from data.js via global lexical env.
 
+import { CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { logTicketEvent } from '../core/activity-log.js';

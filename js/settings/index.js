@@ -18,10 +18,8 @@
 // as an explicit app.js bridge entry, because notifications reaches it via
 // window.setSettingsTab to dodge the settings↔notifications import cycle
 // (settings already imports refreshNotifBadge from notifications).
-//
-// SESSION, SETTINGS_TAB, NOTIF_PREFS come from core/state.js via the global
-// lexical env.
 
+import { CUSTOMERS } from '../core/data.js';
 import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { THEME, setTheme } from '../core/theme.js';

@@ -12,10 +12,8 @@
 //
 // External reaches (interim, via window): escHtml, fmtMinutes — still in
 // app.js.
-//
-// TICKETS comes from data.js via the global lexical env; REPORT_LAYOUT
-// comes from core/state.js the same way.
 
+import { TICKETS } from '../core/data.js';
 import { REPORT_LAYOUT } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';

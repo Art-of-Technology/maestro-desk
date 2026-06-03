@@ -20,9 +20,6 @@
 // registers 'report'. This keeps the generic shell from importing the
 // per-page catalogs (which would invert the dependency / cycle) and removes
 // the old reliance on window.DASH_WIDGETS / window.REPORT_WIDGETS.
-//
-// DASH_LAYOUT and REPORT_LAYOUT live in core/state.js so this module and
-// app.js (top-level hydration + reports renderers) share one binding.
 
 import { DASH_LAYOUT, REPORT_LAYOUT, setDashLayout, setReportLayout } from './state.js';
 import { renderPage } from './router.js';

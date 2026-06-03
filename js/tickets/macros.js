@@ -22,11 +22,8 @@
 //
 // logTicketEvent is imported from core/activity-log.js since that's already
 // extracted.
-//
-// TICKETS, CUSTOMERS, AGENTS, CANNED_RESPONSES come from data.js via the
-// global lexical env; TICKET_SELECTED_IDS, CURRENT_TICKET, SESSION,
-// MACRO_FILTER_QUERY come from core/state.js the same way.
 
+import { AGENTS, CANNED_RESPONSES, CUSTOMERS, TICKETS } from '../core/data.js';
 import { CURRENT_TICKET, MACRO_FILTER_QUERY, SESSION, TICKET_SELECTED_IDS, setMacroFilterQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';

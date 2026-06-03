@@ -13,10 +13,8 @@
 // still in app.js. showModal and closeModal are direct ES imports.
 // showNewTicketModal is a direct ES import from tickets/detail.js
 // (no cycle — detail.js doesn't import from this module).
-//
-// TICKET_TEMPLATES and TICKETS come from data.js via the global lexical env;
-// TT_FILTER_CAT comes from core/state.js the same way.
 
+import { TICKETS, TICKET_TEMPLATES } from '../core/data.js';
 import { TT_FILTER_CAT, setTtFilterCat } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';

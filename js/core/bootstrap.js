@@ -4,10 +4,11 @@
 // fetches tickets, customers, agents from the API and mutates the existing
 // data.js global arrays in place to match the data.js view-model shape.
 //
-// Why mutate in place: ~60 modules read TICKETS / CUSTOMERS / AGENTS via
-// the global lexical env. Replacing the binding would mean every module
-// would have to be refactored to call a getter. Mutating preserves the
-// array identity so callers see the new contents on their next render.
+// Why mutate in place: ~60 modules import TICKETS / CUSTOMERS / AGENTS from
+// core/data.js as live bindings, and a `const` export can't be reassigned
+// anyway. Mutating preserves the array identity so callers see the new contents
+// on their next render. (PERMISSIONS is the one reassigned binding — a `let`
+// with a setPermissions setter.)
 //
 // Demo persona flow doesn't call this — it relies on data.js's seed data.
 //
@@ -15,6 +16,7 @@
 // CHANNELS, ROLES_MATRIX, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
 // ASSIGN_RULES are still seeded from data.js. Each migrates per-feature.
 
+import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, PERMISSIONS, ROLES_MATRIX, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES, WORKFLOWS, setPermissions } from './data.js';
 import { apiGet } from './api-client.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
@@ -449,7 +451,7 @@ export async function loadWorkspaceData() {
   // ROLES_MATRIX is reconstructed as { role_name: { perm_key: bool, ... } }.
   // The per-role UUID lookup goes into the module-scope _roleUuidByName
   // map so the roles module can address rows by UUID on mutation.
-  PERMISSIONS = permsRaw.map((p) => ({ key: p.key, label: p.label }));
+  setPermissions(permsRaw.map((p) => ({ key: p.key, label: p.label })));
   _roleUuidByName = {};
   for (const k of Object.keys(ROLES_MATRIX)) delete ROLES_MATRIX[k];
   for (const r of rolesRaw) {

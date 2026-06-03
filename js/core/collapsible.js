@@ -6,8 +6,7 @@
 //
 // Cross-cutting concern (used by every page), so it lives under js/core/.
 //
-// CURRENT_PAGE + SETTINGS_TAB come from state.js (global lex env, so bare
-// refs work from this module).
+// CURRENT_PAGE + SETTINGS_TAB are imported from core/state.js.
 //
 // COLLAPSED_SECTIONS is exported because Settings → Appearance reads its
 // .size for the "N section(s) collapsed" counter + the "Show all" button's

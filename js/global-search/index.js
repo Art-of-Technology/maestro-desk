@@ -20,12 +20,8 @@
 // initGlobalSearchInput() (called from app.js); globalSearch / gsKey / gsGo /
 // gsOpenAllResults / searchPageSetQuery are module-internal. renderSearchResults
 // is the router entry; SEARCH_PAGES is imported by quick-switcher.
-//
-// TICKETS, CUSTOMERS, AGENTS, KB_ARTICLES, TAG_LIBRARY come from data.js
-// via the global lexical env; CUSTOMER_SELECTED, AGENT_SELECTED,
-// KB_SELECTED, TAG_SELECTED, ROLES_VIEW_AGENTS, SEARCH_PAGE_FILTER come
-// from core/state.js the same way.
 
+import { AGENTS, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { SEARCH_PAGE_FILTER, setAgentSelected, setCustomerSelected, setKbSelected, setRolesViewAgents, setSearchPageFilter, setTagSelected } from '../core/state.js';
 import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';

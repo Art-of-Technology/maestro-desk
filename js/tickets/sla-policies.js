@@ -11,10 +11,8 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr — all still in
 // app.js. showModal and closeModal are direct ES imports.
-//
-// SLA_POLICIES, TICKETS come from data.js via the global lexical env;
-// SLA_FILTER comes from core/state.js the same way.
 
+import { SLA_POLICIES, TICKETS } from '../core/data.js';
 import { SLA_FILTER, setSlaFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { findMatchingSLAPolicy, fmtSLAMinutes } from './sla.js';

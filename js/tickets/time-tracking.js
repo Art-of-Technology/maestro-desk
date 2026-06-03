@@ -9,13 +9,14 @@
 //   • escHtml     — string escaper, still in app.js
 // logTicketEvent, openTicket, showModal and closeModal are direct ES imports.
 //
-// SESSION and CURRENT_TICKET come from core/state.js via the global lexical env.
+// SESSION and CURRENT_TICKET are imported from core/state.js.
 //
 // No window-bridge namespace: every export is consumed via direct ES import
 // (reports/list/detail for the totals; detail.js for removeTimeEntry /
 // showLogTimeModal via td.removeTime / td.logTime). The one inline handler
 // (the minutes quick-preset) is delegated as tt.preset below.
 
+import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET, SESSION } from '../core/state.js';
 import { apiPost, apiDelete } from '../core/api-client.js';
 import { logTicketEvent } from '../core/activity-log.js';

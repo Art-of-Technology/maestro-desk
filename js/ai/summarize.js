@@ -3,13 +3,8 @@
 // transcript. Result is cached on t.aiSummary along with the message count
 // it covered, so the sidebar can show a "stale" hint when newer messages
 // arrive.
-//
-// CURRENT_TICKET is read from core/state.js via the global lexical env.
-// openTicket() is a direct ES import from tickets/detail.js. The
-// detail module imports summarizeTicket from here — the cycle is
-// tolerated because each binding is only used inside a function body
-// (closure), never at module top level.
 
+import { CUSTOMERS, TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { AI_API_KEY, callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';

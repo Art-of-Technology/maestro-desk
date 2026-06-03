@@ -8,14 +8,12 @@
 // External reaches (interim, via window): isAdmin, escAttr, escHtml — all
 // still in app.js.
 //
-// CUSTOM_FIELDS comes from data.js via the global lexical env;
-// CF_FILTER_ENTITY comes from core/state.js the same way.
-//
 // Inline on*= handlers were migrated to data-action delegation (see the
 // registerActions block at the bottom). renderCustomFields stays exported
 // for the router; showManageFieldsModal stays exported for customers/index.js
 // (direct ES import). The cf* mutators are now module-internal.
 
+import { CUSTOM_FIELDS } from '../core/data.js';
 import { CF_FILTER_ENTITY, setCfFilterEntity } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';

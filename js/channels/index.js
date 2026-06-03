@@ -11,9 +11,8 @@
 //
 // External reaches (interim, via window): isAdmin, escHtml, escAttr — all
 // still in app.js.
-//
-// CHANNELS, TICKETS, AGENTS come from data.js; CH_FILTER comes from state.js.
 
+import { AGENTS, CHANNELS, TICKETS } from '../core/data.js';
 import { CH_FILTER, setChFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';

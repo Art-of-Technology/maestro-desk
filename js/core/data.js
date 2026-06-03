@@ -1,5 +1,5 @@
 // ─── Data ─────────────────────────────────────────────────────────────────────
-const AGENTS = [
+export const AGENTS = [
   {name:'Emma Clarke', initials:'EC', role:'Admin',        active:true},
   {name:'James Webb',  initials:'JW', role:'Senior Agent', active:true},
   {name:'Sofia Reyes', initials:'SR', role:'Read Only',    active:true},
@@ -7,7 +7,7 @@ const AGENTS = [
   {name:'Tom Bates',   initials:'TB', role:'Senior Agent', active:true},
 ];
 
-let PERMISSIONS = [
+export let PERMISSIONS = [
   {key:'tickets',   label:'Tickets'},
   {key:'customers', label:'Customers'},
   {key:'reports',   label:'Reports'},
@@ -18,7 +18,7 @@ let PERMISSIONS = [
   {key:'gdpr',      label:'GDPR Actions'},
 ];
 
-const CUSTOMERS = [
+export const CUSTOMERS = [
   {id:'M001',first:'Sarah',last:'Mitchell',username:'smitchell',email:'sarah.m@acme.com',mobile:'+44 7700 100001',brand:'Acme Corp',vip:'Gold',jurisdiction:'UK',consent:true,kyc:'Verified',since:'2023-01-15',bo:'https://backoffice.example.com/M001',custom:{}},
   {id:'M002',first:'James',last:'Reed',username:'jreed',email:'james.r@globex.io',mobile:'+44 7700 100002',brand:'Globex',vip:'Silver',jurisdiction:'IE',consent:true,kyc:'Pending',since:'2022-11-03',bo:'https://backoffice.example.com/M002',custom:{}},
   {id:'M003',first:'Nina',last:'Kowalski',username:'nina_k',email:'nina@initech.com',mobile:'+49 151 20000003',brand:'Initech',vip:'Platinum',jurisdiction:'DE',consent:false,kyc:'Verified',since:'2021-06-20',bo:'https://backoffice.example.com/M003',custom:{}},
@@ -27,7 +27,7 @@ const CUSTOMERS = [
   {id:'M006',first:'Carlos',last:'Diaz',username:'cdiaz',email:'carlos@tyrell.com',mobile:'+1 415 000 0006',brand:'Tyrell',vip:'Silver',jurisdiction:'US',consent:true,kyc:'Pending',since:'2023-04-22',bo:'https://backoffice.example.com/M006',custom:{}},
 ];
 
-const TICKETS = [
+export const TICKETS = [
   {id:'TK-001',subject:'Payment not processing at checkout',customerId:'M001',status:'escalated',priority:'urgent',category:'Billing',agent:'Emma Clarke',created:'2025-04-16',updated:'2 min ago',sla:'breach',tags:['billing','payment'],aiTags:[{tag:'urgent-billing',conf:94,accepted:false},{tag:'checkout-issue',conf:87,accepted:false}],csat:null,
     msgs:[
       {from:'Sarah Mitchell',r:'customer',t:'Hi, I\'ve been trying to checkout for the past hour but my payment keeps failing. Tried two different cards. I need this order urgently.',ts:'09:12'},
@@ -63,20 +63,20 @@ const TICKETS = [
     ]},
 ];
 
-const CUSTOM_FIELDS = [
+export const CUSTOM_FIELDS = [
   {id:'cf1',label:'Account Manager',type:'text',   entity:'customer', required:false, defaultValue:''},
   {id:'cf2',label:'Contract Value', type:'number', entity:'customer', required:false, defaultValue:''},
   {id:'cf3',label:'Renewal Date',   type:'date',   entity:'customer', required:false, defaultValue:''},
 ];
 
-const WORKFLOWS = [
+export const WORKFLOWS = [
   {id:'WF-001',name:'Auto-escalate urgent billing',trigger:'Priority = Urgent AND Category = Billing',action:'Assign to Senior Agent + Notify Manager',status:'active',  runCount:14,lastRun:'2 hours ago'},
   {id:'WF-002',name:'GDPR 72h SLA alert',          trigger:'Category = GDPR AND Age > 72h',           action:'Send alert to DPO + Flag ticket',          status:'active',  runCount:3, lastRun:'1 day ago'},
   {id:'WF-003',name:'Auto-resolve after 7 days',   trigger:'Status = Pending AND Last updated > 7d',  action:'Set status = Resolved',                    status:'inactive',runCount:0, lastRun:null},
   {id:'WF-004',name:'Send CSAT survey on resolve', trigger:'Status changed to Resolved',              action:'Send satisfaction survey email',           status:'active',  runCount:42,lastRun:'15 min ago'},
 ];
 
-const TAG_LIBRARY = [
+export const TAG_LIBRARY = [
   {tag:'billing',count:12,type:'manual',conf:null},
   {tag:'payment',count:8,type:'manual',conf:null},
   {tag:'account-lock',count:5,type:'ai',conf:97},
@@ -89,7 +89,7 @@ const TAG_LIBRARY = [
   {tag:'checkout-issue',count:3,type:'ai',conf:87},
 ];
 
-const SLA_POLICIES = [
+export const SLA_POLICIES = [
   {id:'SLA-001', name:'Urgent · Billing',   priority:'urgent', category:'Billing',   firstResponseMin:15,  resolutionMin:240,   status:'active'},
   {id:'SLA-002', name:'Urgent · GDPR',      priority:'urgent', category:'GDPR',      firstResponseMin:30,  resolutionMin:4320,  status:'active'},
   {id:'SLA-003', name:'High · Default',     priority:'high',   category:'all',       firstResponseMin:60,  resolutionMin:1440,  status:'active'},
@@ -100,7 +100,7 @@ const SLA_POLICIES = [
 // Auto-assignment rules applied on ticket creation (and via Run rules action).
 // Rules are evaluated by ascending priority (1 wins over 2). The first matching
 // active rule fires; round-robin rules cycle through their team.
-const ASSIGN_RULES = [
+export const ASSIGN_RULES = [
   {id:'AR-001', name:'Urgent · Billing → Sofia',  priority:1, status:'active',
    conditions:{priority:'urgent', category:'Billing', vip:'all'},
    assignment:{mode:'specific-agent', agent:'Sofia Reyes'},
@@ -118,9 +118,9 @@ const ASSIGN_RULES = [
    assignment:{mode:'round-robin', team:['Emma Clarke','James Webb','Sofia Reyes','Tom Bates']},
    matchCount:18, lastMatchAt:'2025-04-16'},
 ];
-const ASSIGN_RULES_RR_INDEX = {};
+export const ASSIGN_RULES_RR_INDEX = {};
 
-const CANNED_RESPONSES = [
+export const CANNED_RESPONSES = [
   { id:'TPL-001', name: 'Greeting',         category:'General',  text: 'Hi {name},\n\nThanks for reaching out — I\'ll take a look at this right away.' },
   { id:'TPL-002', name: 'Need more info',   category:'Triage',   text: 'To help me debug this, could you share:\n\n- Steps to reproduce the issue\n- The exact error message you\'re seeing\n- A screenshot if possible' },
   { id:'TPL-003', name: 'Escalating',       category:'Triage',   text: 'I\'m escalating this to our specialist team — you should hear back within the hour.' },
@@ -129,7 +129,7 @@ const CANNED_RESPONSES = [
   { id:'TPL-006', name: 'CSAT request',     category:'General',  text: 'When you have a moment, we\'d appreciate your feedback on this ticket. Your rating helps us improve our support.' },
 ];
 
-const TICKET_TEMPLATES = [
+export const TICKET_TEMPLATES = [
   {id:'TT-001', name:'Password reset request',         category:'Account',   priority:'normal', subject:'Password reset for [customer ID]',        body:'Customer is unable to log in after attempting a password reset. Please verify identity, unlock the account if necessary, and confirm the reset email has been delivered.'},
   {id:'TT-002', name:'Refund — duplicate charge',      category:'Billing',   priority:'high',   subject:'Duplicate charge — refund requested',     body:'Customer reports being charged twice for the same transaction. Verify in the payments system, raise a refund for the duplicate amount, and confirm via email when processed.'},
   {id:'TT-003', name:'GDPR data erasure request',      category:'GDPR',      priority:'high',   subject:'Article 17 erasure request from [customer]', body:'Formal GDPR Article 17 erasure request received. Acknowledge within 24h, run the erasure workflow, and confirm completion in writing within the statutory 30-day window.'},
@@ -137,7 +137,7 @@ const TICKET_TEMPLATES = [
   {id:'TT-005', name:'Feature request',                category:'Feature',   priority:'low',    subject:'Feature request: [short description]',    body:'Customer suggested a new feature. Capture the use case, expected behaviour, and any business impact. Add to the product backlog and acknowledge the customer with an expected review timeframe.'},
 ];
 
-const CHANNELS = [
+export const CHANNELS = [
   {id:'CH-001', name:'Support inbox',          type:'email',   address:'support@maestrodesk.com',     status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:142, signature:'— Maestro Desk Support'},
   {id:'CH-002', name:'Billing inbox',          type:'email',   address:'billing@maestrodesk.com',     status:'active',   defaultCategory:'Billing',   defaultAgent:'Sofia Reyes',      volume30d:38,  signature:'— Maestro Desk Billing'},
   {id:'CH-003', name:'Public help portal',     type:'webform', address:'maestrodesk.com/help/contact',status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:64,  signature:''},
@@ -148,7 +148,7 @@ const CHANNELS = [
 // Synthetic inbox of incoming emails awaiting triage. Real-world this would
 // be polled from each email channel's IMAP/API; for the demo it's seeded so
 // the agent has realistic content to convert into tickets.
-const INBOX = [
+export const INBOX = [
   {id:'EM-001', channelId:'CH-001', from:'Sarah Mitchell', fromEmail:'sarah.m@acme.com',
    subject:'Card keeps getting declined at checkout',
    body:'Hi, I\'ve tried three different cards and the checkout flow keeps failing on the final step. The page just spins for a while and then says "Something went wrong". I\'m on Chrome on a Mac. Order total was £148. Could you help?\n\nThanks,\nSarah',
@@ -179,13 +179,13 @@ const INBOX = [
    receivedAt:'2025-04-17 14:02', status:'new'},
 ];
 
-const ROLES_MATRIX = {
+export const ROLES_MATRIX = {
   'Admin':        {tickets:true,customers:true,reports:true,ai:true,workflows:true,tags:true,roles:true,gdpr:true},
   'Senior Agent': {tickets:true,customers:true,reports:true,ai:true,workflows:false,tags:true,roles:false,gdpr:true},
   'Read Only':    {tickets:false,customers:false,reports:true,ai:false,workflows:false,tags:false,roles:false,gdpr:false},
 };
 
-const KB_ARTICLES = [
+export const KB_ARTICLES = [
   {id:'KB-001', title:'How to reset your account password', category:'Account', author:'Emma Clarke', updated:'2025-04-10',
    body:`Lost access to your account? Follow these steps to regain it.\n\nStep 1: Click "Forgot password?" on the sign-in screen.\n\nStep 2: Enter your work email address and submit. The reset link is sent only to addresses on your organisation's allowlist.\n\nStep 3: Check your inbox for a reset link. The link expires after 30 minutes.\n\nStep 4: Set a new password — minimum 12 characters, must include a number and a symbol.\n\nIf you don't receive an email within 5 minutes, check your spam folder. If it's still missing, contact your administrator — your account may be temporarily locked after multiple failed attempts.`},
   {id:'KB-002', title:'Understanding SLA breach alerts', category:'Best Practices', author:'James Webb', updated:'2025-04-12',
@@ -201,3 +201,10 @@ const KB_ARTICLES = [
   {id:'KB-007', title:'Resending invoices and billing documents', category:'Billing', author:'Tom Bates', updated:'2025-04-02',
    body:`Customers occasionally request a resend of their invoice or other billing documents.\n\nFor invoices from the current and previous quarter, use the customer portal action — these are regenerated on demand.\n\nFor older documents, raise an internal billing ticket with the customer ID and the invoice month. The finance team typically responds within one business day.\n\nNever attach billing documents directly to support tickets — always send via the secure document portal to maintain the audit trail.`},
 ];
+
+// ─── Setters ────────────────────────────────────────────────────────────────
+// data.js is now an ES module. The const collections are mutated in place
+// (.push/.splice and the bootstrap target.length=0 swap), so they read live
+// across importers and need no setter. PERMISSIONS is the only binding that is
+// reassigned (bootstrap replaces it wholesale with the server catalogue).
+export function setPermissions(v) { PERMISSIONS = v; }

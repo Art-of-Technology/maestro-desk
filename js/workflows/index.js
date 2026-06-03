@@ -9,10 +9,8 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr — all still in
 // app.js. showModal and closeModal are direct ES imports.
-//
-// WORKFLOWS comes from data.js via the global lexical env; WF_SELECTED,
-// WF_FILTER, WF_QUERY, SESSION come from core/state.js the same way.
 
+import { WORKFLOWS } from '../core/data.js';
 import { SESSION, WF_FILTER, WF_QUERY, WF_SELECTED, setWfFilter, setWfQuery, setWfSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';

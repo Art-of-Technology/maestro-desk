@@ -17,11 +17,8 @@
 //
 // logTicketEvent is imported from core/activity-log.js; fireWebhook and
 // ticketPayload from webhooks/index.js — those are already extracted.
-//
-// TICKETS, CUSTOMERS come from data.js via the global lexical env;
-// CURRENT_TICKET, CURRENT_PAGE, CSAT_FILTER_AGENT, CSAT_FILTER_SCORE come
-// from core/state.js the same way.
 
+import { CUSTOMERS, TICKETS } from '../core/data.js';
 import { CSAT_FILTER_AGENT, CSAT_FILTER_SCORE, CURRENT_PAGE, CURRENT_TICKET, setCsatFilterAgent, setCsatFilterScore } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';

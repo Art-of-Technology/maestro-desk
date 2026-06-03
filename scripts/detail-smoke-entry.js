@@ -13,9 +13,12 @@
 // (escHtml / escAttr / isAdmin / fmtMinutes) and loading every module — and
 // re-exposes openTicket so detail-smoke-suffix.js can render real tickets.
 // openTicket reaches renderPage through a direct core/router.js import, so this
-// path no longer depends on renderPage being on the window bridge. Build +
-// concat recipe is documented in detail-smoke-suffix.js.
+// path no longer depends on renderPage being on the window bridge. TICKETS now
+// lives in the data.js ES module (bundled, not a concatenated global), so it is
+// re-exposed here for the suffix. Build + concat recipe is in detail-smoke-suffix.js.
 import '../js/app.js';
 import { openTicket } from '../js/tickets/detail.js';
+import { TICKETS } from '../js/core/data.js';
 
 globalThis.__openTicket = openTicket;
+globalThis.__TICKETS = TICKETS;

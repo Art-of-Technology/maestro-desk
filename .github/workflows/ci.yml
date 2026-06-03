@@ -5,10 +5,10 @@ name: CI
 # now they were manual-only, which is how the #273 (open-ticket crash) and the
 # #275–#279 window-reach bugs reached main. CI makes them automatic gates.
 #
-# No package.json — this is a static SPA bundled with `bun build`. state.js is
-# now an ES module (bundled via the entry's import graph). data.js is still a
-# classic <script>, so the smokes concatenate it ahead of the bundle in one
-# script scope (see scripts/bridge-smoke-shim-prefix.js).
+# No package.json — this is a static SPA bundled with `bun build`. state.js and
+# data.js are ES modules now (bundled via the entry's import graph), so the
+# smokes only prepend the DOM/runtime shim ahead of the bundle (see
+# scripts/bridge-smoke-shim-prefix.js).
 
 on:
   pull_request:
@@ -42,7 +42,6 @@ jobs:
         run: |
           bun build scripts/route-smoke-entry.js > scripts/route-entry.bundled.js
           cat scripts/bridge-smoke-shim-prefix.js \
-              js/core/data.js \
               scripts/route-entry.bundled.js \
               scripts/bridge-smoke-shim-suffix.js > scripts/full-smoke.js
           bun scripts/full-smoke.js
@@ -51,7 +50,6 @@ jobs:
         run: |
           bun build scripts/detail-smoke-entry.js > scripts/detail-entry.bundled.js
           cat scripts/bridge-smoke-shim-prefix.js \
-              js/core/data.js \
               scripts/detail-entry.bundled.js \
               scripts/detail-smoke-suffix.js > scripts/detail-smoke.js
           bun scripts/detail-smoke.js

@@ -11,10 +11,8 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml — all
 // still in app.js.
-//
-// KB_ARTICLES comes from data.js via the global lexical env; KB_SELECTED
-// and SESSION come from core/state.js the same way.
 
+import { KB_ARTICLES } from '../core/data.js';
 import { KB_SELECTED, SESSION, setKbSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';

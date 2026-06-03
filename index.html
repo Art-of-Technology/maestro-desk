@@ -371,10 +371,8 @@
   <div id="modal-container"></div>
 </div>
 
-<!-- state.js is now an ES module imported via app.js's graph (PR: state-globals
-     reconcile). data.js stays a classic script: its globals are still read by
-     bare name across modules and will move to ES imports in a follow-up. -->
-<script src="js/core/data.js"></script>
+<!-- state.js and data.js are ES modules now, pulled in via app.js's import
+     graph. The app boots from this single module entry point. -->
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

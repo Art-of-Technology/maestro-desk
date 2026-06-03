@@ -5,7 +5,7 @@ import { COMPOSE_TAB } from '../core/state.js';
 // embeds COMPOSE_TAB so a partial reply and a partial internal note on the
 // same ticket coexist independently.
 //
-// COMPOSE_TAB comes from core/state.js via the global lexical env.
+// COMPOSE_TAB is imported from core/state.js.
 
 function getDraftKey(id) { return `draft:${id}:${COMPOSE_TAB}`; }
 

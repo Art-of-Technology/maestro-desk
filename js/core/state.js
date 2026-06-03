@@ -1,17 +1,13 @@
 // ─── Shared state ────────────────────────────────────────────────────────────
-// State that needs to be visible across module boundaries — either because
-// inline HTML attribute handlers touch it directly (e.g.
-// `onchange="FILTER_CATEGORY=this.value;renderPage('tickets')"`), or because
-// multiple feature modules need to read/write it (e.g. CURRENT_TICKET, which
-// app.js sets on open and ai/summarize.js reads to decide whether to refresh).
+// State that needs to be visible across module boundaries — e.g. CURRENT_TICKET,
+// which app.js sets on open and ai/summarize.js reads to decide whether to
+// refresh, plus the per-page FILTER_* / *_SELECTED bindings the render code reads.
 //
-// Lives in a classic <script src> so its top-level `let`/`const` bindings
-// land in the global lexical environment. That env is visible to:
-//   • inline event handler functions (their scope chain ends at globalEnv)
-//   • ES modules (identifier lookup walks module env → globalEnv)
-//
-// One binding, every world. No `window.X` prefix needed from modules, no
-// setter-shims needed from inline handlers, no import declarations needed.
+// This is an ES module. Importers read each binding live (an imported binding
+// always reflects the latest value), so a module just imports the names it
+// needs. Because an imported binding can't be reassigned by the importer, every
+// mutable scalar has a setter below (setX); the const collections are mutated
+// in place and need none.
 export let SESSION = null;
 export let CURRENT_PAGE = 'dashboard';
 export let CURRENT_TICKET = null;

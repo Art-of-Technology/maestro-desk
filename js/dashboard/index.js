@@ -15,11 +15,8 @@
 // (roles.openAgent). DASH_WIDGETS / DEFAULT_DASH_LAYOUT stay exported (app.js
 // hydrates the layout from them) and are registered with the widget shell via
 // registerWidgetCatalog('dash', …) at the bottom — no window exposure.
-//
-// TICKETS, AGENTS, WORKFLOWS, KB_ARTICLES, CUSTOMERS come from data.js via
-// the global lexical env; SESSION, AGENT_SELECTED, KB_SELECTED, CUSTOMER_SELECTED,
-// DASH_LAYOUT come from core/state.js the same way.
 
+import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS, WORKFLOWS } from '../core/data.js';
 import { DASH_LAYOUT, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';

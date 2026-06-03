@@ -6,8 +6,6 @@
 // Click handlers are routed via core/event-delegation.js using
 // `data-action="help.*"` — no inline onclick, no window bridge entry.
 // `renderHelp` is called by the router in app.js as a direct ES import.
-//
-// SESSION comes from core/state.js via the global lexical env.
 
 import { SESSION } from '../core/state.js';
 import { renderPage } from '../core/router.js';

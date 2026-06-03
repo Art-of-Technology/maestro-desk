@@ -15,11 +15,8 @@
 // all consumed via direct ES import; renderAssignmentRules is the router entry.
 //
 // logTicketEvent is imported from core/activity-log.js (already extracted).
-//
-// AGENTS, TICKETS, CUSTOMERS, ASSIGN_RULES, ASSIGN_RULES_RR_INDEX come from
-// data.js via the global lexical env; SESSION, TICKET_SELECTED_IDS,
-// CURRENT_TICKET, CURRENT_PAGE, AR_FILTER come from core/state.js the same way.
 
+import { AGENTS, ASSIGN_RULES, ASSIGN_RULES_RR_INDEX, CUSTOMERS, TICKETS } from '../core/data.js';
 import { AR_FILTER, CURRENT_PAGE, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setArFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';

@@ -9,9 +9,8 @@
 // state (MENTION_DD_*); it manipulates the DOM directly via #mention-dd.
 //
 // External reach (interim, via window): escHtml, escAttr. onComposeInput
-// is a direct ES import from tickets/detail.js.
-// AGENTS and SESSION come
-// from data.js + state.js via the global lexical env.
+// is a direct ES import from tickets/detail.js. AGENTS (core/data.js) and
+// SESSION (core/state.js) are imported.
 //
 // No window-bridge namespace: parse/render + the dropdown lifecycle
 // (updateMentionDropdown/hideMentionDropdown/mentionDropdownKey) are
@@ -20,6 +19,7 @@
 // `mousedown` (not click) so it fires before the compose textarea's
 // focusout hides the dropdown (detail.js delays hide by 150ms).
 
+import { AGENTS } from '../core/data.js';
 import { SESSION } from '../core/state.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
 import { onComposeInput } from './detail.js';
