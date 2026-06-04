@@ -471,7 +471,9 @@ async function loadWorkspaceLookups(
   workspaceId: string,
 ): Promise<WorkspaceLookups> {
   const [cats, prios, stats, ws] = await Promise.all([
-    sb.from('ticket_categories').select('key, label').eq('workspace_id', workspaceId).order('label'),
+    // Only active categories are offered to the AI — disabled ones must not be
+    // suggested on new triage (existing tickets keep their stored category).
+    sb.from('ticket_categories').select('key, label').eq('workspace_id', workspaceId).eq('is_active', true).order('label'),
     sb.from('ticket_priorities').select('key, label').eq('workspace_id', workspaceId).order('sort_order'),
     sb.from('ticket_statuses').select('key, label').eq('workspace_id', workspaceId).order('sort_order'),
     sb.from('workspaces')

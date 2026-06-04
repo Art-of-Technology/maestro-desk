@@ -34,6 +34,7 @@ import { customValues } from './routes/custom-values.ts';
 import { publicRoutes } from './routes/public.ts';
 import { integrations } from './routes/integrations.ts';
 import { presence } from './routes/presence.ts';
+import { categories } from './routes/categories.ts';
 
 const app = new Hono();
 
@@ -59,6 +60,7 @@ app.route('/api/v1/channels', channels);
 app.route('/api/v1/workflows', workflows);
 app.route('/api/v1/sla-policies', slaPolicies);
 app.route('/api/v1/tags', tags);
+app.route('/api/v1/categories', categories);
 app.route('/api/v1/kb-articles', kb);
 app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/ticket-templates', ticketTemplates);

@@ -259,6 +259,22 @@ tickets.patch('/:id', async (c) => {
   if (lookupErr) return c.json({ error: lookupErr.message }, 500);
   if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
 
+  // Reject assigning an unknown or disabled category. null clears the
+  // category (allowed); a non-null key must match an active row. Skipped when
+  // unchanged so a ticket already on a since-disabled category can still be
+  // edited on its other fields.
+  if (updates.category_key != null && updates.category_key !== existing.category_key) {
+    const { data: cat, error: catErr } = await sb
+      .from('ticket_categories')
+      .select('key')
+      .eq('workspace_id', workspaceId)
+      .eq('key', updates.category_key)
+      .eq('is_active', true)
+      .maybeSingle();
+    if (catErr) return c.json({ error: catErr.message }, 500);
+    if (!cat)   return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
+  }
+
   const { error: updErr } = await sb
     .from('tickets')
     .update(updates)
