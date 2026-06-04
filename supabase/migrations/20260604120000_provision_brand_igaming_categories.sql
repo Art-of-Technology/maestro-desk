@@ -12,6 +12,15 @@
 -- categories because demo tickets + channels.default_category_key reference
 -- them. Only the function body's category block changes here; everything else
 -- is reproduced verbatim from 20260522160000_provision_brand_fn.sql.
+--
+-- GDPR/data-protection: the old default set had a 'GDPR' *category*; the new
+-- set does not, by design. Categories and statuses are independent dimensions:
+-- the 'gdpr' ticket_status is deliberately RETAINED (see section 4) as the
+-- workflow state for data-protection cases, and data/privacy requests map to
+-- the 'Data' category. The SPA's GDPR action panel keys off the status OR the
+-- category, so retaining the status keeps it working for new brands. A freshly
+-- provisioned brand has no channels/workflows/SLAs/tickets yet, so dropping the
+-- category breaks no existing references.
 
 create or replace function public.provision_brand(
   p_name                          text,
