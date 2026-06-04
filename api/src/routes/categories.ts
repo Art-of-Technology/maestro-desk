@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
 
@@ -30,7 +30,7 @@ function keyFromLabel(label: string): string {
     .join('');
 }
 
-async function requireAdmin(c: any): Promise<Response | null> {
+async function requireAdmin(c: Context): Promise<Response | null> {
   const sbUser = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const { data: isAdmin, error } = await sbUser.rpc('is_workspace_admin', { ws: workspaceId });
@@ -77,6 +77,11 @@ categories.post('/', async (c) => {
     return c.json({ error: 'Label must contain at least one letter or digit' }, 400);
   }
 
+  // Insert first (atomic — no check-then-insert race); on a PK clash, look up
+  // the existing row to return a useful message. Near-duplicate labels can map
+  // to the same key (e.g. "Payments" / "payments" → "Payments"), and the
+  // clashing row may be DISABLED — in which case the admin should re-enable it
+  // rather than be told it "already exists" with no way to see it.
   const { data, error } = await sb
     .from('ticket_categories')
     .insert({ workspace_id: workspaceId, key, label, is_active: true })
@@ -85,7 +90,19 @@ categories.post('/', async (c) => {
   // 23505 = unique_violation on the (workspace_id, key) primary key.
   if (error) {
     if ((error as any).code === '23505') {
-      return c.json({ error: `A category with key "${key}" already exists` }, 409);
+      const { data: clash } = await sb
+        .from('ticket_categories')
+        .select('key, label, is_active')
+        .eq('workspace_id', workspaceId)
+        .eq('key', key)
+        .maybeSingle();
+      const hint = clash && !clash.is_active
+        ? ' It is currently disabled — re-enable it instead of creating a duplicate.'
+        : '';
+      return c.json(
+        { error: `Category "${clash?.label ?? label}" already exists (key "${key}").${hint}`, existing: clash ?? null },
+        409,
+      );
     }
     return c.json({ error: error.message }, 500);
   }
