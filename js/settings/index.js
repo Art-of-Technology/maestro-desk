@@ -1534,33 +1534,40 @@ function refreshCategories() {
   });
 }
 
+// Write to the shared status line under the add-category form. Re-queries each
+// call (refreshCategories repaints the panel) and no-ops safely if the element
+// isn't present — both add + toggle route their feedback through here so an
+// error is never dropped silently.
+function setCatMsg(text, color) {
+  const m = document.getElementById('cat-msg');
+  if (m) { m.textContent = text; m.style.color = color; }
+}
+
 async function addCategory() {
   if (!window.isAdmin()) return;
   const input = document.getElementById('new-cat-label');
-  const msg   = document.getElementById('cat-msg');
   const label = (input?.value || '').trim();
-  if (!label) { if (msg) { msg.textContent = 'Enter a category name'; msg.style.color = 'var(--red)'; } return; }
-  if (msg) { msg.textContent = 'Adding…'; msg.style.color = 'var(--ink3)'; }
+  if (!label) { setCatMsg('Enter a category name', 'var(--red)'); return; }
+  setCatMsg('Adding…', 'var(--ink3)');
   try {
     await apiPost('/api/v1/categories', { label });
     await refreshCategories();   // repaints — clears the input + shows the new row
-    const m = document.getElementById('cat-msg');
-    if (m) { m.textContent = '✓ Added'; m.style.color = 'var(--green)'; }
+    setCatMsg('✓ Added', 'var(--green)');
   } catch (err) {
     // 409 carries a helpful message (incl. the re-enable hint for a disabled clash).
-    const m = document.getElementById('cat-msg');
-    if (m) { m.textContent = err?.message || 'Add failed'; m.style.color = 'var(--red)'; }
+    setCatMsg(err?.message || 'Add failed', 'var(--red)');
   }
 }
 
+// nextActive is a real boolean here — the handler converts the stringy
+// data-next attribute ('true'/'false') to a boolean before calling this.
 async function toggleCategory(key, nextActive) {
   if (!window.isAdmin()) return;
   try {
     await apiPatch(`/api/v1/categories/${encodeURIComponent(key)}`, { is_active: nextActive });
     await refreshCategories();
   } catch (err) {
-    const m = document.getElementById('cat-msg');
-    if (m) { m.textContent = err?.message || 'Update failed'; m.style.color = 'var(--red)'; }
+    setCatMsg(err?.message || 'Update failed', 'var(--red)');
   }
 }
 
