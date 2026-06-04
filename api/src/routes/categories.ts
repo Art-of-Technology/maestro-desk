@@ -90,12 +90,15 @@ categories.post('/', async (c) => {
   // 23505 = unique_violation on the (workspace_id, key) primary key.
   if (error) {
     if ((error as any).code === '23505') {
-      const { data: clash } = await sb
+      const { data: clash, error: clashErr } = await sb
         .from('ticket_categories')
         .select('key, label, is_active')
         .eq('workspace_id', workspaceId)
         .eq('key', key)
         .maybeSingle();
+      // Best-effort enrichment only — the 23505 already tells us it's a
+      // conflict, so a failed/raced lookup just degrades to a generic message.
+      if (clashErr) console.warn('[categories] conflict lookup failed:', clashErr.message);
       const hint = clash && !clash.is_active
         ? ' It is currently disabled — re-enable it instead of creating a duplicate.'
         : '';
