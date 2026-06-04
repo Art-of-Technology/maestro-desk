@@ -11,6 +11,16 @@
 <link rel="stylesheet" href="styles/shell.css"/>
 <link rel="stylesheet" href="styles/components.css"/>
 <link rel="stylesheet" href="styles/pages.css"/>
+<script>
+  // Production API base. There is no bundler/build step, so we pick the API
+  // host at runtime by hostname: local dev (localhost/127.0.0.1) keeps the
+  // api-client default of http://localhost:3001; any deployed host (e.g.
+  // Cloudflare Pages at desk.maestro-desk.com) points at the Fly API.
+  // Must run before js/app.js imports api-client.js.
+  if (!/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+    window.MAESTRO_API_BASE = "https://maestro-desk-api.fly.dev";
+  }
+</script>
 </head>
 <body>
 

@@ -229,6 +229,12 @@
     // this page is self-contained so a workspace can host it under their
     // own domain (or behind their static CDN) without pulling the SPA.
 
+    // No bundler/build step: pick the API host at runtime by hostname. Local
+    // dev (localhost) keeps the :3001 default; any deployed host (e.g.
+    // help.maestro-desk.com, or a workspace's own CDN) points at the Fly API.
+    if (!window.MAESTRO_API_BASE && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) {
+      window.MAESTRO_API_BASE = "https://maestro-desk-api.fly.dev";
+    }
     const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
     const params = new URLSearchParams(location.search);
     // SLUG is resolved at boot from one of (in priority order):
