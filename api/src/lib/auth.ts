@@ -15,8 +15,27 @@ import { env } from './env.ts';
 //     (workspace_members, tickets, …) keeps pointing at the same uuid ids.
 //     New users get their id from the table's `gen_random_uuid()` default
 //     (generateId: false), keeping ids uuid like the legacy Supabase ones.
+// Startup posture checks (Better Auth is dormant in Step 2 — these are
+// warnings, not hard failures, so the app still boots mid-migration):
+if (!env.DATABASE_URL) {
+  console.warn('[auth] DATABASE_URL is not set — Better Auth cannot reach Neon.');
+}
+if (!env.BETTER_AUTH_SECRET) {
+  console.warn(
+    '[auth] BETTER_AUTH_SECRET is not set — OK while Better Auth is dormant (Step 2), ' +
+      'but it MUST be set before the Step 3 login cutover. Better Auth refuses the ' +
+      'default secret in production.',
+  );
+}
+
+// Reuse a single pg Pool across `bun --hot` reloads — without this, each hot
+// reload would leak a fresh Pool (and its connections). Stashing it on
+// globalThis keeps one pool for the process lifetime.
+const g = globalThis as unknown as { __maestroBetterAuthPool?: Pool };
+const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DATABASE_URL }));
+
 export const auth = betterAuth({
-  database: new Pool({ connectionString: env.DATABASE_URL }),
+  database: pool,
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
   emailAndPassword: {

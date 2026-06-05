@@ -15,7 +15,10 @@ const Env = z.object({
   // URL is the API's own base URL (where Better Auth's /api/auth/* is served).
   // Both optional for now so the app still boots mid-migration; Better Auth
   // warns + uses a dev fallback when the secret is unset.
-  BETTER_AUTH_SECRET: z.string().min(16).optional(),
+  // Min 32 chars — Better Auth's own recommended length (`openssl rand -base64
+  // 32`). Optional only because the app must still boot mid-migration while
+  // Better Auth is dormant; it becomes required at the Step 3 cutover.
+  BETTER_AUTH_SECRET: z.string().min(32).optional(),
   BETTER_AUTH_URL: z.string().url().default('http://localhost:3001'),
   ANTHROPIC_API_KEY: z.string().min(20),
   // Secret Postmark passes as a query string on the inbound webhook URL:
