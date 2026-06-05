@@ -27,6 +27,9 @@ health.get('/ready/neon', async (c) => {
     `;
     return c.json({ ok: true, db: 'neon', workspaces: count });
   } catch (err) {
-    return c.json({ ok: false, db: 'neon', error: err instanceof Error ? err.message : String(err) }, 503);
+    // Log the detail server-side; don't leak connection/internal detail to the
+    // client in the probe response.
+    console.error('[health] neon readiness check failed:', err);
+    return c.json({ ok: false, db: 'neon', error: 'database unavailable' }, 503);
   }
 });

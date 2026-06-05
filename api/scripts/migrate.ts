@@ -43,8 +43,7 @@ async function main() {
       .filter((f) => f.endsWith('.sql'))
       .sort();
   } catch {
-    console.error(`✗ Could not read ${migrationsDir} — does db/migrations/ exist yet?`);
-    process.exit(1);
+    throw new Error(`Could not read ${migrationsDir} — does db/migrations/ exist yet?`);
   }
 
   const pending = files.filter((f) => !applied.has(f));
@@ -64,12 +63,21 @@ async function main() {
       console.log(`  ✓ ${file}`);
     } catch (err) {
       console.error(`  ✗ ${file} failed — rolled back. Nothing after this was applied.`);
-      console.error(err instanceof Error ? err.message : err);
-      process.exit(1);
+      throw err;
     }
   }
   console.log(`✓ Done — applied ${pending.length} migration(s).`);
 }
 
-await main();
-await sql.end();
+// Always close the pool, on success or failure, so the process exits cleanly
+// (a lingering connection would otherwise keep the event loop alive). Set a
+// non-zero exit code on failure rather than process.exit() mid-run, so the
+// finally block still runs.
+try {
+  await main();
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  process.exitCode = 1;
+} finally {
+  await sql.end();
+}
