@@ -4,6 +4,12 @@ const Env = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(20),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
+  // Neon Postgres connection string (migration to Neon — Step 1).
+  // Format: postgresql://user:pass@<host>.neon.tech/<db>?sslmode=require
+  // Optional for now: Supabase is still the live database, so the app must
+  // boot without it (CI, existing dev). lib/db.ts throws a clear error if it
+  // is used while unset. Becomes required at the production cutover step.
+  DATABASE_URL: z.string().url().optional(),
   ANTHROPIC_API_KEY: z.string().min(20),
   // Secret Postmark passes as a query string on the inbound webhook URL:
   // https://<tunnel-host>/api/v1/webhooks/postmark/inbound?secret=<value>

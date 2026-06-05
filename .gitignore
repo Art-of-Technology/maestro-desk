@@ -1,3 +1,14 @@
+# Secrets — never commit real env files (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+api/.env
+api/.env.*
+!api/.env.example
+
+# Dependencies
+node_modules/
+
 scripts/app.bundled.js
 scripts/route-entry.bundled.js
 scripts/full-smoke.js
