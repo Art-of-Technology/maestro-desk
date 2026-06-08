@@ -8,9 +8,12 @@
 // persistence without an extra error path.
 
 import type Anthropic from '@anthropic-ai/sdk';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { anthropic, computeCostMicro } from './anthropic.ts';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.ts';
+import { getDb } from './db.ts';
+
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); the `sb`
+// args are retained (passed-but-ignored) for caller compat during migration.
 
 const MODEL = 'claude-haiku-4-5';
 
@@ -49,7 +52,7 @@ Call the record_sentiment tool with your choice.`;
  * ticket_messages.sentiment in place so callers don't have to.
  */
 export async function scoreMessageSentiment(args: {
-  sb:          SupabaseClient;
+  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
   messageId:   string;
@@ -57,6 +60,7 @@ export async function scoreMessageSentiment(args: {
 }): Promise<Sentiment | null> {
   const { sb, workspaceId, ticketId, messageId, body } = args;
   if (!body.trim()) return null;
+  const sql = getDb();
 
   // Budget gate. Sentiment is nice-to-have, not load-bearing — if the
   // workspace is out of credits we silently skip rather than letting
@@ -65,15 +69,13 @@ export async function scoreMessageSentiment(args: {
     await assertHasBudget(sb, workspaceId);
   } catch (err) {
     if (err instanceof BudgetExceededError) {
-      await sb.from('ai_usage_log').insert({
-        workspace_id: workspaceId,
-        ticket_id: ticketId,
-        user_id: null,
-        action: 'sentiment_blocked_no_budget',
-        model: MODEL,
-        input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0,
-        cost_usd_micro: 0, duration_ms: 0, request_id: null,
-      });
+      await sql`
+        insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model,
+          input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
+          cost_usd_micro, duration_ms, request_id)
+        values (${workspaceId}, ${ticketId}, null, 'sentiment_blocked_no_budget', ${MODEL},
+          0, 0, 0, 0, 0, 0, null)
+      `;
       return null;
     }
     throw err;
@@ -117,20 +119,16 @@ export async function scoreMessageSentiment(args: {
   // Always log usage + deduct budget, even on the rare "no tool call"
   // path — tokens were spent.
   await Promise.all([
-    sb.from('ai_usage_log').insert({
-      workspace_id: workspaceId,
-      ticket_id: ticketId,
-      user_id: null,
-      action: sentiment ? 'sentiment_scored' : 'sentiment_failed_no_tool_use',
-      model: MODEL,
-      input_tokens: response.usage.input_tokens,
-      cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
-      cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
-      output_tokens: response.usage.output_tokens,
-      cost_usd_micro: costMicro,
-      duration_ms: durationMs,
-      request_id: response.id,
-    }),
+    sql`
+      insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model,
+        input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
+        cost_usd_micro, duration_ms, request_id)
+      values (${workspaceId}, ${ticketId}, null,
+        ${sentiment ? 'sentiment_scored' : 'sentiment_failed_no_tool_use'}, ${MODEL},
+        ${response.usage.input_tokens}, ${response.usage.cache_creation_input_tokens ?? 0},
+        ${response.usage.cache_read_input_tokens ?? 0}, ${response.usage.output_tokens},
+        ${costMicro}, ${durationMs}, ${response.id})
+    `,
     deductBudget(sb, workspaceId, costMicro),
   ]);
 
@@ -140,19 +138,15 @@ export async function scoreMessageSentiment(args: {
   // update and the denormalised tickets stamp. We could read it from
   // the .single() return on insert, but threading that through every
   // caller is more friction than just re-reading.
-  const { data: msgRow } = await sb
-    .from('ticket_messages')
-    .select('created_at')
-    .eq('id', messageId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  const [msgRow] = await sql<{ created_at: string }[]>`
+    select created_at from ticket_messages where id = ${messageId} and workspace_id = ${workspaceId}
+  `;
   const messageCreatedAt = msgRow?.created_at;
 
-  await sb
-    .from('ticket_messages')
-    .update({ sentiment })
-    .eq('id', messageId)
-    .eq('workspace_id', workspaceId);
+  await sql`
+    update ticket_messages set sentiment = ${sentiment}
+    where id = ${messageId} and workspace_id = ${workspaceId}
+  `;
 
   // Denormalise onto tickets so the SPA list can filter by sentiment
   // without joining ticket_messages on every render. Only overwrite
@@ -160,15 +154,13 @@ export async function scoreMessageSentiment(args: {
   // message_at — handles the rare case where two inbound messages
   // arrive close together and scoring resolves out of order.
   if (messageCreatedAt) {
-    await sb
-      .from('tickets')
-      .update({
-        latest_customer_sentiment:  sentiment,
-        latest_customer_message_at: messageCreatedAt,
-      })
-      .eq('id', ticketId)
-      .eq('workspace_id', workspaceId)
-      .or(`latest_customer_message_at.is.null,latest_customer_message_at.lte.${messageCreatedAt}`);
+    await sql`
+      update tickets set
+        latest_customer_sentiment  = ${sentiment},
+        latest_customer_message_at = ${messageCreatedAt}
+      where id = ${ticketId} and workspace_id = ${workspaceId}
+        and (latest_customer_message_at is null or latest_customer_message_at <= ${messageCreatedAt})
+    `;
   }
 
   // Anger triggers an automatic priority bump so the ticket surfaces
@@ -194,50 +186,38 @@ const PRIORITY_RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urge
 const ANGER_BUMP_TARGET = 'high';
 
 async function bumpPriorityForAnger(args: {
-  sb:          SupabaseClient;
+  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
 }): Promise<void> {
-  const { sb, workspaceId, ticketId } = args;
+  const { workspaceId, ticketId } = args;
+  const sql = getDb();
 
-  // Workspace can opt out of the auto-bump while keeping sentiment
-  // scoring on. Defaults to true so behaviour is unchanged from
-  // pre-toggle workspaces (and is the safer default for new ones).
-  const { data: ws } = await sb
-    .from('workspaces')
-    .select('auto_priority_bump_on_angry')
-    .eq('id', workspaceId)
-    .maybeSingle();
+  // Workspace can opt out while keeping sentiment scoring on. Defaults to true.
+  const [ws] = await sql<{ auto_priority_bump_on_angry: boolean }[]>`
+    select auto_priority_bump_on_angry from workspaces where id = ${workspaceId}
+  `;
   if (ws && ws.auto_priority_bump_on_angry === false) return;
 
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('id, priority_key')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr || !ticket) return;
+  const [ticket] = await sql<{ priority_key: string }[]>`
+    select priority_key from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!ticket) return;
 
-  const currentRank = PRIORITY_RANK[ticket.priority_key as string] ?? PRIORITY_RANK.normal;
+  const currentRank = PRIORITY_RANK[ticket.priority_key] ?? PRIORITY_RANK.normal;
   if (currentRank >= PRIORITY_RANK[ANGER_BUMP_TARGET]) return;
   const fromPriority = ticket.priority_key;
 
-  const { error: upErr } = await sb
-    .from('tickets')
-    .update({ priority_key: ANGER_BUMP_TARGET })
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId);
-  if (upErr) return;
+  await sql`
+    update tickets set priority_key = ${ANGER_BUMP_TARGET}
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+  `;
 
-  // Audit row so the thread shows WHY the priority changed — without
-  // it the agent sees a silent bump and has to dig through ai_usage_log
-  // to figure out what happened.
-  await sb.from('ticket_messages').insert({
-    workspace_id: workspaceId,
-    ticket_id:    ticketId,
-    role:         'system',
-    author_label: 'System',
-    body:         `Priority bumped from ${fromPriority} to ${ANGER_BUMP_TARGET} — customer's last message was flagged as angry.`,
-  });
+  // Audit row so the thread shows WHY the priority changed.
+  await sql`
+    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+    values (${workspaceId}, ${ticketId}, 'system', 'System',
+      ${`Priority bumped from ${fromPriority} to ${ANGER_BUMP_TARGET} — customer's last message was flagged as angry.`})
+  `;
 }
