@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { supabaseAdmin } from '../lib/supabase.ts';
+import { getDb } from '../lib/db.ts';
 import { PostmarkInbound, assertPostmarkAuth, parseTo } from '../lib/postmark.ts';
 import { processInboundEmail, resolveInboundWorkspace } from '../lib/inbound-email.ts';
 import { verifySlackSignature } from '../lib/slack-verify.ts';
@@ -32,14 +32,15 @@ webhooks.post('/postmark/inbound', async (c) => {
   const payload = parsed.data;
 
   try {
+    const sql = getDb();
     const to = parseTo(payload);
     const resolution = await resolveInboundWorkspace({
-      sb: supabaseAdmin,
+      sb: null,
       toDomain: to?.domain ?? null,
     });
 
     const result = await processInboundEmail({
-      sb: supabaseAdmin,
+      sb: null,
       workspaceId: resolution.workspaceId,
       payload,
     });
@@ -48,19 +49,16 @@ webhooks.post('/postmark/inbound', async (c) => {
     // (the ticket itself is the evidence; spamming audit_events for every
     // routed message would dwarf legitimate audit entries).
     if (!resolution.routed) {
-      await supabaseAdmin.from('audit_events').insert({
-        workspace_id: resolution.workspaceId,
-        action: 'inbound.unrouted',
-        target_type: 'ticket',
-        target_id: result.ticket_id,
-        metadata: {
+      await sql`
+        insert into audit_events (workspace_id, action, target_type, target_id, metadata)
+        values (${resolution.workspaceId}, 'inbound.unrouted', 'ticket', ${result.ticket_id}, ${sql.json({
           to_email: to?.email ?? null,
           to_domain: to?.domain ?? null,
           from_email: payload.FromFull?.Email ?? payload.From,
           subject: payload.Subject,
           message_id: payload.MessageID,
-        },
-      });
+        })})
+      `;
     }
 
     // Log lines diverge by dedup / threaded / new-ticket so the dev tail
@@ -135,15 +133,15 @@ webhooks.post('/slack/events', async (c) => {
   // For now: pick the integration whose signing_secret verifies. This
   // is O(workspaces-with-slack-configured); fine at hundreds, would
   // need a team_id column for tens of thousands.
-  const { data: candidates } = await supabaseAdmin
-    .from('slack_integrations')
-    .select('workspace_id, signing_secret, bot_token, active')
-    .not('signing_secret', 'is', null)
-    .eq('active', true);
+  const candidates = await getDb()<{ workspace_id: string; signing_secret: string | null; bot_token: string | null; active: boolean }[]>`
+    select workspace_id, signing_secret, bot_token, active
+    from slack_integrations
+    where signing_secret is not null and active = true
+  `;
 
   const signature = c.req.header('x-slack-signature') || null;
   const timestamp = c.req.header('x-slack-request-timestamp') || null;
-  const verified = (candidates || []).find((row) => {
+  const verified = candidates.find((row) => {
     const r = verifySlackSignature({
       signingSecret: row.signing_secret as string,
       signature,
@@ -159,7 +157,7 @@ webhooks.post('/slack/events', async (c) => {
 
   try {
     await handleSlackEvent({
-      sb:          supabaseAdmin,
+      sb:          null,
       workspaceId: verified.workspace_id,
       botToken:    verified.bot_token,
       payload,

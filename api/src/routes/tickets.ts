@@ -22,18 +22,12 @@ tickets.use('*', requireAuth);
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
 //
-// Every direct query in this file uses c.get('sbUser') — the user-scoped
-// Supabase client that forwards the caller's JWT, so RLS sees their
-// workspace_ids claim (injected by the Custom Access Token Hook) and
-// scopes reads/writes to memberships only. The route still appends
-// .eq('workspace_id', workspaceId) to scope to the active workspace
-// out of the user's full membership list.
-//
-// Library calls (workflow-engine, slack-notify, assign-rules-engine)
-// need cross-table privileged access that those libs' tables haven't
-// been pivoted to JWT-based RLS yet — they take sbAdmin (service-role).
-// Each PATCH/POST that delegates to a lib pulls both clients off the
-// context.
+// Every direct query in this file uses getDb() (Neon via postgres.js) and
+// explicitly scopes by workspace_id — the authorization that RLS used to
+// enforce now lives here in the route + the auth middleware (which verifies
+// the caller is a member of the active workspace). Library calls still take
+// c.get('sb') for caller-signature compat but ignore it; they open their own
+// getDb() connection internally.
 tickets.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -193,10 +187,8 @@ const PatchTicket = z.object({
 }).strict();
 
 tickets.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
-  // Library calls (workflow engine, Slack notify) need cross-table
-  // privileged access — keep them on service-role.
-  const sbAdmin = c.get('sb');
+  const sql = getDb();
+  const sbAdmin = c.get('sb');   // passed to libs (which ignore it)
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -210,43 +202,25 @@ tickets.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  // Workspace-scope check before the update so an attacker with a valid
-  // ticket UUID from another workspace can't blind-write through the
-  // service-role client. Also captures the pre-update column values the
-  // workflow engine compares against for change-detection triggers
-  // (status_change / priority_change / etc.).
-  const { data: existing, error: lookupErr } = await sb
-    .from('tickets')
-    .select('id, status_key, priority_key, category_key, assigned_user_id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
-  if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
+  // Workspace-scope check before the update; also captures the pre-update
+  // column values the workflow engine compares for change-detection triggers.
+  const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
+    select status_key, priority_key, category_key, assigned_user_id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!existing) return c.json({ error: 'Ticket not found' }, 404);
 
-  // Reject assigning an unknown or disabled category. null clears the
-  // category (allowed); a non-null key must match an active row. Skipped when
-  // unchanged so a ticket already on a since-disabled category can still be
-  // edited on its other fields.
+  // Reject assigning an unknown/disabled category (null clears; non-null must
+  // match an active row). Skipped when unchanged.
   if (updates.category_key != null && updates.category_key !== existing.category_key) {
-    const { data: cat, error: catErr } = await sb
-      .from('ticket_categories')
-      .select('key')
-      .eq('workspace_id', workspaceId)
-      .eq('key', updates.category_key)
-      .eq('is_active', true)
-      .maybeSingle();
-    if (catErr) return c.json({ error: catErr.message }, 500);
-    if (!cat)   return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
+    const [cat] = await sql`
+      select key from ticket_categories
+      where workspace_id = ${workspaceId} and key = ${updates.category_key} and is_active = true
+    `;
+    if (!cat) return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
   }
 
-  const { error: updErr } = await sb
-    .from('tickets')
-    .update(updates)
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  await sql`update tickets set ${sql(updates)} where id = ${ticketId} and workspace_id = ${workspaceId}`;
 
   // Fire workflow engine against the post-update row. The engine may
   // mutate further fields (assign_role / set_status / add_tag), so we
@@ -283,14 +257,11 @@ tickets.patch('/:id', async (c) => {
     catch (err) { console.warn('[outgoing-webhooks] urgent failed:', err); }
   }
 
-  const { data: updated, error: refetchErr } = await sb
-    .from('tickets')
-    .select('id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at, csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .single();
-  if (refetchErr) return c.json({ error: refetchErr.message }, 500);
-
+  const [updated] = await sql`
+    select id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
+           csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at
+    from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
+  `;
   return c.json({ ticket: updated });
 });
 
@@ -302,7 +273,7 @@ const PostMessage = z.object({
 });
 
 tickets.post('/:id/messages', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -314,40 +285,22 @@ tickets.post('/:id/messages', async (c) => {
   }
   const input = parsed.data;
 
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
   // Resolve author display name from public.users so the row carries the
   // canonical name without trusting the client.
-  const { data: user, error: uErr } = await sb
-    .from('users')
-    .select('name, email')
-    .eq('id', userId)
-    .maybeSingle();
-  if (uErr) return c.json({ error: uErr.message }, 500);
+  const [user] = await sql`select name, email from users where id = ${userId}`;
   const authorLabel = user?.name || user?.email || 'Agent';
 
-  const { data: message, error: mErr } = await sb
-    .from('ticket_messages')
-    .insert({
-      workspace_id:   workspaceId,
-      ticket_id:      ticketId,
-      role:           input.role,
-      author_user_id: userId,
-      author_label:   authorLabel,
-      body:           input.body,
-      mentions:       input.mentions || [],
-    })
-    .select('id, role, author_user_id, author_label, body, mentions, created_at')
-    .single();
-  if (mErr) return c.json({ error: mErr.message }, 500);
+  const [message] = await sql`
+    insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions)
+    values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${input.body}, ${input.mentions || []})
+    returning id, role, author_user_id, author_label, body, mentions, created_at
+  `;
 
   // Fire-and-forget email notifications when a note @mentions other
   // agents. Service-role for the user lookup (cross-workspace
@@ -384,35 +337,26 @@ tickets.post('/:id/messages', async (c) => {
 // expects the privileged client (it inserts into ai_usage_log and
 // updates tickets.priority_key on anger).
 tickets.post('/:id/sentiment/backfill', async (c) => {
+  const sql      = getDb();
   const sb       = c.get('sb');         // service-role for scoreMessageSentiment
-  const sbUser   = c.get('sbUser');
   const workspaceId = c.get('workspaceId');
   const ticketId    = c.req.param('id');
 
   // Confirm the ticket exists in this workspace before doing any AI
   // work — also surfaces a clean 404 instead of "0 scored" if the
   // caller fat-fingers the id.
-  const { data: ticket, error: tErr } = await sbUser
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const { data: messages, error: mErr } = await sbUser
-    .from('ticket_messages')
-    .select('id, body')
-    .eq('ticket_id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .eq('role', 'customer')
-    .is('sentiment', null)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true });
-  if (mErr) return c.json({ error: mErr.message }, 500);
-  const unscored = messages || [];
+  const unscored = await sql<{ id: string; body: string | null }[]>`
+    select id, body from ticket_messages
+    where ticket_id = ${ticketId} and workspace_id = ${workspaceId}
+      and role = 'customer' and sentiment is null and deleted_at is null
+    order by created_at asc
+  `;
   if (unscored.length === 0) {
     return c.json({ scored: 0, sentiments: {} });
   }
@@ -454,7 +398,7 @@ function normaliseTag(raw: string): string {
 }
 
 tickets.post('/:id/tags', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -467,34 +411,30 @@ tickets.post('/:id/tags', async (c) => {
   if (!tag) return c.json({ error: 'Tag is empty after normalisation' }, 400);
 
   // Confirm ticket exists in this workspace.
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
   // Idempotent — ON CONFLICT does nothing because (ticket_id, tag) is the PK.
-  const { error: insErr } = await sb
-    .from('ticket_tags')
-    .upsert(
-      { workspace_id: workspaceId, ticket_id: ticketId, tag },
-      { onConflict: 'ticket_id,tag', ignoreDuplicates: true },
-    );
-  if (insErr) return c.json({ error: insErr.message }, 500);
+  await sql`
+    insert into ticket_tags (workspace_id, ticket_id, tag)
+    values (${workspaceId}, ${ticketId}, ${tag})
+    on conflict (ticket_id, tag) do nothing
+  `;
 
   // Keep the workspace tag library populated. Best-effort — failure here
   // shouldn't fail the request because the ticket_tags row already landed.
-  const { error: libErr } = await sb
-    .from('tag_library')
-    .upsert(
-      { workspace_id: workspaceId, tag, kind: 'manual' },
-      { onConflict: 'workspace_id,tag', ignoreDuplicates: true },
-    );
-  if (libErr) console.warn('[tickets] tag_library upsert failed:', libErr.message);
+  try {
+    await sql`
+      insert into tag_library (workspace_id, tag, kind)
+      values (${workspaceId}, ${tag}, 'manual')
+      on conflict (workspace_id, tag) do nothing
+    `;
+  } catch (err) {
+    console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
+  }
 
   return c.json({ tag }, 201);
 });
@@ -504,28 +444,19 @@ tickets.post('/:id/tags', async (c) => {
 // Tags are unique by (ticket_id, tag), so we route by URL. Returns 204
 // on success whether or not the tag was actually present (idempotent).
 tickets.delete('/:id/tags/:tag', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const tag = normaliseTag(c.req.param('tag'));
 
   // Workspace-scope check.
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const { error: delErr } = await sb
-    .from('ticket_tags')
-    .delete()
-    .eq('ticket_id', ticketId)
-    .eq('tag', tag);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  await sql`delete from ticket_tags where ticket_id = ${ticketId} and tag = ${tag}`;
 
   return new Response(null, { status: 204 });
 });
@@ -542,7 +473,7 @@ const PatchAITag = z.object({
 });
 
 tickets.patch('/:id/ai_tags/:tag', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const tag = c.req.param('tag');
@@ -555,47 +486,37 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
 
   // Workspace-scope check + confirm the AI tag actually exists on this
   // ticket. Catches stale UI submitting an accept for a tag the server
-  // no longer has.
-  const { data: existing, error: lookupErr } = await sb
-    .from('ticket_ai_tags')
-    .select('tag, accepted, ticket_id, tickets!inner(workspace_id, deleted_at)')
-    .eq('ticket_id', ticketId)
-    .eq('tag', tag)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  // no longer has. The inner join to tickets enforces the workspace +
+  // not-deleted constraint in one round trip.
+  const [existing] = await sql`
+    select at.tag
+    from ticket_ai_tags at
+    join tickets t on t.id = at.ticket_id
+    where at.ticket_id = ${ticketId} and at.tag = ${tag}
+      and t.workspace_id = ${workspaceId} and t.deleted_at is null
+  `;
   if (!existing) return c.json({ error: 'AI tag not found' }, 404);
-  const parent = (Array.isArray(existing.tickets) ? existing.tickets[0] : existing.tickets) as
-    | { workspace_id: string; deleted_at: string | null }
-    | null;
-  if (!parent || parent.workspace_id !== workspaceId || parent.deleted_at) {
-    return c.json({ error: 'AI tag not found' }, 404);
-  }
 
   // 1. Flip accepted=true on the ai_tags row (no-op if already accepted).
-  const { error: updErr } = await sb
-    .from('ticket_ai_tags')
-    .update({ accepted: true })
-    .eq('ticket_id', ticketId)
-    .eq('tag', tag);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  await sql`update ticket_ai_tags set accepted = true where ticket_id = ${ticketId} and tag = ${tag}`;
 
   // 2. Promote to a manual ticket_tags row. Idempotent via the PK.
-  const { error: insErr } = await sb
-    .from('ticket_tags')
-    .upsert(
-      { workspace_id: workspaceId, ticket_id: ticketId, tag },
-      { onConflict: 'ticket_id,tag', ignoreDuplicates: true },
-    );
-  if (insErr) return c.json({ error: insErr.message }, 500);
+  await sql`
+    insert into ticket_tags (workspace_id, ticket_id, tag)
+    values (${workspaceId}, ${ticketId}, ${tag})
+    on conflict (ticket_id, tag) do nothing
+  `;
 
   // 3. Keep the workspace tag library populated. Best-effort.
-  const { error: libErr } = await sb
-    .from('tag_library')
-    .upsert(
-      { workspace_id: workspaceId, tag, kind: 'manual' },
-      { onConflict: 'workspace_id,tag', ignoreDuplicates: true },
-    );
-  if (libErr) console.warn('[tickets] tag_library upsert failed:', libErr.message);
+  try {
+    await sql`
+      insert into tag_library (workspace_id, tag, kind)
+      values (${workspaceId}, ${tag}, 'manual')
+      on conflict (workspace_id, tag) do nothing
+    `;
+  } catch (err) {
+    console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
+  }
 
   return c.json({ tag, accepted: true });
 });
@@ -611,7 +532,7 @@ const PostSnooze = z.object({
 });
 
 tickets.post('/:id/snooze', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -627,30 +548,22 @@ tickets.post('/:id/snooze', async (c) => {
   }
 
   // Workspace-scope check.
-  const { data: existing, error: lookupErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  const [existing] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
 
-  const { data: updated, error: updErr } = await sb
-    .from('tickets')
-    .update({
-      snoozed_until:      until,
-      snoozed_at:         new Date().toISOString(),
-      snoozed_by_user_id: userId,
-      snooze_reason:      reason || null,
-      snooze_woken_at:    null,
-    })
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .select('id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at')
-    .single();
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  const [updated] = await sql`
+    update tickets set
+      snoozed_until      = ${until},
+      snoozed_at         = now(),
+      snoozed_by_user_id = ${userId},
+      snooze_reason      = ${reason || null},
+      snooze_woken_at    = null
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+    returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
+  `;
 
   return c.json({ ticket: updated });
 });
@@ -660,35 +573,27 @@ tickets.post('/:id/snooze', async (c) => {
 // ?via_wakeup=true → server stamps snooze_woken_at = now() so the activity
 // log can distinguish "snooze elapsed" from "agent un-snoozed manually".
 tickets.delete('/:id/snooze', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const viaWakeup = c.req.query('via_wakeup') === 'true';
 
-  const { data: existing, error: lookupErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  const [existing] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
 
-  const { data: updated, error: updErr } = await sb
-    .from('tickets')
-    .update({
-      snoozed_until:      null,
-      snoozed_at:         null,
-      snoozed_by_user_id: null,
-      snooze_reason:      null,
-      snooze_woken_at:    viaWakeup ? new Date().toISOString() : null,
-    })
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .select('id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at')
-    .single();
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  const [updated] = await sql`
+    update tickets set
+      snoozed_until      = null,
+      snoozed_at         = null,
+      snoozed_by_user_id = null,
+      snooze_reason      = null,
+      snooze_woken_at    = ${viaWakeup ? sql`now()` : null}
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+    returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
+  `;
 
   return c.json({ ticket: updated });
 });
@@ -710,7 +615,7 @@ const PostMerge = z.object({
 });
 
 tickets.post('/:id/merge', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const sourceId = c.req.param('id');
 
@@ -725,15 +630,13 @@ tickets.post('/:id/merge', async (c) => {
   }
 
   // Fetch both tickets in the workspace.
-  const { data: rows, error: fetchErr } = await sb
-    .from('tickets')
-    .select('id, display_id, subject, status_key, merged_into_id')
-    .in('id', [sourceId, primaryId])
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null);
-  if (fetchErr) return c.json({ error: fetchErr.message }, 500);
-  const source = (rows || []).find((r) => r.id === sourceId);
-  const primary = (rows || []).find((r) => r.id === primaryId);
+  const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string | null; merged_into_id: string | null }[]>`
+    select id, display_id, subject, status_key, merged_into_id
+    from tickets
+    where id = any(${[sourceId, primaryId]}) and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  const source = rows.find((r) => r.id === sourceId);
+  const primary = rows.find((r) => r.id === primaryId);
   if (!source)  return c.json({ error: 'Source ticket not found' }, 404);
   if (!primary) return c.json({ error: 'Primary ticket not found' }, 404);
   if (source.merged_into_id) {
@@ -745,54 +648,36 @@ tickets.post('/:id/merge', async (c) => {
 
   // 1. Update source row.
   const wasResolved = source.status_key === 'resolved';
-  const { error: updErr } = await sb
-    .from('tickets')
-    .update({
-      merged_into_id:      primaryId,
-      merged_at:           new Date().toISOString(),
-      status_before_merge: wasResolved ? null : source.status_key,
-      status_key:          'resolved',
-    })
-    .eq('id', sourceId)
-    .eq('workspace_id', workspaceId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  await sql`
+    update tickets set
+      merged_into_id      = ${primaryId},
+      merged_at           = now(),
+      status_before_merge = ${wasResolved ? null : source.status_key},
+      status_key          = 'resolved'
+    where id = ${sourceId} and workspace_id = ${workspaceId}
+  `;
 
   // 2. Copy source messages onto primary, tagged with merged_from_id.
-  const { data: srcMsgs, error: msgsErr } = await sb
-    .from('ticket_messages')
-    .select('role, author_user_id, author_label, body, mentions, created_at')
-    .eq('ticket_id', sourceId)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true });
-  if (msgsErr) return c.json({ error: msgsErr.message }, 500);
+  const srcMsgs = await sql<{ role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
+    select role, author_user_id, author_label, body, mentions
+    from ticket_messages
+    where ticket_id = ${sourceId} and deleted_at is null
+    order by created_at asc
+  `;
 
-  const inserts: any[] = [
-    // Merge marker first so it shows up at the top of the merged block.
-    // mentions:[] is explicit because Supabase's batch insert sends every
-    // key — missing → null, which violates the NOT NULL constraint even
-    // though the column has a default.
-    {
-      workspace_id:   workspaceId,
-      ticket_id:      primaryId,
-      role:           'system',
-      author_label:   'System',
-      body:           `── Merged from ${source.display_id}: "${source.subject}" ──`,
-      mentions:       [],
-      merged_from_id: sourceId,
-    },
-    ...(srcMsgs || []).map((m: any) => ({
-      workspace_id:   workspaceId,
-      ticket_id:      primaryId,
-      role:           m.role,
-      author_user_id: m.author_user_id,
-      author_label:   m.author_label,
-      body:           m.body,
-      mentions:       m.mentions || [],
-      merged_from_id: sourceId,
-    })),
-  ];
-  const { error: insErr } = await sb.from('ticket_messages').insert(inserts);
-  if (insErr) return c.json({ error: insErr.message }, 500);
+  // Merge marker first so it shows up at the top of the merged block.
+  await sql`
+    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, mentions, merged_from_id)
+    values (${workspaceId}, ${primaryId}, 'system', 'System',
+            ${`── Merged from ${source.display_id}: "${source.subject}" ──`}, ${[]}, ${sourceId})
+  `;
+  for (const m of srcMsgs) {
+    await sql`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id)
+      values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
+              ${m.body}, ${m.mentions || []}, ${sourceId})
+    `;
+  }
 
   return c.json({
     source: { id: sourceId, merged_into_display_id: primary.display_id },
@@ -808,45 +693,36 @@ tickets.post('/:id/merge', async (c) => {
 //      somehow missing — shouldn't happen for clean merges).
 //   3. Clears merged_into_id, merged_at, status_before_merge.
 tickets.post('/:id/unmerge', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const sourceId = c.req.param('id');
 
-  const { data: source, error: fetchErr } = await sb
-    .from('tickets')
-    .select('id, merged_into_id, status_before_merge')
-    .eq('id', sourceId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (fetchErr) return c.json({ error: fetchErr.message }, 500);
+  const [source] = await sql<{ id: string; merged_into_id: string | null; status_before_merge: string | null }[]>`
+    select id, merged_into_id, status_before_merge
+    from tickets
+    where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!source) return c.json({ error: 'Source ticket not found' }, 404);
   if (!source.merged_into_id) {
     return c.json({ error: 'Ticket is not merged' }, 409);
   }
 
   // 1. Strip merged messages from the primary.
-  const { error: delErr } = await sb
-    .from('ticket_messages')
-    .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('ticket_id', source.merged_into_id)
-    .eq('merged_from_id', sourceId);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  await sql`
+    delete from ticket_messages
+    where workspace_id = ${workspaceId} and ticket_id = ${source.merged_into_id} and merged_from_id = ${sourceId}
+  `;
 
   // 2. Restore source row.
   const restoredStatus = source.status_before_merge || 'open';
-  const { error: updErr } = await sb
-    .from('tickets')
-    .update({
-      merged_into_id:      null,
-      merged_at:           null,
-      status_before_merge: null,
-      status_key:          restoredStatus,
-    })
-    .eq('id', sourceId)
-    .eq('workspace_id', workspaceId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  await sql`
+    update tickets set
+      merged_into_id      = null,
+      merged_at           = null,
+      status_before_merge = null,
+      status_key          = ${restoredStatus}
+    where id = ${sourceId} and workspace_id = ${workspaceId}
+  `;
 
   return c.json({
     source: { id: sourceId, status_key: restoredStatus },
@@ -865,7 +741,7 @@ const PostTime = z.object({
 });
 
 tickets.post('/:id/time', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
@@ -878,29 +754,21 @@ tickets.post('/:id/time', async (c) => {
   const { minutes, note, billable } = parsed.data;
 
   // Workspace-scope check.
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('id')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select id from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const { data: entry, error: insErr } = await sb
-    .from('time_entries')
-    .insert({
-      workspace_id: workspaceId,
-      ticket_id:    ticketId,
-      user_id:      userId,
-      minutes,
-      note:         note ?? null,
-      billable:     billable ?? true,
-    })
-    .select('id, user_id, minutes, note, billable, created_at, users(name)')
-    .single();
-  if (insErr) return c.json({ error: insErr.message }, 500);
+  const [entry] = await sql<{ id: string; user_id: string; minutes: number; note: string | null; billable: boolean; created_at: string; user_name: string | null }[]>`
+    with ins as (
+      insert into time_entries (workspace_id, ticket_id, user_id, minutes, note, billable)
+      values (${workspaceId}, ${ticketId}, ${userId}, ${minutes}, ${note ?? null}, ${billable ?? true})
+      returning id, user_id, minutes, note, billable, created_at
+    )
+    select ins.*, u.name as user_name
+    from ins left join users u on u.id = ins.user_id
+  `;
 
   // Flatten the user join so the client gets a consistent shape with the
   // detail-endpoint time_entries payload.
@@ -908,7 +776,7 @@ tickets.post('/:id/time', async (c) => {
     entry: {
       id:         entry.id,
       user_id:    entry.user_id,
-      user_name:  (entry as any).users?.name || null,
+      user_name:  entry.user_name || null,
       minutes:    entry.minutes,
       note:       entry.note,
       billable:   entry.billable,
@@ -923,18 +791,15 @@ tickets.post('/:id/time', async (c) => {
 // admins (already past the auth middleware) and workspace-role admins.
 // Mirrors the client-side guard.
 tickets.delete('/:id/time/:entryId', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const ticketId = c.req.param('id');
   const entryId = c.req.param('entryId');
 
-  const { data: entry, error: lookupErr } = await sb
-    .from('time_entries')
-    .select('id, user_id, workspace_id, ticket_id')
-    .eq('id', entryId)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  const [entry] = await sql<{ id: string; user_id: string; workspace_id: string; ticket_id: string }[]>`
+    select id, user_id, workspace_id, ticket_id from time_entries where id = ${entryId}
+  `;
   if (!entry || entry.workspace_id !== workspaceId || entry.ticket_id !== ticketId) {
     return c.json({ error: 'Time entry not found' }, 404);
   }
@@ -942,26 +807,22 @@ tickets.delete('/:id/time/:entryId', async (c) => {
   if (entry.user_id !== userId) {
     // Caller didn't log it — allow if they're a platform admin or a
     // workspace-role admin. Both checks in parallel.
-    const [paRes, waRes] = await Promise.all([
-      sb.from('users').select('is_platform_admin').eq('id', userId).maybeSingle(),
-      sb.from('workspace_members')
-        .select('roles(is_admin)')
-        .eq('user_id', userId)
-        .eq('workspace_id', workspaceId)
-        .maybeSingle(),
+    const [paRows, waRows] = await Promise.all([
+      sql<{ is_platform_admin: boolean | null }[]>`select is_platform_admin from users where id = ${userId}`,
+      sql<{ is_admin: boolean | null }[]>`
+        select r.is_admin
+        from workspace_members wm join roles r on r.id = wm.role_id
+        where wm.user_id = ${userId} and wm.workspace_id = ${workspaceId} and wm.active = true
+      `,
     ]);
-    const isPlatformAdmin  = Boolean(paRes.data?.is_platform_admin);
-    const isWorkspaceAdmin = Boolean((waRes.data as any)?.roles?.is_admin);
+    const isPlatformAdmin  = Boolean(paRows[0]?.is_platform_admin);
+    const isWorkspaceAdmin = Boolean(waRows[0]?.is_admin);
     if (!isPlatformAdmin && !isWorkspaceAdmin) {
       return c.json({ error: 'Only the original logger or an admin can remove this entry' }, 403);
     }
   }
 
-  const { error: delErr } = await sb
-    .from('time_entries')
-    .delete()
-    .eq('id', entryId);
-  if (delErr) return c.json({ error: delErr.message }, 500);
+  await sql`delete from time_entries where id = ${entryId}`;
 
   return new Response(null, { status: 204 });
 });
@@ -972,7 +833,7 @@ tickets.delete('/:id/time/:entryId', async (c) => {
 // flat, no ticket update). Otherwise { matched: true, rule, ticket }
 // reflecting the post-engine state.
 tickets.post('/:id/apply-rules', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
@@ -980,12 +841,10 @@ tickets.post('/:id/apply-rules', async (c) => {
   const result = await applyAssignmentRules({ sb: sbAdmin, workspaceId, ticketId });
   if (!result) return c.json({ matched: false });
 
-  const { data: ticket } = await sb
-    .from('tickets')
-    .select('id, display_id, assigned_user_id, status_key, priority_key, category_key')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  const [ticket] = await sql`
+    select id, display_id, assigned_user_id, status_key, priority_key, category_key
+    from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
+  `;
 
   return c.json({
     matched:  true,
@@ -1004,7 +863,7 @@ const CreateTicket = z.object({
 });
 
 tickets.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
@@ -1020,31 +879,18 @@ tickets.post('/', async (c) => {
   // sequence (or trigger) before this is exposed to real users.
   const displayId = `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
 
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .insert({
-      workspace_id: workspaceId,
-      display_id: displayId,
-      subject: input.subject,
-      customer_id: input.customer_id,
-      status_key: input.status_key,
-      priority_key: input.priority_key,
-      category_key: input.category_key ?? null,
-      assigned_user_id: userId,
-    })
-    .select('id, display_id')
-    .single();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql<{ id: string; display_id: string }[]>`
+    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)
+    values (${workspaceId}, ${displayId}, ${input.subject}, ${input.customer_id},
+            ${input.status_key}, ${input.priority_key}, ${input.category_key ?? null}, ${userId})
+    returning id, display_id
+  `;
 
   if (input.initial_message) {
-    const { error: mErr } = await sb.from('ticket_messages').insert({
-      workspace_id: workspaceId,
-      ticket_id: ticket.id,
-      role: 'customer',
-      author_label: 'API caller',
-      body: input.initial_message,
-    });
-    if (mErr) return c.json({ error: mErr.message, ticket }, 500);
+    await sql`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+      values (${workspaceId}, ${ticket.id}, 'customer', 'API caller', ${input.initial_message})
+    `;
   }
 
   // Auto-apply assignment rules on the freshly-created ticket. Errors
