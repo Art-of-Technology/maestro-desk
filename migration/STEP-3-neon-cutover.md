@@ -41,9 +41,9 @@ Route families to migrate (each still authenticates via Supabase JWT until the f
 - [x] canned-responses, ticket-templates  *(Batch A)*
 - [x] custom-fields + custom-values  *(Batch A)*
 - [ ] agents, roles, permissions (admin-write authz)
-- [ ] workflows, sla-policies, assign-rules
+- [x] workflows, sla-policies, assign-rules  *(Batch B)*
 - [x] **categories** (PR 3.1, admin-write authz) · **saved-searches** (owner-only write + own/shared read authz)
-- [ ] tags
+- [x] tags  *(Batch B — incl. the merge endpoint)*
 - [ ] integrations (slack/stripe/shopify) + outgoing webhooks (the `sb` routes)
 - [ ] presence (generic presence table)
 - [ ] me, workspace
