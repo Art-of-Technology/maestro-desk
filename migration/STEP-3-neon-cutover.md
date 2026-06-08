@@ -40,13 +40,13 @@ Route families to migrate (each still authenticates via Supabase JWT until the f
 - [x] kb (+ votes, atomic view counter)  *(Batch C)*
 - [x] canned-responses, ticket-templates  *(Batch A)*
 - [x] custom-fields + custom-values  *(Batch A)*
-- [ ] agents, roles, permissions (admin-write authz)
+- [x] agents (admin-write authz), roles (member-level), permissions  *(Batch D)*
 - [x] workflows, sla-policies, assign-rules  *(Batch B)*
 - [x] **categories** (PR 3.1, admin-write authz) · **saved-searches** (owner-only write + own/shared read authz)
 - [x] tags  *(Batch B — incl. the merge endpoint)*
 - [ ] integrations (slack/stripe/shopify) + outgoing webhooks (the `sb` routes)
-- [ ] presence (generic presence table)
-- [ ] me, workspace
+- [x] presence (generic presence table)  *(Batch D)*
+- [x] me  *(Batch D)*  ·  [ ] workspace (still pending)
 - [ ] god routes (platform-admin; provisioning via `provision_brand` fn already on Neon)
 - [ ] portal (public): `lib/portal-auth.ts` + `routes/public.ts` — move its DB calls (magic links / sessions) to Neon. (Self-contained token auth, unchanged logic.)
 - [ ] lib data-access modules still on `supabaseAdmin` (inbound-email, csat-survey, workflow-engine, mention-notify, outgoing-webhooks worker, postmark-*, etc.)
