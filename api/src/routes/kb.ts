@@ -174,7 +174,7 @@ kb.post('/:id/vote', async (c) => {
   // Persist the vote row.
   if (nextVote === 0) {
     if (prev !== 0) {
-      await sql`delete from kb_votes where article_id = ${id} and user_key = ${userId}`;
+      await sql`delete from kb_votes where workspace_id = ${workspaceId} and article_id = ${id} and user_key = ${userId}`;
     }
   } else {
     await sql`
