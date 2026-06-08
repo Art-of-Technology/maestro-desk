@@ -166,26 +166,37 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     }
   }
 
-  // Create the ticket.
-  const [ticket] = await sql<{ id: string; display_id: string }[]>`
-    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state)
-    values (${ws.id}, ${nextTicketDisplayId()}, ${input.subject}, ${customerId}, 'open', 'normal', 'ok')
-    returning id, display_id
-  `;
+  // Create the ticket + its first message atomically. A bare ticket with
+  // no opening message is a broken record (the agent view would render an
+  // empty thread), so they land together or not at all — if the message
+  // insert throws, the ticket insert rolls back and the request surfaces a
+  // clean 500 via the global error handler with nothing orphaned.
+  const ticket = await sql.begin(async (tx) => {
+    const [t] = await tx<{ id: string; display_id: string }[]>`
+      insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state)
+      values (${ws.id}, ${nextTicketDisplayId()}, ${input.subject}, ${customerId}, 'open', 'normal', 'ok')
+      returning id, display_id
+    `;
+    // First message — author_label uses the customer's submitted name.
+    await tx`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+      values (${ws.id}, ${t.id}, 'customer', ${input.name}, ${input.body})
+    `;
+    return t;
+  }) as { id: string; display_id: string };
 
-  // First message — author_label uses the customer's submitted name.
-  await sql`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
-    values (${ws.id}, ${ticket.id}, 'customer', ${input.name}, ${input.body})
-  `;
-
-  // Audit row so the agent UI can show "submitted via portal" if it
-  // ever cares about the channel.
-  await sql`
-    insert into audit_events (workspace_id, action, target_type, target_id, metadata)
-    values (${ws.id}, 'portal.ticket_submitted', 'ticket', ${ticket.id},
-            ${sql.json({ customer_id: customerId, from_email: email, from_name: input.name })})
-  `;
+  // Audit row so the agent UI can show "submitted via portal" if it ever
+  // cares about the channel. Best-effort: the ticket is already committed,
+  // so an audit-log hiccup must not fail an otherwise-successful submission.
+  try {
+    await sql`
+      insert into audit_events (workspace_id, action, target_type, target_id, metadata)
+      values (${ws.id}, 'portal.ticket_submitted', 'ticket', ${ticket.id},
+              ${sql.json({ customer_id: customerId, from_email: email, from_name: input.name })})
+    `;
+  } catch (err) {
+    console.warn('[public] portal.ticket_submitted audit insert failed:', err instanceof Error ? err.message : err);
+  }
 
   return c.json({
     ticket: { id: ticket.id, display_id: ticket.display_id },
