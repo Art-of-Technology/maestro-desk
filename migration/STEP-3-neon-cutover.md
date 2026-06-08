@@ -44,7 +44,7 @@ Route families to migrate (each still authenticates via Supabase JWT until the f
 - [x] workflows, sla-policies, assign-rules  *(Batch B)*
 - [x] **categories** (PR 3.1, admin-write authz) · **saved-searches** (owner-only write + own/shared read authz)
 - [x] tags  *(Batch B — incl. the merge endpoint)*
-- [ ] integrations (slack/stripe/shopify) + outgoing webhooks (the `sb` routes)
+- [x] integrations (slack/stripe/shopify + outgoing webhooks + postmark suppression)  *(Batch E)*
 - [x] presence (generic presence table)  *(Batch D)*
 - [x] me  *(Batch D)*  ·  [ ] workspace (still pending)
 - [ ] god routes (platform-admin; provisioning via `provision_brand` fn already on Neon)

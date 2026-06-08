@@ -1,19 +1,26 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 import { fetchStripeContext } from '../lib/stripe-client.ts';
 import { fetchShopifyContext } from '../lib/shopify-client.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
+// The Stripe/Shopify clients are external HTTP (no DB) and are unchanged.
 export const integrations = new Hono();
 
 integrations.use('*', requireAuth);
 
-// ─── Slack integration (one per workspace) ──────────────────────────────
-//
-// Read returns the row or { integration: null } when unconfigured.
-// Write is PUT (upsert) — there's only ever one row per workspace so
-// "create" and "update" collapse into a single shape.
+// postgres.js upsert helper: insert the row, on (workspace_id) conflict update
+// all of the row's columns except workspace_id. `table` is a literal union —
+// only these three tables can ever be passed (no caller-supplied table names).
+type IntegrationTable = 'slack_integrations' | 'stripe_integrations' | 'shopify_integrations';
+function upsertByWorkspace(sql: ReturnType<typeof getDb>, table: IntegrationTable, row: Record<string, unknown>) {
+  const updateKeys = Object.keys(row).filter((k) => k !== 'workspace_id');
+  return sql`insert into ${sql(table)} ${sql(row)} on conflict (workspace_id) do update set ${sql(row, ...updateKeys)}`;
+}
 
+// ─── Slack integration (one per workspace) ──────────────────────────────
 const EVENT_NAMES = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
 
 const SlackBody = z.object({
@@ -26,44 +33,34 @@ const SlackBody = z.object({
 });
 
 integrations.get('/slack', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { data, error } = await sb
-    .from('slack_integrations')
-    .select('webhook_url, channel, active, events, bot_token, signing_secret, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  const [data] = await sql`
+    select webhook_url, channel, active, events, bot_token, signing_secret, created_at, updated_at
+    from slack_integrations where workspace_id = ${workspaceId}
+  `;
   if (!data) return c.json({ integration: null });
-  // Mask the two secrets — surface only "configured yes/no" + a tail
-  // suffix on the bot token (xoxb-...XXX) so the SPA can show the
-  // user which token is on file without ever returning the full
-  // value over the wire.
-  const { bot_token, signing_secret, ...rest } = data as any;
+  const { bot_token, signing_secret, ...rest } = data;
   return c.json({
     integration: {
       ...rest,
-      bot_token_suffix:       bot_token ? bot_token.slice(-6) : null,
-      has_bot_token:          Boolean(bot_token),
-      has_signing_secret:     Boolean(signing_secret),
+      bot_token_suffix:   bot_token ? bot_token.slice(-6) : null,
+      has_bot_token:      Boolean(bot_token),
+      has_signing_secret: Boolean(signing_secret),
     },
   });
 });
 
 integrations.put('/slack', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = SlackBody.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const input = parsed.data;
-  // bot_token / signing_secret are optional. Treating `undefined` as
-  // "don't touch" and `null` as "clear" lets the SPA toggle two-way
-  // independently of webhook config (you can set up outbound first,
-  // then add the bot token later).
-  const row: any = {
+
+  // bot_token / signing_secret: undefined = "don't touch", null = "clear".
+  const row: Record<string, unknown> = {
     workspace_id: workspaceId,
     webhook_url:  input.webhook_url,
     channel:      input.channel ?? null,
@@ -72,54 +69,34 @@ integrations.put('/slack', async (c) => {
   };
   if (input.bot_token !== undefined)      row.bot_token      = input.bot_token;
   if (input.signing_secret !== undefined) row.signing_secret = input.signing_secret;
-  const { error } = await sb
-    .from('slack_integrations')
-    .upsert(row, { onConflict: 'workspace_id' });
-  if (error) return c.json({ error: error.message }, 500);
+  await upsertByWorkspace(sql, 'slack_integrations', row);
   return c.json({ ok: true });
 });
 
 integrations.delete('/slack', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { error } = await sb
-    .from('slack_integrations')
-    .delete()
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from slack_integrations where workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
 
 // ─── Stripe integration ─────────────────────────────────────────────────
-//
-// Workspace pastes a restricted Stripe API key (read-only on customers
-// + subscriptions + charges is enough). The key is the secret — never
-// returned in GET responses, only used server-side. GET responds with
-// just { active, has_key } so the SPA can render "Connected" without
-// exposing the secret.
-
 const StripeBody = z.object({
   api_key: z.string().regex(/^(rk|sk)_(test|live)_\w+$/, 'Must be a Stripe restricted or secret key'),
   active:  z.boolean().optional(),
 });
 
 integrations.get('/stripe', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { data, error } = await sb
-    .from('stripe_integrations')
-    .select('api_key, active, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  const [data] = await sql`
+    select api_key, active, created_at, updated_at from stripe_integrations where workspace_id = ${workspaceId}
+  `;
   if (!data) return c.json({ integration: null });
   return c.json({
     integration: {
       active:     data.active,
       has_key:    Boolean(data.api_key),
-      // Last 4 chars only — enough to confirm "yes, the key I pasted
-      // is the one stored" without leaking the rest. Stripe keys end
-      // in random hex so the tail is enough to identify.
       key_suffix: data.api_key ? data.api_key.slice(-6) : null,
       mode:       data.api_key?.includes('_test_') ? 'test' : 'live',
       created_at: data.created_at,
@@ -129,69 +106,41 @@ integrations.get('/stripe', async (c) => {
 });
 
 integrations.put('/stripe', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = StripeBody.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
-  const { error } = await sb
-    .from('stripe_integrations')
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        api_key:      parsed.data.api_key,
-        active:       parsed.data.active ?? true,
-      },
-      { onConflict: 'workspace_id' },
-    );
-  if (error) return c.json({ error: error.message }, 500);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  await upsertByWorkspace(sql, 'stripe_integrations', {
+    workspace_id: workspaceId,
+    api_key:      parsed.data.api_key,
+    active:       parsed.data.active ?? true,
+  });
   return c.json({ ok: true });
 });
 
 integrations.delete('/stripe', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { error } = await sb
-    .from('stripe_integrations')
-    .delete()
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from stripe_integrations where workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
 
-// ─── GET /customers/:id/stripe-context — fetch Stripe data for a customer ─
-//
-// Looks up the workspace's Stripe key + this customer's email, then
-// hits Stripe for customer + subscriptions + charges. Returns null
-// blocks when the integration isn't configured OR when Stripe has no
-// customer for that email (the common case). Errors from Stripe
-// (auth failure, rate limit) bubble up as 502.
+// ─── GET /customers/:id/stripe-context — Stripe data for a customer ───────
 integrations.get('/customers/:id/stripe-context', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
 
-  const { data: integration } = await sb
-    .from('stripe_integrations')
-    .select('api_key, active')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (!integration || !integration.active) {
-    return c.json({ configured: false, context: null });
-  }
+  const [integration] = await sql`
+    select api_key, active from stripe_integrations where workspace_id = ${workspaceId}
+  `;
+  if (!integration || !integration.active) return c.json({ configured: false, context: null });
 
-  const { data: customer } = await sb
-    .from('customers')
-    .select('email')
-    .eq('id', customerId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (!customer?.email) {
-    return c.json({ configured: true, context: { customer: null, subscriptions: [], charges: [] } });
-  }
+  const [customer] = await sql`
+    select email from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!customer?.email) return c.json({ configured: true, context: { customer: null, subscriptions: [], charges: [] } });
 
   try {
     const context = await fetchStripeContext({ apiKey: integration.api_key, email: customer.email });
@@ -203,14 +152,6 @@ integrations.get('/customers/:id/stripe-context', async (c) => {
 });
 
 // ─── Shopify integration ────────────────────────────────────────────────
-//
-// Workspace provides their myshopify subdomain (e.g. "acme-store" —
-// we tack on `.myshopify.com` server-side) and an Admin API access
-// token. Token format is `shpat_<hex>` for custom apps; legacy
-// private apps use a long hex string. We accept both. Like Stripe,
-// the token never leaves the server — GET only returns a masked
-// summary.
-
 const ShopifyBody = z.object({
   shop:         z.string().regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, 'Shop must be the myshopify subdomain (e.g. "acme-store")').max(60),
   access_token: z.string().min(20).max(200),
@@ -218,14 +159,11 @@ const ShopifyBody = z.object({
 });
 
 integrations.get('/shopify', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { data, error } = await sb
-    .from('shopify_integrations')
-    .select('shop, access_token, active, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  const [data] = await sql`
+    select shop, access_token, active, created_at, updated_at from shopify_integrations where workspace_id = ${workspaceId}
+  `;
   if (!data) return c.json({ integration: null });
   return c.json({
     integration: {
@@ -240,78 +178,48 @@ integrations.get('/shopify', async (c) => {
 });
 
 integrations.put('/shopify', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = ShopifyBody.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
-  // Strip an accidentally-pasted ".myshopify.com" or full URL so we
-  // only store the subdomain. The strict regex above caught most of
-  // it, but users sometimes paste "acme-store.myshopify.com" hoping
-  // it works — be lenient here.
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const shop = parsed.data.shop
     .replace(/^https?:\/\//, '')
     .replace(/\.myshopify\.com\/?$/, '')
     .toLowerCase();
-  const { error } = await sb
-    .from('shopify_integrations')
-    .upsert(
-      {
-        workspace_id: workspaceId,
-        shop,
-        access_token: parsed.data.access_token,
-        active:       parsed.data.active ?? true,
-      },
-      { onConflict: 'workspace_id' },
-    );
-  if (error) return c.json({ error: error.message }, 500);
+  await upsertByWorkspace(sql, 'shopify_integrations', {
+    workspace_id: workspaceId,
+    shop,
+    access_token: parsed.data.access_token,
+    active:       parsed.data.active ?? true,
+  });
   return c.json({ ok: true });
 });
 
 integrations.delete('/shopify', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { error } = await sb
-    .from('shopify_integrations')
-    .delete()
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from shopify_integrations where workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
 
 integrations.get('/customers/:id/shopify-context', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
 
-  const { data: integration } = await sb
-    .from('shopify_integrations')
-    .select('shop, access_token, active')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (!integration || !integration.active) {
-    return c.json({ configured: false, context: null });
-  }
+  const [integration] = await sql`
+    select shop, access_token, active from shopify_integrations where workspace_id = ${workspaceId}
+  `;
+  if (!integration || !integration.active) return c.json({ configured: false, context: null });
 
-  const { data: customer } = await sb
-    .from('customers')
-    .select('email')
-    .eq('id', customerId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (!customer?.email) {
-    return c.json({ configured: true, context: { customer: null, orders: [] } });
-  }
+  const [customer] = await sql`
+    select email from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!customer?.email) return c.json({ configured: true, context: { customer: null, orders: [] } });
 
   try {
-    const context = await fetchShopifyContext({
-      shop:  integration.shop,
-      token: integration.access_token,
-      email: customer.email,
-    });
+    const context = await fetchShopifyContext({ shop: integration.shop, token: integration.access_token, email: customer.email });
     return c.json({ configured: true, context });
   } catch (err) {
     console.error('[shopify] fetch failed:', err);
@@ -320,17 +228,6 @@ integrations.get('/customers/:id/shopify-context', async (c) => {
 });
 
 // ─── Outgoing webhooks (multiple per workspace) ─────────────────────────
-//
-// Workspaces register their own HTTP endpoints to receive ticket-event
-// POSTs. Distinct from Slack: that posts to chat.postMessage with our
-// Slack-specific payload; this posts generic JSON to any URL with an
-// HMAC signature the workspace chose. Use for CRM bridges, analytics
-// pipelines, anything that wants ticket events without us hard-coding
-// a transport.
-//
-// Secret is generated server-side on POST and never returned in any
-// subsequent GET — the user copies it once at creation time.
-
 const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
 
 const WebhookBody = z.object({
@@ -341,56 +238,33 @@ const WebhookBody = z.object({
 });
 
 integrations.get('/webhooks', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { data, error } = await sb
-    .from('workspace_webhooks')
-    .select('id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ webhooks: data || [] });
+  const rows = await sql`
+    select id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at
+    from workspace_webhooks where workspace_id = ${workspaceId}
+    order by created_at desc
+  `;
+  return c.json({ webhooks: rows });
 });
 
 integrations.post('/webhooks', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = WebhookBody.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
-  // Generate the HMAC secret server-side. We surface it once on
-  // create — every subsequent GET masks it. 32 bytes base64url is
-  // ~43 chars, plenty for HMAC-SHA256.
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+
   const secret = generateWebhookSecret();
-  const { data, error } = await sb
-    .from('workspace_webhooks')
-    .insert({
-      workspace_id: workspaceId,
-      name:         parsed.data.name,
-      url:          parsed.data.url,
-      secret,
-      events:       parsed.data.events,
-      active:       parsed.data.active ?? true,
-    })
-    .select('id, name, url, events, active, created_at')
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
-  // First-and-only time the raw secret is returned. The SPA must
-  // surface this to the user and warn them to store it now.
+  const [data] = await sql`
+    insert into workspace_webhooks (workspace_id, name, url, secret, events, active)
+    values (${workspaceId}, ${parsed.data.name}, ${parsed.data.url}, ${secret}, ${parsed.data.events}, ${parsed.data.active ?? true})
+    returning id, name, url, events, active, created_at
+  `;
+  // First-and-only reveal of the raw secret.
   return c.json({ webhook: data, secret }, 201);
 });
 
-// PATCH a webhook: any subset of name / url / events / active, plus
-// rotate_secret as a special flag. Body is validated as .strict() so
-// the response shape stays predictable — typos in client field names
-// fail loudly rather than silently no-op.
-//
-// When rotate_secret=true, the server generates a fresh secret and
-// returns it ONCE in the response (same one-shot reveal contract as
-// POST). All other PATCH calls return the updated row without
-// touching the secret.
 const PatchWebhookBody = z.object({
   name:          z.string().min(1).max(100).optional(),
   url:           z.string().url().optional(),
@@ -400,22 +274,15 @@ const PatchWebhookBody = z.object({
 }).strict();
 
 integrations.patch('/webhooks/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
   const reqBody = await c.req.json().catch(() => null);
   const parsed = PatchWebhookBody.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
-  const input = parsed.data;
-  // Pull rotate_secret out so it doesn't end up as a column name on
-  // the update.
-  const { rotate_secret, ...fields } = input;
-  if (Object.keys(fields).length === 0 && !rotate_secret) {
-    return c.json({ error: 'No fields to update' }, 400);
-  }
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  const { rotate_secret, ...fields } = parsed.data;
+  if (Object.keys(fields).length === 0 && !rotate_secret) return c.json({ error: 'No fields to update' }, 400);
 
   const updates: Record<string, unknown> = { ...fields };
   let revealedSecret: string | null = null;
@@ -424,147 +291,90 @@ integrations.patch('/webhooks/:id', async (c) => {
     updates.secret = revealedSecret;
   }
 
-  const { data, error } = await sb
-    .from('workspace_webhooks')
-    .update(updates)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Webhook not found' }, 404);
-
-  // Mirror the POST shape: secret is at top level when present,
-  // otherwise the response is just { webhook }.
+  const [data] = await sql`
+    update workspace_webhooks set ${sql(updates)}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, name, url, events, active, last_delivery_at, last_delivery_status, last_delivery_error, created_at
+  `;
+  if (!data) return c.json({ error: 'Webhook not found' }, 404);
   return c.json(revealedSecret ? { webhook: data, secret: revealedSecret } : { webhook: data });
 });
 
 integrations.delete('/webhooks/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
-  const { error } = await sb
-    .from('workspace_webhooks')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from workspace_webhooks where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
 
-// Recent delivery attempts for one webhook. Capped at 50 — enough to
-// answer "is this thing working" without paginating; a future PR can
-// add cursor-based scroll if real volume demands it.
 integrations.get('/webhooks/:id/deliveries', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
-  const { data, error } = await sb
-    .from('webhook_deliveries')
-    .select('id, event, attempts, state, last_status, last_error, last_attempt_at, next_attempt_at, created_at')
-    .eq('webhook_id', id)
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-    .limit(50);
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ deliveries: data || [] });
+  const rows = await sql`
+    select id, event, attempts, state, last_status, last_error, last_attempt_at, next_attempt_at, created_at
+    from webhook_deliveries
+    where webhook_id = ${id} and workspace_id = ${workspaceId}
+    order by created_at desc
+    limit 50
+  `;
+  return c.json({ deliveries: rows });
 });
 
-// Re-queue an exhausted delivery. Resets attempts to 0 and bumps
-// next_attempt_at to now, so the worker picks it up on its next tick
-// with the full backoff schedule available again. Refuses to touch
-// non-exhausted rows — success / pending shouldn't be re-queued
-// (success is final; pending will fire on its own).
 integrations.post('/webhooks/:id/deliveries/:deliveryId/retry', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const webhookId = c.req.param('id');
   const deliveryId = c.req.param('deliveryId');
 
-  const { data: existing, error: lookupErr } = await sb
-    .from('webhook_deliveries')
-    .select('id, state')
-    .eq('id', deliveryId)
-    .eq('webhook_id', webhookId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  const [existing] = await sql`
+    select id, state from webhook_deliveries
+    where id = ${deliveryId} and webhook_id = ${webhookId} and workspace_id = ${workspaceId}
+  `;
   if (!existing) return c.json({ error: 'Delivery not found' }, 404);
   if (existing.state !== 'exhausted') {
     return c.json({ error: `Only exhausted deliveries can be re-queued; this one is ${existing.state}` }, 409);
   }
 
-  const { error: upErr } = await sb
-    .from('webhook_deliveries')
-    .update({
-      state:           'pending',
-      attempts:        0,
-      next_attempt_at: new Date().toISOString(),
-      last_status:     null,
-      last_error:      null,
-    })
-    .eq('id', deliveryId);
-  if (upErr) return c.json({ error: upErr.message }, 500);
+  await sql`
+    update webhook_deliveries
+    set state = 'pending', attempts = 0, next_attempt_at = now(), last_status = null, last_error = null
+    where id = ${deliveryId}
+  `;
   return c.json({ ok: true });
 });
 
 // ─── Postmark suppression list ──────────────────────────────────────────
-//
-// Surface customers whose email_bounce_state is 'hard' or 'spam' so
-// admins can see who's silently undeliverable, and manually reset the
-// state once they've verified the address is fixed (or after Postmark's
-// own reactivation flow). 'soft' isn't surfaced — the badge already
-// shows a count on the customer detail, and soft bounces shouldn't
-// require manual intervention.
-
 integrations.get('/postmark/suppressed', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  const { data, error } = await sb
-    .from('customers')
-    .select('id, display_id, first_name, last_name, email, email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count')
-    .eq('workspace_id', workspaceId)
-    .in('email_bounce_state', ['hard', 'spam'])
-    .is('deleted_at', null)
-    .order('email_last_bounce_at', { ascending: false })
-    .limit(200);
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ suppressed: data || [] });
+  const rows = await sql`
+    select id, display_id, first_name, last_name, email, email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count
+    from customers
+    where workspace_id = ${workspaceId} and email_bounce_state in ('hard', 'spam') and deleted_at is null
+    order by email_last_bounce_at desc
+    limit 200
+  `;
+  return c.json({ suppressed: rows });
 });
 
 integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('customerId');
 
-  // Reset the full bounce summary back to baseline. We deliberately
-  // wipe the count too — the user's intent is "this address is good
-  // again", so starting fresh matches that. Postmark's own
-  // reactivation/suppression list lives separately on their side; if
-  // the address is still marked inactive there, future sends will
-  // keep failing and the next webhook event will bump us right back
-  // into a bounce state.
-  const { data, error } = await sb
-    .from('customers')
-    .update({
-      email_bounce_state:     'none',
-      email_last_bounce_type: null,
-      email_last_bounce_at:   null,
-      email_bounce_count:     0,
-    })
-    .eq('id', customerId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .select('id, email_bounce_state')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Customer not found' }, 404);
+  const [data] = await sql`
+    update customers
+    set email_bounce_state = 'none', email_last_bounce_type = null, email_last_bounce_at = null, email_bounce_count = 0
+    where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+    returning id, email_bounce_state
+  `;
+  if (!data) return c.json({ error: 'Customer not found' }, 404);
   return c.json({ ok: true, customer: data });
 });
 
 function generateWebhookSecret(): string {
-  // 32 random bytes → base64url. Bun has crypto.randomBytes via the
-  // node compat layer; use it rather than rolling our own RNG.
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Buffer.from(bytes).toString('base64url');
