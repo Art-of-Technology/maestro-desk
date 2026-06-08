@@ -45,17 +45,13 @@ workflows.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  try {
-    const [row] = await sql`
-      insert into workflows (workspace_id, display_id, name, trigger, action, status)
-      values (${workspaceId}, ${nextDisplayId()}, ${input.name},
-              ${sql.json({ text: input.trigger })}, ${sql.json({ text: input.action })}, ${input.status ?? 'active'})
-      returning id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at
-    `;
-    return c.json({ workflow: row }, 201);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-  }
+  const [row] = await sql`
+    insert into workflows (workspace_id, display_id, name, trigger, action, status)
+    values (${workspaceId}, ${nextDisplayId()}, ${input.name},
+            ${sql.json({ text: input.trigger })}, ${sql.json({ text: input.action })}, ${input.status ?? 'active'})
+    returning id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at
+  `;
+  return c.json({ workflow: row }, 201);
 });
 
 const PatchWorkflow = z.object({
@@ -76,15 +72,17 @@ workflows.patch('/:id', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
 
-  const sets = [];
-  if (parsed.data.name    !== undefined) sets.push(sql`name = ${parsed.data.name}`);
-  if (parsed.data.status  !== undefined) sets.push(sql`status = ${parsed.data.status}`);
-  if (parsed.data.trigger !== undefined) sets.push(sql`trigger = ${sql.json({ text: parsed.data.trigger })}`);
-  if (parsed.data.action  !== undefined) sets.push(sql`action = ${sql.json({ text: parsed.data.action })}`);
-  if (sets.length === 0) return c.json({ error: 'No fields to update' }, 400);
+  // Build the update set; trigger/action are wrapped as { text } jsonb.
+  // postgres.js encodes the objects into their jsonb columns via sql(obj).
+  const updates: Record<string, unknown> = {};
+  if (parsed.data.name    !== undefined) updates.name    = parsed.data.name;
+  if (parsed.data.status  !== undefined) updates.status  = parsed.data.status;
+  if (parsed.data.trigger !== undefined) updates.trigger = { text: parsed.data.trigger };
+  if (parsed.data.action  !== undefined) updates.action  = { text: parsed.data.action };
+  if (Object.keys(updates).length === 0) return c.json({ error: 'No fields to update' }, 400);
 
   const [row] = await sql`
-    update workflows set ${sets.reduce((acc, s, i) => (i ? sql`${acc}, ${s}` : s))}
+    update workflows set ${sql(updates as Record<string, any>)}
     where id = ${id} and workspace_id = ${workspaceId}
     returning id, display_id, name, trigger, action, status, run_count, last_run_at, updated_at
   `;

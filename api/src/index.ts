@@ -85,11 +85,11 @@ app.onError((err, c) => {
   if (err instanceof HTTPException) {
     return err.getResponse();
   }
-  // Log the full error server-side; return message-only to the client (no stack).
-  // Stack traces in API responses are a leak vector — keep them in the log.
+  // Log the full error server-side; return a generic message to the client.
+  // The DB error text (table/column/constraint names) is an information-leak
+  // vector, so it stays in the log, not the response.
   console.error('Unhandled error:', err);
-  const message = err instanceof Error ? err.message : String(err);
-  return c.json({ error: 'Internal server error', detail: message }, 500);
+  return c.json({ error: 'Internal server error' }, 500);
 });
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

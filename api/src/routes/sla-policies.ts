@@ -48,19 +48,15 @@ slaPolicies.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  try {
-    const [row] = await sql`
-      insert into sla_policies
-        (workspace_id, display_id, name, priority_key, category_key, first_response_min, resolution_min, status)
-      values
-        (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.priority_key}, ${input.category_key ?? null},
-         ${input.first_response_min}, ${input.resolution_min}, ${input.status ?? 'active'})
-      returning id, display_id, name, priority_key, category_key, first_response_min, resolution_min, status, created_at, updated_at
-    `;
-    return c.json({ sla_policy: row }, 201);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-  }
+  const [row] = await sql`
+    insert into sla_policies
+      (workspace_id, display_id, name, priority_key, category_key, first_response_min, resolution_min, status)
+    values
+      (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.priority_key}, ${input.category_key ?? null},
+       ${input.first_response_min}, ${input.resolution_min}, ${input.status ?? 'active'})
+    returning id, display_id, name, priority_key, category_key, first_response_min, resolution_min, status, created_at, updated_at
+  `;
+  return c.json({ sla_policy: row }, 201);
 });
 
 const PatchPolicy = z.object({

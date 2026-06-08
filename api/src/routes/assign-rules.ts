@@ -61,17 +61,13 @@ assignRules.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  try {
-    const [row] = await sql`
-      insert into assign_rules (workspace_id, display_id, name, priority, status, conditions, assignment)
-      values (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.priority},
-              ${input.status ?? 'active'}, ${sql.json(input.conditions as any)}, ${sql.json(input.assignment as any)})
-      returning id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at
-    `;
-    return c.json({ assign_rule: row }, 201);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
-  }
+  const [row] = await sql`
+    insert into assign_rules (workspace_id, display_id, name, priority, status, conditions, assignment)
+    values (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.priority},
+            ${input.status ?? 'active'}, ${sql.json(input.conditions as any)}, ${sql.json(input.assignment as any)})
+    returning id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at
+  `;
+  return c.json({ assign_rule: row }, 201);
 });
 
 const PatchRule = z.object({
@@ -96,16 +92,10 @@ assignRules.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  // jsonb fields must be JSON-wrapped; build the SET from present keys.
-  const sets = [];
-  if (parsed.data.name       !== undefined) sets.push(sql`name = ${parsed.data.name}`);
-  if (parsed.data.priority   !== undefined) sets.push(sql`priority = ${parsed.data.priority}`);
-  if (parsed.data.status     !== undefined) sets.push(sql`status = ${parsed.data.status}`);
-  if (parsed.data.conditions !== undefined) sets.push(sql`conditions = ${sql.json(parsed.data.conditions as any)}`);
-  if (parsed.data.assignment !== undefined) sets.push(sql`assignment = ${sql.json(parsed.data.assignment as any)}`);
-
+  // postgres.js encodes the conditions/assignment objects into their jsonb
+  // columns; sql(obj) writes only the present keys.
   const [row] = await sql`
-    update assign_rules set ${sets.reduce((acc, s, i) => (i ? sql`${acc}, ${s}` : s))}
+    update assign_rules set ${sql(parsed.data as Record<string, any>)}
     where id = ${id} and workspace_id = ${workspaceId}
     returning id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, updated_at
   `;
