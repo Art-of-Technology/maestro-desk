@@ -8,7 +8,13 @@ import { dispatchTicketEvent } from '../lib/outgoing-webhooks.ts';
 import { scoreMessageSentiment } from '../lib/sentiment.ts';
 import { sendCsatSurvey } from '../lib/csat-survey.ts';
 import { notifyMentionedAgents } from '../lib/mention-notify.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3 (tickets megabatch). All direct queries use
+// getDb() raw SQL, scoped by workspace_id (the auth middleware verifies
+// membership). Lib calls still receive c.get('sb') but those libs ignore it
+// and use getDb() internally. requireAuth/JWT verification is unchanged until
+// the final auth-flip PR.
 export const tickets = new Hono();
 
 tickets.use('*', requireAuth);
@@ -29,24 +35,24 @@ tickets.use('*', requireAuth);
 // Each PATCH/POST that delegates to a lib pulls both clients off the
 // context.
 tickets.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
   const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
-  const { data, error, count } = await sb
-    .from('tickets')
-    .select(
-      'id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment',
-      { count: 'exact' },
-    )
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .order('updated_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ tickets: data, total: count ?? 0, limit, offset });
+  const rows = await sql`
+    select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+           customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
+           snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
+           count(*) over() ::int as total_count
+    from tickets
+    where workspace_id = ${workspaceId} and deleted_at is null
+    order by updated_at desc
+    limit ${limit} offset ${offset}
+  `;
+  const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+  const tickets = rows.map(({ total_count, ...r }) => r);
+  return c.json({ tickets, total, limit, offset });
 });
 
 // ─── GET /sync — incremental list deltas since a client cursor ──────────
@@ -75,7 +81,7 @@ tickets.get('/', async (c) => {
 // ordered by (updated_at, id). Plain-ISO cursors still parse for
 // backwards compat with anyone holding an older one.
 tickets.get('/sync', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const rawCursor = c.req.query('cursor');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '200', 10), 500);
@@ -88,26 +94,19 @@ tickets.get('/sync', async (c) => {
   const cursorTs = pipeIdx === -1 ? rawCursor : rawCursor.slice(0, pipeIdx);
   const cursorId = pipeIdx === -1 ? ''        : rawCursor.slice(pipeIdx + 1);
 
-  let q = sb
-    .from('tickets')
-    .select('id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason, snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at')
-    .eq('workspace_id', workspaceId);
-
-  if (cursorId) {
-    // Composite-cursor tie-break: rows strictly later in (updated_at, id) order.
-    q = q.or(`updated_at.gt.${cursorTs},and(updated_at.eq.${cursorTs},id.gt.${cursorId})`);
-  } else {
-    q = q.gt('updated_at', cursorTs);
-  }
-
-  const { data, error } = await q
-    .order('updated_at', { ascending: true })
-    .order('id',         { ascending: true })
-    .limit(limit);
-
-  if (error) return c.json({ error: error.message }, 500);
-
-  const rows = data || [];
+  const cols = sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+    customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
+    snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at`;
+  // Composite-cursor tie-break: rows strictly later in (updated_at, id) order.
+  const cursorClause = cursorId
+    ? sql`and (updated_at > ${cursorTs} or (updated_at = ${cursorTs} and id > ${cursorId}))`
+    : sql`and updated_at > ${cursorTs}`;
+  const rows = [...await sql`
+    select ${cols} from tickets
+    where workspace_id = ${workspaceId} ${cursorClause}
+    order by updated_at asc, id asc
+    limit ${limit}
+  `];
   const last = rows[rows.length - 1];
   const newCursor = last
     ? `${last.updated_at}|${last.id}`
@@ -133,75 +132,42 @@ tickets.get('/sync', async (c) => {
 // 4 parallel queries instead of one big embedded select — clearer to read
 // and to debug, with no measurable latency cost at v1 scale.
 tickets.get('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select('*')
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const [ticket] = await sql`
+    select * from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  // Messages query carries merged_from_id so the client can mark which
-  // turns came from a merged-in source ticket.
-  const [msgsRes, tagsRes, aiTagsRes, timeRes, mergedFromRes, mergedIntoRes] = await Promise.all([
-    sb.from('ticket_messages')
-      .select('id, role, author_user_id, author_label, body, mentions, merged_from_id, sentiment, created_at')
-      .eq('ticket_id', ticketId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true }),
-    sb.from('ticket_tags')
-      .select('tag')
-      .eq('ticket_id', ticketId),
-    sb.from('ticket_ai_tags')
-      .select('tag, confidence, accepted')
-      .eq('ticket_id', ticketId)
-      .order('confidence', { ascending: false }),
-    sb.from('time_entries')
-      .select('id, user_id, minutes, note, billable, created_at, users(name)')
-      .eq('ticket_id', ticketId)
-      .order('created_at', { ascending: false }),
-    // Children: tickets whose merged_into_id points at us. Returned as
-    // display_ids so the UI can deep-link without an extra fetch.
-    sb.from('tickets')
-      .select('display_id')
-      .eq('merged_into_id', ticketId)
-      .eq('workspace_id', workspaceId)
-      .is('deleted_at', null),
-    // Parent: if this ticket is itself merged, fetch the primary's display_id.
+  const [msgs, tags, aiTags, time, mergedFrom, mergedInto] = await Promise.all([
+    sql`select id, role, author_user_id, author_label, body, mentions, merged_from_id, sentiment, created_at
+        from ticket_messages where ticket_id = ${ticketId} and deleted_at is null order by created_at asc`,
+    sql`select tag from ticket_tags where ticket_id = ${ticketId}`,
+    sql`select tag, confidence, accepted from ticket_ai_tags where ticket_id = ${ticketId} order by confidence desc`,
+    sql`select te.id, te.user_id, te.minutes, te.note, te.billable, te.created_at, u.name as user_name
+        from time_entries te left join users u on u.id = te.user_id
+        where te.ticket_id = ${ticketId} order by te.created_at desc`,
+    sql`select display_id from tickets where merged_into_id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null`,
     ticket.merged_into_id
-      ? sb.from('tickets')
-          .select('display_id')
-          .eq('id', ticket.merged_into_id)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null } as any),
+      ? sql`select display_id from tickets where id = ${ticket.merged_into_id}`
+      : Promise.resolve([] as any[]),
   ]);
-
-  const firstErr = [msgsRes, tagsRes, aiTagsRes, timeRes, mergedFromRes, mergedIntoRes].find((r) => r.error);
-  if (firstErr?.error) return c.json({ error: firstErr.error.message }, 500);
 
   return c.json({
     ticket: {
       ...ticket,
-      messages:     msgsRes.data || [],
-      tags:         (tagsRes.data || []).map((r: any) => r.tag),
-      ai_tags:      aiTagsRes.data || [],
-      time_entries: (timeRes.data || []).map((te: any) => ({
-        id:         te.id,
-        user_id:    te.user_id,
-        user_name:  te.users?.name || null,
-        minutes:    te.minutes,
-        note:       te.note,
-        billable:   te.billable,
-        created_at: te.created_at,
+      messages:     msgs,
+      tags:         tags.map((r: any) => r.tag),
+      ai_tags:      aiTags,
+      time_entries: time.map((te: any) => ({
+        id: te.id, user_id: te.user_id, user_name: te.user_name || null,
+        minutes: te.minutes, note: te.note, billable: te.billable, created_at: te.created_at,
       })),
-      merged_from_display_ids: (mergedFromRes.data || []).map((r: any) => r.display_id),
-      merged_into_display_id:  (mergedIntoRes as any)?.data?.display_id || null,
+      merged_from_display_ids: mergedFrom.map((r: any) => r.display_id),
+      merged_into_display_id:  (mergedInto[0] as any)?.display_id || null,
     },
   });
 });
