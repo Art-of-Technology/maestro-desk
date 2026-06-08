@@ -1,4 +1,7 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { getDb } from './db.ts';
+
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
+// ignored. Slack HTTP (chat.postMessage / webhook) unchanged.
 
 // ─── Event types ─────────────────────────────────────────────────────────
 //
@@ -71,54 +74,51 @@ function escapeSlack(s: string): string {
 // can't break the user's PATCH. Returns true if a post was attempted.
 
 export async function notifySlack(args: {
-  sb:          SupabaseClient;
+  sb:          unknown;
   workspaceId: string;
   event:       SlackEvent;
   ticketId:    string;
 }): Promise<boolean> {
-  const { sb, workspaceId, event, ticketId } = args;
+  const { workspaceId, event, ticketId } = args;
+  const sql = getDb();
 
-  const { data: integration } = await sb
-    .from('slack_integrations')
-    .select('webhook_url, channel, active, events, bot_token')
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  const [integration] = await sql<{ webhook_url: string; channel: string | null; active: boolean; events: string[]; bot_token: string | null }[]>`
+    select webhook_url, channel, active, events, bot_token from slack_integrations where workspace_id = ${workspaceId}
+  `;
   if (!integration || !integration.active) return false;
   if (!Array.isArray(integration.events) || !integration.events.includes(event)) return false;
 
-  // Ticket + customer in one round-trip. Tickets has multiple FKs to
-  // users (assigned_user_id, snoozed_by_user_id) so the user embed
-  // would be ambiguous — fetch the assignee separately when needed.
-  const { data: ticket } = await sb
-    .from('tickets')
-    .select(`
-      display_id, subject, status_key, priority_key, assigned_user_id,
-      customers(first_name, last_name, vip_tier, brand)
-    `)
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
+  // Ticket + customer in one round-trip; assignee fetched separately
+  // (tickets has multiple user FKs, so an embed would be ambiguous).
+  const [ticket] = await sql<{
+    display_id: string; subject: string; status_key: string; priority_key: string | null;
+    assigned_user_id: string | null; first_name: string | null; last_name: string | null;
+    vip_tier: string | null; brand: string | null;
+  }[]>`
+    select t.display_id, t.subject, t.status_key, t.priority_key, t.assigned_user_id,
+           c.first_name, c.last_name, c.vip_tier, c.brand
+    from tickets t left join customers c on c.id = t.customer_id
+    where t.id = ${ticketId} and t.workspace_id = ${workspaceId}
+  `;
   if (!ticket) return false;
 
-  const customer = (ticket as any).customers || {};
-  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null;
+  const customerName = [ticket.first_name, ticket.last_name].filter(Boolean).join(' ') || null;
 
-  let assignee: { name?: string } = {};
-  const assigneeId = (ticket as any).assigned_user_id;
-  if (assigneeId) {
-    const { data: u } = await sb.from('users').select('name').eq('id', assigneeId).maybeSingle();
-    if (u) assignee = u;
+  let agentName: string | null = null;
+  if (ticket.assigned_user_id) {
+    const [u] = await sql<{ name: string }[]>`select name from users where id = ${ticket.assigned_user_id}`;
+    agentName = u?.name ?? null;
   }
 
   const ctx: TicketCtx = {
-    display_id:     (ticket as any).display_id,
-    subject:        (ticket as any).subject,
-    status_key:     (ticket as any).status_key,
-    priority_key:   (ticket as any).priority_key,
+    display_id:     ticket.display_id,
+    subject:        ticket.subject,
+    status_key:     ticket.status_key,
+    priority_key:   ticket.priority_key ?? undefined,
     customer_name:  customerName,
-    customer_vip:   customer.vip_tier || null,
-    customer_brand: customer.brand || null,
-    agent_name:     assignee.name || null,
+    customer_vip:   ticket.vip_tier || null,
+    customer_brand: ticket.brand || null,
+    agent_name:     agentName,
   };
   const payload = buildBlocks(event, ctx);
 
@@ -130,7 +130,7 @@ export async function notifySlack(args: {
   // spamming the channel root.
   if (integration.bot_token && integration.channel) {
     try {
-      const existing = await getThreadMapping(sb, workspaceId, ticketId);
+      const existing = await getThreadMapping(workspaceId, ticketId);
       const postBody: any = {
         channel: existing?.channel_id || integration.channel,
         text:    payload.text,
@@ -154,12 +154,11 @@ export async function notifySlack(args: {
       // First message in this thread — record the mapping so replies
       // come back via /webhooks/slack/events.
       if (!existing && json.ts && json.channel) {
-        await sb
-          .from('slack_thread_mappings')
-          .upsert(
-            { workspace_id: workspaceId, ticket_id: ticketId, channel_id: json.channel, thread_ts: json.ts },
-            { onConflict: 'workspace_id,ticket_id' },
-          );
+        await sql`
+          insert into slack_thread_mappings (workspace_id, ticket_id, channel_id, thread_ts)
+          values (${workspaceId}, ${ticketId}, ${json.channel}, ${json.ts})
+          on conflict (workspace_id, ticket_id) do update set channel_id = excluded.channel_id, thread_ts = excluded.thread_ts
+        `;
       }
     } catch (err) {
       console.warn('[slack] chat.postMessage error:', err);
@@ -187,12 +186,11 @@ export async function notifySlack(args: {
   return true;
 }
 
-async function getThreadMapping(sb: SupabaseClient, workspaceId: string, ticketId: string) {
-  const { data } = await sb
-    .from('slack_thread_mappings')
-    .select('channel_id, thread_ts')
-    .eq('workspace_id', workspaceId)
-    .eq('ticket_id', ticketId)
-    .maybeSingle();
-  return data;
+async function getThreadMapping(workspaceId: string, ticketId: string) {
+  const sql = getDb();
+  const [data] = await sql<{ channel_id: string; thread_ts: string }[]>`
+    select channel_id, thread_ts from slack_thread_mappings
+    where workspace_id = ${workspaceId} and ticket_id = ${ticketId}
+  `;
+  return data ?? null;
 }

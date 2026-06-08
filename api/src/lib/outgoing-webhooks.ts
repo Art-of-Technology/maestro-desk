@@ -20,7 +20,10 @@
 //     === X-Maestro-Signature  (with the "v0=" prefix stripped)
 
 import { createHmac } from 'node:crypto';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { getDb } from './db.ts';
+
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` params
+// kept (accepted-but-ignored) for caller compat. Outbound HTTP unchanged.
 
 export type WebhookEvent =
   | 'ticket.created'
@@ -67,34 +70,36 @@ function sign(secret: string, timestamp: string, body: string): string {
  * the minutes.
  */
 export async function dispatchTicketEvent(args: {
-  sb:          SupabaseClient;
+  sb:          unknown;
   workspaceId: string;
   event:       WebhookEvent;
   ticketId:    string;
 }): Promise<number> {
-  const { sb, workspaceId, event, ticketId } = args;
+  const { workspaceId, event, ticketId } = args;
+  const sql = getDb();
 
-  const { data: webhooks } = await sb
-    .from('workspace_webhooks')
-    .select('id, events')
-    .eq('workspace_id', workspaceId)
-    .eq('active', true);
-  const subscribed = (webhooks as WebhookRow[] | null || []).filter(w => w.events.includes(event));
+  const webhooks = await sql<WebhookRow[]>`
+    select id, events from workspace_webhooks where workspace_id = ${workspaceId} and active = true
+  `;
+  const subscribed = [...webhooks].filter((w) => w.events.includes(event));
   if (subscribed.length === 0) return 0;
 
-  const { data: ticket } = await sb
-    .from('tickets')
-    .select(`
-      id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
-      customers(id, first_name, last_name, email, vip_tier, brand)
-    `)
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (!ticket) return 0;
-  const t = ticket as unknown as TicketRow;
+  const [t] = await sql<{
+    id: string; display_id: string; subject: string; status_key: string | null;
+    priority_key: string | null; category_key: string | null; assigned_user_id: string | null;
+    cust_id: string | null; first_name: string | null; last_name: string | null;
+    email: string | null; vip_tier: string | null; brand: string | null;
+  }[]>`
+    select t.id, t.display_id, t.subject, t.status_key, t.priority_key, t.category_key, t.assigned_user_id,
+           c.id as cust_id, c.first_name, c.last_name, c.email, c.vip_tier, c.brand
+    from tickets t left join customers c on c.id = t.customer_id
+    where t.id = ${ticketId} and t.workspace_id = ${workspaceId}
+  `;
+  if (!t) return 0;
 
-  const customer = t.customers || null;
+  const customer = t.cust_id
+    ? { id: t.cust_id, first_name: t.first_name, last_name: t.last_name, email: t.email, vip_tier: t.vip_tier, brand: t.brand }
+    : null;
   const payload = {
     event,
     fired_at:     new Date().toISOString(),
@@ -117,19 +122,18 @@ export async function dispatchTicketEvent(args: {
     },
   };
 
-  const rows = subscribed.map((w) => ({
-    workspace_id:    workspaceId,
-    webhook_id:      w.id,
-    event,
-    payload,
-    next_attempt_at: new Date().toISOString(),
-  }));
-  const { error } = await sb.from('webhook_deliveries').insert(rows);
-  if (error) {
-    console.error('[outgoing-webhooks] enqueue failed:', error.message);
+  try {
+    for (const w of subscribed) {
+      await sql`
+        insert into webhook_deliveries (workspace_id, webhook_id, event, payload, next_attempt_at)
+        values (${workspaceId}, ${w.id}, ${event}, ${sql.json(payload)}, now())
+      `;
+    }
+  } catch (err) {
+    console.error('[outgoing-webhooks] enqueue failed:', err instanceof Error ? err.message : err);
     return 0;
   }
-  return rows.length;
+  return subscribed.length;
 }
 
 // ─── Worker side: process pending deliveries ─────────────────────────────
@@ -143,47 +147,45 @@ interface DeliveryRow {
 
 const PERMANENT_4XX_EXCEPTIONS = new Set([408, 429]);  // these are transient even though 4xx
 
-export async function processPendingDeliveries(sb: SupabaseClient, limit = 50): Promise<{ processed: number }> {
-  const now = new Date().toISOString();
-  const { data: deliveries, error } = await sb
-    .from('webhook_deliveries')
-    .select('id, webhook_id, attempts, payload')
-    .eq('state', 'pending')
-    .lte('next_attempt_at', now)
-    .order('next_attempt_at', { ascending: true })
-    .limit(limit);
-  if (error) {
-    console.error('[webhook-worker] poll failed:', error.message);
+export async function processPendingDeliveries(_sb: unknown, limit = 50): Promise<{ processed: number }> {
+  const sql = getDb();
+  let deliveries: DeliveryRow[];
+  try {
+    deliveries = [...await sql<DeliveryRow[]>`
+      select id, webhook_id, attempts, payload from webhook_deliveries
+      where state = 'pending' and next_attempt_at <= now()
+      order by next_attempt_at asc
+      limit ${limit}
+    `];
+  } catch (err) {
+    console.error('[webhook-worker] poll failed:', err instanceof Error ? err.message : err);
     return { processed: 0 };
   }
-  if (!deliveries || deliveries.length === 0) return { processed: 0 };
+  if (deliveries.length === 0) return { processed: 0 };
 
-  // Load the parent webhooks once (id → url/secret) so we don't
-  // round-trip per delivery. Same set we'd join inline; bulk-loading
-  // is cheaper at our scale.
+  // Bulk-load the parent webhooks once (id → url/secret).
   const ids = Array.from(new Set(deliveries.map((d) => d.webhook_id)));
-  const { data: webhookRows } = await sb
-    .from('workspace_webhooks')
-    .select('id, url, secret, active')
-    .in('id', ids);
-  const byId = new Map((webhookRows || []).map((w: any) => [w.id, w]));
+  const webhookRows = await sql<{ id: string; url: string; secret: string; active: boolean }[]>`
+    select id, url, secret, active from workspace_webhooks where id = any(${ids})
+  `;
+  const byId = new Map(webhookRows.map((w) => [w.id, w]));
 
-  await Promise.all((deliveries as DeliveryRow[]).map(async (d) => {
+  await Promise.all(deliveries.map(async (d) => {
     const wh = byId.get(d.webhook_id);
-    // Parent webhook deleted or inactive between enqueue and delivery
-    // — mark exhausted and skip. (active=false isn't permanent, but
-    // we treat it as "stop trying" rather than holding queue depth.)
+    // Parent webhook deleted or inactive between enqueue and delivery — mark
+    // exhausted and skip.
     if (!wh || !wh.active) {
-      await markExhausted(sb, d.id, 0, 'webhook deleted or inactive');
+      await markExhausted(d.id, 0, 'webhook deleted or inactive');
       return;
     }
-    await attemptDelivery(sb, d, wh);
+    await attemptDelivery(d, wh);
   }));
 
   return { processed: deliveries.length };
 }
 
-async function attemptDelivery(sb: SupabaseClient, d: DeliveryRow, wh: { id: string; url: string; secret: string }) {
+async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; secret: string }) {
+  const sql = getDb();
   const attempts = d.attempts + 1;
   const body = JSON.stringify(d.payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -229,22 +231,25 @@ async function attemptDelivery(sb: SupabaseClient, d: DeliveryRow, wh: { id: str
     const seconds = BACKOFF_SECONDS[attempts - 1] ?? BACKOFF_SECONDS[BACKOFF_SECONDS.length - 1];
     updates.next_attempt_at = new Date(Date.now() + seconds * 1000).toISOString();
   }
-  await sb.from('webhook_deliveries').update(updates).eq('id', d.id);
+  await sql`update webhook_deliveries set ${sql(updates)} where id = ${d.id}`;
 
   // Mirror onto the parent row so the SPA's "last delivery" indicator
   // reflects the latest attempt across all deliveries.
-  await sb.from('workspace_webhooks').update({
-    last_delivery_at:     updates.last_attempt_at,
-    last_delivery_status: status,
-    last_delivery_error:  succeeded ? null : err,
-  }).eq('id', wh.id);
+  await sql`
+    update workspace_webhooks set
+      last_delivery_at = ${updates.last_attempt_at as string},
+      last_delivery_status = ${status},
+      last_delivery_error = ${succeeded ? null : err}
+    where id = ${wh.id}
+  `;
 }
 
-async function markExhausted(sb: SupabaseClient, id: string, status: number | null, error: string) {
-  await sb.from('webhook_deliveries').update({
-    state: 'exhausted', last_status: status, last_error: error,
-    last_attempt_at: new Date().toISOString(),
-  }).eq('id', id);
+async function markExhausted(id: string, status: number | null, error: string) {
+  await getDb()`
+    update webhook_deliveries
+    set state = 'exhausted', last_status = ${status}, last_error = ${error}, last_attempt_at = now()
+    where id = ${id}
+  `;
 }
 
 // ─── Worker lifecycle ────────────────────────────────────────────────────
@@ -258,10 +263,10 @@ async function markExhausted(sb: SupabaseClient, id: string, status: number | nu
 const POLL_INTERVAL_MS = 5000;
 let workerTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startWebhookWorker(sb: SupabaseClient): void {
+export function startWebhookWorker(_sb?: unknown): void {
   if (workerTimer) return;
   workerTimer = setInterval(() => {
-    processPendingDeliveries(sb).catch((err) => {
+    processPendingDeliveries(null).catch((err) => {
       console.error('[webhook-worker] tick failed:', err);
     });
   }, POLL_INTERVAL_MS);

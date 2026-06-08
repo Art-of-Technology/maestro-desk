@@ -8,13 +8,16 @@
 //   - the only mentioned user IS the author (self-mention)
 //   - a mentioned user has no email on file
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { env } from './env.ts';
 import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.ts';
 import { getOutboundFrom } from './outbound-from.ts';
+import { getDb } from './db.ts';
+
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
+// ignored. Postmark send unchanged.
 
 export async function notifyMentionedAgents(args: {
-  sb:           SupabaseClient;
+  sb:           unknown;
   workspaceId:  string;
   ticketId:     string;
   authorUserId: string | null;
@@ -22,25 +25,29 @@ export async function notifyMentionedAgents(args: {
   mentions:     string[];
   body:         string;
 }): Promise<{ sent: number; skipped: number }> {
-  const { sb, workspaceId, ticketId, authorUserId, authorLabel, mentions, body } = args;
+  const { workspaceId, ticketId, authorUserId, authorLabel, mentions, body } = args;
   if (!mentions || mentions.length === 0)  return { sent: 0, skipped: 0 };
   if (!isPostmarkConfigured())             return { sent: 0, skipped: mentions.length };
+  const sql = getDb();
 
-  // Strip self-mentions before the user lookup — saves a round-trip
-  // when the only mention is the author themselves.
+  // Strip self-mentions before the user lookup.
   const targets = mentions.filter((id) => id !== authorUserId);
   if (targets.length === 0) return { sent: 0, skipped: 0 };
 
-  const [usersRes, ticketRes, workspaceFrom] = await Promise.all([
-    sb.from('users').select('id, name, email, mention_email_enabled').in('id', targets),
-    sb.from('tickets').select('display_id, subject, workspaces(name, slug)').eq('id', ticketId).eq('workspace_id', workspaceId).maybeSingle(),
-    getOutboundFrom(sb, workspaceId),
+  const [usersRows, ticketRows, workspaceFrom] = await Promise.all([
+    sql<{ id: string; name: string | null; email: string | null; mention_email_enabled: boolean | null }[]>`
+      select id, name, email, mention_email_enabled from users where id = any(${targets})`,
+    sql<{ display_id: string; subject: string; ws_name: string; ws_slug: string }[]>`
+      select t.display_id, t.subject, w.name as ws_name, w.slug as ws_slug
+      from tickets t join workspaces w on w.id = t.workspace_id
+      where t.id = ${ticketId} and t.workspace_id = ${workspaceId}`,
+    getOutboundFrom(null, workspaceId),
   ]);
-  if (!ticketRes.data) return { sent: 0, skipped: targets.length };
+  const ticket = ticketRows[0];
+  if (!ticket) return { sent: 0, skipped: targets.length };
 
-  const ticket = ticketRes.data as any;
-  const workspaceName = ticket.workspaces?.name || 'Maestro Desk';
-  const workspaceSlug = ticket.workspaces?.slug;
+  const workspaceName = ticket.ws_name || 'Maestro Desk';
+  const workspaceSlug = ticket.ws_slug;
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return { sent: 0, skipped: targets.length };
@@ -62,7 +69,7 @@ export async function notifyMentionedAgents(args: {
 
   let sent = 0;
   let skipped = 0;
-  for (const u of (usersRes.data || []) as Array<{ id: string; name: string | null; email: string | null; mention_email_enabled: boolean | null }>) {
+  for (const u of usersRows) {
     if (!u.email) { skipped++; continue; }
     // Per-user opt-out. The default-true column means absence of the
     // preference (legacy rows pre-migration) gets the emails.

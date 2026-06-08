@@ -13,46 +13,48 @@
 // wired up outbound" or "we already asked" paths, which shouldn't
 // break the PATCH that resolves the ticket.
 
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { env } from './env.ts';
 import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.ts';
 import { getOutboundFrom } from './outbound-from.ts';
+import { getDb } from './db.ts';
+
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
+// ignored. Postmark send unchanged.
 
 export type CsatSurveyResult =
   | { sent: true;  token: string }
   | { sent: false; reason: 'already_requested' | 'already_rated' | 'no_email' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
 
 export async function sendCsatSurvey(args: {
-  sb:          SupabaseClient;
+  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
   portalBase?: string;
 }): Promise<CsatSurveyResult> {
-  const { sb, workspaceId, ticketId } = args;
+  const { workspaceId, ticketId } = args;
   if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
+  const sql = getDb();
 
-  // One round-trip pulls everything we need: ticket state + customer +
-  // workspace name + slug. Workspace + customer embeds resolve via FKs.
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .select(`
-      id, display_id, subject, csat_requested_at, csat_submitted_at, csat_token,
-      customers(first_name, last_name, email),
-      workspaces(name, slug)
-    `)
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (tErr || !ticket) return { sent: false, reason: 'no_workspace' };
-  const t = ticket as any;
+  const [t] = await sql<{
+    display_id: string; subject: string; csat_requested_at: string | null; csat_submitted_at: string | null;
+    csat_token: string | null; first_name: string | null; last_name: string | null; email: string | null;
+    ws_name: string; ws_slug: string;
+  }[]>`
+    select t.display_id, t.subject, t.csat_requested_at, t.csat_submitted_at, t.csat_token,
+           c.first_name, c.last_name, c.email, w.name as ws_name, w.slug as ws_slug
+    from tickets t
+    left join customers c on c.id = t.customer_id
+    join workspaces w on w.id = t.workspace_id
+    where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
+  `;
+  if (!t) return { sent: false, reason: 'no_workspace' };
   if (t.csat_submitted_at)   return { sent: false, reason: 'already_rated' };
   if (t.csat_requested_at)   return { sent: false, reason: 'already_requested' };
-  const customer = t.customers || {};
+  const customer = { first_name: t.first_name, last_name: t.last_name, email: t.email };
   const customerEmail = customer.email;
   if (!customerEmail) return { sent: false, reason: 'no_email' };
-  const workspaceName = t.workspaces?.name || 'Support';
-  const workspaceSlug = t.workspaces?.slug;
+  const workspaceName = t.ws_name || 'Support';
+  const workspaceSlug = t.ws_slug;
   if (!workspaceSlug) return { sent: false, reason: 'no_workspace' };
 
   // Generate the customer-link token first. We commit it to the row
@@ -64,7 +66,7 @@ export async function sendCsatSurvey(args: {
   // Outbound identity: brand-owned verified domain if configured,
   // else the platform default. Skipping here on no-from would mean
   // sending from nothing, so bail cleanly.
-  const workspaceFrom = await getOutboundFrom(sb, workspaceId);
+  const workspaceFrom = await getOutboundFrom(null, workspaceId);
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return { sent: false, reason: 'no_from' };
@@ -107,14 +109,10 @@ export async function sendCsatSurvey(args: {
   // possible if Postmark transiently fails (the next resolve event
   // or a manual trigger can retry without bouncing off the
   // "already_requested" guard).
-  await sb
-    .from('tickets')
-    .update({
-      csat_token:        token,
-      csat_requested_at: new Date().toISOString(),
-    })
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId);
+  await sql`
+    update tickets set csat_token = ${token}, csat_requested_at = now()
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+  `;
 
   return { sent: true, token };
 }
@@ -141,57 +139,41 @@ export const DEFAULT_REMINDER_DAYS = [3, 7, 14] as const;
 const REMINDER_TICK_MS = 60 * 60 * 1000;  // every hour
 let reminderTimer: ReturnType<typeof setInterval> | null = null;
 
-export async function processCsatReminders(sb: SupabaseClient, portalBase?: string): Promise<number> {
+export async function processCsatReminders(_sb: unknown, portalBase?: string): Promise<number> {
   if (!isPostmarkConfigured()) return 0;
-  // The per-workspace cadence is variable now, so we can't pre-bake
-  // an "earliestCutoff" or a hard "count < N" gate in SQL. Use
-  // generous bounds: any candidate at least 1 day old with fewer
-  // than 6 reminders fired so far (the column-level cap from the
-  // CHECK constraint). The precise cadence step runs per-row in
-  // code, with the workspace's array embedded via the join.
+  const sql = getDb();
+  // Per-workspace cadence is variable, so we can't pre-bake the exact gate in
+  // SQL. Use generous bounds (≥1 day old, <6 reminders) and run the precise
+  // cadence step per-row in code, with the workspace's array joined in.
   const generousCutoff = new Date(Date.now() - 86400000).toISOString();
-  const { data: candidates, error } = await sb
-    .from('tickets')
-    .select('id, workspace_id, csat_requested_at, csat_reminder_count, workspaces(csat_reminder_days)')
-    .is('csat_submitted_at', null)
-    .lt('csat_reminder_count', 6)
-    .not('csat_requested_at', 'is', null)
-    .not('csat_token', 'is', null)
-    .is('deleted_at', null)
-    .lte('csat_requested_at', generousCutoff)
-    .limit(200);
-  if (error) {
-    console.error('[csat-reminders] scan failed:', error.message);
+  let candidates: Array<{ id: string; workspace_id: string; csat_requested_at: string; csat_reminder_count: number; csat_reminder_days: number[] | null }>;
+  try {
+    candidates = [...await sql`
+      select t.id, t.workspace_id, t.csat_requested_at, t.csat_reminder_count, w.csat_reminder_days
+      from tickets t join workspaces w on w.id = t.workspace_id
+      where t.csat_submitted_at is null and t.csat_reminder_count < 6
+        and t.csat_requested_at is not null and t.csat_token is not null and t.deleted_at is null
+        and t.csat_requested_at <= ${generousCutoff}
+      limit 200
+    ` as any];
+  } catch (err) {
+    console.error('[csat-reminders] scan failed:', err instanceof Error ? err.message : err);
     return 0;
   }
-  if (!candidates || candidates.length === 0) return 0;
+  if (candidates.length === 0) return 0;
 
   const now = Date.now();
   let sentCount = 0;
-  for (const row of candidates as unknown as Array<{
-    id: string;
-    workspace_id: string;
-    csat_requested_at: string;
-    csat_reminder_count: number;
-    // PostgREST embeds resolve as either an array (many-to-many) or
-    // a single object (foreign-key one-to-one); supabase-js's types
-    // tend to call it an array. Handle both shapes defensively.
-    workspaces: { csat_reminder_days: number[] | null }
-              | { csat_reminder_days: number[] | null }[]
-              | null;
-  }>) {
-    const workspaceEmbed = Array.isArray(row.workspaces) ? row.workspaces[0] : row.workspaces;
-    const cadence = workspaceEmbed?.csat_reminder_days ?? Array.from(DEFAULT_REMINDER_DAYS);
-    // Empty cadence = reminders disabled for this workspace.
-    if (cadence.length === 0) continue;
+  for (const row of candidates) {
+    const cadence = row.csat_reminder_days ?? Array.from(DEFAULT_REMINDER_DAYS);
+    if (cadence.length === 0) continue;   // empty cadence = reminders disabled
     const nextIndex = row.csat_reminder_count;
     if (nextIndex >= cadence.length) continue;
-    const requestedMs = new Date(row.csat_requested_at).getTime();
-    const ageDays = (now - requestedMs) / 86400000;
+    const ageDays = (now - new Date(row.csat_requested_at).getTime()) / 86400000;
     if (ageDays < cadence[nextIndex]) continue;
     try {
       const ok = await sendOneReminder({
-        sb, workspaceId: row.workspace_id, ticketId: row.id,
+        sb: null, workspaceId: row.workspace_id, ticketId: row.id,
         attemptNumber:  nextIndex + 1,
         totalAttempts:  cadence.length,
         portalBase,
@@ -205,45 +187,41 @@ export async function processCsatReminders(sb: SupabaseClient, portalBase?: stri
 }
 
 async function sendOneReminder(args: {
-  sb:            SupabaseClient;
+  sb:            unknown;
   workspaceId:   string;
   ticketId:      string;
   attemptNumber: number;
   totalAttempts: number;
   portalBase?:   string;
 }): Promise<boolean> {
-  const { sb, workspaceId, ticketId, attemptNumber, totalAttempts } = args;
-  // Re-pull the ticket row in full now that it's on the hot path. The
-  // select shape mirrors sendCsatSurvey above; could be factored later,
-  // but the duplication is small enough to leave for now.
-  const { data: ticket } = await sb
-    .from('tickets')
-    .select(`
-      id, display_id, subject, csat_token, csat_submitted_at, csat_reminder_count,
-      customers(first_name, last_name, email),
-      workspaces(name, slug)
-    `)
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (!ticket) return false;
-  const t = ticket as any;
-  // Belt-and-suspenders re-checks — the scan filter SHOULD already
-  // guarantee these, but races with concurrent rating submission +
-  // SQL view caches make a direct check cheap insurance. We also
-  // re-check the count against the attemptNumber we computed at scan
-  // time so a race between scan and send can't double-fire a wave.
+  const { workspaceId, ticketId, attemptNumber, totalAttempts } = args;
+  const sql = getDb();
+  // Re-pull the ticket row in full now that it's on the hot path.
+  const [t] = await sql<{
+    display_id: string; subject: string; csat_token: string | null; csat_submitted_at: string | null;
+    csat_reminder_count: number | null; first_name: string | null; last_name: string | null;
+    email: string | null; ws_name: string; ws_slug: string;
+  }[]>`
+    select t.display_id, t.subject, t.csat_token, t.csat_submitted_at, t.csat_reminder_count,
+           c.first_name, c.last_name, c.email, w.name as ws_name, w.slug as ws_slug
+    from tickets t
+    left join customers c on c.id = t.customer_id
+    join workspaces w on w.id = t.workspace_id
+    where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
+  `;
+  if (!t) return false;
+  // Belt-and-suspenders re-checks against races with rating submission /
+  // double-fire between scan and send.
   if (t.csat_submitted_at)                     return false;
   if ((t.csat_reminder_count ?? 0) >= attemptNumber) return false;
   if (!t.csat_token)                           return false;
-  const customer = t.customers || {};
+  const customer = { first_name: t.first_name, last_name: t.last_name, email: t.email };
   if (!customer.email) return false;
-  const workspaceName = t.workspaces?.name || 'Support';
-  const workspaceSlug = t.workspaces?.slug;
+  const workspaceName = t.ws_name || 'Support';
+  const workspaceSlug = t.ws_slug;
   if (!workspaceSlug) return false;
 
-  const workspaceFrom = await getOutboundFrom(sb, workspaceId);
+  const workspaceFrom = await getOutboundFrom(null, workspaceId);
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return false;
@@ -287,21 +265,17 @@ async function sendOneReminder(args: {
     return false;
   }
 
-  await sb
-    .from('tickets')
-    .update({
-      csat_last_reminded_at: new Date().toISOString(),
-      csat_reminder_count:   attemptNumber,
-    })
-    .eq('id', ticketId)
-    .eq('workspace_id', workspaceId);
+  await sql`
+    update tickets set csat_last_reminded_at = now(), csat_reminder_count = ${attemptNumber}
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+  `;
   return true;
 }
 
-export function startCsatReminderWorker(sb: SupabaseClient): void {
+export function startCsatReminderWorker(_sb?: unknown): void {
   if (reminderTimer) return;
   reminderTimer = setInterval(() => {
-    processCsatReminders(sb).catch((err) => {
+    processCsatReminders(null).catch((err) => {
       console.error('[csat-reminders] tick failed:', err);
     });
   }, REMINDER_TICK_MS);
