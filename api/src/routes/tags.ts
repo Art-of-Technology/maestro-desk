@@ -1,119 +1,79 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const tags = new Hono();
 
 tags.use('*', requireAuth);
 
 // ─── GET / — list the workspace tag library with usage counts ────────────
-//
-// Counts are computed client-side here from in-memory aggregates because
-// supabase-js doesn't sugar GROUP BY aggregates and the tag-library set
-// is small (10s, not 1000s). Manual tags count against ticket_tags; AI
-// tags count against ticket_ai_tags.
+// Counts come from a per-row subquery (manual tags against ticket_tags, AI
+// tags against ticket_ai_tags) — the library set is small, so this is fine.
 tags.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
-  const [libRes, manualRes, aiRes] = await Promise.all([
-    sb.from('tag_library')
-      .select('tag, kind, ai_confidence')
-      .eq('workspace_id', workspaceId)
-      .order('tag', { ascending: true }),
-    sb.from('ticket_tags')
-      .select('tag')
-      .eq('workspace_id', workspaceId),
-    sb.from('ticket_ai_tags')
-      .select('tag')
-      .eq('workspace_id', workspaceId),
-  ]);
-  if (libRes.error)    return c.json({ error: libRes.error.message }, 500);
-  if (manualRes.error) return c.json({ error: manualRes.error.message }, 500);
-  if (aiRes.error)     return c.json({ error: aiRes.error.message }, 500);
-
-  const manualCount: Record<string, number> = {};
-  for (const r of manualRes.data || []) manualCount[r.tag] = (manualCount[r.tag] || 0) + 1;
-  const aiCount: Record<string, number> = {};
-  for (const r of aiRes.data || []) aiCount[r.tag] = (aiCount[r.tag] || 0) + 1;
-
-  const out = (libRes.data || []).map((r: any) => ({
-    tag:            r.tag,
-    kind:           r.kind,
-    ai_confidence:  r.ai_confidence,
-    count:          r.kind === 'ai' ? (aiCount[r.tag] || 0) : (manualCount[r.tag] || 0),
-  }));
-
-  return c.json({ tags: out });
+  const rows = await sql`
+    select l.tag, l.kind, l.ai_confidence,
+      case when l.kind = 'ai'
+        then (select count(*)::int from ticket_ai_tags a where a.workspace_id = l.workspace_id and a.tag = l.tag)
+        else (select count(*)::int from ticket_tags m where m.workspace_id = l.workspace_id and m.tag = l.tag)
+      end as count
+    from tag_library l
+    where l.workspace_id = ${workspaceId}
+    order by l.tag asc
+  `;
+  return c.json({ tags: rows });
 });
 
 // ─── PATCH /:tag — change kind (manual ↔ ai) ─────────────────────────────
 const PatchTag = z.object({
-  kind:           z.enum(['manual', 'ai']).optional(),
-  ai_confidence:  z.number().int().min(0).max(100).nullable().optional(),
+  kind:          z.enum(['manual', 'ai']).optional(),
+  ai_confidence: z.number().int().min(0).max(100).nullable().optional(),
 }).strict();
 
 tags.patch('/:tag', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const tag = c.req.param('tag');
 
   const reqBody = await c.req.json().catch(() => null);
   const parsed = PatchTag.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
-  if (Object.keys(parsed.data).length === 0) {
-    return c.json({ error: 'No fields to update' }, 400);
-  }
-  // Flipping to manual clears the confidence. Flipping to ai backfills
-  // a default of 90 only when the row had no prior confidence — matches
-  // `t.conf = t.conf || 90` in the SPA. Look up the current value to
-  // know whether to backfill.
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  if (Object.keys(parsed.data).length === 0) return c.json({ error: 'No fields to update' }, 400);
+
+  // Flipping to manual clears confidence. Flipping to ai backfills a default
+  // of 90 only when the row had no prior confidence (matches the SPA).
   const updates: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.kind === 'manual') {
     updates.ai_confidence = null;
   } else if (parsed.data.kind === 'ai' && parsed.data.ai_confidence === undefined) {
-    const { data: current } = await sb
-      .from('tag_library')
-      .select('ai_confidence')
-      .eq('workspace_id', workspaceId)
-      .eq('tag', tag)
-      .maybeSingle();
+    const [current] = await sql`
+      select ai_confidence from tag_library where workspace_id = ${workspaceId} and tag = ${tag}
+    `;
     if (!current?.ai_confidence) updates.ai_confidence = 90;
   }
 
-  const { data, error } = await sb
-    .from('tag_library')
-    .update(updates)
-    .eq('workspace_id', workspaceId)
-    .eq('tag', tag)
-    .select('tag, kind, ai_confidence')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Tag not found' }, 404);
-  return c.json({ tag: data });
+  const [row] = await sql`
+    update tag_library set ${sql(updates)}
+    where workspace_id = ${workspaceId} and tag = ${tag}
+    returning tag, kind, ai_confidence
+  `;
+  if (!row) return c.json({ error: 'Tag not found' }, 404);
+  return c.json({ tag: row });
 });
 
 // ─── DELETE /:tag — remove from library + strip from all tickets ─────────
 tags.delete('/:tag', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const tag = c.req.param('tag');
 
-  // Strip from ticket_tags + ticket_ai_tags first so an FK weirdness on
-  // the library can't leave orphans. tag_library has no FK from these
-  // sibling tables (just a shared (workspace_id, tag) composite key by
-  // convention), so the order is for cleanliness, not correctness.
-  const [m, a, l] = await Promise.all([
-    sb.from('ticket_tags').delete().eq('workspace_id', workspaceId).eq('tag', tag),
-    sb.from('ticket_ai_tags').delete().eq('workspace_id', workspaceId).eq('tag', tag),
-    sb.from('tag_library').delete().eq('workspace_id', workspaceId).eq('tag', tag),
-  ]);
-  if (m.error) return c.json({ error: m.error.message }, 500);
-  if (a.error) return c.json({ error: a.error.message }, 500);
-  if (l.error) return c.json({ error: l.error.message }, 500);
-
+  await sql`delete from ticket_tags    where workspace_id = ${workspaceId} and tag = ${tag}`;
+  await sql`delete from ticket_ai_tags where workspace_id = ${workspaceId} and tag = ${tag}`;
+  await sql`delete from tag_library    where workspace_id = ${workspaceId} and tag = ${tag}`;
   return new Response(null, { status: 204 });
 });
 
@@ -123,112 +83,40 @@ const PostMerge = z.object({
 });
 
 tags.post('/:tag/merge', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const source = c.req.param('tag');
 
   const reqBody = await c.req.json().catch(() => null);
   const parsed = PostMerge.safeParse(reqBody);
-  if (!parsed.success) {
-    return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  }
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const target = parsed.data.into;
   if (target === source) return c.json({ error: 'Source and target tags are the same' }, 400);
 
-  // Confirm target exists in the library — won't auto-create.
-  const { data: targetRow, error: targetErr } = await sb
-    .from('tag_library')
-    .select('tag')
-    .eq('workspace_id', workspaceId)
-    .eq('tag', target)
-    .maybeSingle();
-  if (targetErr) return c.json({ error: targetErr.message }, 500);
+  // Target must already exist in the library — won't auto-create.
+  const [targetRow] = await sql`
+    select tag from tag_library where workspace_id = ${workspaceId} and tag = ${target}
+  `;
   if (!targetRow) return c.json({ error: 'Target tag not found in library' }, 404);
 
-  // For ticket_tags: rename source → target where the ticket doesn't
-  // already have target (avoids PK conflict); delete remaining source rows.
-  const { data: existingTargetTickets, error: ettErr } = await sb
-    .from('ticket_tags')
-    .select('ticket_id')
-    .eq('workspace_id', workspaceId)
-    .eq('tag', target);
-  if (ettErr) return c.json({ error: ettErr.message }, 500);
-  const targetTicketIds = new Set((existingTargetTickets || []).map((r) => r.ticket_id));
-
-  const { data: sourceTickets, error: stErr } = await sb
-    .from('ticket_tags')
-    .select('ticket_id')
-    .eq('workspace_id', workspaceId)
-    .eq('tag', source);
-  if (stErr) return c.json({ error: stErr.message }, 500);
-
-  const renameIds  = (sourceTickets || []).map((r) => r.ticket_id).filter((id) => !targetTicketIds.has(id));
-  const deleteIds  = (sourceTickets || []).map((r) => r.ticket_id).filter((id) =>  targetTicketIds.has(id));
-
-  if (renameIds.length > 0) {
-    const { error: renErr } = await sb
-      .from('ticket_tags')
-      .update({ tag: target })
-      .eq('workspace_id', workspaceId)
-      .eq('tag', source)
-      .in('ticket_id', renameIds);
-    if (renErr) return c.json({ error: renErr.message }, 500);
-  }
-  if (deleteIds.length > 0) {
-    const { error: delErr } = await sb
-      .from('ticket_tags')
-      .delete()
-      .eq('workspace_id', workspaceId)
-      .eq('tag', source)
-      .in('ticket_id', deleteIds);
-    if (delErr) return c.json({ error: delErr.message }, 500);
+  // For each tag table: first drop source rows on tickets that ALREADY carry
+  // target (would collide on the (ticket_id, tag) PK), then rename the rest.
+  for (const table of ['ticket_tags', 'ticket_ai_tags'] as const) {
+    await sql`
+      delete from ${sql(table)}
+      where workspace_id = ${workspaceId} and tag = ${source}
+        and ticket_id in (
+          select ticket_id from ${sql(table)} where workspace_id = ${workspaceId} and tag = ${target}
+        )
+    `;
+    await sql`
+      update ${sql(table)} set tag = ${target}
+      where workspace_id = ${workspaceId} and tag = ${source}
+    `;
   }
 
-  // Same dance for ai_tags.
-  const { data: aiTargetTickets, error: attErr } = await sb
-    .from('ticket_ai_tags')
-    .select('ticket_id')
-    .eq('workspace_id', workspaceId)
-    .eq('tag', target);
-  if (attErr) return c.json({ error: attErr.message }, 500);
-  const aiTargetIds = new Set((aiTargetTickets || []).map((r) => r.ticket_id));
-
-  const { data: aiSourceTickets, error: astErr } = await sb
-    .from('ticket_ai_tags')
-    .select('ticket_id')
-    .eq('workspace_id', workspaceId)
-    .eq('tag', source);
-  if (astErr) return c.json({ error: astErr.message }, 500);
-
-  const aiRenameIds = (aiSourceTickets || []).map((r) => r.ticket_id).filter((id) => !aiTargetIds.has(id));
-  const aiDeleteIds = (aiSourceTickets || []).map((r) => r.ticket_id).filter((id) =>  aiTargetIds.has(id));
-
-  if (aiRenameIds.length > 0) {
-    const { error: aiRenErr } = await sb
-      .from('ticket_ai_tags')
-      .update({ tag: target })
-      .eq('workspace_id', workspaceId)
-      .eq('tag', source)
-      .in('ticket_id', aiRenameIds);
-    if (aiRenErr) return c.json({ error: aiRenErr.message }, 500);
-  }
-  if (aiDeleteIds.length > 0) {
-    const { error: aiDelErr } = await sb
-      .from('ticket_ai_tags')
-      .delete()
-      .eq('workspace_id', workspaceId)
-      .eq('tag', source)
-      .in('ticket_id', aiDeleteIds);
-    if (aiDelErr) return c.json({ error: aiDelErr.message }, 500);
-  }
-
-  // Finally, drop the source tag_library row.
-  const { error: libErr } = await sb
-    .from('tag_library')
-    .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('tag', source);
-  if (libErr) return c.json({ error: libErr.message }, 500);
+  // Drop the source library row.
+  await sql`delete from tag_library where workspace_id = ${workspaceId} and tag = ${source}`;
 
   return c.json({ source, target });
 });

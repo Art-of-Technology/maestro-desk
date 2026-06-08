@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
+// conditions + assignment are jsonb (wrapped with sql.json on write).
 export const assignRules = new Hono();
 
 assignRules.use('*', requireAuth);
@@ -36,20 +39,19 @@ const RuleBody = z.object({
 });
 
 assignRules.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-
-  const { data, error } = await sb
-    .from('assign_rules')
-    .select('id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .order('priority', { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ assign_rules: data });
+  const rows = await sql`
+    select id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at
+    from assign_rules
+    where workspace_id = ${workspaceId}
+    order by priority asc
+  `;
+  return c.json({ assign_rules: rows });
 });
 
 assignRules.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -59,21 +61,17 @@ assignRules.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  const { data, error } = await sb
-    .from('assign_rules')
-    .insert({
-      workspace_id: workspaceId,
-      display_id:   nextDisplayId(),
-      name:         input.name,
-      priority:     input.priority,
-      status:       input.status ?? 'active',
-      conditions:   input.conditions,
-      assignment:   input.assignment,
-    })
-    .select('id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at')
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ assign_rule: data }, 201);
+  try {
+    const [row] = await sql`
+      insert into assign_rules (workspace_id, display_id, name, priority, status, conditions, assignment)
+      values (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.priority},
+              ${input.status ?? 'active'}, ${sql.json(input.conditions as any)}, ${sql.json(input.assignment as any)})
+      returning id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, created_at, updated_at
+    `;
+    return c.json({ assign_rule: row }, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
 });
 
 const PatchRule = z.object({
@@ -85,7 +83,7 @@ const PatchRule = z.object({
 }).strict();
 
 assignRules.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -98,28 +96,28 @@ assignRules.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const { data, error } = await sb
-    .from('assign_rules')
-    .update(parsed.data)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, updated_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Assignment rule not found' }, 404);
-  return c.json({ assign_rule: data });
+  // jsonb fields must be JSON-wrapped; build the SET from present keys.
+  const sets = [];
+  if (parsed.data.name       !== undefined) sets.push(sql`name = ${parsed.data.name}`);
+  if (parsed.data.priority   !== undefined) sets.push(sql`priority = ${parsed.data.priority}`);
+  if (parsed.data.status     !== undefined) sets.push(sql`status = ${parsed.data.status}`);
+  if (parsed.data.conditions !== undefined) sets.push(sql`conditions = ${sql.json(parsed.data.conditions as any)}`);
+  if (parsed.data.assignment !== undefined) sets.push(sql`assignment = ${sql.json(parsed.data.assignment as any)}`);
+
+  const [row] = await sql`
+    update assign_rules set ${sets.reduce((acc, s, i) => (i ? sql`${acc}, ${s}` : s))}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, display_id, name, priority, status, conditions, assignment, match_count, last_match_at, updated_at
+  `;
+  if (!row) return c.json({ error: 'Assignment rule not found' }, 404);
+  return c.json({ assign_rule: row });
 });
 
 assignRules.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { error } = await sb
-    .from('assign_rules')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from assign_rules where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });

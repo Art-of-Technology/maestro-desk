@@ -1,21 +1,20 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
 export const workflows = new Hono();
 
 workflows.use('*', requireAuth);
 
-// Display-id allocator — same placeholder as tickets. Replace with a
-// per-workspace sequence before real-customer scale.
 function nextDisplayId(): string {
   return `WF-${String(Math.floor(Math.random() * 9000 + 1000))}`;
 }
 
-// trigger / action live as JSONB so future structured-rule storage works
+// trigger / action live as jsonb so future structured-rule storage works
 // without a schema change. The v1 SPA models them as freeform text, so we
-// wrap as { text: "..." } on the wire — the column type accepts the
-// richer shape transparently when the rules engine lands.
+// wrap as { text: "..." } on the wire.
 const WorkflowBody = z.object({
   name:    z.string().min(1).max(200),
   trigger: z.string().min(1).max(1000),
@@ -23,23 +22,20 @@ const WorkflowBody = z.object({
   status:  z.enum(['active', 'inactive']).optional(),
 });
 
-// ─── GET / — list ─────────────────────────────────────────────────────────
 workflows.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-
-  const { data, error } = await sb
-    .from('workflows')
-    .select('id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .order('display_id', { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ workflows: data });
+  const rows = await sql`
+    select id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at
+    from workflows
+    where workspace_id = ${workspaceId}
+    order by display_id asc
+  `;
+  return c.json({ workflows: rows });
 });
 
-// ─── POST / — create ──────────────────────────────────────────────────────
 workflows.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -49,23 +45,19 @@ workflows.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  const { data, error } = await sb
-    .from('workflows')
-    .insert({
-      workspace_id: workspaceId,
-      display_id:   nextDisplayId(),
-      name:         input.name,
-      trigger:      { text: input.trigger },
-      action:       { text: input.action },
-      status:       input.status ?? 'active',
-    })
-    .select('id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at')
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ workflow: data }, 201);
+  try {
+    const [row] = await sql`
+      insert into workflows (workspace_id, display_id, name, trigger, action, status)
+      values (${workspaceId}, ${nextDisplayId()}, ${input.name},
+              ${sql.json({ text: input.trigger })}, ${sql.json({ text: input.action })}, ${input.status ?? 'active'})
+      returning id, display_id, name, trigger, action, status, run_count, last_run_at, created_at, updated_at
+    `;
+    return c.json({ workflow: row }, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+  }
 });
 
-// ─── PATCH /:id — edit or toggle ──────────────────────────────────────────
 const PatchWorkflow = z.object({
   name:    z.string().min(1).max(200).optional(),
   trigger: z.string().min(1).max(1000).optional(),
@@ -74,7 +66,7 @@ const PatchWorkflow = z.object({
 }).strict();
 
 workflows.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -83,130 +75,91 @@ workflows.patch('/:id', async (c) => {
   if (!parsed.success) {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
-  const updates: Record<string, unknown> = {};
-  if (parsed.data.name !== undefined)    updates.name    = parsed.data.name;
-  if (parsed.data.status !== undefined)  updates.status  = parsed.data.status;
-  if (parsed.data.trigger !== undefined) updates.trigger = { text: parsed.data.trigger };
-  if (parsed.data.action !== undefined)  updates.action  = { text: parsed.data.action };
-  if (Object.keys(updates).length === 0) {
-    return c.json({ error: 'No fields to update' }, 400);
-  }
 
-  const { data, error } = await sb
-    .from('workflows')
-    .update(updates)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, display_id, name, trigger, action, status, run_count, last_run_at, updated_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Workflow not found' }, 404);
-  return c.json({ workflow: data });
+  const sets = [];
+  if (parsed.data.name    !== undefined) sets.push(sql`name = ${parsed.data.name}`);
+  if (parsed.data.status  !== undefined) sets.push(sql`status = ${parsed.data.status}`);
+  if (parsed.data.trigger !== undefined) sets.push(sql`trigger = ${sql.json({ text: parsed.data.trigger })}`);
+  if (parsed.data.action  !== undefined) sets.push(sql`action = ${sql.json({ text: parsed.data.action })}`);
+  if (sets.length === 0) return c.json({ error: 'No fields to update' }, 400);
+
+  const [row] = await sql`
+    update workflows set ${sets.reduce((acc, s, i) => (i ? sql`${acc}, ${s}` : s))}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, display_id, name, trigger, action, status, run_count, last_run_at, updated_at
+  `;
+  if (!row) return c.json({ error: 'Workflow not found' }, 404);
+  return c.json({ workflow: row });
 });
 
-// ─── DELETE /:id — remove ─────────────────────────────────────────────────
 workflows.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { error } = await sb
-    .from('workflows')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from workflows where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
 
-// ─── POST /:id/run — manual run (increments counters, logs the event) ────
-//
-// v1 doesn't actually execute the workflow — there's no rules engine yet.
-// The endpoint just bumps run_count + last_run_at + writes a workflow_runs
-// row so the run history pane reflects manual triggers. When the engine
-// lands, the actual triggered effects can plug into this same row stream
-// without changing the wire shape.
+// ─── POST /:id/run — manual run (bumps counters, logs a workflow_runs row) ──
+// v1 doesn't execute the workflow (no rules engine yet) — just records the
+// manual trigger so the run-history pane reflects it.
 workflows.post('/:id/run', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const id = c.req.param('id');
 
-  const { data: wf, error: lookupErr } = await sb
-    .from('workflows')
-    .select('id, run_count')
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
+  const [wf] = await sql`
+    select id, run_count from workflows where id = ${id} and workspace_id = ${workspaceId}
+  `;
   if (!wf) return c.json({ error: 'Workflow not found' }, 404);
 
-  const now = new Date().toISOString();
-  const { data: updated, error: updErr } = await sb
-    .from('workflows')
-    .update({ run_count: (wf.run_count || 0) + 1, last_run_at: now })
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, run_count, last_run_at')
-    .single();
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  const [updated] = await sql`
+    update workflows set run_count = ${(wf.run_count || 0) + 1}, last_run_at = now()
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, run_count, last_run_at
+  `;
 
-  // Best-effort run record. Failure here doesn't roll back the counter —
-  // the counter bump is the visible thing, the history row is the trail.
-  const { error: runErr } = await sb
-    .from('workflow_runs')
-    .insert({
-      workspace_id:         workspaceId,
-      workflow_id:          id,
-      kind:                 'manual',
-      triggered_by_user_id: userId,
-    });
-  if (runErr) console.warn('[workflows] workflow_runs insert failed:', runErr.message);
+  // Best-effort run record — failure doesn't roll back the counter bump.
+  try {
+    await sql`
+      insert into workflow_runs (workspace_id, workflow_id, kind, triggered_by_user_id)
+      values (${workspaceId}, ${id}, 'manual', ${userId})
+    `;
+  } catch (err) {
+    console.warn('[workflows] workflow_runs insert failed:', err instanceof Error ? err.message : err);
+  }
 
   return c.json({ workflow: updated });
 });
 
-// ─── GET /:id/runs — workflow run history, newest first ─────────────────
-//
-// Joined with users (for the triggered-by display name) and tickets
-// (for the display_id when the run was tied to a ticket — triggered
-// runs always are, manual runs aren't). Capped at 200 rows so the UI
-// doesn't render an unbounded list.
+// ─── GET /:id/runs — run history, newest first (joined for display names) ──
 workflows.get('/:id/runs', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  // Workspace-scope check.
-  const { data: wf, error: wErr } = await sb
-    .from('workflows')
-    .select('id')
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (wErr) return c.json({ error: wErr.message }, 500);
-  if (!wf)  return c.json({ error: 'Workflow not found' }, 404);
+  const [wf] = await sql`select id from workflows where id = ${id} and workspace_id = ${workspaceId}`;
+  if (!wf) return c.json({ error: 'Workflow not found' }, 404);
 
-  const { data, error } = await sb
-    .from('workflow_runs')
-    .select(`
-      id, kind, triggered_by_user_id, ticket_id, created_at,
-      users(name),
-      tickets(display_id)
-    `)
-    .eq('workspace_id', workspaceId)
-    .eq('workflow_id', id)
-    .order('created_at', { ascending: false })
-    .limit(200);
-  if (error) return c.json({ error: error.message }, 500);
-
-  const runs = (data || []).map((r: any) => ({
+  const rows = await sql`
+    select wr.id, wr.kind, wr.triggered_by_user_id, wr.ticket_id, wr.created_at,
+           u.name as triggered_by_name, t.display_id as ticket_display_id
+    from workflow_runs wr
+    left join users u on u.id = wr.triggered_by_user_id
+    left join tickets t on t.id = wr.ticket_id
+    where wr.workspace_id = ${workspaceId} and wr.workflow_id = ${id}
+    order by wr.created_at desc
+    limit 200
+  `;
+  const runs = rows.map((r) => ({
     id:                   r.id,
     kind:                 r.kind,
     triggered_by_user_id: r.triggered_by_user_id,
-    triggered_by_name:    r.users?.name || null,
+    triggered_by_name:    r.triggered_by_name ?? null,
     ticket_id:            r.ticket_id,
-    ticket_display_id:    r.tickets?.display_id || null,
+    ticket_display_id:    r.ticket_display_id ?? null,
     created_at:           r.created_at,
   }));
   return c.json({ runs });
