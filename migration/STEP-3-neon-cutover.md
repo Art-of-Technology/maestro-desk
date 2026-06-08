@@ -42,7 +42,8 @@ Route families to migrate (each still authenticates via Supabase JWT until the f
 - [ ] custom-fields + custom-values
 - [ ] agents, roles, permissions (admin-write authz)
 - [ ] workflows, sla-policies, assign-rules
-- [ ] saved-searches, tags, categories (admin-write authz)
+- [x] **categories** (PR 3.1, admin-write authz) · **saved-searches** (owner-only write + own/shared read authz)
+- [ ] tags
 - [ ] integrations (slack/stripe/shopify) + outgoing webhooks (the `sb` routes)
 - [ ] presence (generic presence table)
 - [ ] me, workspace

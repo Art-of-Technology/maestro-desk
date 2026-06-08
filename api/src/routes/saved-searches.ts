@@ -1,21 +1,25 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
 export const savedSearches = new Hono();
 
 savedSearches.use('*', requireAuth);
 
-// Saved searches use sbUser end-to-end — RLS (user_id = auth.uid()
-// AND is_workspace_member) handles both the per-user gate and the
-// workspace scope, so the route just trusts the policy and doesn't
-// re-check workspace_id in the WHERE clauses.
+// Migration to Neon — Step 3. Data access is raw SQL on Neon via getDb().
+//
+// Authz parity with the RLS policies this replaces (no RLS on Neon):
+//   - READ: a member sees their OWN rows plus any SHARED row, scoped to the
+//     active workspace → WHERE workspace_id = ws AND (user_id = me OR is_shared)
+//   - WRITE (update/delete): OWNER only, scoped to workspace → the WHERE
+//     clause adds user_id = me AND workspace_id = ws. (Previously the route
+//     trusted the saved_searches_owner_write policy to gate `where id = :id`.)
+// userId / workspaceId come from the auth middleware (still Supabase JWT until
+// the Step 3 auth flip).
 
-// Filters JSON. We accept a loosely-typed object so the UI can add
-// new filter dimensions (e.g. a date range, a sentiment-trend window)
-// without forcing a schema bump. The known keys are validated as the
-// SPA-shape strings; anything outside the schema is rejected by
-// .strict() so we don't accidentally store junk.
+// Filters JSON. Loosely typed so the UI can add filter dimensions without a
+// schema bump; .strict() rejects unknown keys.
 const Filters = z.object({
   status:    z.string().max(40).optional(),
   category:  z.string().max(80).optional(),
@@ -41,35 +45,26 @@ const PatchBody = z.object({
 }).strict();
 
 savedSearches.get('/', async (c) => {
-  const sb = c.get('sbUser');
-  // RLS combines two SELECT policies: owner sees their own rows
-  // (saved_searches_owner_write), workspace members see shared rows
-  // (saved_searches_shared_read). The union is the result set —
-  // we embed users(name) for attribution on shared entries.
-  const { data, error } = await sb
-    .from('saved_searches')
-    .select('id, user_id, name, filters, is_shared, is_pinned, created_at, updated_at, users(name)')
-    .order('is_shared', { ascending: true })  // own first, shared second
-    .order('created_at', { ascending: false });
-  if (error) return c.json({ error: error.message }, 500);
-  // Flatten the user embed into owner_name and drop the raw users
-  // payload — the client only needs the attribution string.
-  const shaped = (data || []).map((row: any) => ({
-    id:          row.id,
-    user_id:     row.user_id,
-    name:        row.name,
-    filters:     row.filters,
-    is_shared:   row.is_shared,
-    is_pinned:   row.is_pinned,
-    owner_name:  row.users?.name || null,
-    created_at:  row.created_at,
-    updated_at:  row.updated_at,
-  }));
-  return c.json({ saved_searches: shaped });
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const userId      = c.get('userId');
+
+  // Own rows (any is_shared) + every shared row, scoped to the workspace.
+  // Left-join users for the owner attribution string used on shared entries.
+  const rows = await sql`
+    select ss.id, ss.user_id, ss.name, ss.filters, ss.is_shared, ss.is_pinned,
+           ss.created_at, ss.updated_at, u.name as owner_name
+    from saved_searches ss
+    left join users u on u.id = ss.user_id
+    where ss.workspace_id = ${workspaceId}
+      and (ss.user_id = ${userId} or ss.is_shared = true)
+    order by ss.is_shared asc, ss.created_at desc
+  `;
+  return c.json({ saved_searches: rows });
 });
 
 savedSearches.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId      = c.get('userId');
 
@@ -77,56 +72,63 @@ savedSearches.post('/', async (c) => {
   const parsed = CreateBody.safeParse(reqBody);
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
 
-  const { data, error } = await sb
-    .from('saved_searches')
-    .insert({
-      workspace_id: workspaceId,
-      user_id:      userId,
-      name:         parsed.data.name,
-      filters:      parsed.data.filters,
-      is_shared:    parsed.data.is_shared ?? false,
-      is_pinned:    parsed.data.is_pinned ?? false,
-    })
-    .select('id, user_id, name, filters, is_shared, is_pinned, created_at, updated_at')
-    .single();
-  if (error) {
+  try {
+    const [row] = await sql`
+      insert into saved_searches (workspace_id, user_id, name, filters, is_shared, is_pinned)
+      values (${workspaceId}, ${userId}, ${parsed.data.name}, ${sql.json(parsed.data.filters)},
+              ${parsed.data.is_shared ?? false}, ${parsed.data.is_pinned ?? false})
+      returning id, user_id, name, filters, is_shared, is_pinned, created_at, updated_at
+    `;
+    return c.json({ saved_search: row }, 201);
+  } catch (err) {
     // Unique-violation on (workspace_id, user_id, lower(name)) → 409
-    if ((error as any).code === '23505') {
+    if ((err as any)?.code === '23505') {
       return c.json({ error: 'A saved search with that name already exists' }, 409);
     }
-    return c.json({ error: error.message }, 500);
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
-  return c.json({ saved_search: data }, 201);
 });
 
 savedSearches.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const userId      = c.get('userId');
   const id = c.req.param('id');
+
   const reqBody = await c.req.json().catch(() => null);
   const parsed = PatchBody.safeParse(reqBody);
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   if (Object.keys(parsed.data).length === 0) return c.json({ error: 'No fields to update' }, 400);
 
-  const { data, error } = await sb
-    .from('saved_searches')
-    .update(parsed.data)
-    .eq('id', id)
-    .select('id, user_id, name, filters, is_shared, is_pinned, created_at, updated_at')
-    .maybeSingle();
-  if (error) {
-    if ((error as any).code === '23505') {
+  try {
+    // Owner-only, workspace-scoped — the authz gate RLS used to provide.
+    // postgres.js encodes the `filters` object into the jsonb column.
+    const [row] = await sql`
+      update saved_searches set ${sql(parsed.data)}
+      where id = ${id} and workspace_id = ${workspaceId} and user_id = ${userId}
+      returning id, user_id, name, filters, is_shared, is_pinned, created_at, updated_at
+    `;
+    if (!row) return c.json({ error: 'Saved search not found' }, 404);
+    return c.json({ saved_search: row });
+  } catch (err) {
+    if ((err as any)?.code === '23505') {
       return c.json({ error: 'A saved search with that name already exists' }, 409);
     }
-    return c.json({ error: error.message }, 500);
+    return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
-  if (!data) return c.json({ error: 'Saved search not found' }, 404);
-  return c.json({ saved_search: data });
 });
 
 savedSearches.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const userId      = c.get('userId');
   const id = c.req.param('id');
-  const { error } = await sb.from('saved_searches').delete().eq('id', id);
-  if (error) return c.json({ error: error.message }, 500);
+
+  // Owner-only, workspace-scoped delete (idempotent — 204 whether or not a row
+  // matched, but a non-owner can never delete someone else's search).
+  await sql`
+    delete from saved_searches
+    where id = ${id} and workspace_id = ${workspaceId} and user_id = ${userId}
+  `;
   return new Response(null, { status: 204 });
 });
