@@ -38,8 +38,8 @@ Route families to migrate (each still authenticates via Supabase JWT until the f
 - [ ] customers (+ customer notes, bounce state)
 - [ ] channels + inbox
 - [ ] kb (+ votes)
-- [ ] canned-responses, ticket-templates
-- [ ] custom-fields + custom-values
+- [x] canned-responses, ticket-templates  *(Batch A)*
+- [x] custom-fields + custom-values  *(Batch A)*
 - [ ] agents, roles, permissions (admin-write authz)
 - [ ] workflows, sla-policies, assign-rules
 - [x] **categories** (PR 3.1, admin-write authz) · **saved-searches** (owner-only write + own/shared read authz)

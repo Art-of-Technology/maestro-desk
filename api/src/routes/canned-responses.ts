@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb()
+// raw SQL. Membership is verified by the auth middleware; every query scopes
+// to the active workspace_id (the authz the RLS member policy provided).
 export const cannedResponses = new Hono();
 
 cannedResponses.use('*', requireAuth);
@@ -17,20 +21,19 @@ const TemplateBody = z.object({
 });
 
 cannedResponses.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-
-  const { data, error } = await sb
-    .from('canned_responses')
-    .select('id, display_id, name, category, body, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .order('display_id', { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ canned_responses: data });
+  const rows = await sql`
+    select id, display_id, name, category, body, created_at, updated_at
+    from canned_responses
+    where workspace_id = ${workspaceId}
+    order by display_id asc
+  `;
+  return c.json({ canned_responses: rows });
 });
 
 cannedResponses.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -40,19 +43,12 @@ cannedResponses.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  const { data, error } = await sb
-    .from('canned_responses')
-    .insert({
-      workspace_id: workspaceId,
-      display_id:   nextDisplayId(),
-      name:         input.name,
-      category:     input.category ?? null,
-      body:         input.body,
-    })
-    .select('id, display_id, name, category, body, created_at, updated_at')
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ canned_response: data }, 201);
+  const [row] = await sql`
+    insert into canned_responses (workspace_id, display_id, name, category, body)
+    values (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.category ?? null}, ${input.body})
+    returning id, display_id, name, category, body, created_at, updated_at
+  `;
+  return c.json({ canned_response: row }, 201);
 });
 
 const PatchTemplate = z.object({
@@ -62,7 +58,7 @@ const PatchTemplate = z.object({
 }).strict();
 
 cannedResponses.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -75,28 +71,20 @@ cannedResponses.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const { data, error } = await sb
-    .from('canned_responses')
-    .update(parsed.data)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, display_id, name, category, body, updated_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Canned response not found' }, 404);
-  return c.json({ canned_response: data });
+  const [row] = await sql`
+    update canned_responses set ${sql(parsed.data)}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, display_id, name, category, body, updated_at
+  `;
+  if (!row) return c.json({ error: 'Canned response not found' }, 404);
+  return c.json({ canned_response: row });
 });
 
 cannedResponses.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { error } = await sb
-    .from('canned_responses')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from canned_responses where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });

@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
 export const customFields = new Hono();
 
 customFields.use('*', requireAuth);
 
-// Derive a stable snake_case key from a label. Used when the client
-// doesn't supply one on POST. Append a 4-char random suffix on collision.
+// Derive a stable snake_case key from a label. Used when the client doesn't
+// supply one on POST. Append a 4-char random suffix on collision.
 function keyFromLabel(label: string): string {
   return label
     .toLowerCase()
@@ -35,22 +37,19 @@ const FieldBody = z.object({
 });
 
 customFields.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-
-  const { data, error } = await sb
-    .from('custom_fields')
-    .select('id, entity_type, key, label, field_type, options, required, default_value, sort_order, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .order('entity_type', { ascending: true })
-    .order('sort_order',  { ascending: true })
-    .order('label',       { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ custom_fields: data });
+  const rows = await sql`
+    select id, entity_type, key, label, field_type, options, required, default_value, sort_order, created_at, updated_at
+    from custom_fields
+    where workspace_id = ${workspaceId}
+    order by entity_type asc, sort_order asc, label asc
+  `;
+  return c.json({ custom_fields: rows });
 });
 
 customFields.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -60,38 +59,35 @@ customFields.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  // Derive a key from the label if not provided. Retry up to a few times
-  // on (workspace_id, entity_type, key) collision by appending a suffix.
+  // Derive a key from the label if not provided. Retry up to a few times on
+  // (workspace_id, entity_type, key) collision by appending a suffix.
   let key = input.key ?? keyFromLabel(input.label);
   const baseKey = key;
 
   for (let attempt = 0; attempt < 4; attempt++) {
-    const { data, error } = await sb
-      .from('custom_fields')
-      .insert({
-        workspace_id:  workspaceId,
-        entity_type:   input.entity_type,
-        key,
-        label:         input.label,
-        field_type:    input.field_type,
-        options:       input.options ?? null,
-        required:      input.required ?? false,
-        default_value: input.default_value ?? null,
-        sort_order:    input.sort_order ?? 0,
-      })
-      .select('id, entity_type, key, label, field_type, options, required, default_value, sort_order, created_at, updated_at')
-      .single();
-    if (!error) return c.json({ custom_field: data }, 201);
-    if (error.code !== '23505') return c.json({ error: error.message }, 500);
-    // Collision — retry with a randomised key.
-    key = `${baseKey}_${randomSuffix()}`;
+    try {
+      const [row] = await sql`
+        insert into custom_fields
+          (workspace_id, entity_type, key, label, field_type, options, required, default_value, sort_order)
+        values
+          (${workspaceId}, ${input.entity_type}, ${key}, ${input.label}, ${input.field_type},
+           ${input.options ?? null}, ${input.required ?? false}, ${input.default_value ?? null}, ${input.sort_order ?? 0})
+        returning id, entity_type, key, label, field_type, options, required, default_value, sort_order, created_at, updated_at
+      `;
+      return c.json({ custom_field: row }, 201);
+    } catch (err) {
+      if ((err as any)?.code !== '23505') {
+        return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+      // Collision — retry with a randomised key.
+      key = `${baseKey}_${randomSuffix()}`;
+    }
   }
   return c.json({ error: 'Could not allocate a unique key after retries' }, 500);
 });
 
-// entity_type and key intentionally NOT in the patch schema — changing
-// either would orphan custom_field_values rows referencing the old
-// (entity_type, key) pair.
+// entity_type and key intentionally NOT patchable — changing either would
+// orphan custom_field_values rows referencing the old (entity_type, key) pair.
 const PatchField = z.object({
   label:         z.string().min(1).max(200).optional(),
   field_type:    z.enum(FIELD_TYPES).optional(),
@@ -102,7 +98,7 @@ const PatchField = z.object({
 }).strict();
 
 customFields.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -115,28 +111,20 @@ customFields.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const { data, error } = await sb
-    .from('custom_fields')
-    .update(parsed.data)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, entity_type, key, label, field_type, options, required, default_value, sort_order, updated_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Custom field not found' }, 404);
-  return c.json({ custom_field: data });
+  const [row] = await sql`
+    update custom_fields set ${sql(parsed.data)}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, entity_type, key, label, field_type, options, required, default_value, sort_order, updated_at
+  `;
+  if (!row) return c.json({ error: 'Custom field not found' }, 404);
+  return c.json({ custom_field: row });
 });
 
 customFields.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { error } = await sb
-    .from('custom_fields')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from custom_fields where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });

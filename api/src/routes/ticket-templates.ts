@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
 export const ticketTemplates = new Hono();
 
 ticketTemplates.use('*', requireAuth);
@@ -19,20 +21,19 @@ const TemplateBody = z.object({
 });
 
 ticketTemplates.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
-
-  const { data, error } = await sb
-    .from('ticket_templates')
-    .select('id, display_id, name, category, priority_key, subject, body, created_at, updated_at')
-    .eq('workspace_id', workspaceId)
-    .order('display_id', { ascending: true });
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ ticket_templates: data });
+  const rows = await sql`
+    select id, display_id, name, category, priority_key, subject, body, created_at, updated_at
+    from ticket_templates
+    where workspace_id = ${workspaceId}
+    order by display_id asc
+  `;
+  return c.json({ ticket_templates: rows });
 });
 
 ticketTemplates.post('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const reqBody = await c.req.json().catch(() => null);
@@ -42,21 +43,13 @@ ticketTemplates.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  const { data, error } = await sb
-    .from('ticket_templates')
-    .insert({
-      workspace_id: workspaceId,
-      display_id:   nextDisplayId(),
-      name:         input.name,
-      category:     input.category ?? null,
-      priority_key: input.priority_key ?? null,
-      subject:      input.subject ?? null,
-      body:         input.body ?? null,
-    })
-    .select('id, display_id, name, category, priority_key, subject, body, created_at, updated_at')
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ ticket_template: data }, 201);
+  const [row] = await sql`
+    insert into ticket_templates (workspace_id, display_id, name, category, priority_key, subject, body)
+    values (${workspaceId}, ${nextDisplayId()}, ${input.name}, ${input.category ?? null},
+            ${input.priority_key ?? null}, ${input.subject ?? null}, ${input.body ?? null})
+    returning id, display_id, name, category, priority_key, subject, body, created_at, updated_at
+  `;
+  return c.json({ ticket_template: row }, 201);
 });
 
 const PatchTemplate = z.object({
@@ -68,7 +61,7 @@ const PatchTemplate = z.object({
 }).strict();
 
 ticketTemplates.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -81,28 +74,20 @@ ticketTemplates.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  const { data, error } = await sb
-    .from('ticket_templates')
-    .update(parsed.data)
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, display_id, name, category, priority_key, subject, body, updated_at')
-    .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data)  return c.json({ error: 'Ticket template not found' }, 404);
-  return c.json({ ticket_template: data });
+  const [row] = await sql`
+    update ticket_templates set ${sql(parsed.data)}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, display_id, name, category, priority_key, subject, body, updated_at
+  `;
+  if (!row) return c.json({ error: 'Ticket template not found' }, 404);
+  return c.json({ ticket_template: row });
 });
 
 ticketTemplates.delete('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { error } = await sb
-    .from('ticket_templates')
-    .delete()
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (error) return c.json({ error: error.message }, 500);
+  await sql`delete from ticket_templates where id = ${id} and workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
 });
