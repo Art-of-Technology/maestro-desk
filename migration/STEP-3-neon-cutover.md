@@ -35,9 +35,9 @@ A route rewritten to query Neon uses its existing `.eq('workspace_id', workspace
 
 ### PR 3.2 … 3.n — Remaining families → Neon (one PR each, or grouped)
 Route families to migrate (each still authenticates via Supabase JWT until the final flip):
-- [ ] customers (+ customer notes, bounce state)
-- [ ] channels + inbox
-- [ ] kb (+ votes)
+- [x] customers (bounce state)  *(Batch C)*
+- [x] channels + inbox (incl. transactional convert)  *(Batch C)*
+- [x] kb (+ votes, atomic view counter)  *(Batch C)*
 - [x] canned-responses, ticket-templates  *(Batch A)*
 - [x] custom-fields + custom-values  *(Batch A)*
 - [ ] agents, roles, permissions (admin-write authz)
