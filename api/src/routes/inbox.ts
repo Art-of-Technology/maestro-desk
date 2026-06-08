@@ -1,70 +1,54 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const inbox = new Hono();
 
 inbox.use('*', requireAuth);
 
 // Placeholder display-id generator — same shape as routes/tickets.ts.
-// Replace with a per-workspace sequence (or trigger) before real-user
-// scale.
 function nextTicketDisplayId(): string {
   return `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
 }
 
-// List inbox_messages in the active workspace. Joined with tickets for
-// converted_ticket display_id (so the UI can deep-link "Open TK-XXX"
-// without an extra fetch).
-//
-// Returns the raw DB shape; the SPA remaps fields to data.js's INBOX
-// view-model on the client.
+// List inbox_messages, joined to tickets for the converted ticket's display_id
+// (so the UI can deep-link without an extra fetch).
 inbox.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
-  // Two FKs link inbox_messages ↔ tickets (converted_ticket_id and the
-  // reverse source_inbox_id), so PostgREST needs the constraint name to
-  // disambiguate. Embed via the converted_ticket_id FK only.
-  const { data, error } = await sb
-    .from('inbox_messages')
-    .select(`
-      id, channel_id, from_name, from_email, subject, body, received_at, status,
-      converted_ticket_id,
-      tickets!inbox_messages_converted_ticket_fk(display_id)
-    `)
-    .eq('workspace_id', workspaceId)
-    .order('received_at', { ascending: false });
-
-  if (error) return c.json({ error: error.message }, 500);
-
-  const inbox = (data || []).map((row: any) => ({
-    id:                   row.id,
-    channel_id:           row.channel_id,
-    from_name:            row.from_name,
-    from_email:           row.from_email,
-    subject:              row.subject,
-    body:                 row.body,
-    received_at:          row.received_at,
-    status:               row.status,
-    converted_ticket_display_id: row.tickets?.display_id || null,
+  const rows = await sql`
+    select i.id, i.channel_id, i.from_name, i.from_email, i.subject, i.body, i.received_at, i.status,
+           i.converted_ticket_id, t.display_id as converted_ticket_display_id
+    from inbox_messages i
+    left join tickets t on t.id = i.converted_ticket_id
+    where i.workspace_id = ${workspaceId}
+    order by i.received_at desc
+  `;
+  const inbox = rows.map((row) => ({
+    id:                          row.id,
+    channel_id:                  row.channel_id,
+    from_name:                   row.from_name,
+    from_email:                  row.from_email,
+    subject:                     row.subject,
+    body:                        row.body,
+    received_at:                 row.received_at,
+    status:                      row.status,
+    converted_ticket_display_id: row.converted_ticket_display_id ?? null,
   }));
-
   return c.json({ inbox });
 });
 
 // ─── PATCH /:id — change status (dismiss / spam / restore) ────────────────
-//
-// Refuses to touch already-converted rows: the conversion is an audit
-// trail, not a state to be flipped back. Restore is just "set to new" with
-// the converted guard.
-
+// Refuses to touch already-converted rows (the conversion is an audit trail).
 const PatchInbox = z.object({
   status: z.enum(['new', 'dismissed', 'spam']),
 });
 
 inbox.patch('/:id', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
@@ -74,65 +58,48 @@ inbox.patch('/:id', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
 
-  const { data: existing, error: lookupErr } = await sb
-    .from('inbox_messages')
-    .select('id, status, converted_ticket_id')
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
-  if (!existing)  return c.json({ error: 'Inbox message not found' }, 404);
+  const [existing] = await sql`
+    select id, status, converted_ticket_id from inbox_messages
+    where id = ${id} and workspace_id = ${workspaceId}
+  `;
+  if (!existing) return c.json({ error: 'Inbox message not found' }, 404);
   if (existing.status === 'converted') {
     return c.json({ error: 'Cannot change status of a converted message' }, 409);
   }
 
-  const { data: updated, error: updErr } = await sb
-    .from('inbox_messages')
-    .update({ status: parsed.data.status })
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .select('id, status')
-    .single();
-  if (updErr) return c.json({ error: updErr.message }, 500);
-
+  const [updated] = await sql`
+    update inbox_messages set status = ${parsed.data.status}
+    where id = ${id} and workspace_id = ${workspaceId}
+    returning id, status
+  `;
   return c.json({ inbox_message: updated });
 });
 
 // ─── POST /:id/convert — create a ticket from this email ──────────────────
-//
-// Mirrors the client's old convertEmailToTicket logic, server-side.
-// Refuses if no customer matches the from_email (matches the SPA's UX —
-// agent has to add the customer first or use the new-ticket form). Marks
-// the inbox row converted on success.
-
+// Refuses if no customer matches the from_email. Marks the inbox row
+// converted on success. The ticket + first message + status flip run in a
+// single transaction so a partial failure can't orphan a ticket.
 inbox.post('/:id/convert', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
-  const { data: msg, error: lookupErr } = await sb
-    .from('inbox_messages')
-    .select('id, status, channel_id, from_name, from_email, subject, body')
-    .eq('id', id)
-    .eq('workspace_id', workspaceId)
-    .maybeSingle();
-  if (lookupErr) return c.json({ error: lookupErr.message }, 500);
-  if (!msg)       return c.json({ error: 'Inbox message not found' }, 404);
+  const [msg] = await sql`
+    select id, status, channel_id, from_name, from_email, subject, body
+    from inbox_messages
+    where id = ${id} and workspace_id = ${workspaceId}
+  `;
+  if (!msg) return c.json({ error: 'Inbox message not found' }, 404);
   if (msg.status === 'converted') {
     return c.json({ error: 'Already converted' }, 409);
   }
 
-  // Match the sender against customers by email — required, no silent
-  // CUSTOMERS[0] fallback. Front-end already blocks the button when no
-  // match is shown, so this is defense-in-depth for direct callers.
-  const { data: customer, error: cErr } = await sb
-    .from('customers')
-    .select('id, first_name, last_name')
-    .eq('workspace_id', workspaceId)
-    .eq('email', msg.from_email)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (cErr) return c.json({ error: cErr.message }, 500);
+  // Match the sender against customers by email — required (defense-in-depth;
+  // the front-end blocks the button when there's no match).
+  const [customer] = await sql`
+    select id, first_name, last_name from customers
+    where workspace_id = ${workspaceId} and email = ${msg.from_email} and deleted_at is null
+  `;
   if (!customer) {
     return c.json({
       error: 'No customer matches the sender email; add the customer first.',
@@ -140,49 +107,35 @@ inbox.post('/:id/convert', async (c) => {
     }, 409);
   }
 
-  // Pick category from the channel default, if any.
+  // Category from the channel default, if any.
   let categoryKey: string | null = null;
   if (msg.channel_id) {
-    const { data: ch } = await sb
-      .from('channels')
-      .select('default_category_key')
-      .eq('id', msg.channel_id)
-      .maybeSingle();
+    const [ch] = await sql`select default_category_key from channels where id = ${msg.channel_id}`;
     categoryKey = ch?.default_category_key || null;
   }
 
-  const { data: ticket, error: tErr } = await sb
-    .from('tickets')
-    .insert({
-      workspace_id:    workspaceId,
-      display_id:      nextTicketDisplayId(),
-      subject:         msg.subject || '(no subject)',
-      customer_id:     customer.id,
-      status_key:      'open',
-      priority_key:    'normal',
-      category_key:    categoryKey,
-      source_inbox_id: msg.id,
-      sla_state:       'ok',
-    })
-    .select('id, display_id')
-    .single();
-  if (tErr) return c.json({ error: tErr.message }, 500);
+  const authorLabel =
+    `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || msg.from_email || 'Customer';
 
-  const { error: mErr } = await sb.from('ticket_messages').insert({
-    workspace_id: workspaceId,
-    ticket_id:    ticket.id,
-    role:         'customer',
-    author_label: `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || msg.from_email || 'Customer',
-    body:         msg.body || '',
+  const ticket = await sql.begin(async (tx) => {
+    const [t] = await tx`
+      insert into tickets
+        (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, source_inbox_id, sla_state)
+      values
+        (${workspaceId}, ${nextTicketDisplayId()}, ${msg.subject || '(no subject)'}, ${customer.id},
+         'open', 'normal', ${categoryKey}, ${msg.id}, 'ok')
+      returning id, display_id
+    `;
+    await tx`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+      values (${workspaceId}, ${t.id}, 'customer', ${authorLabel}, ${msg.body || ''})
+    `;
+    await tx`
+      update inbox_messages set status = 'converted', converted_ticket_id = ${t.id}
+      where id = ${id} and workspace_id = ${workspaceId}
+    `;
+    return t;
   });
-  if (mErr) return c.json({ error: mErr.message, ticket }, 500);
-
-  const { error: upErr } = await sb
-    .from('inbox_messages')
-    .update({ status: 'converted', converted_ticket_id: ticket.id })
-    .eq('id', id)
-    .eq('workspace_id', workspaceId);
-  if (upErr) return c.json({ error: upErr.message, ticket }, 500);
 
   return c.json({ ticket }, 201);
 });
