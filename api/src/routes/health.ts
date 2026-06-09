@@ -1,5 +1,5 @@
+import type { Context } from 'hono';
 import { Hono } from 'hono';
-import { supabaseAdmin } from '../lib/supabase.ts';
 import { getDb } from '../lib/db.ts';
 
 export const health = new Hono();
@@ -7,19 +7,10 @@ export const health = new Hono();
 // Cheap liveness probe — no DB roundtrip.
 health.get('/', (c) => c.json({ ok: true, ts: new Date().toISOString() }));
 
-// Readiness — proves the API can reach Supabase + the schema is the one we expect.
-health.get('/ready', async (c) => {
-  const { count, error } = await supabaseAdmin
-    .from('workspaces')
-    .select('*', { count: 'exact', head: true });
-  if (error) return c.json({ ok: false, error: error.message }, 503);
-  return c.json({ ok: true, workspaces: count ?? 0 });
-});
-
-// Neon readiness (migration to Neon — Step 1). Proves the API can reach the
-// new database with raw SQL and that the ported schema is present. Separate
-// from /ready so the live Supabase probe is untouched during the migration.
-health.get('/ready/neon', async (c) => {
+// Readiness — proves the API can reach Neon (the source of truth post-
+// migration) and that the ported schema is present. /ready/neon is kept as
+// an alias for any monitoring wired up during the migration.
+async function neonReadiness(c: Context) {
   try {
     const sql = getDb();
     const [{ count }] = await sql<{ count: number }[]>`
@@ -32,4 +23,7 @@ health.get('/ready/neon', async (c) => {
     console.error('[health] neon readiness check failed:', err);
     return c.json({ ok: false, db: 'neon', error: 'database unavailable' }, 503);
   }
-});
+}
+
+health.get('/ready', neonReadiness);
+health.get('/ready/neon', neonReadiness);

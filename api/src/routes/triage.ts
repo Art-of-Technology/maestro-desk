@@ -21,7 +21,7 @@ triage.post('/', async (c) => {
       ticketId,
       workspaceId: c.get('workspaceId'),
       userId: c.get('userId'),
-      sb: c.get('sb'),
+      sb: null,   // migrated to Neon — triageTicket opens its own getDb()
     });
     return c.json(result);
   } catch (err) {

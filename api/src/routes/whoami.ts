@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { requireAuthOnly } from '../middleware/auth.ts';
+import { getDb } from '../lib/db.ts';
 
+// Migration to Neon — Step 3. The identity reads (users + memberships) move to
+// getDb(); JWT verification stays in requireAuthOnly until the auth flip. The
+// /claims endpoint only decodes the bearer token (no DB) and is untouched.
 export const whoami = new Hono();
 
 whoami.use('*', requireAuthOnly);
@@ -17,45 +21,42 @@ whoami.use('*', requireAuthOnly);
 // membership); /whoami is the workspace-agnostic equivalent for callers
 // who haven't picked a workspace yet.
 whoami.get('/', async (c) => {
-  const sb = c.get('sbUser');
+  const sql = getDb();
   const userId = c.get('userId');
 
-  const { data: user, error } = await sb
-    .from('users')
-    .select('id, email, name, initials, is_platform_admin')
-    .eq('id', userId)
-    .single();
-  if (error) return c.json({ error: error.message }, 500);
+  const [user] = await sql<{ id: string; email: string; name: string | null; initials: string | null; is_platform_admin: boolean | null }[]>`
+    select id, email, name, initials, is_platform_admin from users where id = ${userId}
+  `;
+  if (!user) return c.json({ error: 'User not found' }, 404);
 
   // Active memberships in non-deleted, non-system workspaces. The system
   // unrouted-bucket workspace exists for routing fallback only — no human
-  // ever signs into it. Reads through sbUser — the workspace_members,
-  // workspaces, and roles policies all gate by JWT workspace_ids.
-  const { data: memberships, error: mErr } = await sb
-    .from('workspace_members')
-    .select(`
-      role_id,
-      active,
-      workspaces!inner(id, name, slug, logo_url, primary_color, suspended_at, is_unrouted_bucket, deleted_at),
-      roles(name, is_admin)
-    `)
-    .eq('user_id', userId)
-    .eq('active', true);
-  if (mErr) return c.json({ error: mErr.message }, 500);
+  // ever signs into it; the join filters it out alongside soft-deleted ones.
+  const rows = await sql<{
+    role_id: string | null; ws_id: string; ws_name: string; slug: string;
+    logo_url: string | null; primary_color: string | null; suspended_at: string | null;
+    role_name: string | null; is_admin: boolean | null;
+  }[]>`
+    select wm.role_id, w.id as ws_id, w.name as ws_name, w.slug, w.logo_url, w.primary_color,
+           w.suspended_at, r.name as role_name, r.is_admin
+    from workspace_members wm
+    join workspaces w on w.id = wm.workspace_id
+    left join roles r on r.id = wm.role_id
+    where wm.user_id = ${userId} and wm.active = true
+      and w.deleted_at is null and coalesce(w.is_unrouted_bucket, false) = false
+  `;
 
-  const shaped = (memberships || [])
-    .filter((m: any) => m.workspaces && !m.workspaces.deleted_at && !m.workspaces.is_unrouted_bucket)
-    .map((m: any) => ({
-      workspace_id:            m.workspaces.id,
-      workspace_name:          m.workspaces.name,
-      workspace_slug:          m.workspaces.slug,
-      workspace_logo_url:      m.workspaces.logo_url || null,
-      workspace_primary_color: m.workspaces.primary_color || null,
-      suspended:               Boolean(m.workspaces.suspended_at),
-      role_id:                 m.role_id,
-      role_name:               m.roles?.name || null,
-      is_admin:                Boolean(m.roles?.is_admin),
-    }));
+  const shaped = rows.map((m) => ({
+    workspace_id:            m.ws_id,
+    workspace_name:          m.ws_name,
+    workspace_slug:          m.slug,
+    workspace_logo_url:      m.logo_url || null,
+    workspace_primary_color: m.primary_color || null,
+    suspended:               Boolean(m.suspended_at),
+    role_id:                 m.role_id,
+    role_name:               m.role_name || null,
+    is_admin:                Boolean(m.is_admin),
+  }));
 
   return c.json({ user, memberships: shaped });
 });
