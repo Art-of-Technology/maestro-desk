@@ -51,6 +51,23 @@ const Env = z.object({
   // dev: csat code falls back to http://localhost:5173/portal.html,
   // and the magic-link path derives a URL from the request origin.
   PORTAL_BASE_URL: z.string().default(''),
+  // Cloudflare R2 (migration to Neon — Step 4). Replaces Supabase Storage
+  // for brand-asset uploads (workspace logos). R2 is S3-compatible; we sign
+  // requests with aws4fetch (region "auto") rather than an AWS SDK so the
+  // same code runs on Bun locally and Node on Vercel.
+  //   ACCOUNT_ID    → the S3 endpoint host: <id>.r2.cloudflarestorage.com
+  //   ACCESS_KEY_ID / SECRET_ACCESS_KEY → an R2 API token (S3 credentials)
+  //   BUCKET        → bucket name, e.g. "brand-assets"
+  //   PUBLIC_BASE_URL → the bucket's public read base (r2.dev URL or a
+  //                     custom domain), used to build the stored logo_url.
+  // All optional mid-migration: lib/r2.ts throws a clear error if used while
+  // unset, so the API still boots (and routes that don't upload still work)
+  // until R2 is provisioned. Becomes required once logo upload is live.
+  R2_ACCOUNT_ID: z.string().default(''),
+  R2_ACCESS_KEY_ID: z.string().default(''),
+  R2_SECRET_ACCESS_KEY: z.string().default(''),
+  R2_BUCKET: z.string().default('brand-assets'),
+  R2_PUBLIC_BASE_URL: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 

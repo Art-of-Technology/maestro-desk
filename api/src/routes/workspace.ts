@@ -3,14 +3,12 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.ts';
 import { getDb } from '../lib/db.ts';
 import { requireWorkspaceAdmin } from '../lib/authz.ts';
+import { putObject, listKeys, deleteKeys, publicUrl } from '../lib/r2.ts';
 
-// Migration to Neon — Step 3. DB access moves to getDb(); the admin gate is
-// requireWorkspaceAdmin (replacing the is_workspace_admin RPC).
-//
-// NOTE: POST /branding/logo still uses Supabase Storage for the actual file
-// (brand-assets bucket) — that moves to Cloudflare R2 in Step 4. Only its DB
-// write (workspaces.logo_url) is on Neon here. supabaseAdmin (c.get('sb')) is
-// still provided by the auth middleware until the Step 3 auth flip.
+// Migration to Neon — Step 3 (DB access on getDb(), admin gate via
+// requireWorkspaceAdmin) + Step 4 (POST /branding/logo now stores the file in
+// Cloudflare R2 instead of Supabase Storage). This route no longer touches
+// Supabase at all.
 export const workspace = new Hono();
 
 workspace.use('*', requireAuth);
@@ -42,7 +40,7 @@ const SettingsBody = z.object({
   portal_custom_domain: z.string().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i, 'Invalid hostname').max(253).nullable().optional(),
 }).strict();
 
-// ─── POST /branding/logo — admin; Supabase Storage upload (R2 in Step 4) ──
+// ─── POST /branding/logo — admin; Cloudflare R2 upload (Step 4) ───────────
 const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
 const MAX_BYTES    = 2 * 1024 * 1024;
 
@@ -51,7 +49,6 @@ workspace.post('/branding/logo', async (c) => {
   if (denied) return denied;
 
   const sql = getDb();
-  const sbAdmin = c.get('sb');   // Supabase Storage stays until Step 4 (R2)
   const workspaceId = c.get('workspaceId');
 
   const form = await c.req.parseBody({ all: false }).catch(() => null);
@@ -64,23 +61,28 @@ workspace.post('/branding/logo', async (c) => {
   const extByMime: Record<string, string> = {
     'image/png': 'png', 'image/jpeg': 'jpg', 'image/svg+xml': 'svg', 'image/webp': 'webp',
   };
-  const path = `${workspaceId}/logo-${Date.now()}.${extByMime[file.type]}`;
+  const key = `${workspaceId}/logo-${Date.now()}.${extByMime[file.type]}`;
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const upload = await sbAdmin.storage.from('brand-assets').upload(path, bytes, { contentType: file.type, upsert: false });
-  if (upload.error) return c.json({ error: `Upload failed: ${upload.error.message}` }, 500);
+  try {
+    await putObject(key, bytes, file.type);
+  } catch (err) {
+    // Log the detail server-side (it can include the R2/S3 error body, which
+    // may echo signing internals); return a generic message to the client.
+    console.error('[workspace-branding] R2 upload failed:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'Upload failed' }, 500);
+  }
 
   // Best-effort cleanup of older files under this workspace's prefix.
   try {
-    const { data: existing } = await sbAdmin.storage.from('brand-assets').list(workspaceId);
-    const stale = (existing || []).filter((e: any) => `${workspaceId}/${e.name}` !== path).map((e: any) => `${workspaceId}/${e.name}`);
-    if (stale.length > 0) await sbAdmin.storage.from('brand-assets').remove(stale);
+    const stale = (await listKeys(`${workspaceId}/`)).filter((k) => k !== key);
+    await deleteKeys(stale);
   } catch (err) {
     console.warn('[workspace-branding] cleanup failed:', err instanceof Error ? err.message : err);
   }
 
-  const { data: { publicUrl } } = sbAdmin.storage.from('brand-assets').getPublicUrl(path);
-  await sql`update workspaces set logo_url = ${publicUrl} where id = ${workspaceId}`;
-  return c.json({ logo_url: publicUrl }, 201);
+  const logoUrl = publicUrl(key);
+  await sql`update workspaces set logo_url = ${logoUrl} where id = ${workspaceId}`;
+  return c.json({ logo_url: logoUrl }, 201);
 });
 
 // ─── PATCH /settings — admin ────────────────────────────────────────────
