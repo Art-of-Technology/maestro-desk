@@ -73,13 +73,18 @@ import { registerActions, registerChangeActions, registerInputActions } from '..
 // Locally-driven mutations also bump the server's updated_at, so the
 // next heartbeat fires this callback too — refetch is redundant but
 // harmless (~50ms) and self-corrects any local/canonical drift.
-setTicketChangedCallback(({ uuid: changedUuid }) => {
+// Reload a ticket (and re-render it if it's the one open) given its server
+// uuid. Driven by both the presence heartbeat's ticket_updated_at delta and
+// the Pubby `ticket.changed` push (js/core/realtime.js) — same self-correcting
+// refetch either way.
+export function reloadTicketByUuid(changedUuid) {
   const t = TICKETS.find((x) => x._uuid === changedUuid);
   if (!t) return;
   loadTicketDetail(t.id, { force: true }).then(() => {
     if (CURRENT_TICKET === t.id) openTicket(t.id);
   }).catch((err) => console.warn('[ticket-detail] live-sync reload failed:', err));
-});
+}
+setTicketChangedCallback(({ uuid: changedUuid }) => reloadTicketByUuid(changedUuid));
 
 // Sentiment badge for customer messages — colored dot + label next to
 // the author name. Skipped silently when sentiment is null (not yet

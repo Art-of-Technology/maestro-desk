@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.0",
+    "@getpubby/sdk": "^0.2.0",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.6.14",
     "hono": "^4.6.0",

@@ -8,6 +8,7 @@ import { dispatchTicketEvent } from '../lib/outgoing-webhooks.ts';
 import { scoreMessageSentiment } from '../lib/sentiment.ts';
 import { sendCsatSurvey } from '../lib/csat-survey.ts';
 import { notifyMentionedAgents } from '../lib/mention-notify.ts';
+import { publishTicketChanged } from '../lib/pubby.ts';
 import { getDb } from '../lib/db.ts';
 
 // Migration to Neon — Step 3 (tickets megabatch). All direct queries use
@@ -18,6 +19,30 @@ import { getDb } from '../lib/db.ts';
 export const tickets = new Hono();
 
 tickets.use('*', requireAuth);
+
+// Realtime (Step 5): after any successful mutation on a /:id ticket route,
+// push a "ticket.changed" signal so other viewers re-sync via their existing
+// cursor fetch. This one post-response hook covers every /:id/* write (id from
+// the path param); the create handler (POST /, no :id) publishes its new id
+// explicitly. Best-effort and post-response — never affects the handler result
+// (publishTicketChanged is a no-op when Pubby is unconfigured).
+//
+// Invariant: in THIS router `:id` is always a ticket id, and every non-GET
+// here genuinely mutates that ticket (status/message/tags/snooze/merge/time/
+// assign), so a `ticket.changed` for that id is always correct — including
+// POST /:id/messages, a primary case. The signal only triggers a re-sync,
+// which is idempotent and cheap, so an occasional list-invisible change (e.g.
+// a time entry) costs at most one extra delta fetch. (The /:id/triage app is
+// mounted separately and is unaffected by this hook.)
+tickets.use('*', async (c, next) => {
+  await next();
+  const method = c.req.method;
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+  if (c.res.status >= 300) return;
+  const id = c.req.param('id');
+  const workspaceId = c.get('workspaceId');
+  if (id && workspaceId) void publishTicketChanged(workspaceId, id);
+});
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -907,6 +932,7 @@ tickets.post('/', async (c) => {
   try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
   catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
+  void publishTicketChanged(workspaceId, ticket.id);
   return c.json({ ticket }, 201);
 });
 

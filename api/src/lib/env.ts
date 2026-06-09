@@ -69,6 +69,20 @@ const Env = z.object({
   R2_SECRET_ACCESS_KEY: z.string().default(''),
   R2_BUCKET: z.string().default('brand-assets'),
   R2_PUBLIC_BASE_URL: z.string().default(''),
+  // Pubby realtime (migration — Step 5). Pusher-compatible push for live
+  // ticket/message updates. All optional: when unset, lib/pubby.ts no-ops and
+  // the SPA falls back to polling, so realtime is purely additive.
+  //   APP_ID/KEY/SECRET → server PubbyServer (KEY is the public app key; the
+  //     SPA also receives it). SECRET signs trigger + channel-auth.
+  //   WS_HOST → the client's WebSocket host (e.g. wss://ws.pubby.dev), served
+  //     to the SPA via GET /api/v1/pubby/config.
+  //   API_HOST → optional override of the server HTTP API (default
+  //     https://api.pubby.dev, where triggers POST).
+  PUBBY_APP_ID: z.string().default(''),
+  PUBBY_KEY: z.string().default(''),
+  PUBBY_SECRET: z.string().default(''),
+  PUBBY_WS_HOST: z.string().default(''),
+  PUBBY_API_HOST: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 

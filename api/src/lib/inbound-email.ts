@@ -10,6 +10,7 @@ import {
 import { triageTicket } from './triage.ts';
 import { BudgetExceededError } from './budget.ts';
 import { scoreMessageSentiment } from './sentiment.ts';
+import { publishTicketChanged } from './pubby.ts';
 
 // Fire-and-forget wrapper around scoreMessageSentiment used by the
 // inbound-email and reply paths. We never want sentiment to break the
@@ -318,6 +319,7 @@ export async function processInboundEmail(args: {
     console.error('[inbound-email] failed to queue auto-triage:', err);
   }
 
+  void publishTicketChanged(workspaceId, newTicket.id);
   return {
     ticket_id: newTicket.id,
     ticket_display_id: newTicket.display_id,
@@ -384,6 +386,7 @@ async function attachReplyToTicket(args: {
     console.error('[inbound-email] failed to queue retriage:', err);
   }
 
+  void publishTicketChanged(workspaceId, ticketId);
   return {
     ticket_id: ticketId,
     ticket_display_id: ticketDisplayId,

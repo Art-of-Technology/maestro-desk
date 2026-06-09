@@ -12,10 +12,12 @@
 // Demo personas never call start (they have no _uuid tickets and no
 // API to poll); the localStorage-only flow stays untouched.
 //
-// Polling cadence is 10s — half the rate of the per-ticket presence
-// heartbeat since list updates don't need sub-5s latency. First call
-// just stamps the server's clock as the cursor; subsequent calls pull
-// deltas since the last cursor.
+// Cadence is a 60s FALLBACK since the Pubby realtime push (js/core/
+// realtime.js) now triggers tick() the instant a ticket changes. When Pubby
+// is configured this poll is just a safety net for a dropped socket; when it
+// isn't (or the browser can't reach Pubby) this is the only path and still
+// keeps the list live. First call stamps the server's clock as the cursor;
+// subsequent calls pull deltas since the last cursor.
 
 import { CURRENT_PAGE } from '../core/state.js';
 import { updateNavBadges } from '../core/router.js';
@@ -24,7 +26,7 @@ import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 import { renderTickets } from './list.js';
 import { renderInbox } from '../inbox/index.js';
 
-const POLL_INTERVAL_MS = 10000;
+const POLL_INTERVAL_MS = 60000;
 
 const state = {
   intervalId: null,
@@ -51,7 +53,11 @@ export function stopListSync() {
   state.inFlight = false;
 }
 
-async function tick() {
+// Exported so the Pubby realtime push can trigger an immediate delta-pull on
+// a `ticket.changed` event. The inFlight guard coalesces a burst of events
+// (and an overlapping poll) into a single in-flight fetch — the cursor still
+// captures every delta.
+export async function tick() {
   if (state.inFlight) return;
   state.inFlight = true;
   try {

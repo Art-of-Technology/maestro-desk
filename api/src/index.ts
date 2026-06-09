@@ -34,6 +34,7 @@ import { publicRoutes } from './routes/public.ts';
 import { integrations } from './routes/integrations.ts';
 import { presence } from './routes/presence.ts';
 import { categories } from './routes/categories.ts';
+import { pubby } from './routes/pubby.ts';
 
 const app = new Hono();
 
@@ -75,6 +76,7 @@ app.route('/api/v1/custom-values', customValues);
 app.route('/api/v1/public', publicRoutes);
 app.route('/api/v1/integrations', integrations);
 app.route('/api/v1/presence', presence);
+app.route('/api/v1/pubby', pubby);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 

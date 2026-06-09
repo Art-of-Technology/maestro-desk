@@ -32,6 +32,7 @@ import { nav, renderPage } from './core/router.js';
 import './core/keybindings.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
+import { startRealtime, stopRealtime } from './core/realtime.js';
 
 function login(role, name, initials, userId = null) {
   setSession({ role, name, initials, userId });
@@ -61,7 +62,7 @@ function login(role, name, initials, userId = null) {
   // Real-auth users (userId != null) get the always-on list-sync poll so
   // TICKETS / nav badges / inbox stay live. Demo personas skip — they
   // have no API to talk to and TICKETS comes from data.js seeds.
-  if (userId) startListSync();
+  if (userId) { startListSync(); startRealtime(); }
   renderPage('dashboard');
 }
 // Swap the sidebar brand block (and the browser tab title) to the
@@ -120,6 +121,8 @@ function logout() {
   // Stop the background list-sync poll. Always safe to call even when
   // never started (demo persona path).
   stopListSync();
+  // Tear down the Pubby realtime socket (no-op if it never connected).
+  stopRealtime();
   setSession(null);
   resetWorkspaceBrand();
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for

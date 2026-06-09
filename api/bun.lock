@@ -6,6 +6,7 @@
       "name": "maestro-desk-api",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.97.0",
+        "@getpubby/sdk": "^0.2.0",
         "aws4fetch": "^1.0.20",
         "better-auth": "^1.6.14",
         "hono": "^4.6.0",
@@ -42,6 +43,8 @@
     "@better-auth/utils": ["@better-auth/utils@0.4.1", "", { "dependencies": { "@noble/hashes": "^2.0.1" } }, "sha512-SZBPRPF3z0nBvE5ygOkxae35wnnXPRShmqFo78S+qslLeFoPu/pMgnXAuNKFMMybac3tiLaVg1e3MQW5MC+1iA=="],
 
     "@better-fetch/fetch": ["@better-fetch/fetch@1.1.21", "", {}, "sha512-/ImESw0sskqlVR94jB+5+Pxjf+xBwDZF/N5+y2/q4EqD7IARUTSpPfIo8uf39SYpCxyOCtbyYpUrZ3F/k0zT4A=="],
+
+    "@getpubby/sdk": ["@getpubby/sdk@0.2.0", "", { "peerDependencies": { "ws": "^8.0.0" }, "optionalPeers": ["ws"] }, "sha512-qinXbiMBVI2hfFpQkOEDuQhDZ9f/MVum4OB1X/C/n/pfgVRuosUaPvGiL9yZntnifV+GcZIsC8RBAuUBBf0PCA=="],
 
     "@noble/ciphers": ["@noble/ciphers@2.2.0", "", {}, "sha512-Z6pjIZ/8IJcCGzb2S/0Px5J81yij85xASuk1teLNeg75bfT07MV3a/O2Mtn1I2se43k3lkVEcFaR10N4cgQcZA=="],
 
