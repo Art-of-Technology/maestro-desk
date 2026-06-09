@@ -25,6 +25,8 @@ export const god = new Hono();
 god.use('*', requirePlatformAdmin);
 
 // Columns returned for a brand (workspace) — kept consistent across handlers.
+// Module-level constant, never caller-controlled, so sql.unsafe() interpolation
+// below is injection-safe (same pattern as SETTINGS_COLS in workspace.ts).
 const BRAND_COLS = `id, slug, name, plan, logo_url, primary_color, support_email_display_name,
   ai_credits_micro, auto_reply_min_confidence, auto_reply_categories,
   suspended_at, is_unrouted_bucket, created_at, updated_at`;
