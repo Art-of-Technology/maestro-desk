@@ -7,12 +7,6 @@ declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
-    // Vestigial: a handful of ticket libs still accept an (ignored) `sb` arg
-    // from before the Neon cutover. It's no longer set, so c.get('sb') reads
-    // undefined and the libs — which all use getDb() — ignore it. Typed
-    // `unknown` so the dead param threading still compiles; a follow-up can
-    // strip the params entirely.
-    sb: unknown;
   }
 }
 

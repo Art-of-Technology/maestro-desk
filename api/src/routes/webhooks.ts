@@ -35,12 +35,10 @@ webhooks.post('/postmark/inbound', async (c) => {
     const sql = getDb();
     const to = parseTo(payload);
     const resolution = await resolveInboundWorkspace({
-      sb: null,
       toDomain: to?.domain ?? null,
     });
 
     const result = await processInboundEmail({
-      sb: null,
       workspaceId: resolution.workspaceId,
       payload,
     });
@@ -157,7 +155,6 @@ webhooks.post('/slack/events', async (c) => {
 
   try {
     await handleSlackEvent({
-      sb:          null,
       workspaceId: verified.workspace_id,
       botToken:    verified.bot_token,
       payload,

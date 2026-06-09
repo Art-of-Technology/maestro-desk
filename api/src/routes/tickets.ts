@@ -13,9 +13,8 @@ import { getDb } from '../lib/db.ts';
 
 // Migration to Neon — Step 3 (tickets megabatch). All direct queries use
 // getDb() raw SQL, scoped by workspace_id (the auth middleware verifies
-// membership). Lib calls still receive c.get('sb') but those libs ignore it
-// and use getDb() internally. requireAuth/JWT verification is unchanged until
-// the final auth-flip PR.
+// membership). requireAuth/JWT verification is unchanged until the final
+// auth-flip PR.
 export const tickets = new Hono();
 
 tickets.use('*', requireAuth);
@@ -50,9 +49,7 @@ tickets.use('*', async (c, next) => {
 // Every direct query in this file uses getDb() (Neon via postgres.js) and
 // explicitly scopes by workspace_id — the authorization that RLS used to
 // enforce now lives here in the route + the auth middleware (which verifies
-// the caller is a member of the active workspace). Library calls still take
-// c.get('sb') for caller-signature compat but ignore it; they open their own
-// getDb() connection internally.
+// the caller is a member of the active workspace).
 tickets.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -213,7 +210,6 @@ const PatchTicket = z.object({
 
 tickets.patch('/:id', async (c) => {
   const sql = getDb();
-  const sbAdmin = c.get('sb');   // passed to libs (which ignore it)
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
@@ -250,7 +246,7 @@ tickets.patch('/:id', async (c) => {
   // Fire workflow engine against the post-update row. The engine may
   // mutate further fields (assign_role / set_status / add_tag), so we
   // re-fetch below to return the canonical post-engine state.
-  try { await runWorkflowsForTicket({ sb: sbAdmin, workspaceId, ticketId, prevRow: existing }); }
+  try { await runWorkflowsForTicket({ workspaceId, ticketId, prevRow: existing }); }
   catch (err) { console.error('[workflow-engine] top-level failure:', err); }
 
   // Slack notifications for the state transitions the workspace cares
@@ -259,26 +255,26 @@ tickets.patch('/:id', async (c) => {
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
   const priorityChanged = updates.priority_key !== undefined && updates.priority_key !== existing.priority_key;
   if (statusChanged && updates.status_key === 'resolved') {
-    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
+    try { await notifySlack({ workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[slack] notify resolved failed:', err); }
-    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.resolved',  ticketId }); }
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] resolved failed:', err); }
     // Auto-send a CSAT survey email. The lib short-circuits on
     // already-requested / no-email / postmark-not-configured paths,
     // so this is safe to fire-and-forget for every resolution.
-    try { await sendCsatSurvey({ sb: sbAdmin, workspaceId, ticketId }); }
+    try { await sendCsatSurvey({ workspaceId, ticketId }); }
     catch (err) { console.warn('[csat] auto-survey failed:', err); }
   }
   if (statusChanged && updates.status_key === 'escalated') {
-    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
+    try { await notifySlack({ workspaceId, event: 'ticket.escalated', ticketId }); }
     catch (err) { console.warn('[slack] notify escalated failed:', err); }
-    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.escalated', ticketId }); }
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.escalated', ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] escalated failed:', err); }
   }
   if (priorityChanged && updates.priority_key === 'urgent') {
-    try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'priority.urgent',  ticketId }); }
+    try { await notifySlack({ workspaceId, event: 'priority.urgent',  ticketId }); }
     catch (err) { console.warn('[slack] notify urgent failed:', err); }
-    try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'priority.urgent',  ticketId }); }
+    try { await dispatchTicketEvent({ workspaceId, event: 'priority.urgent',  ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] urgent failed:', err); }
   }
 
@@ -332,9 +328,7 @@ tickets.post('/:id/messages', async (c) => {
   // peer-read works under RLS too, but admin is cleaner for the
   // background path). Failures stay out of the response.
   if (input.role === 'note' && input.mentions && input.mentions.length > 0) {
-    const sbAdmin = c.get('sb');
     notifyMentionedAgents({
-      sb: sbAdmin,
       workspaceId,
       ticketId,
       authorUserId: userId,
@@ -363,7 +357,6 @@ tickets.post('/:id/messages', async (c) => {
 // updates tickets.priority_key on anger).
 tickets.post('/:id/sentiment/backfill', async (c) => {
   const sql      = getDb();
-  const sb       = c.get('sb');         // service-role for scoreMessageSentiment
   const workspaceId = c.get('workspaceId');
   const ticketId    = c.req.param('id');
 
@@ -394,7 +387,7 @@ tickets.post('/:id/sentiment/backfill', async (c) => {
   let scored = 0;
   for (const m of unscored) {
     const result = await scoreMessageSentiment({
-      sb, workspaceId, ticketId, messageId: m.id, body: m.body || '',
+      workspaceId, ticketId, messageId: m.id, body: m.body || '',
     });
     if (!result) break;
     sentiments[m.id] = result;
@@ -859,11 +852,10 @@ tickets.delete('/:id/time/:entryId', async (c) => {
 // reflecting the post-engine state.
 tickets.post('/:id/apply-rules', async (c) => {
   const sql = getDb();
-  const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
-  const result = await applyAssignmentRules({ sb: sbAdmin, workspaceId, ticketId });
+  const result = await applyAssignmentRules({ workspaceId, ticketId });
   if (!result) return c.json({ matched: false });
 
   const [ticket] = await sql`
@@ -889,7 +881,6 @@ const CreateTicket = z.object({
 
 tickets.post('/', async (c) => {
   const sql = getDb();
-  const sbAdmin = c.get('sb');
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
 
@@ -922,14 +913,14 @@ tickets.post('/', async (c) => {
   // swallowed (logged) so a misconfigured rule can't break ticket
   // creation. POST currently stamps assigned_user_id=userId (the
   // creating agent); the engine may override that with a rule's pick.
-  try { await applyAssignmentRules({ sb: sbAdmin, workspaceId, ticketId: ticket.id }); }
+  try { await applyAssignmentRules({ workspaceId, ticketId: ticket.id }); }
   catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
 
   // Slack notification on creation.
-  try { await notifySlack({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
   catch (err) { console.warn('[slack] notify created failed:', err); }
   // Generic outgoing webhooks (any URL the workspace configured).
-  try { await dispatchTicketEvent({ sb: sbAdmin, workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
   catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
   void publishTicketChanged(workspaceId, ticket.id);

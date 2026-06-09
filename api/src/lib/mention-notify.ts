@@ -13,11 +13,10 @@ import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-o
 import { getOutboundFrom } from './outbound-from.ts';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// ignored. Postmark send unchanged.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// Postmark send unchanged.
 
 export async function notifyMentionedAgents(args: {
-  sb:           unknown;
   workspaceId:  string;
   ticketId:     string;
   authorUserId: string | null;
@@ -41,7 +40,7 @@ export async function notifyMentionedAgents(args: {
       select t.display_id, t.subject, w.name as ws_name, w.slug as ws_slug
       from tickets t join workspaces w on w.id = t.workspace_id
       where t.id = ${ticketId} and t.workspace_id = ${workspaceId}`,
-    getOutboundFrom(null, workspaceId),
+    getOutboundFrom(workspaceId),
   ]);
   const ticket = ticketRows[0];
   if (!ticket) return { sent: 0, skipped: targets.length };

@@ -18,15 +18,14 @@ import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-o
 import { getOutboundFrom } from './outbound-from.ts';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// ignored. Postmark send unchanged.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// Postmark send unchanged.
 
 export type CsatSurveyResult =
   | { sent: true;  token: string }
   | { sent: false; reason: 'already_requested' | 'already_rated' | 'no_email' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
 
 export async function sendCsatSurvey(args: {
-  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
   portalBase?: string;
@@ -66,7 +65,7 @@ export async function sendCsatSurvey(args: {
   // Outbound identity: brand-owned verified domain if configured,
   // else the platform default. Skipping here on no-from would mean
   // sending from nothing, so bail cleanly.
-  const workspaceFrom = await getOutboundFrom(null, workspaceId);
+  const workspaceFrom = await getOutboundFrom(workspaceId);
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return { sent: false, reason: 'no_from' };
@@ -139,7 +138,7 @@ export const DEFAULT_REMINDER_DAYS = [3, 7, 14] as const;
 const REMINDER_TICK_MS = 60 * 60 * 1000;  // every hour
 let reminderTimer: ReturnType<typeof setInterval> | null = null;
 
-export async function processCsatReminders(_sb: unknown, portalBase?: string): Promise<number> {
+export async function processCsatReminders(portalBase?: string): Promise<number> {
   if (!isPostmarkConfigured()) return 0;
   const sql = getDb();
   // Per-workspace cadence is variable, so we can't pre-bake the exact gate in
@@ -173,7 +172,7 @@ export async function processCsatReminders(_sb: unknown, portalBase?: string): P
     if (ageDays < cadence[nextIndex]) continue;
     try {
       const ok = await sendOneReminder({
-        sb: null, workspaceId: row.workspace_id, ticketId: row.id,
+        workspaceId: row.workspace_id, ticketId: row.id,
         attemptNumber:  nextIndex + 1,
         totalAttempts:  cadence.length,
         portalBase,
@@ -187,7 +186,6 @@ export async function processCsatReminders(_sb: unknown, portalBase?: string): P
 }
 
 async function sendOneReminder(args: {
-  sb:            unknown;
   workspaceId:   string;
   ticketId:      string;
   attemptNumber: number;
@@ -220,7 +218,7 @@ async function sendOneReminder(args: {
   const workspaceSlug = t.ws_slug;
   if (!workspaceSlug) return false;
 
-  const workspaceFrom = await getOutboundFrom(null, workspaceId);
+  const workspaceFrom = await getOutboundFrom(workspaceId);
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;
   if (!fromEmail) return false;
@@ -283,10 +281,10 @@ async function sendOneReminder(args: {
   return true;
 }
 
-export function startCsatReminderWorker(_sb?: unknown): void {
+export function startCsatReminderWorker(): void {
   if (reminderTimer) return;
   reminderTimer = setInterval(() => {
-    processCsatReminders(null).catch((err) => {
+    processCsatReminders().catch((err) => {
       console.error('[csat-reminders] tick failed:', err);
     });
   }, REMINDER_TICK_MS);

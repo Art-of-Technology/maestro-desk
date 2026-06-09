@@ -1,8 +1,6 @@
 import { getDb } from './db.ts';
 
 // Migration to Neon — Step 3 (tickets megabatch). Reads/writes via getDb().
-// The first `_sb` param is retained (accepted-but-ignored) so callers don't
-// change while the subsystem migrates; it'll be dropped in a cleanup pass.
 
 /**
  * Thrown when a workspace's AI budget is exhausted. Carries the current
@@ -20,7 +18,7 @@ export class BudgetExceededError extends Error {
  * credit. Returns the current balance. (ai_credits_micro is bigint — comes
  * back from postgres.js as a string, so it's coerced with Number().)
  */
-export async function assertHasBudget(_sb: unknown, workspaceId: string): Promise<number> {
+export async function assertHasBudget(workspaceId: string): Promise<number> {
   const sql = getDb();
   const [row] = await sql<{ ai_credits_micro: string }[]>`
     select ai_credits_micro from workspaces where id = ${workspaceId}
@@ -37,7 +35,7 @@ export async function assertHasBudget(_sb: unknown, workspaceId: string): Promis
  * race). Returns the new balance, or null on failure (best-effort — the AI
  * call already happened and its cost is in ai_usage_log).
  */
-export async function deductBudget(_sb: unknown, workspaceId: string, costMicro: number): Promise<number | null> {
+export async function deductBudget(workspaceId: string, costMicro: number): Promise<number | null> {
   if (costMicro <= 0) return null;
   try {
     const sql = getDb();

@@ -11,9 +11,7 @@ import { env } from '../lib/env.ts';
 export const publicRoutes = new Hono();
 
 // Migration to Neon — Step 3 (portal batch). All data access uses getDb()
-// raw SQL, scoped by the workspace resolved from the URL slug. Lib calls
-// still pass sb:null for caller-signature compat; the libs open their own
-// getDb() connection internally.
+// raw SQL, scoped by the workspace resolved from the URL slug.
 
 // No requireAuth — these endpoints are by design unauth. Workspace
 // identified by URL slug. Avoids leaking data: every handler scopes by
@@ -227,7 +225,6 @@ publicRoutes.post('/:slug/kb-suggest', async (c) => {
 
   try {
     const res = await suggestKbForQuestion({
-      sb:          null,
       workspaceId: ws.id,
       question:    parsed.data.question,
     });
@@ -272,7 +269,7 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
 
   let token: string;
   try {
-    const link = await createMagicLink({ sb: null, workspaceId: ws.id, customerId: customer.id });
+    const link = await createMagicLink({ workspaceId: ws.id, customerId: customer.id });
     token = link.token;
   } catch (err) {
     console.error('[portal-auth] createMagicLink failed:', err);
@@ -300,7 +297,7 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   // workspace has no verified domain, the call throws — we log + swallow
   // so the customer-facing response stays consistent.
   try {
-    const from = await getOutboundFrom(null, ws.id);
+    const from = await getOutboundFrom(ws.id);
     if (from) {
       await sendEmail({
         to:        email,
@@ -343,7 +340,6 @@ publicRoutes.post('/:slug/auth/verify', async (c) => {
   }
 
   const result = await verifyMagicLink({
-    sb:          null,
     workspaceId: ws.id,
     token:       parsed.data.token,
   });
@@ -377,7 +373,7 @@ async function withCustomer(c: any, workspaceId: string) {
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return null;
   const sessionToken = authHeader.slice('Bearer '.length);
-  return customerForSession({ sb: null, workspaceId, sessionToken });
+  return customerForSession({ workspaceId, sessionToken });
 }
 
 // ─── GET /:slug/customer/tickets — list this customer's tickets ────────

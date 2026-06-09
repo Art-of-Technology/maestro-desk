@@ -25,8 +25,8 @@ import { createHmac } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` params
-// kept (accepted-but-ignored) for caller compat. Outbound HTTP unchanged.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// Outbound HTTP unchanged.
 
 export type WebhookEvent =
   | 'ticket.created'
@@ -73,7 +73,6 @@ function sign(secret: string, timestamp: string, body: string): string {
  * the minutes.
  */
 export async function dispatchTicketEvent(args: {
-  sb:          unknown;
   workspaceId: string;
   event:       WebhookEvent;
   ticketId:    string;
@@ -146,7 +145,7 @@ export async function dispatchTicketEvent(args: {
   // is called from route handlers), hence the VERCEL guard.
   if (process.env.VERCEL) {
     waitUntil(
-      processPendingDeliveries(null).then(
+      processPendingDeliveries().then(
         () => {},
         (err) => console.error('[outgoing-webhooks] inline flush failed:', err instanceof Error ? err.message : err),
       ),
@@ -166,7 +165,7 @@ interface DeliveryRow {
 
 const PERMANENT_4XX_EXCEPTIONS = new Set([408, 429]);  // these are transient even though 4xx
 
-export async function processPendingDeliveries(_sb: unknown, limit = 50): Promise<{ processed: number }> {
+export async function processPendingDeliveries(limit = 50): Promise<{ processed: number }> {
   const sql = getDb();
   let deliveries: DeliveryRow[];
   try {
@@ -298,10 +297,10 @@ async function markExhausted(id: string, status: number | null, error: string) {
 const POLL_INTERVAL_MS = 5000;
 let workerTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startWebhookWorker(_sb?: unknown): void {
+export function startWebhookWorker(): void {
   if (workerTimer) return;
   workerTimer = setInterval(() => {
-    processPendingDeliveries(null).catch((err) => {
+    processPendingDeliveries().catch((err) => {
       console.error('[webhook-worker] tick failed:', err);
     });
   }, POLL_INTERVAL_MS);

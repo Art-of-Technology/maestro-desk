@@ -1,7 +1,7 @@
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// ignored. Slack HTTP (chat.postMessage / webhook) unchanged.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// Slack HTTP (chat.postMessage / webhook) unchanged.
 
 // ─── Event types ─────────────────────────────────────────────────────────
 //
@@ -74,7 +74,6 @@ function escapeSlack(s: string): string {
 // can't break the user's PATCH. Returns true if a post was attempted.
 
 export async function notifySlack(args: {
-  sb:          unknown;
   workspaceId: string;
   event:       SlackEvent;
   ticketId:    string;

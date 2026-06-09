@@ -2,8 +2,8 @@ import type { TriageOutput } from './triage.ts';
 import { env } from './env.ts';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// (accepted-but-ignored) for caller compat. postmark-outbound is external HTTP.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// postmark-outbound is external HTTP.
 import {
   isPostmarkConfigured,
   PostmarkSendError,
@@ -52,7 +52,6 @@ export function evaluateAutoReply(
 // ─── Posting ─────────────────────────────────────────────────────────────
 
 export interface PostAutoReplyArgs {
-  sb: unknown;
   workspaceId: string;
   ticketId: string;
   draftReply: string;
@@ -87,7 +86,7 @@ export type PostAutoReplyResult =
  * the ticket so a human can review and send manually.
  */
 export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoReplyResult> {
-  const { sb, workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
+  const { workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
   const sql = getDb();
 
   // 1. Idempotency check — has this ticket already been auto-replied?
@@ -109,7 +108,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
 
   // 3. Load what we need to send: customer email + subject + last customer
   //    message's external_message_id (for In-Reply-To threading).
-  const sendContext = await loadSendContext(sb, ticketId, workspaceId);
+  const sendContext = await loadSendContext(ticketId, workspaceId);
   if (!sendContext.customerEmail) {
     return { posted: false, reason: 'customer_email_missing' };
   }
@@ -118,7 +117,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   //     wins; fall back to the platform-default env-var sender for
   //     workspaces without a verified domain (e.g. the demo workspace).
   //     If neither resolves, we have nothing to send from — skip.
-  const workspaceFrom = await getOutboundFrom(sb, workspaceId);
+  const workspaceFrom = await getOutboundFrom(workspaceId);
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName = workspaceFrom?.fromName || workspaceName;
   if (!fromEmail) {
@@ -193,7 +192,6 @@ interface SendContext {
 }
 
 async function loadSendContext(
-  _sb: unknown,
   ticketId: string,
   workspaceId: string,
 ): Promise<SendContext> {

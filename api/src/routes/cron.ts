@@ -35,11 +35,11 @@ cron.use('*', async (c, next) => {
 });
 
 cron.get('/webhook-retry', async (c) => {
-  const { processed } = await processPendingDeliveries(null);
+  const { processed } = await processPendingDeliveries();
   return c.json({ ok: true, processed });
 });
 
 cron.get('/csat-reminders', async (c) => {
-  const sent = await processCsatReminders(null);
+  const sent = await processCsatReminders();
   return c.json({ ok: true, sent });
 });

@@ -1,7 +1,6 @@
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// (accepted-but-ignored) for caller compat.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 
 // ─── Trigger evaluation ──────────────────────────────────────────────────
 //
@@ -83,7 +82,6 @@ export function evaluateTrigger(trigger: unknown, row: Record<string, unknown>, 
 // notification dispatcher yet, so these act as audit-trail no-ops.
 
 interface ActionContext {
-  sb:           unknown;
   workspaceId:  string;
   ticketId:     string;
   workflowId:   string;
@@ -168,7 +166,6 @@ async function executeAction(action: any, ctx: ActionContext): Promise<void> {
 // PATCH.
 
 export async function runWorkflowsForTicket(args: {
-  sb:           unknown;
   workspaceId:  string;
   ticketId:     string;
   // Optional pre-update row — when present, change-detection triggers
@@ -208,7 +205,6 @@ export async function runWorkflowsForTicket(args: {
     if (!evaluateTrigger(wf.trigger, row, changes)) continue;
     try {
       await executeAction(wf.action, {
-        sb: null,
         workspaceId,
         ticketId,
         workflowId:   wf.id,

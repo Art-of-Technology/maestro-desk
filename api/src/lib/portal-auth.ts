@@ -1,9 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (portal batch). DB via getDb(); the `sb` param is
-// kept (accepted-but-ignored) for caller compatibility and will be dropped in
-// the post-migration cleanup pass.
+// Migration to Neon — Step 3 (portal batch). DB via getDb().
 
 // Token TTLs. Magic link is short so a stolen email can't be used much
 // later; session is week-long so customers don't have to re-auth every
@@ -16,7 +14,6 @@ function generateToken(): string {
 }
 
 export async function createMagicLink(args: {
-  sb:          unknown;
   workspaceId: string;
   customerId:  string;
 }): Promise<{ token: string; expiresAt: string }> {
@@ -34,7 +31,6 @@ export async function createMagicLink(args: {
 // Atomic exchange: confirm the magic link is unused + unexpired, mark it
 // used, mint a session. Returns the session token + customer info.
 export async function verifyMagicLink(args: {
-  sb:          unknown;
   workspaceId: string;
   token:       string;
 }): Promise<{ sessionToken: string; customerId: string } | null> {
@@ -70,7 +66,6 @@ export async function verifyMagicLink(args: {
 }
 
 export async function customerForSession(args: {
-  sb:          unknown;
   workspaceId: string;
   sessionToken: string;
 }): Promise<{ customerId: string } | null> {

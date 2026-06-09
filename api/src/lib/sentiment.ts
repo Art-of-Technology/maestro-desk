@@ -12,8 +12,7 @@ import { anthropic, computeCostMicro } from './anthropic.ts';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.ts';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); the `sb`
-// args are retained (passed-but-ignored) for caller compat during migration.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 
 const MODEL = 'claude-haiku-4-5';
 
@@ -52,13 +51,12 @@ Call the record_sentiment tool with your choice.`;
  * ticket_messages.sentiment in place so callers don't have to.
  */
 export async function scoreMessageSentiment(args: {
-  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
   messageId:   string;
   body:        string;
 }): Promise<Sentiment | null> {
-  const { sb, workspaceId, ticketId, messageId, body } = args;
+  const { workspaceId, ticketId, messageId, body } = args;
   if (!body.trim()) return null;
   const sql = getDb();
 
@@ -66,7 +64,7 @@ export async function scoreMessageSentiment(args: {
   // workspace is out of credits we silently skip rather than letting
   // a BudgetExceededError bubble back into the inbound pipeline.
   try {
-    await assertHasBudget(sb, workspaceId);
+    await assertHasBudget(workspaceId);
   } catch (err) {
     if (err instanceof BudgetExceededError) {
       await sql`
@@ -129,7 +127,7 @@ export async function scoreMessageSentiment(args: {
         ${response.usage.cache_read_input_tokens ?? 0}, ${response.usage.output_tokens},
         ${costMicro}, ${durationMs}, ${response.id})
     `,
-    deductBudget(sb, workspaceId, costMicro),
+    deductBudget(workspaceId, costMicro),
   ]);
 
   if (!sentiment) return null;
@@ -169,7 +167,7 @@ export async function scoreMessageSentiment(args: {
   // shouldn't block.
   if (sentiment === 'angry') {
     try {
-      await bumpPriorityForAnger({ sb, workspaceId, ticketId });
+      await bumpPriorityForAnger({ workspaceId, ticketId });
     } catch (err) {
       console.warn('[sentiment] priority bump failed:', err instanceof Error ? err.message : err);
     }
@@ -186,7 +184,6 @@ const PRIORITY_RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urge
 const ANGER_BUMP_TARGET = 'high';
 
 async function bumpPriorityForAnger(args: {
-  sb:          unknown;
   workspaceId: string;
   ticketId:    string;
 }): Promise<void> {

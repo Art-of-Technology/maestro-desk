@@ -177,7 +177,6 @@ export interface TriageInput {
   // null = system-triggered (e.g. auto-triage from inbound webhook). Schema
   // has user_id nullable on ai_usage_log specifically for this case.
   userId: string | null;
-  sb: unknown;   // retained for caller compat; DB now via getDb()
 }
 
 export interface TriageResult {
@@ -216,12 +215,12 @@ export class TriageError extends Error {
 }
 
 export async function triageTicket(input: TriageInput): Promise<TriageResult> {
-  const { ticketId, workspaceId, userId, sb } = input;
+  const { ticketId, workspaceId, userId } = input;
 
   // 0. Budget gate — refuse cheaply before doing any work. Log the blocked
   //    attempt so we have telemetry on how often this fires.
   try {
-    await assertHasBudget(sb, workspaceId);
+    await assertHasBudget(workspaceId);
   } catch (err) {
     if (err instanceof BudgetExceededError) {
       await getDb()`
@@ -237,8 +236,8 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
 
   // 1. Load the ticket + thread + customer in parallel with the lookups.
   const [ticketRes, lookups] = await Promise.all([
-    loadTicketSnapshot(sb, ticketId, workspaceId),
-    loadWorkspaceLookups(sb, workspaceId),
+    loadTicketSnapshot(ticketId, workspaceId),
+    loadWorkspaceLookups(workspaceId),
   ]);
 
   // 2. Build the prompt. System has TWO blocks: stable intro + per-workspace
@@ -290,14 +289,14 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   if (!toolUseBlock) {
     await Promise.all([
       logUsage({
-        sb, workspaceId, ticketId, userId,
+        workspaceId, ticketId, userId,
         action: 'triage_failed_no_tool_use',
         model: MODEL,
         usage: response.usage,
         durationMs,
         requestId: response.id,
       }),
-      deductBudget(sb, workspaceId, costMicro),
+      deductBudget(workspaceId, costMicro),
     ]);
     throw new TriageError('Model did not call record_triage', 502);
   }
@@ -305,14 +304,14 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   if (!parsed.success) {
     await Promise.all([
       logUsage({
-        sb, workspaceId, ticketId, userId,
+        workspaceId, ticketId, userId,
         action: 'triage_failed_schema',
         model: MODEL,
         usage: response.usage,
         durationMs,
         requestId: response.id,
       }),
-      deductBudget(sb, workspaceId, costMicro),
+      deductBudget(workspaceId, costMicro),
     ]);
     throw new TriageError(
       `Triage output failed schema: ${parsed.error.issues.map((i) => i.message).join('; ')}`,
@@ -332,17 +331,17 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
 
   // 6. Persist in parallel: update ticket + replace AI tags + log usage + deduct budget.
   const [, , , balanceAfterMicro] = await Promise.all([
-    persistTicketTriage(sb, ticketId, workspaceId, triage),
-    persistAITags(sb, ticketId, workspaceId, triage.tags),
+    persistTicketTriage(ticketId, workspaceId, triage),
+    persistAITags(ticketId, workspaceId, triage.tags),
     logUsage({
-      sb, workspaceId, ticketId, userId,
+      workspaceId, ticketId, userId,
       action: 'triage',
       model: MODEL,
       usage: response.usage,
       durationMs,
       requestId: response.id,
     }),
-    deductBudget(sb, workspaceId, costMicro),
+    deductBudget(workspaceId, costMicro),
   ]);
 
   // 7. Confidence-gated auto-reply. If the workspace has it enabled AND the
@@ -360,7 +359,6 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   if (decision.eligible) {
     try {
       const post = await postAutoReply({
-        sb,
         workspaceId,
         ticketId,
         draftReply: triage.draft_reply,
@@ -416,7 +414,6 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
 // ─── DB helpers (Neon) ──────────────────────────────────────────────────────
 
 async function loadTicketSnapshot(
-  _sb: unknown,
   ticketId: string,
   workspaceId: string,
 ): Promise<TicketSnapshot> {
@@ -457,7 +454,6 @@ async function loadTicketSnapshot(
 }
 
 async function loadWorkspaceLookups(
-  _sb: unknown,
   workspaceId: string,
 ): Promise<WorkspaceLookups> {
   const sql = getDb();
@@ -485,7 +481,6 @@ async function loadWorkspaceLookups(
 }
 
 async function persistTicketTriage(
-  _sb: unknown,
   ticketId: string,
   workspaceId: string,
   triage: TriageOutput,
@@ -509,7 +504,6 @@ async function persistTicketTriage(
 }
 
 async function persistAITags(
-  _sb: unknown,
   ticketId: string,
   workspaceId: string,
   tags: TriageOutput['tags'],
@@ -525,7 +519,6 @@ async function persistAITags(
 }
 
 async function logUsage(args: {
-  sb: unknown;
   workspaceId: string;
   ticketId: string;
   userId: string | null;

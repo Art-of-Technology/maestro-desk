@@ -1,7 +1,6 @@
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// (accepted-but-ignored) for caller compat.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 //
 // Server-side assignment-rules engine. Evaluates active rules against
 // a ticket + its customer's VIP tier, picks an eligible agent based on
@@ -59,7 +58,6 @@ function ruleMatches(rule: Rule, ticket: any, customerVip: string | null): boole
 // updated rr_index for round-robin rules (so the caller can persist it).
 // Returns null if no eligible agent exists (e.g. whole team is OOO).
 async function pickAssignee(args: {
-  sb:           unknown;
   workspaceId:  string;
   rule:         Rule;
 }): Promise<{ userId: string; rrIndexNext?: number } | null> {
@@ -145,7 +143,6 @@ async function pickAssignee(args: {
 // Returns the matched rule + assignee, or null if nothing applied.
 
 export async function applyAssignmentRules(args: {
-  sb:           unknown;
   workspaceId:  string;
   ticketId:     string;
 }): Promise<AssignResult | null> {
@@ -173,7 +170,7 @@ export async function applyAssignmentRules(args: {
 
   for (const rule of rules) {
     if (!ruleMatches(rule, ticket, customerVip)) continue;
-    const pick = await pickAssignee({ sb: null, workspaceId, rule });
+    const pick = await pickAssignee({ workspaceId, rule });
     if (!pick) continue;
 
     // 1. Update the ticket assignee. Skip the write if it already matches.

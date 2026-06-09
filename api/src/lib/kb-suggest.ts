@@ -3,9 +3,7 @@ import { anthropic, computeCostMicro } from './anthropic.ts';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.ts';
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (portal batch). DB via getDb(); the `sb` param is
-// kept (accepted-but-ignored) for caller compat and passed through to the
-// budget helpers (which also ignore it).
+// Migration to Neon — Step 3 (portal batch). DB via getDb().
 
 // Haiku is the cost-optimised choice — accurate enough for ranking
 // short KB titles against a free-text question, and ~5× cheaper than
@@ -55,11 +53,10 @@ export interface KbSuggestResult {
  * still submits normally).
  */
 export async function suggestKbForQuestion(args: {
-  sb:          unknown;
   workspaceId: string;
   question:    string;
 }): Promise<KbSuggestResult> {
-  const { sb, workspaceId, question } = args;
+  const { workspaceId, question } = args;
   const sql = getDb();
 
   // Pull the workspace's published articles. Body is truncated server-
@@ -77,7 +74,7 @@ export async function suggestKbForQuestion(args: {
   // Budget gate. If the workspace ran out of AI credits we return empty
   // rather than calling the API — the portal then falls back to
   // "submit your question" without the suggestions block.
-  try { await assertHasBudget(sb, workspaceId); }
+  try { await assertHasBudget(workspaceId); }
   catch (err) {
     if (err instanceof BudgetExceededError) return { suggestions: [], cost_micro: 0 };
     throw err;
@@ -139,7 +136,7 @@ Always use the suggest_kb_articles tool. Refer to articles by their display id (
     output_tokens:               response.usage.output_tokens,
   });
   try {
-    await deductBudget(sb, workspaceId, costMicro);
+    await deductBudget(workspaceId, costMicro);
     await sql`
       insert into ai_usage_log (
         workspace_id, user_id, model, action,

@@ -16,7 +16,7 @@ import { publishTicketChanged } from './pubby.ts';
 // inbound-email and reply paths. We never want sentiment to break the
 // webhook response — log + swallow on any throw so Postmark still
 // gets its 200 and the message row is already persisted.
-function scoreInboundMessage(args: { sb: unknown; workspaceId: string; ticketId: string; messageId: string; body: string }): void {
+function scoreInboundMessage(args: { workspaceId: string; ticketId: string; messageId: string; body: string }): void {
   void scoreMessageSentiment(args).catch((err) => {
     console.warn('[sentiment] inbound score failed:', err instanceof Error ? err.message : err);
   });
@@ -46,7 +46,6 @@ function nextCustomerDisplayId(): string {
 // Errors are logged but never thrown: the inbox row is an audit trail,
 // not load-bearing for the customer-facing ticket creation.
 async function recordInboundInInbox(args: {
-  sb: unknown;
   workspaceId: string;
   payload: PostmarkInbound;
   ticketId: string;
@@ -104,7 +103,6 @@ export interface WorkspaceResolution {
 }
 
 export async function resolveInboundWorkspace(args: {
-  sb: unknown;
   toDomain: string | null;
 }): Promise<WorkspaceResolution> {
   const { toDomain } = args;
@@ -156,11 +154,10 @@ export interface InboundResult {
  * been authenticated (via Basic Auth in the webhook URL).
  */
 export async function processInboundEmail(args: {
-  sb: unknown;
   workspaceId: string;
   payload: PostmarkInbound;
 }): Promise<InboundResult> {
-  const { sb, workspaceId, payload } = args;
+  const { workspaceId, payload } = args;
   const sql = getDb();
   const { email, name } = parseFrom(payload);
   const body = pickBody(payload);
@@ -185,7 +182,7 @@ export async function processInboundEmail(args: {
     // fall through to normal create flow so the reply still surfaces.
     if (t && !t.deleted_at) {
       return await attachReplyToTicket({
-        sb, workspaceId, ticketId: t.id, ticketDisplayId: t.display_id,
+        workspaceId, ticketId: t.id, ticketDisplayId: t.display_id,
         customerId: t.customer_id, body, name, email,
         externalMessageId, payload,
       });
@@ -286,12 +283,12 @@ export async function processInboundEmail(args: {
     returning id
   `;
   if (!newMessage) throw new Error('Message create failed');
-  void scoreInboundMessage({ sb, workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
+  void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
   // 3b. Audit row in the inbox view. Failures are logged but don't fail
   //     the webhook — the customer-facing ticket has already been created.
   const to = parseTo(payload);
-  await recordInboundInInbox({ sb, workspaceId, payload, ticketId: newTicket.id, toEmail: to?.email ?? null });
+  await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, toEmail: to?.email ?? null });
 
   // 4. Fire-and-forget auto-triage. We swallow errors here — they're already
   //    logged in ai_usage_log + console — because the webhook MUST return
@@ -303,7 +300,6 @@ export async function processInboundEmail(args: {
     // (BudgetExceededError), we just log and move on — the ticket still
     // gets created.
     void triageTicket({
-      sb,
       ticketId: newTicket.id,
       workspaceId,
       userId: null,   // system-triggered, no user
@@ -341,7 +337,6 @@ export async function processInboundEmail(args: {
  * AI draft refreshes with the new context.
  */
 async function attachReplyToTicket(args: {
-  sb: unknown;
   workspaceId: string;
   ticketId: string;
   ticketDisplayId: string;
@@ -352,7 +347,7 @@ async function attachReplyToTicket(args: {
   externalMessageId: string | null;
   payload: PostmarkInbound;
 }): Promise<InboundResult> {
-  const { sb, workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload } = args;
+  const { workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload } = args;
   const sql = getDb();
 
   const authorLabel = name?.trim() || email;
@@ -362,19 +357,19 @@ async function attachReplyToTicket(args: {
     returning id
   `;
   if (!replyMessage) throw new Error('Reply attach failed');
-  void scoreInboundMessage({ sb, workspaceId, ticketId, messageId: replyMessage.id, body });
+  void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
 
   // Audit the threaded reply in the inbox view too, so the agent can see
   // the email arrived even if they don't immediately notice the ticket
   // updated. Same fire-and-forget treatment as the new-ticket path.
   const to = parseTo(payload);
-  await recordInboundInInbox({ sb, workspaceId, payload, ticketId, toEmail: to?.email ?? null });
+  await recordInboundInInbox({ workspaceId, payload, ticketId, toEmail: to?.email ?? null });
 
   // Fire-and-forget retriage so the AI draft refreshes with the new turn.
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.
   let autoTriageQueued = false;
   try {
-    void triageTicket({ sb, ticketId, workspaceId, userId: null }).catch((err) => {
+    void triageTicket({ ticketId, workspaceId, userId: null }).catch((err) => {
       if (err instanceof BudgetExceededError) {
         console.log(`[inbound-email] retriage skipped — workspace ${workspaceId} out of budget`);
       } else {

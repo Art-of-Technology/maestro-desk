@@ -14,8 +14,8 @@
 
 import { getDb } from './db.ts';
 
-// Migration to Neon — Step 3 (tickets megabatch). DB via getDb(); `sb` kept
-// ignored. Slack users.info HTTP unchanged.
+// Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
+// Slack users.info HTTP unchanged.
 
 interface SlackEventPayload {
   type:  string;
@@ -34,7 +34,6 @@ interface SlackEventInner {
 }
 
 export async function handleSlackEvent(args: {
-  sb:          unknown;
   workspaceId: string;
   botToken:    string | null;
   payload:     SlackEventPayload;
