@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '../lib/supabase.ts';
+import { getDb } from '../lib/db.ts';
 
 // Gates the /api/v1/god/* routes. Verifies the caller's Supabase JWT, looks
 // up their public.users row, and refuses the request unless
@@ -48,32 +48,31 @@ export const requirePlatformAdmin: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
-// Audit helper for god-route mutations. Writes to audit_events with the
+// Audit helper for god-route mutations. Writes to audit_events (Neon) with the
 // (actor_user_id, workspace_id, action, target_*, metadata) shape established
 // in 20260520120600_activity_audit.sql. Errors are swallowed (logged) so an
 // audit failure doesn't 500 the underlying request — the action already
 // succeeded by the time we get here, and a missing audit row is recoverable
 // at the SIEM layer; a 500 to the operator is not.
-export async function writeAudit(
-  sb: SupabaseClient,
-  args: {
-    workspaceId: string;
-    actorUserId: string;
-    action: string;
-    targetType?: string | null;
-    targetId?: string | null;
-    metadata?: Record<string, unknown> | null;
-  },
-): Promise<void> {
-  const { error } = await sb.from('audit_events').insert({
-    workspace_id: args.workspaceId,
-    actor_user_id: args.actorUserId,
-    action: args.action,
-    target_type: args.targetType ?? null,
-    target_id: args.targetId ?? null,
-    metadata: args.metadata ?? null,
-  });
-  if (error) {
-    console.error('audit_events insert failed:', { args, error: error.message });
+export async function writeAudit(args: {
+  workspaceId: string;
+  actorUserId: string;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): Promise<void> {
+  try {
+    const sql = getDb();
+    await sql`
+      insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata)
+      values (
+        ${args.workspaceId}, ${args.actorUserId}, ${args.action},
+        ${args.targetType ?? null}, ${args.targetId ?? null},
+        ${args.metadata ? sql.json(args.metadata as any) : null}
+      )
+    `;
+  } catch (err) {
+    console.error('audit_events insert failed:', { args, error: err instanceof Error ? err.message : err });
   }
 }

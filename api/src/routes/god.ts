@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.ts';
+import { getDb } from '../lib/db.ts';
 import {
   createDomain as pmCreateDomain,
   deleteDomain as pmDeleteDomain,
@@ -13,9 +14,22 @@ import {
   type PostmarkDomain,
 } from '../lib/postmark-domains.ts';
 
+// Migration to Neon — Step 3.final (PR-A). All brand/domain data access runs
+// on getDb() raw SQL now. The owner-invite still calls Supabase Auth's
+// generateLink (c.get('sb')) to mint the auth user + magic link; that single
+// call moves to Better Auth in the auth-token flip (PR-B). DB-error mapping
+// follows the house pattern: 23505 → 409, 23503 → 400, everything else flows
+// to the global app.onError as a 500.
 export const god = new Hono();
 
 god.use('*', requirePlatformAdmin);
+
+// Columns returned for a brand (workspace) — kept consistent across handlers.
+// Module-level constant, never caller-controlled, so sql.unsafe() interpolation
+// below is injection-safe (same pattern as SETTINGS_COLS in workspace.ts).
+const BRAND_COLS = `id, slug, name, plan, logo_url, primary_color, support_email_display_name,
+  ai_credits_micro, auto_reply_min_confidence, auto_reply_categories,
+  suspended_at, is_unrouted_bucket, created_at, updated_at`;
 
 // ─── Schemas ───────────────────────────────────────────────────────────────
 
@@ -64,20 +78,11 @@ const UpdateBrand = z.object({
   suspended_at: z.union([z.literal('now'), z.string().datetime(), z.null()]).optional(),
 });
 
-// Maps a Postgres error to an HTTP status. The interesting cases for brand
-// provisioning are duplicate slug (workspaces_slug_key) and duplicate
-// domain (workspace_email_domains_domain_active_uq) — both 23505.
-function pgErrorToStatus(code: string | undefined): number {
-  if (code === '23505') return 409;  // unique violation
-  if (code === '23503') return 400;  // foreign key violation
-  return 500;
-}
-
 // ─── Routes ────────────────────────────────────────────────────────────────
 
 // POST /api/v1/god/brands — provision a new white-label brand.
 god.post('/brands', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const actorUserId = c.get('userId');
 
   const body = await c.req.json().catch(() => null);
@@ -87,24 +92,27 @@ god.post('/brands', async (c) => {
   }
   const input = parsed.data;
 
-  const { data: newId, error: rpcErr } = await sb.rpc('provision_brand', {
-    p_name: input.name,
-    p_slug: input.slug,
-    p_domain: input.domain ?? null,
-    p_logo_url: input.logo_url ?? null,
-    p_primary_color: input.primary_color ?? null,
-    p_support_email_display_name: input.support_email_display_name ?? null,
-    p_ai_credits_micro: input.ai_credits_micro,
-    p_auto_reply_min_confidence: input.auto_reply_min_confidence,
-    p_auto_reply_categories: input.auto_reply_categories,
-  });
-  if (rpcErr) {
-    const status = pgErrorToStatus(rpcErr.code);
-    return c.json({ error: rpcErr.message, code: rpcErr.code }, status as 400 | 409 | 500);
+  // provision_brand (20260522160000_provision_brand_fn.sql) does the whole
+  // tenant bootstrap in one transaction and returns the new workspace id.
+  // Duplicate slug/domain bubble up as 23505.
+  let workspaceId: string;
+  try {
+    const [row] = await sql<{ provision_brand: string }[]>`
+      select provision_brand(
+        ${input.name}, ${input.slug}, ${input.domain ?? null}, ${input.logo_url ?? null},
+        ${input.primary_color ?? null}, ${input.support_email_display_name ?? null},
+        ${input.ai_credits_micro}, ${input.auto_reply_min_confidence}, ${input.auto_reply_categories}
+      ) as provision_brand
+    `;
+    workspaceId = row.provision_brand;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === '23505') return c.json({ error: 'Slug or domain already in use', code }, 409);
+    if (code === '23503') return c.json({ error: 'Invalid reference', code }, 400);
+    throw err;
   }
-  const workspaceId = newId as unknown as string;
 
-  await writeAudit(sb, {
+  await writeAudit({
     workspaceId,
     actorUserId,
     action: 'brand.created',
@@ -113,84 +121,59 @@ god.post('/brands', async (c) => {
     metadata: { slug: input.slug, domain: input.domain ?? null },
   });
 
-  const { data: brand, error: gErr } = await sb
-    .from('workspaces')
-    .select(
-      'id, slug, name, plan, logo_url, primary_color, support_email_display_name, ' +
-        'ai_credits_micro, auto_reply_min_confidence, auto_reply_categories, ' +
-        'suspended_at, is_unrouted_bucket, created_at, updated_at',
-    )
-    .eq('id', workspaceId)
-    .single();
-  if (gErr) return c.json({ error: gErr.message, workspace_id: workspaceId }, 500);
+  const [brand] = await sql`select ${sql.unsafe(BRAND_COLS)} from workspaces where id = ${workspaceId}`;
+  if (!brand) return c.json({ error: 'Brand provisioned but could not be read back', workspace_id: workspaceId }, 500);
 
   return c.json({ brand }, 201);
 });
 
 // GET /api/v1/god/brands — list all brands (excluding system rows).
 god.get('/brands', async (c) => {
-  const sb = c.get('sb');
-
-  const { data, error } = await sb
-    .from('workspaces')
-    .select(
-      'id, slug, name, plan, logo_url, primary_color, ai_credits_micro, ' +
-        'suspended_at, created_at, updated_at',
-    )
-    .eq('is_unrouted_bucket', false)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false });
-
-  if (error) return c.json({ error: error.message }, 500);
-  return c.json({ brands: data ?? [] });
+  const sql = getDb();
+  const brands = await sql`
+    select id, slug, name, plan, logo_url, primary_color, ai_credits_micro,
+           suspended_at, created_at, updated_at
+    from workspaces
+    where is_unrouted_bucket = false and deleted_at is null
+    order by created_at desc
+  `;
+  return c.json({ brands });
 });
 
 // GET /api/v1/god/brands/:id — single brand detail with related counts.
 god.get('/brands/:id', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const id = c.req.param('id');
 
-  const { data: brand, error: bErr } = await sb
-    .from('workspaces')
-    .select(
-      'id, slug, name, plan, logo_url, primary_color, support_email_display_name, ' +
-        'ai_credits_micro, auto_reply_min_confidence, auto_reply_categories, ' +
-        'suspended_at, is_unrouted_bucket, created_at, updated_at',
-    )
-    .eq('id', id)
-    .maybeSingle();
-  if (bErr) return c.json({ error: bErr.message }, 500);
+  const [brand] = await sql`select ${sql.unsafe(BRAND_COLS)} from workspaces where id = ${id}`;
   if (!brand) return c.json({ error: 'Not found' }, 404);
 
-  const { data: domains, error: dErr } = await sb
-    .from('workspace_email_domains')
-    .select('id, domain, verified_at, postmark_domain_id, created_at')
-    .eq('workspace_id', id)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true });
-  if (dErr) return c.json({ error: dErr.message }, 500);
+  const domains = await sql`
+    select id, domain, verified_at, postmark_domain_id, created_at
+    from workspace_email_domains
+    where workspace_id = ${id} and deleted_at is null
+    order by created_at asc
+  `;
 
-  // Use head=true count queries for the cheap aggregations — no row data needed.
-  const [ticketCount, memberCount] = await Promise.all([
-    sb.from('tickets').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', id).is('deleted_at', null),
-    sb.from('workspace_members').select('user_id', { count: 'exact', head: true })
-      .eq('workspace_id', id).eq('active', true),
+  // Cheap aggregations — count(*)::int returns a JS number.
+  const [[ticketCount], [memberCount]] = await Promise.all([
+    sql<{ count: number }[]>`select count(*)::int as count from tickets where workspace_id = ${id} and deleted_at is null`,
+    sql<{ count: number }[]>`select count(*)::int as count from workspace_members where workspace_id = ${id} and active = true`,
   ]);
 
   return c.json({
     brand,
-    domains: domains ?? [],
+    domains,
     counts: {
-      tickets: ticketCount.count ?? 0,
-      members: memberCount.count ?? 0,
+      tickets: ticketCount?.count ?? 0,
+      members: memberCount?.count ?? 0,
     },
   });
 });
 
 // PATCH /api/v1/god/brands/:id — edit brand fields.
 god.patch('/brands/:id', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const actorUserId = c.get('userId');
   const id = c.req.param('id');
 
@@ -219,30 +202,21 @@ god.patch('/brands/:id', async (c) => {
   }
 
   // Refuse to touch the unrouted bucket via the god API — it's a system row.
-  const { data: existing, error: exErr } = await sb
-    .from('workspaces')
-    .select('is_unrouted_bucket')
-    .eq('id', id)
-    .maybeSingle();
-  if (exErr) return c.json({ error: exErr.message }, 500);
+  const [existing] = await sql<{ is_unrouted_bucket: boolean }[]>`
+    select is_unrouted_bucket from workspaces where id = ${id}
+  `;
   if (!existing) return c.json({ error: 'Not found' }, 404);
   if (existing.is_unrouted_bucket) {
     return c.json({ error: 'Cannot modify system workspace' }, 403);
   }
 
-  const { data: brand, error: uErr } = await sb
-    .from('workspaces')
-    .update(update)
-    .eq('id', id)
-    .select(
-      'id, slug, name, plan, logo_url, primary_color, support_email_display_name, ' +
-        'ai_credits_micro, auto_reply_min_confidence, auto_reply_categories, ' +
-        'suspended_at, is_unrouted_bucket, created_at, updated_at',
-    )
-    .single();
-  if (uErr) return c.json({ error: uErr.message }, 500);
+  const [brand] = await sql`
+    update workspaces set ${sql(update)}
+    where id = ${id}
+    returning ${sql.unsafe(BRAND_COLS)}
+  `;
 
-  await writeAudit(sb, {
+  await writeAudit({
     workspaceId: id,
     actorUserId,
     action: input.suspended_at !== undefined
@@ -263,6 +237,10 @@ god.patch('/brands/:id', async (c) => {
 // relying on SMTP being configured — the operator can paste it into Slack
 // / email / wherever rather than depending on Supabase's mail delivery.
 //
+// NOTE (Step 3.final, PR-A): the DB writes here are on Neon now; only the
+// generateLink call still uses Supabase Auth (c.get('sb')). That single call
+// moves to Better Auth (createUser + emailed reset link) in PR-B.
+//
 // On success: creates (or finds) the auth.users row, upserts public.users,
 // inserts workspace_members with the brand's Admin role. Idempotent — re-
 // calling generates a fresh link but leaves DB state stable.
@@ -281,7 +259,8 @@ function deriveNameFromEmail(email: string): { name: string; initials: string } 
 }
 
 god.post('/brands/:id/invite', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
+  const sb = c.get('sb');   // Supabase Auth generateLink — moves to Better Auth in PR-B
   const actorUserId = c.get('userId');
   const brandId = c.req.param('id');
 
@@ -293,22 +272,15 @@ god.post('/brands/:id/invite', async (c) => {
   const email = parsed.data.email.toLowerCase();
 
   // 1. Verify brand + grab the Admin role id.
-  const { data: brand, error: bErr } = await sb
-    .from('workspaces')
-    .select('id, name, is_unrouted_bucket')
-    .eq('id', brandId)
-    .maybeSingle();
-  if (bErr) return c.json({ error: bErr.message }, 500);
+  const [brand] = await sql<{ id: string; name: string; is_unrouted_bucket: boolean }[]>`
+    select id, name, is_unrouted_bucket from workspaces where id = ${brandId}
+  `;
   if (!brand) return c.json({ error: 'Brand not found' }, 404);
   if (brand.is_unrouted_bucket) return c.json({ error: 'Cannot invite to system workspace' }, 403);
 
-  const { data: adminRole, error: rErr } = await sb
-    .from('roles')
-    .select('id')
-    .eq('workspace_id', brandId)
-    .eq('is_admin', true)
-    .maybeSingle();
-  if (rErr) return c.json({ error: rErr.message }, 500);
+  const [adminRole] = await sql<{ id: string }[]>`
+    select id from roles where workspace_id = ${brandId} and is_admin = true
+  `;
   if (!adminRole) return c.json({ error: 'Admin role missing on brand — provisioning corrupted' }, 500);
 
   // 2. Generate an invite link. Supabase creates the auth.users row if it
@@ -328,32 +300,25 @@ god.post('/brands/:id/invite', async (c) => {
   // initials are heuristic from the email local-part; the user can update
   // them via the profile screen once they sign in.
   const { name, initials } = deriveNameFromEmail(email);
-  const { error: uErr } = await sb
-    .from('users')
-    .upsert(
-      { id: authUserId, email, name, initials },
-      { onConflict: 'id', ignoreDuplicates: false },
-    );
-  if (uErr) return c.json({ error: `users upsert failed: ${uErr.message}` }, 500);
+  await sql`
+    insert into users (id, email, name, initials)
+    values (${authUserId}, ${email}, ${name}, ${initials})
+    on conflict (id) do update
+      set email = excluded.email, name = excluded.name, initials = excluded.initials
+  `;
 
-  // 4. Upsert workspace_members — composite PK (workspace_id, user_id)
-  // makes the upsert idempotent. If the user was previously a member with
-  // a different role, this PROMOTES them to Admin — intentional, since the
+  // 4. Upsert workspace_members — composite PK (workspace_id, user_id) makes
+  // the upsert idempotent. If the user was previously a member with a
+  // different role, this PROMOTES them to Admin — intentional, since the
   // operator explicitly invited them as owner.
-  const { error: mErr } = await sb
-    .from('workspace_members')
-    .upsert(
-      {
-        workspace_id: brandId,
-        user_id: authUserId,
-        role_id: adminRole.id,
-        active: true,
-      },
-      { onConflict: 'workspace_id,user_id', ignoreDuplicates: false },
-    );
-  if (mErr) return c.json({ error: `workspace_members upsert failed: ${mErr.message}` }, 500);
+  await sql`
+    insert into workspace_members (workspace_id, user_id, role_id, active)
+    values (${brandId}, ${authUserId}, ${adminRole.id}, true)
+    on conflict (workspace_id, user_id) do update
+      set role_id = excluded.role_id, active = true
+  `;
 
-  await writeAudit(sb, {
+  await writeAudit({
     workspaceId: brandId,
     actorUserId,
     action: 'brand.owner_invited',
@@ -381,7 +346,7 @@ const AddDomain = z.object({ domain: Domain });
 
 // POST /api/v1/god/brands/:id/domains — add + provision a sender domain.
 god.post('/brands/:id/domains', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const actorUserId = c.get('userId');
   const brandId = c.req.param('id');
 
@@ -393,24 +358,27 @@ god.post('/brands/:id/domains', async (c) => {
   const { domain } = parsed.data;
 
   // Reject the unrouted bucket — domains belong on real brands only.
-  const { data: ws, error: wErr } = await sb
-    .from('workspaces')
-    .select('is_unrouted_bucket')
-    .eq('id', brandId)
-    .maybeSingle();
-  if (wErr) return c.json({ error: wErr.message }, 500);
+  const [ws] = await sql<{ is_unrouted_bucket: boolean }[]>`
+    select is_unrouted_bucket from workspaces where id = ${brandId}
+  `;
   if (!ws) return c.json({ error: 'Brand not found' }, 404);
   if (ws.is_unrouted_bucket) return c.json({ error: 'Cannot add domain to system workspace' }, 403);
 
   // Insert local row first. Unique violation (23505) on domain → 409.
-  const { data: row, error: iErr } = await sb
-    .from('workspace_email_domains')
-    .insert({ workspace_id: brandId, domain })
-    .select('id, domain, verified_at, postmark_domain_id, created_at')
-    .single();
-  if (iErr) {
-    if (iErr.code === '23505') return c.json({ error: 'Domain already in use', code: iErr.code }, 409);
-    return c.json({ error: iErr.message }, 500);
+  type DomainRow = { id: string; domain: string; verified_at: string | null; postmark_domain_id: string | null; created_at: string };
+  let row: DomainRow;
+  try {
+    const inserted = await sql<DomainRow[]>`
+      insert into workspace_email_domains (workspace_id, domain)
+      values (${brandId}, ${domain})
+      returning id, domain, verified_at, postmark_domain_id, created_at
+    `;
+    row = inserted[0];
+  } catch (err) {
+    if ((err as { code?: string })?.code === '23505') {
+      return c.json({ error: 'Domain already in use', code: '23505' }, 409);
+    }
+    throw err;
   }
 
   // Provision at Postmark if the account token is configured. Best-effort:
@@ -421,18 +389,20 @@ god.post('/brands/:id/domains', async (c) => {
   if (isPostmarkAccountConfigured()) {
     try {
       postmarkDomain = await pmCreateDomain(domain);
-      const { error: uErr } = await sb
-        .from('workspace_email_domains')
-        .update({ postmark_domain_id: String(postmarkDomain.ID) })
-        .eq('id', row.id);
-      if (uErr) console.error('[god/domains] postmark_domain_id update failed:', uErr.message);
     } catch (err) {
       postmarkError = err instanceof Error ? err.message : String(err);
       console.error(`[god/domains] Postmark createDomain failed for ${domain}: ${postmarkError}`);
     }
+    if (postmarkDomain) {
+      try {
+        await sql`update workspace_email_domains set postmark_domain_id = ${String(postmarkDomain.ID)} where id = ${row.id}`;
+      } catch (err) {
+        console.error('[god/domains] postmark_domain_id update failed:', err instanceof Error ? err.message : err);
+      }
+    }
   }
 
-  await writeAudit(sb, {
+  await writeAudit({
     workspaceId: brandId,
     actorUserId,
     action: 'brand.domain_added',
@@ -460,19 +430,16 @@ god.post('/brands/:id/domains', async (c) => {
 // time), this also acts as a recovery hook — we create the Postmark domain
 // now, then immediately verify.
 god.post('/brands/:id/domains/:domainId/verify', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const actorUserId = c.get('userId');
   const brandId = c.req.param('id');
   const domainId = c.req.param('domainId');
 
-  const { data: row, error: rErr } = await sb
-    .from('workspace_email_domains')
-    .select('id, workspace_id, domain, postmark_domain_id, verified_at')
-    .eq('id', domainId)
-    .eq('workspace_id', brandId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (rErr) return c.json({ error: rErr.message }, 500);
+  const [row] = await sql<{ id: string; workspace_id: string; domain: string; postmark_domain_id: string | null; verified_at: string | null }[]>`
+    select id, workspace_id, domain, postmark_domain_id, verified_at
+    from workspace_email_domains
+    where id = ${domainId} and workspace_id = ${brandId} and deleted_at is null
+  `;
   if (!row) return c.json({ error: 'Domain not found' }, 404);
 
   if (!isPostmarkAccountConfigured()) {
@@ -483,11 +450,11 @@ god.post('/brands/:id/domains/:domainId/verify', async (c) => {
   try {
     if (!row.postmark_domain_id) {
       pmDomain = await pmCreateDomain(row.domain);
-      const { error: uErr } = await sb
-        .from('workspace_email_domains')
-        .update({ postmark_domain_id: String(pmDomain.ID) })
-        .eq('id', row.id);
-      if (uErr) console.error('[god/domains] postmark_domain_id update failed:', uErr.message);
+      try {
+        await sql`update workspace_email_domains set postmark_domain_id = ${String(pmDomain.ID)} where id = ${row.id}`;
+      } catch (err) {
+        console.error('[god/domains] postmark_domain_id update failed:', err instanceof Error ? err.message : err);
+      }
     } else {
       pmDomain = await pmVerifyDomain(Number(row.postmark_domain_id));
     }
@@ -505,13 +472,13 @@ god.post('/brands/:id/domains/:domainId/verify', async (c) => {
   // leave it alone — re-verification doesn't reset the timestamp.
   const fullyVerified = isFullyVerified(pmDomain);
   if (fullyVerified && !row.verified_at) {
-    const { error: vErr } = await sb
-      .from('workspace_email_domains')
-      .update({ verified_at: new Date().toISOString() })
-      .eq('id', row.id);
-    if (vErr) console.error('[god/domains] verified_at stamp failed:', vErr.message);
+    try {
+      await sql`update workspace_email_domains set verified_at = now() where id = ${row.id}`;
+    } catch (err) {
+      console.error('[god/domains] verified_at stamp failed:', err instanceof Error ? err.message : err);
+    }
 
-    await writeAudit(sb, {
+    await writeAudit({
       workspaceId: brandId,
       actorUserId,
       action: 'brand.domain_verified',
@@ -539,19 +506,16 @@ god.post('/brands/:id/domains/:domainId/verify', async (c) => {
 // are logged but don't block the local soft-delete (an orphaned Postmark
 // row is recoverable manually).
 god.delete('/brands/:id/domains/:domainId', async (c) => {
-  const sb = c.get('sb');
+  const sql = getDb();
   const actorUserId = c.get('userId');
   const brandId = c.req.param('id');
   const domainId = c.req.param('domainId');
 
-  const { data: row, error: rErr } = await sb
-    .from('workspace_email_domains')
-    .select('id, workspace_id, domain, postmark_domain_id')
-    .eq('id', domainId)
-    .eq('workspace_id', brandId)
-    .is('deleted_at', null)
-    .maybeSingle();
-  if (rErr) return c.json({ error: rErr.message }, 500);
+  const [row] = await sql<{ id: string; workspace_id: string; domain: string; postmark_domain_id: string | null }[]>`
+    select id, workspace_id, domain, postmark_domain_id
+    from workspace_email_domains
+    where id = ${domainId} and workspace_id = ${brandId} and deleted_at is null
+  `;
   if (!row) return c.json({ error: 'Domain not found' }, 404);
 
   let pmDeleteError: string | null = null;
@@ -568,13 +532,9 @@ god.delete('/brands/:id/domains/:domainId', async (c) => {
     }
   }
 
-  const { error: dErr } = await sb
-    .from('workspace_email_domains')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('id', row.id);
-  if (dErr) return c.json({ error: dErr.message }, 500);
+  await sql`update workspace_email_domains set deleted_at = now() where id = ${row.id}`;
 
-  await writeAudit(sb, {
+  await writeAudit({
     workspaceId: brandId,
     actorUserId,
     action: 'brand.domain_removed',
