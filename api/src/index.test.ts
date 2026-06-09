@@ -3,18 +3,18 @@
 // mid-response. index.ts raises it to 30s. This pins the exported config
 // value so it can't silently regress to the default.
 //
-// index.ts starts background workers (setInterval polling Supabase) and
-// instantiates clients at import time, so we stub those modules before
-// importing it for its config object — the test must have no side effects.
+// index.ts starts background workers (setInterval polling) and instantiates
+// clients at import time, so we stub those modules before importing it for its
+// config object — the test must have no side effects.
 
 import { describe, expect, it, mock } from 'bun:test';
 import * as webhooks from './lib/outgoing-webhooks.ts';
 import * as csat from './lib/csat-survey.ts';
 
-// Hermetic env so env.ts validation passes without a real api/.env.
-process.env.SUPABASE_URL ||= 'https://example.supabase.co';
-process.env.SUPABASE_ANON_KEY ||= 'anon-key-placeholder-0123456789';
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'service-key-placeholder-0123456789';
+// Hermetic env so env.ts validation passes without a real api/.env. The DB URL
+// is a placeholder — the connection is lazy, so no socket is opened here.
+process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=require';
+process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 

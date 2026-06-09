@@ -15,12 +15,11 @@ import {
   type PostmarkDomain,
 } from '../lib/postmark-domains.ts';
 
-// Migration to Neon — Step 3.final (PR-A). All brand/domain data access runs
-// on getDb() raw SQL now. The owner-invite still calls Supabase Auth's
-// generateLink (c.get('sb')) to mint the auth user + magic link; that single
-// call moves to Better Auth in the auth-token flip (PR-B). DB-error mapping
-// follows the house pattern: 23505 → 409, 23503 → 400, everything else flows
-// to the global app.onError as a 500.
+// Migration to Neon — Step 3.final. All brand/domain data access runs on
+// getDb() raw SQL, and the owner-invite mints its user through Better Auth
+// (signUpEmail + requestPasswordReset). DB-error mapping follows the house
+// pattern: 23505 → 409, 23503 → 400, everything else flows to the global
+// app.onError as a 500.
 export const god = new Hono();
 
 god.use('*', requirePlatformAdmin);

@@ -413,7 +413,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   };
 }
 
-// ─── Supabase helpers ──────────────────────────────────────────────────────
+// ─── DB helpers (Neon) ──────────────────────────────────────────────────────
 
 async function loadTicketSnapshot(
   _sb: unknown,

@@ -1,7 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { supabaseAdmin } from '../lib/supabase.ts';
 import { auth } from '../lib/auth.ts';
 import { getDb } from '../lib/db.ts';
 
@@ -9,10 +7,12 @@ declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
-    // Service-role client. Now vestigial — a handful of ticket libs still
-    // receive it as an (unused) param. Attached here until PR-C deletes the
-    // Supabase client and drops the dead threading.
-    sb: SupabaseClient;
+    // Vestigial: a handful of ticket libs still accept an (ignored) `sb` arg
+    // from before the Neon cutover. It's no longer set, so c.get('sb') reads
+    // undefined and the libs — which all use getDb() — ignore it. Typed
+    // `unknown` so the dead param threading still compiles; a follow-up can
+    // strip the params entirely.
+    sb: unknown;
   }
 }
 
@@ -47,7 +47,6 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
 
   c.set('userId', userId);
   c.set('workspaceId', workspaceId);
-  c.set('sb', supabaseAdmin);
   await next();
 };
 
@@ -61,6 +60,5 @@ export const requireAuthOnly: MiddlewareHandler = async (c, next) => {
     throw new HTTPException(401, { message: 'Invalid or missing session' });
   }
   c.set('userId', session.user.id);
-  c.set('sb', supabaseAdmin);
   await next();
 };

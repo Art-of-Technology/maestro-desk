@@ -9,9 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 // env.ts validates process.env at import time and several vars are required
 // (no defaults). Provide hermetic fallbacks so the suite runs without a real
 // api/.env; `||=` keeps any real values when they are present.
-process.env.SUPABASE_URL ||= 'https://example.supabase.co';
-process.env.SUPABASE_ANON_KEY ||= 'anon-key-placeholder-0123456789';
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'service-key-placeholder-0123456789';
+process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=require';
+process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 // Force these two non-empty so isPostmarkConfigured() is true and the send

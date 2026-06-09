@@ -15,8 +15,7 @@ savedSearches.use('*', requireAuth);
 //   - WRITE (update/delete): OWNER only, scoped to workspace → the WHERE
 //     clause adds user_id = me AND workspace_id = ws. (Previously the route
 //     trusted the saved_searches_owner_write policy to gate `where id = :id`.)
-// userId / workspaceId come from the auth middleware (still Supabase JWT until
-// the Step 3 auth flip).
+// userId / workspaceId come from the auth middleware (Better Auth session).
 
 // Filters JSON. Loosely typed so the UI can add filter dimensions without a
 // schema bump; .strict() rejects unknown keys.

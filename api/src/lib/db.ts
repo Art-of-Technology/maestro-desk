@@ -10,10 +10,9 @@ import { env } from './env.ts';
 // interpolation, so this is safe against SQL injection. Never build SQL by
 // concatenating strings; always interpolate values through the tag.
 //
-// Lazy + memoised: importing this module never opens a connection or throws,
-// so the API still boots while DATABASE_URL is unset (Supabase remains the
-// live DB during the migration). The connection is created on first use, and
-// reused after that.
+// Lazy + memoised: importing this module never opens a connection. The
+// connection is created on first use and reused after that. DATABASE_URL is
+// required at boot (env.ts), but getDb() still guards it for a clear error.
 let _sql: ReturnType<typeof postgres> | null = null;
 
 export function getDb() {

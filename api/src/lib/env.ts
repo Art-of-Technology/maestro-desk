@@ -1,15 +1,11 @@
 import { z } from 'zod';
 
 const Env = z.object({
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string().min(20),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(20),
-  // Neon Postgres connection string (migration to Neon — Step 1).
+  // Neon Postgres connection string — the source of truth now that the
+  // Supabase→Neon migration is complete. Required: every route + Better Auth
+  // read through it.
   // Format: postgresql://user:pass@<host>.neon.tech/<db>?sslmode=require
-  // Optional for now: Supabase is still the live database, so the app must
-  // boot without it (CI, existing dev). lib/db.ts throws a clear error if it
-  // is used while unset. Becomes required at the production cutover step.
-  DATABASE_URL: z.string().url().optional(),
+  DATABASE_URL: z.string().url(),
   // Better Auth (migration to Neon — Step 2). Owns sessions/users sign-in.
   // SECRET signs sessions/tokens — generate with `openssl rand -base64 32`.
   // URL is the API's own base URL (where Better Auth's /api/auth/* is served).
