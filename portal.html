@@ -230,12 +230,12 @@
     // own domain (or behind their static CDN) without pulling the SPA.
 
     // No bundler/build step: pick the API host at runtime by hostname. Only
-    // the known prod host points at the Fly API; localhost dev and Vercel PR
+    // the known prod host points at the Vercel API; localhost dev and Vercel PR
     // previews fall back to the :3001 default so previews never silently hit
     // production. A workspace hosting the portal under its own CDN sets
     // window.MAESTRO_API_BASE itself, so we don't clobber a pre-existing value.
     if (!window.MAESTRO_API_BASE && /^help\.maestro-desk\.com$/.test(location.hostname)) {
-      window.MAESTRO_API_BASE = "https://maestro-desk-api.fly.dev";
+      window.MAESTRO_API_BASE = "https://api.maestro-desk.com";
     }
     const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
     const params = new URLSearchParams(location.search);

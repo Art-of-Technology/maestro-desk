@@ -13,12 +13,12 @@
 <link rel="stylesheet" href="styles/pages.css"/>
 <script>
   // Production API base. There is no bundler/build step, so we pick the API
-  // host at runtime by hostname. Only the known prod hosts point at the Fly
+  // host at runtime by hostname. Only the known prod hosts point at the Vercel
   // API; everything else (localhost dev, Vercel PR previews, etc.) falls back
   // to the api-client default of http://localhost:3001 so previews never
   // silently hit production. Must run before js/app.js imports api-client.js.
   if (/^(desk|help)\.maestro-desk\.com$/.test(location.hostname)) {
-    window.MAESTRO_API_BASE = "https://maestro-desk-api.fly.dev";
+    window.MAESTRO_API_BASE = "https://api.maestro-desk.com";
   }
 </script>
 </head>

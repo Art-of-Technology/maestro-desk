@@ -2,7 +2,7 @@
 
 > Audience: a new engineer (and the CTO). Every claim below is taken from the actual files in this repo; file paths are cited inline. Anything that could **not** be verified from the files is called out under **⚠️ Cannot verify from files**.
 >
-> **State:** the Supabase→Neon migration has landed in code — the API talks to Neon directly and uses Better Auth, with no Supabase SDK remaining. A few **legacy Supabase/Fly.io artefacts** are still in the tree (see §9); they are being removed and are flagged where they appear.
+> **State:** the Supabase→Neon migration has landed in code — the API talks to Neon directly and uses Better Auth, with no Supabase SDK remaining. The **Fly.io artefacts have been removed** and the SPA/portal now point production at the Vercel API (`https://api.maestro-desk.com`). The only remaining legacy is the `supabase/` reference directory (see §9).
 
 ---
 
@@ -28,14 +28,12 @@ The stack was expected to be *Bun, TypeScript, Next.js, Prisma/Drizzle, Postgres
 
 ## 1. Language & runtime (with versions)
 
-- **Runtime: Bun** (local + CI). No single pinned version file shared across all contexts:
-  - CI pins **Bun 1.3.13** — `.github/workflows/ci.yml` (`oven-sh/setup-bun@v2`).
-  - The legacy `api/Dockerfile` base is **`oven/bun:1.3-alpine`** (floating 1.3.x).
+- **Runtime: Bun** (local + CI). CI pins **Bun 1.3.13** — `.github/workflows/ci.yml` (`oven-sh/setup-bun@v2`). On **Vercel** the API's runtime is set by the platform, not by a repo file.
 - **API language: TypeScript ^5.6.0** — `api/package.json`. `tsconfig.json`: `ESNext` target/module, `moduleResolution: "bundler"`, `strict: true`, `types: ["bun-types"]`, `noEmit` (Bun runs `.ts` directly; no compile step).
 - **Frontend language: JavaScript (ES modules).** No TypeScript, no `tsconfig` for the frontend.
 - **Not found (confirmed absent):** `.nvmrc`, `.node-version`, `global.json`, any `*.csproj`. This is **not** a Node-version-pinned or .NET project.
 
-⚠️ **Cannot verify / flag:** there is **no single Bun version pin** shared across local/CI/Docker — CI says `1.3.13`, the legacy Dockerfile says `1.3` (floating). Local developers have no enforced version. On **Vercel** the Node/Bun runtime is set by the platform, not by these files. Recommend a `.bun-version` if local pinning matters.
+⚠️ **Cannot verify / flag:** there is **no enforced Bun version pin for local dev** — CI says `1.3.13`; local developers have no pinned version, and Vercel sets its own runtime. Recommend a `.bun-version` if local pinning matters.
 
 ---
 
@@ -89,7 +87,7 @@ Two independently-running pieces:
 - Tests: `api/src/index.test.ts`, run with `bun test`.
 
 **Frontend SPA** (repo root):
-- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). An inline `<script>` at the top of `index.html` sets `window.MAESTRO_API_BASE` by hostname (see §9).
+- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). An inline `<script>` at the top of `index.html` sets `window.MAESTRO_API_BASE` by hostname — the prod hosts (`desk`/`help.maestro-desk.com`) map to `https://api.maestro-desk.com`; everything else falls back to `http://localhost:3001`.
 - Customer portal: **`portal.html`** (self-contained, separate page).
 - Local static server: **`scripts/serve-spa.js`** (`Bun.serve` on **port 5173**, serves the repo root so ES modules load).
 - **There is no `GET /api/v1/config` route.** (The pre-migration doc claimed one returning a Supabase URL + anon key — that no longer exists.) The SPA learns its API base from the inline script in `index.html`; Pubby's client config is served separately at `GET /api/v1/pubby/config`.
@@ -98,11 +96,9 @@ Two independently-running pieces:
 
 ## 5. Containerization
 
-- **`api/Dockerfile`** — **legacy** (built for the Fly.io path). Base `oven/bun:1.3-alpine`; `bun install --frozen-lockfile --production`; **no build step**; `CMD ["bun", "src/index.ts"]`; `EXPOSE 8080`. On Vercel the platform builds and invokes the serverless function instead — this Dockerfile is not the production path under the approved stack.
+- **No production container.** The API deploys to **Vercel** as a serverless function (the platform builds and invokes the Hono default export) — there is no production Dockerfile. The Fly.io `Dockerfile`/`.dockerignore` were removed when Fly was retired.
 - **No `docker-compose`** file anywhere in the repo. Docker is used locally only for Postgres 17 migration validation (§3).
 - **No frontend container** — the SPA is static files, served as-is.
-
-⚠️ **Flag:** `api/Dockerfile` and `api/fly.toml` (§9) exist but target **Fly.io**, which the project guardrails explicitly reject. They are migration leftovers; production runs on Vercel.
 
 ---
 
@@ -114,7 +110,7 @@ Two independently-running pieces:
 - **Scheduled jobs: Vercel Cron** — declared in **`api/vercel.json`**: `0 3 * * *` → `/api/v1/cron/webhook-retry`, and `0 4 * * *` → `/api/v1/cron/csat-reminders`. These call the cron endpoints (guarded by `CRON_SECRET`) that, in production, do the sweeping the in-process dev workers do locally.
 - **DB deploy:** apply `db/migrations/` SQL to Neon (validate on Docker PG 17 first, per `CLAUDE.md`).
 
-⚠️ **Cannot verify / flag — production cutover:** `index.html` still maps the prod hostnames to a **Fly.io** API URL (§9), and `api/fly.toml`/`api/Dockerfile` still exist. These contradict the approved **Vercel-only** stack and are migration leftovers slated for removal. Confirm with the team that the frontend's API base and any DNS/host config have been repointed to the Vercel deployment.
+⚠️ **Cannot verify / flag — production cutover:** `index.html` and `portal.html` now map the prod hostnames to the Vercel API (`https://api.maestro-desk.com`), and the Fly config has been removed. The remaining (out-of-repo) steps are: point `api.maestro-desk.com` DNS at the Vercel deployment, set `BETTER_AUTH_URL=https://api.maestro-desk.com` so session tokens verify, and move the background workers to Vercel Cron before relying on webhook delivery / CSAT reminders (see `PROD_SETUP.md` §3).
 
 ---
 
@@ -131,7 +127,7 @@ Two independently-running pieces:
 - **Secret manager:** in production, secrets are set in **Vercel project env vars**; locally they live in `api/.env` (gitignored — only `.env.example` is committed). No HashiCorp Vault / cloud secret-manager.
 - **Frontend secrets:** none — it only needs the API base URL (set inline in `index.html`).
 
-⚠️ **Cannot verify / flag:** real secret **values** are not in the repo (correct/expected). Some legacy docs (`api/fly.toml` comments, `PROD_SETUP.md`) still list `SUPABASE_*`/`fly secrets set` — treat those as stale; the live required set is the four vars above.
+⚠️ **Cannot verify / flag:** real secret **values** are not in the repo (correct/expected). If any older docs still mention `SUPABASE_*` / `fly secrets set`, treat those as stale — the live required set is the four vars above, set as Vercel project env vars in production.
 
 ---
 
@@ -177,26 +173,24 @@ bun test
 | Service | Port | Source |
 |---|---|---|
 | API (local) | 3001 | `api/src/lib/env.ts` (`PORT` default) |
-| API (legacy container) | 8080 | `api/Dockerfile` (`EXPOSE 8080`) — Fly path, being retired |
 | SPA dev server | 5173 | `scripts/serve-spa.js` |
 | Docker PG 17 (migration validation) | 5432 (typical) | local Docker; see `CLAUDE.md` |
 
 ---
 
 ### Summary of everything flagged as unverifiable / in-flight from files
-1. **No shared Bun version pin** (CI `1.3.13` vs legacy Dockerfile `1.3` vs no local pin; Vercel sets its own runtime).
-2. **Fly.io leftovers contradict the Vercel-only stack:** `index.html` still points prod at `maestro-desk-api.fly.dev` (§9), and `api/fly.toml` + `api/Dockerfile` still exist. Confirm the frontend API base and host config are repointed to Vercel; these files are slated for removal.
+1. **No enforced local Bun version pin** (CI `1.3.13`; local devs unpinned; Vercel sets its own runtime).
+2. **Vercel cutover not yet live:** the code points prod at `https://api.maestro-desk.com` and Fly is retired, but going live still needs `api.maestro-desk.com` DNS → Vercel, `BETTER_AUTH_URL` set to that origin, and the background workers moved to Vercel Cron (see `PROD_SETUP.md` §3).
 3. **`supabase/` is legacy:** `supabase/config.toml` and `supabase/migrations/` (74 files) are retained for reference only — the live migration set is `db/migrations/` (53 files) applied to Neon.
 4. **Secret values and prod connection details** are not in committed config (by design); some stale docs still mention `SUPABASE_*` / `fly secrets` — the live required set is `DATABASE_URL`, `BETTER_AUTH_SECRET`, `ANTHROPIC_API_KEY`, `POSTMARK_INBOUND_SECRET`.
 5. **Background-worker model differs by environment:** in-process workers run only via `api/src/dev.ts` locally; production relies on **Vercel Cron** (`api/vercel.json`) hitting `/api/v1/cron/*`.
 
 ---
 
-## 9. Known legacy artefacts (being removed)
+## 9. Known legacy artefacts
 
-These remain in the tree but contradict the approved stack — do not build on them:
+The Fly.io artefacts (`api/fly.toml`, `api/Dockerfile`, `api/.dockerignore`) have been **removed**, and `index.html` / `portal.html` now point production at the Vercel API (`https://api.maestro-desk.com`). Do not re-add Fly config — Fly is explicitly rejected by the guardrails.
 
-- **`api/fly.toml`** — Fly.io app config (`maestro-desk-api`, region `fra`, always-on machine). Fly.io is explicitly rejected by the guardrails; this file is being deleted. Do not re-add or reference it.
-- **`api/Dockerfile`** — built for the Fly path (§5). Not the Vercel production path.
-- **`index.html` API-base mapping** — the inline script maps `desk.maestro-desk.com` / `help.maestro-desk.com` → `https://maestro-desk-api.fly.dev`. This still points at Fly and must be repointed to the Vercel API host as part of finishing the cutover.
-- **`supabase/`** — `config.toml` + 74 reference migrations from the Supabase era; superseded by `db/migrations/` on Neon.
+One legacy directory remains, for reference only — do not build on it:
+
+- **`supabase/`** — `config.toml` + 74 reference migrations from the Supabase era; superseded by `db/migrations/` on Neon. Kept for historical lookup; nothing reads it.
