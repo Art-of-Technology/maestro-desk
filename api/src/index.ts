@@ -48,13 +48,30 @@ const app = new Hono();
 // (lib/auth.ts) separately guards /api/auth/*.
 const AGENT_ORIGINS = [env.APP_BASE_URL, 'http://localhost:5173'];
 
+// A request gets the OPEN CORS policy only when its path unambiguously lives
+// under /api/v1/public/. We decode once and reject any '..' (or an undecodable
+// path) so an encoded-slash trick like `/api/v1/public/..%2Ftickets` — which
+// keeps the literal prefix but isn't really a public route — can't smuggle a
+// request into the open branch. Anything ambiguous falls through to the locked
+// allowlist, which is the safe default.
+function isPublicApiPath(rawPath: string): boolean {
+  let path: string;
+  try {
+    path = decodeURIComponent(rawPath);
+  } catch {
+    return false;
+  }
+  if (path.includes('..')) return false;
+  return path.startsWith('/api/v1/public/');
+}
+
 app.use('*', logger());
 app.use('*', cors({
   origin: (origin, c) => {
     // Public/portal API is intentionally open: it's unauthenticated and is
     // embedded on arbitrary verified white-label brand domains (resolved via
     // workspaces.portal_custom_domain), which we can't enumerate ahead of time.
-    if (c.req.path.startsWith('/api/v1/public/')) return origin || '*';
+    if (isPublicApiPath(c.req.path)) return origin || '*';
     // Authenticated agent API + auth: reflect only allowlisted origins; an
     // empty return omits Access-Control-Allow-Origin so the browser blocks it.
     return AGENT_ORIGINS.includes(origin) ? origin : '';

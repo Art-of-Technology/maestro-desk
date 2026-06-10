@@ -67,4 +67,12 @@ describe('CORS — public/portal API stays open', () => {
     expect(res.status).toBe(204);
     expect(acao(res)).toBe(origin);
   });
+
+  // Regression: an encoded-slash traversal keeps the literal /api/v1/public/
+  // prefix but must NOT get the open policy — it falls to the locked branch, so
+  // an unknown origin is denied. (Guards against the path-prefix bypass.)
+  it('does not open up an encoded-slash traversal path', async () => {
+    const res = await preflight('/api/v1/public/..%2Ftickets', 'https://evil.example.com');
+    expect(acao(res)).toBeNull();
+  });
 });
