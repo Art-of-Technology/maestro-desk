@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
+import { env } from './lib/env.ts';
 import { auth } from './lib/auth.ts';
 import { health } from './routes/health.ts';
 import { me } from './routes/me.ts';
@@ -36,9 +37,35 @@ import { cron } from './routes/cron.ts';
 
 const app = new Hono();
 
+// Browser origins allowed to call the AUTHENTICATED agent API + /api/auth/*.
+// The agent SPA is served from APP_BASE_URL (https://desk.maestro-desk.com in
+// prod, http://localhost:5173 in dev); Vercel PR previews are *.vercel.app.
+// Note this is defense-in-depth, not the auth boundary — the SPA authenticates
+// with bearer tokens in sessionStorage, not ambient cookies, so a cross-origin
+// page can't replay credentials regardless. Better Auth's own trustedOrigins
+// (lib/auth.ts) separately guards /api/auth/*.
+const AGENT_ORIGINS = [env.APP_BASE_URL, 'http://localhost:5173'];
+
+function isAllowedAgentOrigin(origin: string): boolean {
+  if (AGENT_ORIGINS.includes(origin)) return true;
+  try {
+    return new URL(origin).hostname.endsWith('.vercel.app');
+  } catch {
+    return false;  // malformed Origin header
+  }
+}
+
 app.use('*', logger());
 app.use('*', cors({
-  origin: '*',  // Tighten before exposing publicly. For local dev, * is fine.
+  origin: (origin, c) => {
+    // Public/portal API is intentionally open: it's unauthenticated and is
+    // embedded on arbitrary verified white-label brand domains (resolved via
+    // workspaces.portal_custom_domain), which we can't enumerate ahead of time.
+    if (c.req.path.startsWith('/api/v1/public/')) return origin || '*';
+    // Authenticated agent API + auth: reflect only allowlisted origins; an
+    // empty return omits Access-Control-Allow-Origin so the browser blocks it.
+    return isAllowedAgentOrigin(origin) ? origin : '';
+  },
   allowHeaders: ['Authorization', 'Content-Type', 'X-Workspace-Id'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
