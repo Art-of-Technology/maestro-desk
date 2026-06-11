@@ -1,5 +1,15 @@
-# Repo-root .vercelignore — used by the STATIC FRONTEND Vercel project (Root
-# Directory = repo root). Exclude the API source tree so Vercel doesn't try to
-# build api/ as serverless functions for the frontend deploy. The API has its
-# own Vercel project (Root Directory = api/) which is unaffected by this file.
-# api  ← TEMP-DISABLED to diagnose the API git build (#3)
+# Repo-root .vercelignore.
+#
+# DO NOT add `api` (or `api/`) here. Vercel applies this repo-root .vercelignore
+# to the WHOLE-repo source upload for EVERY project built from this repo —
+# including the API project, whose Root Directory is `api/`. Excluding `api`
+# therefore strips the API project's own source during its cloud git build,
+# which then fails instantly with no logs (the build dir is empty). This is NOT
+# the same as local `vercel build`, which applies the ignore relative to the
+# Root Directory — hence it only bites in the cloud. See PR #324.
+#
+# The static-frontend project (Root Directory = repo root) does NOT build api/
+# as serverless functions anyway — verified: /api/* returns 404 on the SPA
+# deploy — so excluding it was unnecessary as well as harmful.
+#
+# (Intentionally no ignore patterns below.)
