@@ -83,6 +83,24 @@ export async function resetPassword(token, newPassword) {
 }
 
 /**
+ * Request a password-reset email (the self-serve "forgot password" flow).
+ * Posts to Better Auth's request-password-reset, which is enumeration-safe
+ * (always 200 whether or not the email exists) — so we only surface genuine
+ * server/network failures; the caller shows a neutral "if it exists…" confirm.
+ */
+export async function requestPasswordReset(email) {
+  const res = await fetch(`${API_BASE}/api/auth/request-password-reset`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  if (res.status >= 500) {
+    throw new Error('Could not send the reset link — please try again.');
+  }
+  return true;
+}
+
+/**
  * Platform-admin sign-in — thin wrapper that returns just the user (matches
  * the existing call sites in js/auth/platform-admin.js).
  */

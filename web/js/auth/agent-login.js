@@ -1,60 +1,39 @@
-// Real-auth sign-in flow for agents.
+// THE sign-in flow for the SPA. One email/password form (#auth-login) drives
+// this. On sign-in we hit /api/v1/whoami and route:
+//   - platform admin (God)   → platform/God view (enterGod), by default
+//   - 1 workspace membership  → auto-enter that workspace
+//   - 2+ memberships          → inline workspace picker
+//   - 0 memberships, not God   → "no access — ask your admin for an invite"
 //
-// Parallels js/auth/platform-admin.js. The demo persona flow in
-// js/auth/index.js stays untouched — that's still useful for offline UI
-// work and sales demos. This module is the production path: real Supabase
-// JWT, real user, real workspace membership.
-//
-// Flow:
-//   1. User enters email + password
-//   2. signIn() → JWT + { user, memberships }
-//   3. memberships.length:
-//        0 — error: "no workspace memberships" (platform admin should use the other link)
-//        1 — auto-pick, store workspace_id, call window.login()
-//        2+ — render an inline picker; user click → store + login()
-//
-// Surface:
-//   showAgentLogin()         — swap auth screen to the agent panel
-//   submitAgentLogin()       — handle the sign-in form submit
-//   pickAgentWorkspace(id)   — workspace-picker click handler
-//   autoResumeAgent()        — restore session on page reload
+// autoResumeAgent() restores a workspace session on reload (stored workspace_id);
+// God reload is handled by autoResumePlatformAdmin() (see platform-admin.js).
 
 import { signIn, rehydrateUser, signOut } from '../core/auth-client.js';
 import { setWorkspaceId, getWorkspaceId } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
-import { showAuthPanel } from './index.js';
+import { enterGod } from './platform-admin.js';
 
-// In-memory cache of the memberships list between sign-in and workspace pick.
-// We need it to (a) render the picker, (b) look up the role when the user
-// clicks one. Cleared after a successful login or when the panel is reset.
+// Cached between sign-in and workspace pick (for the 2+ picker click handler).
 let _memberships = null;
 let _user = null;
 
-function showAgentLogin() {
-  showAuthPanel('agent');
-  resetAgentPanel();
+function showError(msg) {
+  const errEl = document.getElementById('login-error');
+  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+  // Always restore the form view (hide any picker) so the user can retry.
+  const formEl = document.getElementById('login-form');
+  const pickEl = document.getElementById('login-picker');
+  if (formEl) formEl.style.display = 'block';
+  if (pickEl) pickEl.style.display = 'none';
 }
 
-function resetAgentPanel() {
-  _memberships = null;
-  _user = null;
-  const errEl = document.getElementById('ag-error');     if (errEl)  errEl.style.display  = 'none';
-  const formEl = document.getElementById('ag-form');     if (formEl) formEl.style.display = 'block';
-  const pickEl = document.getElementById('ag-picker');   if (pickEl) pickEl.style.display = 'none';
-}
-
-async function submitAgentLogin() {
-  const email = document.getElementById('ag-email')?.value.trim() || '';
-  const pw    = document.getElementById('ag-password')?.value || '';
-  const errEl = document.getElementById('ag-error');
-  const btn   = document.getElementById('ag-submit');
-
-  const showError = (msg) => {
-    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
-  };
+async function submitLogin() {
+  const email = document.getElementById('login-email')?.value.trim() || '';
+  const pw    = document.getElementById('login-password')?.value || '';
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('login-submit');
   if (errEl) errEl.style.display = 'none';
-
   if (!email || !pw) return showError('Please enter your email and password.');
 
   if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
@@ -63,20 +42,14 @@ async function submitAgentLogin() {
     _user = me.user;
     _memberships = me.memberships || [];
 
+    // God accounts land in the platform/brand-management view by default.
+    if (_user?.is_platform_admin) { enterGod(_user); return; }
+
     if (_memberships.length === 0) {
       signOut();
-      if (me.user?.is_platform_admin) {
-        return showError('This account is platform-admin only. Use "Platform admin sign-in →".');
-      }
-      return showError('No workspace memberships found for this account.');
+      return showError('No workspace access yet — ask your admin for an invite.');
     }
-
-    if (_memberships.length === 1) {
-      enterWorkspace(_memberships[0]);
-      return;
-    }
-
-    // 2+ memberships → render the picker.
+    if (_memberships.length === 1) { enterWorkspace(_memberships[0]); return; }
     renderPicker(_memberships);
   } catch (err) {
     showError(err?.message || 'Sign-in failed.');
@@ -86,28 +59,26 @@ async function submitAgentLogin() {
 }
 
 function renderPicker(memberships) {
-  const formEl = document.getElementById('ag-form');
-  const pickEl = document.getElementById('ag-picker');
+  const formEl = document.getElementById('login-form');
+  const pickEl = document.getElementById('login-picker');
   if (formEl) formEl.style.display = 'none';
-  if (pickEl) {
-    pickEl.style.display = 'block';
-    pickEl.innerHTML = `
-      <div class="auth-sub" style="margin-bottom:14px">Choose a workspace to sign into.</div>
-      <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
-        ${memberships.map((m, i) => `
-          <div class="auth-account" data-action="agent.pickWorkspace" data-idx="${i}">
-            <div class="auth-account-av">${escInitials(m.workspace_name)}</div>
-            <div>
-              <div class="auth-account-name">${escText(m.workspace_name)}</div>
-              <div class="auth-account-role">${escText(m.role_name || 'Member')}${m.suspended ? ' · Suspended' : ''}</div>
-            </div>
+  if (!pickEl) return;
+  pickEl.style.display = 'block';
+  pickEl.innerHTML = `
+    <div class="auth-sub" style="margin:8px 0 14px;text-align:center">Choose a workspace to sign into.</div>
+    <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
+      ${memberships.map((m, i) => `
+        <div class="auth-account" data-action="agent.pickWorkspace" data-idx="${i}">
+          <div class="auth-account-av">${escInitials(m.workspace_name)}</div>
+          <div>
+            <div class="auth-account-name">${escText(m.workspace_name)}</div>
+            <div class="auth-account-role">${escText(m.role_name || 'Member')}${m.suspended ? ' · Suspended' : ''}</div>
           </div>
-        `).join('')}
-      </div>`;
-  }
+        </div>
+      `).join('')}
+    </div>`;
 }
 
-// Picker click handler — wired via core/event-delegation.
 function pickAgentWorkspace(ds) {
   const i = parseInt(ds.idx, 10);
   if (!_memberships || isNaN(i) || !_memberships[i]) return;
@@ -115,52 +86,31 @@ function pickAgentWorkspace(ds) {
 }
 
 registerActions({
+  'auth.submitLogin':    () => submitLogin(),
   'agent.pickWorkspace': (ds) => pickAgentWorkspace(ds),
-  // static index.html auth screen
-  'auth.showAgent':   () => showAgentLogin(),
-  'auth.submitAgent': () => submitAgentLogin(),
 });
 
-// Enter-to-submit on the (static) agent-login password field.
-document.getElementById('ag-password')
-  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAgentLogin(); });
+// Enter-to-submit on the (static) login password field.
+document.getElementById('login-password')
+  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(); });
 
 async function enterWorkspace(m) {
-  if (m.suspended) {
-    showSignInError(`${m.workspace_name} is suspended. Contact your platform admin.`);
-    return;
-  }
+  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return; }
   setWorkspaceId(m.workspace_id);
   try {
     await bootShell(_user, m);
   } catch (err) {
-    // Bootstrap failed → unwind so the user lands back on the form rather
-    // than a half-booted shell with stale demo data still in the globals.
+    // Unwind so the user lands back on the form, not a half-booted shell.
     setWorkspaceId(null);
-    showSignInError(err?.message || 'Failed to load workspace data.');
+    showError(err?.message || 'Failed to load workspace data.');
   }
 }
 
-function showSignInError(msg) {
-  const errEl = document.getElementById('ag-error');
-  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
-  const formEl = document.getElementById('ag-form');
-  const pickEl = document.getElementById('ag-picker');
-  if (formEl) formEl.style.display = 'block';
-  if (pickEl) pickEl.style.display = 'none';
-}
-
 async function bootShell(user, membership) {
-  // Load tickets/customers/agents from the API before showing the shell,
-  // so the dashboard renders against real data on first paint (not demo
-  // data that then flickers when the fetch completes).
   await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
   window.login(role, user.name || user.email, initials, user.id);
-  // Apply workspace brand AFTER login so the DOM is visible — the
-  // sidebar logo + name + accent color all swap to reflect the
-  // signed-in workspace instead of the platform-default copy.
   window.applyWorkspaceBrand?.({
     name:         membership.workspace_name,
     slug:         membership.workspace_slug,
@@ -172,9 +122,7 @@ async function bootShell(user, membership) {
 function deriveInitials(name, email) {
   if (name) {
     const parts = name.trim().split(/\s+/);
-    const first = parts[0]?.[0] || '';
-    const last  = parts[1]?.[0] || '';
-    const init  = (first + last).toUpperCase();
+    const init  = ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase();
     if (init) return init;
   }
   return (email || '??').slice(0, 2).toUpperCase();
@@ -191,27 +139,17 @@ function escText(s) {
 }
 
 /**
- * Restore an agent session from sessionStorage. Returns true if the SPA
- * was bootstrapped into the app shell.
- *
- * A stored workspace_id is the user's explicit "enter as agent" signal —
- * this wins over the platform-admin auto-resume even for users who are
- * both. Sign out (or hit the god nav link inside the app) to clear it.
+ * Restore an agent workspace session on page reload. A stored workspace_id is
+ * the user's explicit "enter this workspace" signal and wins over the God
+ * auto-resume. Returns true if the shell was bootstrapped.
  */
 export async function autoResumeAgent() {
   const workspaceId = getWorkspaceId();
   if (!workspaceId) return false;
-
   const me = await rehydrateUser();
   if (!me) return false;
-
   const m = (me.memberships || []).find(x => x.workspace_id === workspaceId);
-  if (!m || m.suspended) {
-    // Stored workspace_id no longer valid (revoked / suspended) — drop it
-    // and fall through to the next resume path or the auth screen.
-    setWorkspaceId(null);
-    return false;
-  }
+  if (!m || m.suspended) { setWorkspaceId(null); return false; }
   try {
     await bootShell(me.user, m);
   } catch (err) {

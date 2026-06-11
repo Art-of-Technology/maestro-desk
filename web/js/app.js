@@ -217,8 +217,6 @@ Object.assign(
 registerActions({
   'app.nav':    (ds, el) => nav(ds.page, el),
   'app.logout': () => logout(),
-  // demo-persona quick-login buttons on the static auth screen
-  'app.login':  (ds) => login(ds.role, ds.name, ds.initials),
 });
 
 // Wire the static top-bar search input (#gs-input) — its input/focus/keydown

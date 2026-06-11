@@ -37,26 +37,9 @@
       <div class="auth-title" style="text-align:center">Maestro Desk</div>
       <div class="auth-sub" style="text-align:center">Support that runs itself</div>
 
-      <div style="margin-top:20px">
-        <button class="sso-btn" data-action="auth.ssoLogin" data-provider="google">
-          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M13.5 7.16c0-.49-.04-.97-.13-1.43H7v2.7h3.65c-.16.85-.64 1.57-1.36 2.05v1.71h2.2c1.29-1.18 2.01-2.93 2.01-5.03z" fill="#4285F4"/><path d="M7 14c1.83 0 3.36-.6 4.49-1.63l-2.2-1.7c-.61.41-1.39.65-2.29.65-1.76 0-3.25-1.18-3.79-2.78H.93v1.74A6.99 6.99 0 0 0 7 14z" fill="#34A853"/><path d="M3.21 8.54a4.21 4.21 0 0 1 0-2.66V4.13H.93A7 7 0 0 0 0 7c0 1.13.27 2.2.93 3.13l2.28-1.59z" fill="#FBBC04"/><path d="M7 2.78c.99 0 1.88.34 2.59 1.01l1.94-1.94A6.96 6.96 0 0 0 7 0a6.99 6.99 0 0 0-6.07 4.13L3.21 5.87C3.75 4.27 5.24 2.78 7 2.78z" fill="#EA4335"/></svg>
-          Continue with Google
-        </button>
-        <button class="sso-btn" data-action="auth.ssoLogin" data-provider="microsoft">
-          <svg width="14" height="14" viewBox="0 0 14 14"><rect x="1" y="1" width="5.5" height="5.5" fill="#F25022"/><rect x="7.5" y="1" width="5.5" height="5.5" fill="#7FBA00"/><rect x="1" y="7.5" width="5.5" height="5.5" fill="#00A4EF"/><rect x="7.5" y="7.5" width="5.5" height="5.5" fill="#FFB900"/></svg>
-          Continue with Microsoft
-        </button>
-        <button class="sso-btn" data-action="auth.ssoLogin" data-provider="saml">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l5 2v4c0 3-2.2 5.5-5 6.5C4.2 12.5 2 10 2 7V3l5-2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M5 7l1.5 1.5L9 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          SSO / SAML
-        </button>
-      </div>
-
-      <div class="auth-email-section email-collapsed" id="auth-email-section">
-        <div class="auth-divider auth-divider-toggle" onclick="document.getElementById('auth-email-section').classList.toggle('email-collapsed')"><span>or with email <span class="auth-email-chev">▾</span></span></div>
-
+      <div id="login-form" style="margin-top:24px">
         <div class="form-row">
-          <label class="form-label">Work email</label>
+          <label class="form-label">Email</label>
           <input class="form-input" id="login-email" type="email" placeholder="you@company.com" autocomplete="username"/>
         </div>
         <div class="form-row">
@@ -72,70 +55,12 @@
           <label class="auth-check"><input type="checkbox" id="remember-me"/><span>Remember me</span></label>
           <span class="auth-link" style="margin:0;font-size:12px" data-action="auth.showPanel" data-panel="forgot">Forgot password?</span>
         </div>
-        <button class="btn btn-solid" data-action="auth.submitLogin" style="width:100%;justify-content:center;margin-top:12px;padding:10px 16px">Sign in</button>
-        <div id="login-error" class="auth-error" style="display:none"></div>
+        <button class="btn btn-solid" id="login-submit" data-action="auth.submitLogin" style="width:100%;justify-content:center;margin-top:12px;padding:10px 16px">Sign in</button>
+        <div id="login-error" class="auth-error" style="display:none;margin-top:12px"></div>
       </div>
-
-      <div class="auth-demo-section demo-collapsed" id="auth-demo-section">
-        <div class="auth-divider auth-divider-toggle" onclick="document.getElementById('auth-demo-section').classList.toggle('demo-collapsed')"><span>or try the demo <span class="auth-demo-chev">▾</span></span></div>
-
-        <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
-          <div class="auth-account" data-action="app.login" data-role="Admin" data-name="Emma Clarke" data-initials="EC">
-            <div class="auth-account-av">EC</div>
-            <div><div class="auth-account-name">Emma Clarke</div><div class="auth-account-role">Admin · Full access</div></div>
-          </div>
-          <div class="auth-account" data-action="app.login" data-role="Senior Agent" data-name="James Webb" data-initials="JW">
-            <div class="auth-account-av">JW</div>
-            <div><div class="auth-account-name">James Webb</div><div class="auth-account-role">Senior Agent · Tickets + Customers</div></div>
-          </div>
-          <div class="auth-account" data-action="app.login" data-role="Read Only" data-name="Sofia Reyes" data-initials="SR">
-            <div class="auth-account-av">SR</div>
-            <div><div class="auth-account-name">Sofia Reyes</div><div class="auth-account-role">Read Only · View only</div></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="auth-link" data-action="auth.showPanel" data-panel="create" style="margin-top:14px">Don't have an account? Create one</div>
-      <div class="auth-link" data-action="auth.showAgent" style="margin-top:6px;font-size:12px">Sign in to your workspace →</div>
-      <div class="auth-link" data-action="auth.showPlatform" style="margin-top:6px;font-size:12px;color:var(--ink3)">Platform admin sign-in →</div>
+      <div id="login-picker" style="display:none"></div>
     </div>
-    <!-- Agent (real Supabase auth) sign-in panel -->
-    <div id="auth-agent" style="display:none">
-      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
-      <div class="auth-back" data-action="auth.showPanel" data-panel="login">← Back to sign in</div>
-      <div class="auth-title">Sign in</div>
-      <div class="auth-sub" style="margin-bottom:18px">Sign in to your workspace.</div>
-      <div id="ag-form">
-        <div class="form-row">
-          <label class="form-label">Email</label>
-          <input class="form-input" id="ag-email" type="email" placeholder="you@example.com" autocomplete="username"/>
-        </div>
-        <div class="form-row">
-          <label class="form-label">Password</label>
-          <input class="form-input" id="ag-password" type="password" placeholder="••••••••" autocomplete="current-password"/>
-        </div>
-        <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" id="ag-submit" data-action="auth.submitAgent">Sign in</button>
-      </div>
-      <div id="ag-picker" style="display:none"></div>
-      <div id="ag-error" class="auth-error" style="display:none;margin-top:12px"></div>
-    </div>
-    <!-- Platform admin login panel (real Supabase auth) -->
-    <div id="auth-platform-admin" style="display:none">
-      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
-      <div class="auth-back" data-action="auth.showPanel" data-panel="login">← Back to sign in</div>
-      <div class="auth-title">Platform admin</div>
-      <div class="auth-sub" style="margin-bottom:18px">Sign in to manage white-label brands.</div>
-      <div class="form-row">
-        <label class="form-label">Email</label>
-        <input class="form-input" id="pa-email" type="email" placeholder="you@example.com" autocomplete="username"/>
-      </div>
-      <div class="form-row">
-        <label class="form-label">Password</label>
-        <input class="form-input" id="pa-password" type="password" placeholder="••••••••" autocomplete="current-password"/>
-      </div>
-      <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" id="pa-submit" data-action="auth.submitPlatform">Sign in</button>
-      <div id="pa-error" class="auth-error" style="display:none;margin-top:12px"></div>
-    </div>
+
     <!-- Forgot password panel -->
     <div id="auth-forgot" style="display:none">
       <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
@@ -158,41 +83,6 @@
       <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" id="sp-submit" data-action="auth.submitSetPassword">Set password</button>
       <div id="sp-error" class="auth-error" style="display:none;margin-top:12px"></div>
       <div id="sp-confirm" style="display:none;margin-top:12px;font-size:12px;color:var(--green);text-align:center;font-family:'DM Mono',monospace;letter-spacing:.04em">Password set — you can now sign in.</div>
-    </div>
-    <!-- Create account panel -->
-    <div id="auth-create" style="display:none">
-      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
-      <div class="auth-back" data-action="auth.showPanel" data-panel="login">← Back to sign in</div>
-      <div class="auth-title">Create account</div>
-      <div class="auth-sub" style="margin-bottom:18px">Request access to Maestro Desk.</div>
-      <div class="form-grid">
-        <div class="form-row"><label class="form-label">First name</label><input class="form-input" id="ca-first" placeholder="Jane"/></div>
-        <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="ca-last" placeholder="Doe"/></div>
-      </div>
-      <div class="form-row"><label class="form-label">Work email</label><input class="form-input" id="ca-email" type="email" placeholder="you@company.com"/></div>
-      <div class="form-row">
-        <label class="form-label">Password</label>
-        <div class="pw-input-wrap">
-          <input class="form-input" id="ca-password" type="password" placeholder="At least 12 characters" style="padding-right:38px" data-input-action="auth.pwStrength"/>
-          <button type="button" class="pw-toggle" data-action="auth.togglePw" data-target="ca-password" tabindex="-1" aria-label="Toggle password visibility">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
-          </button>
-        </div>
-        <div id="pw-strength-wrap" class="pw-strength-wrap" style="display:none">
-          <div class="pw-strength-bar-track"><div id="pw-strength-bar" class="pw-strength-bar"></div></div>
-          <div id="pw-strength-text" class="pw-strength-text">Weak</div>
-        </div>
-      </div>
-      <div class="form-row"><label class="form-label">Role requested</label>
-        <select class="form-input" id="ca-role"><option>Senior Agent</option><option>Read Only</option></select>
-      </div>
-      <label class="auth-check" style="margin:10px 0">
-        <input type="checkbox" id="ca-terms"/>
-        <span>I agree to the <span style="color:var(--purple);cursor:pointer">Terms</span> and <span style="color:var(--purple);cursor:pointer">Privacy Policy</span></span>
-      </label>
-      <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" data-action="auth.submitCreate">Request access</button>
-      <div id="create-confirm" style="display:none;margin-top:12px;font-size:12px;color:var(--green);text-align:center;font-family:'DM Mono',monospace;letter-spacing:.04em">Request submitted — an admin will approve your account.</div>
-      <div id="create-error" class="auth-error" style="display:none"></div>
     </div>
   </div>
 </div>
