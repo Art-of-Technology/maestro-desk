@@ -19,6 +19,11 @@
   // silently hit production. Must run before js/app.js imports api-client.js.
   if (/^(desk|help)\.maestro-desk\.com$/.test(location.hostname)) {
     window.MAESTRO_API_BASE = "https://api.maestro-desk.com";
+  } else if (location.hostname === "maestro-desk-jodi-1420s-projects.vercel.app") {
+    // Interim live testing on Vercel's *.vercel.app URLs (no custom domain yet).
+    // Only this exact prod SPA host points at the deployed API; PR previews
+    // (hashed hostnames) still fall back to localhost so they never hit prod.
+    window.MAESTRO_API_BASE = "https://maestro-desk-zjkl.vercel.app";
   }
 </script>
 </head>
