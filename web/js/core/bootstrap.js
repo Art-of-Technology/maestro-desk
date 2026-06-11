@@ -244,17 +244,7 @@ export async function loadWorkspaceData() {
   replaceInPlace(CUSTOMERS, mappedCustomers);
 
   // ─── AGENTS ─────────────────────────────────────────────────────────────
-  const mappedAgents = agentsRaw.map((a) => ({
-    userId:   a.user_id,    // DB UUID — used by PATCH /tickets when assigning
-    name:     a.users?.name || a.users?.email || 'Unknown',
-    initials: a.users?.initials || initialsFromName(a.users?.name || a.users?.email || ''),
-    role:     a.roles?.name || 'Member',
-    active:   Boolean(a.active),
-    oooFrom:  a.ooo_from || undefined,
-    oooTo:    a.ooo_to   || undefined,
-    oooNote:  a.ooo_note || undefined,
-  }));
-  replaceInPlace(AGENTS, mappedAgents);
+  replaceInPlace(AGENTS, agentsRaw.map(mapAgentRow));
 
   // ─── TICKETS ────────────────────────────────────────────────────────────
   const mappedTickets = ticketsRaw.map((t) => ({
@@ -650,6 +640,29 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
 function replaceInPlace(target, source) {
   target.length = 0;
   for (const item of source) target.push(item);
+}
+
+// Map one API /agents row to the data.js AGENTS view-model. Shared by the
+// initial bootstrap and reloadAgents() (e.g. after inviting a new agent).
+function mapAgentRow(a) {
+  return {
+    userId:   a.user_id,    // DB UUID — used by PATCH /tickets when assigning
+    name:     a.users?.name || a.users?.email || 'Unknown',
+    initials: a.users?.initials || initialsFromName(a.users?.name || a.users?.email || ''),
+    role:     a.roles?.name || 'Member',
+    active:   Boolean(a.active),
+    oooFrom:  a.ooo_from || undefined,
+    oooTo:    a.ooo_to   || undefined,
+    oooNote:  a.ooo_note || undefined,
+  };
+}
+
+// Re-fetch the workspace roster and replace AGENTS in place — used after a
+// membership change (e.g. inviting an agent) so the UI reflects the new row
+// without a full workspace reload.
+export async function reloadAgents() {
+  const res = await apiGet('/api/v1/agents');
+  replaceInPlace(AGENTS, (res.agents || []).map(mapAgentRow));
 }
 
 function initialsFromName(s) {

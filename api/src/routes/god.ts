@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import { auth } from '../lib/auth.js';
+import { deriveNameFromEmail, randomPassword } from '../lib/invite.js';
 import {
   createDomain as pmCreateDomain,
   deleteDomain as pmDeleteDomain,
@@ -243,26 +244,6 @@ god.patch('/brands/:id', async (c) => {
 // and leaves DB state stable.
 
 const InviteOwner = z.object({ email: z.string().email() });
-
-function deriveNameFromEmail(email: string): { name: string; initials: string } {
-  const local = email.split('@')[0] || 'user';
-  const parts = local.split(/[._-]+/).filter(Boolean);
-  const cap = (w: string) => (w ? w[0].toUpperCase() + w.slice(1) : '');
-  const first = cap(parts[0]) || 'User';
-  const last = cap(parts[1] ?? '');
-  const name = [first, last].filter(Boolean).join(' ');
-  const initials = ((first[0] ?? '') + (last[0] ?? '')).toUpperCase() || first.slice(0, 2).toUpperCase();
-  return { name, initials };
-}
-
-// A throwaway password for the freshly-created account — the invitee never
-// learns it; they set their own via the emailed reset link. Long + random so
-// it satisfies any password policy and can't be guessed in the meantime.
-function randomPassword(): string {
-  const bytes = new Uint8Array(24);
-  crypto.getRandomValues(bytes);
-  return 'Aa1!' + Buffer.from(bytes).toString('base64url');
-}
 
 god.post('/brands/:id/invite', async (c) => {
   const sql = getDb();

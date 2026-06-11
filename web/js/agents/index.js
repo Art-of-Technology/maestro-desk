@@ -23,6 +23,8 @@ import { openTicket } from '../tickets/detail.js';
 import { showAgentOOOModal, isAgentOOO } from '../tickets/assignment-rules.js';
 import { reassignAgent, setAgentActive, deleteAgentPrompt } from '../roles/index.js';
 import { showModal, closeModal } from '../core/modal.js';
+import { apiPost } from '../core/api-client.js';
+import { getRoleUuid, reloadAgents } from '../core/bootstrap.js';
 
 let AGENT_FILTER_ROLE = 'all';
 let AGENT_FILTER_STATUS = 'all';
@@ -363,23 +365,32 @@ function agentSetQuery(v) {
 function agentNew() {
   if (!window.isAdmin()) return;
   const allRoles = Object.keys(ROLES_MATRIX);
-  showModal('Add agent', `
-    <div class="form-grid">
-      <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
-      <div class="form-row"><label class="form-label">Initials</label><input class="form-input" id="ag-init" maxlength="3" placeholder="JD"/></div>
-    </div>
+  showModal('Invite agent', `
+    <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
+    <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="ag-email" type="email" placeholder="jane@company.com"/></div>
     <div class="form-row"><label class="form-label">Role</label>
       <select class="form-input" id="ag-role">${allRoles.map(r => `<option value="${r}" ${r==='Senior Agent'?'selected':''}>${r}</option>`).join('')}</select>
     </div>
-  `, () => {
-    const name = document.getElementById('ag-name').value.trim();
-    const role = document.getElementById('ag-role').value;
-    let init = document.getElementById('ag-init').value.trim().toUpperCase();
-    if (!name || AGENTS.find(a => a.name === name)) return;
-    if (!init) init = name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-    AGENTS.push({ name, initials: init, role, active: true });
-    closeModal(); renderPage('agents');
-  }, 'Add');
+    <div style="font-size:11px;color:var(--ink3);margin-top:6px">We'll email them a link to set their password and join this workspace.</div>
+  `, async () => {
+    const name  = document.getElementById('ag-name').value.trim();
+    const email = document.getElementById('ag-email').value.trim().toLowerCase();
+    const role  = document.getElementById('ag-role').value;
+    if (!name || !email) return;
+    const roleId = getRoleUuid(role);
+    if (!roleId) { alert(`Couldn't resolve the role "${role}" for this workspace.`); return; }
+    try {
+      const res = await apiPost('/api/v1/agents/invite', { email, name, role_id: roleId });
+      await reloadAgents();
+      closeModal();
+      renderPage('agents');
+      if (res && res.email_sent === false) {
+        alert(`${name} was added to the workspace, but the invite email failed to send. Re-invite to retry.`);
+      }
+    } catch (err) {
+      alert(`Couldn't invite ${email}: ${err?.message || err}`);
+    }
+  }, 'Send invite');
 }
 
 registerActions({
