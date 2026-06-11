@@ -662,7 +662,9 @@ function mapAgentRow(a) {
 // without a full workspace reload.
 export async function reloadAgents() {
   const res = await apiGet('/api/v1/agents');
-  replaceInPlace(AGENTS, (res.agents || []).map(mapAgentRow));
+  // Only replace when we actually got a roster array — a malformed 2xx must
+  // never blank the agents list out from under the UI.
+  if (Array.isArray(res?.agents)) replaceInPlace(AGENTS, res.agents.map(mapAgentRow));
 }
 
 function initialsFromName(s) {
