@@ -285,6 +285,7 @@ function renderAgentDetail(name) {
             ${admin ? (a.active
               ? `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
               : `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`) : ''}
+            ${admin ? `<button class="btn btn-sm" data-action="agents.resetPassword" data-name="${window.escAttr(a.name)}">Send password reset</button>` : ''}
             ${admin ? `<button class="btn btn-sm btn-danger" data-action="agents.delete" data-name="${window.escAttr(a.name)}">Delete</button>` : ''}
           </div>` : ''}
         </div>
@@ -393,10 +394,35 @@ function agentNew() {
   }, 'Send invite');
 }
 
+// Admin-triggered password reset: email an existing agent a fresh set-password
+// link (the admin counterpart to the self-serve "forgot password" flow). The
+// agent's current password keeps working until they follow the link.
+function sendAgentPasswordReset(name) {
+  if (!window.isAdmin()) return;
+  const a = AGENTS.find(x => x.name === name);
+  if (!a) return;
+  if (!a.userId) {
+    alert(`${name} isn't a real account yet, so there's no password to reset.`);
+    return;
+  }
+  showModal('Send password reset', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Email <strong style="color:var(--ink)">${window.escHtml(name)}</strong> a link to set a new password? Their current password keeps working until they use the link.</div>`, async () => {
+    let res;
+    try { res = await apiPost(`/api/v1/agents/${a.userId}/reset-password`, {}); }
+    catch (err) { alert(`Couldn't send the reset link: ${err?.message || err}`); return; }
+    closeModal();
+    if (res && res.email_sent === false) {
+      alert(`Couldn't email ${name} — the mail service rejected the send. Try again shortly.`);
+    } else {
+      alert(`A password-reset link is on its way to ${name}.`);
+    }
+  }, 'Send link');
+}
+
 registerActions({
   'agents.openDetail':    (ds) => openAgentDetail(ds.name),
   'agents.closeDetail':   () => closeAgentDetail(),
   'agents.new':           () => agentNew(),
+  'agents.resetPassword': (ds) => sendAgentPasswordReset(ds.name),
   'agents.openCustomer':  (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
   'agents.openTicket':    (ds) => openTicket(ds.ticketId),
   'agents.editOOO':       (ds) => showAgentOOOModal(ds.name),

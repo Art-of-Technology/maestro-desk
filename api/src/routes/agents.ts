@@ -173,6 +173,50 @@ agents.patch('/:userId', async (c) => {
   return c.json({ agent });
 });
 
+// ─── POST /:userId/reset-password — re-send a set-password link (admin) ──────
+// Admin-triggered counterpart to the self-serve "forgot password" flow: lets a
+// workspace admin email an existing member a fresh Better-Auth set-password
+// link (e.g. an invitee who never set one, or a locked-out agent). Scoped to
+// THIS workspace — the target must be a member here, so there's no cross-tenant
+// reset and no account-enumeration concern (the admin already knows the member
+// exists). Best-effort send: a transient mail failure reports email_sent:false
+// rather than 500ing, matching the /invite contract.
+agents.post('/:userId/reset-password', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const targetUserId = c.req.param('userId');
+
+  const [member] = await sql<{ email: string }[]>`
+    select u.email
+    from workspace_members wm
+    join users u on u.id = wm.user_id and u.deleted_at is null
+    where wm.workspace_id = ${workspaceId} and wm.user_id = ${targetUserId}
+  `;
+  if (!member) return c.json({ error: 'Membership not found' }, 404);
+
+  let emailSent = true;
+  try {
+    await auth.api.requestPasswordReset({ body: { email: member.email } });
+  } catch (err) {
+    emailSent = false;
+    console.error('[agents/reset-password] requestPasswordReset failed:', err instanceof Error ? err.message : err);
+  }
+
+  await writeAudit({
+    workspaceId,
+    actorUserId: c.get('userId'),
+    action: 'agent.password_reset_sent',
+    targetType: 'user',
+    targetId: targetUserId,
+    metadata: { email: member.email, email_sent: emailSent },
+  });
+
+  return c.json({ email_sent: emailSent });
+});
+
 // ─── DELETE /:userId — remove membership (admin only) ───────────────────
 // Hard-delete from workspace_members; the users row stays so historical
 // references (ticket_messages.author_user_id) keep resolving.
