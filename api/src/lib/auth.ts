@@ -138,6 +138,16 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: [MAESTRO_PROVIDER_ID],
+      // `trustedProviders` only trusts the REMOTE (Maestro) email. Better Auth
+      // independently requires the EXISTING LOCAL user's email to be verified
+      // before it will link (requireLocalEmailVerified defaults to true) — and
+      // invited agents are created email-first during the cutover and never
+      // verify (email_verified = false), so without this they hit
+      // `account_not_linked` on their first Maestro sign-in. We don't gate
+      // linking on local verification: the operator created the account with a
+      // known email and Maestro independently verifies the SAME address, so the
+      // local flag adds no security here.
+      requireLocalEmailVerified: false,
     },
   },
   user: {
