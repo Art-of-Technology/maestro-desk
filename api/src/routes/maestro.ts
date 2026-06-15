@@ -7,9 +7,11 @@ import {
   getUserAccessToken,
   listUserOrganizations,
   listUserBrands,
+  mapMaestroBrandRole,
   maestroFetch,
   MaestroError,
 } from '../lib/maestro.js';
+import { resolveBrandWorkspace } from '../lib/maestro-workspace.js';
 
 // Maestro Connect integration routes.
 //
@@ -126,6 +128,41 @@ maestro.get('/workspace', requireAuthOnly, async (c) => {
   } catch (err) {
     throw toHttp(err);
   }
+});
+
+// ─── Brand selection → enter the brand's workspace ───────────────────────────
+// Maestro brands ARE the canonical workspace. Picking a brand find-or-provisions
+// its Desk workspace and auto-grants the agent membership (role mapped from
+// their Maestro role). We re-fetch the agent's brands server-side and require
+// the chosen brand to be in that list, so the client can't enter a brand the
+// platform wouldn't grant them.
+maestro.post('/select-brand', requireAuthOnly, async (c) => {
+  ensureEnabled();
+  const body = (await c.req.json().catch(() => null)) as { brandId?: unknown } | null;
+  const brandId = typeof body?.brandId === 'string' ? body.brandId : null;
+  if (!brandId) throw new HTTPException(400, { message: 'brandId is required.' });
+
+  const userId = c.get('userId');
+  const token = await getUserAccessToken(userId, c.req.raw.headers);
+  if (!token) throw new HTTPException(409, { message: 'No linked Maestro account for this user.' });
+
+  let brand;
+  let orgs;
+  try {
+    const [brands, organizations] = await Promise.all([
+      listUserBrands(token),
+      listUserOrganizations(token),
+    ]);
+    brand = brands.find((b) => b.id === brandId);
+    orgs = organizations;
+  } catch (err) {
+    throw toHttp(err);
+  }
+  if (!brand) throw new HTTPException(403, { message: 'You do not have access to that brand.' });
+
+  const roleName = mapMaestroBrandRole(brand, orgs);
+  const membership = await resolveBrandWorkspace(userId, brand, roleName);
+  return c.json({ membership, brand: { id: brand.id, name: brand.name } });
 });
 
 // ─── Player lookup (agent-triggered, brand-scoped) ───────────────────────────

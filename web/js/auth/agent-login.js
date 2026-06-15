@@ -118,6 +118,24 @@ async function enterWorkspace(m) {
   }
 }
 
+/**
+ * Enter a workspace for an explicitly-supplied user (the Maestro flow, where
+ * the user comes from /whoami rather than module state). Same boot + unwind as
+ * enterWorkspace; returns true on success so the caller can stop on failure.
+ */
+export async function enterWorkspaceMembership(user, m) {
+  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return false; }
+  setWorkspaceId(m.workspace_id);
+  try {
+    await bootShell(user, m);
+    return true;
+  } catch (err) {
+    setWorkspaceId(null);
+    showError(err?.message || 'Failed to load workspace data.');
+    return false;
+  }
+}
+
 async function bootShell(user, membership) {
   await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);

@@ -141,6 +141,27 @@ export interface MaestroBrand {
   slug?: string | null;
   organizationId?: string | null;
   logoUrl?: string | null;
+  // The caller's role on this brand. The exact field is unconfirmed (this org
+  // has no brands yet), so mapMaestroBrandRole checks the common spellings and
+  // falls back to the org-level role.
+  userRole?: string | null;
+  role?: string | null;
+  membershipRole?: string | null;
+}
+
+/**
+ * Map the agent's Maestro role for a brand to a Desk role name. Brand- or
+ * org-level admin/owner → "Admin"; everyone else → "Senior Agent". Per the
+ * product decision, Desk permissions mirror Maestro's.
+ */
+export function mapMaestroBrandRole(brand: MaestroBrand, orgs: MaestroOrganization[]): string {
+  const adminish = (v: unknown): boolean => typeof v === 'string' && /admin|owner/i.test(v);
+  if (adminish(brand.userRole) || adminish(brand.role) || adminish(brand.membershipRole)) {
+    return 'Admin';
+  }
+  const org = orgs.find((o) => o.id === brand.organizationId);
+  if (org && adminish(org.userRole)) return 'Admin';
+  return 'Senior Agent';
 }
 
 /** Organizations the signed-in user can access (scope organizations:read). */

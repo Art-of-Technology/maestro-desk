@@ -16,10 +16,10 @@
 //        - 2+ brands → show a picker
 //      then routes into the Desk via the shared routeAfterAuth().
 
-import { API_BASE, setJwt, setBrandId, apiGet } from '../core/api-client.js';
+import { API_BASE, setJwt, setBrandId, apiGet, apiPost } from '../core/api-client.js';
 import { rehydrateUser, signOut } from '../core/auth-client.js';
 import { registerActions } from '../core/event-delegation.js';
-import { routeAfterAuth } from './agent-login.js';
+import { routeAfterAuth, enterWorkspaceMembership } from './agent-login.js';
 
 // Brands cached between auto-detect and a picker click.
 let _brands = null;
@@ -98,40 +98,54 @@ export async function handleMaestroRedirect() {
   return true;
 }
 
-// Fetch the agent's orgs + brands, establish the brand context, then route in.
+// Pending whoami payload, so the picker click can finish routing.
+let _pendingMe = null;
+
+// Maestro brands ARE the workspace: detect the agent's brands, then enter the
+// brand's Desk workspace (auto-provisioned + membership granted server-side).
 async function detectWorkspaceAndRoute() {
   const me = await rehydrateUser();           // GET /whoami with the new bearer
   if (!me) throw new Error('Could not load your account after Maestro sign-in.');
+  _pendingMe = me;
+
+  // Platform admins (God) land in the platform view — brands are an agent
+  // concept, so we don't run brand selection for them.
+  if (me.user?.is_platform_admin) { routeAfterAuth(me); return; }
 
   let brands = [];
   try {
     const ws = await apiGet('/api/v1/maestro/workspace', { workspace: false });
     brands = ws.brands || [];
   } catch (e) {
-    // 409 = the signed-in user has no linked Maestro account (shouldn't happen
-    // on this path); anything else = gateway/permission issue. Player lookups
-    // just won't be available — don't block sign-in over it.
-    console.warn('[maestro] workspace auto-detect failed:', e?.message);
+    signOut();
+    throw new Error(e?.message || 'Could not load your Maestro brands.');
   }
 
-  if (brands.length === 1) {
-    setBrandId(brands[0].id);
-    routeAfterAuth(me);
+  if (brands.length === 0) {
+    signOut();
+    showError('Your Maestro account has no brand access yet — ask your operator to grant a brand.');
     return;
   }
-  if (brands.length > 1) {
-    _brands = brands;
-    renderBrandPicker(brands, me);
-    return;
-  }
-  // 0 brands — proceed without a brand context (player lookups need a brand,
-  // but ticket/Desk work doesn't).
-  setBrandId(null);
-  routeAfterAuth(me);
+  if (brands.length === 1) { await selectBrand(brands[0]); return; }
+  _brands = brands;
+  renderBrandPicker(brands, me);
 }
 
-// Pending whoami payload, so the picker click can finish routing.
-let _pendingMe = null;
+// Enter the brand's workspace: the server find-or-provisions it and grants the
+// agent membership (role mapped from their Maestro role), returning a
+// membership shaped like a /whoami entry that enterWorkspaceMembership boots.
+async function selectBrand(brand) {
+  setBusy(`Entering ${brand.name}…`);
+  let membership;
+  try {
+    ({ membership } = await apiPost('/api/v1/maestro/select-brand', { brandId: brand.id }, { workspace: false }));
+  } catch (e) {
+    showError(e?.message || `Could not open ${brand.name}.`);
+    return;
+  }
+  setBrandId(brand.id);   // X-Brand-Id for this agent's player lookups
+  await enterWorkspaceMembership(_pendingMe.user, membership);
+}
 
 function renderBrandPicker(brands, me) {
   _pendingMe = me;
@@ -162,8 +176,7 @@ function renderBrandPicker(brands, me) {
 function pickBrand(ds) {
   const i = parseInt(ds.idx, 10);
   if (!_brands || isNaN(i) || !_brands[i]) return;
-  setBrandId(_brands[i].id);
-  if (_pendingMe) routeAfterAuth(_pendingMe);
+  selectBrand(_brands[i]);
 }
 
 function escInitials(name) {
