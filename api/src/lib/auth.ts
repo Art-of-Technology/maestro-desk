@@ -124,8 +124,16 @@ export const auth = betterAuth({
   ],
   // Let a Maestro sign-in link to an existing Desk user with the same email —
   // this is how invited agents (created email-first during the cutover) start
-  // signing in with Maestro without a duplicate account. Maestro is the
-  // platform's own trusted IdP, so we trust its verified email for linking.
+  // signing in with Maestro without a duplicate account.
+  //
+  // SECURITY: listing Maestro in `trustedProviders` bypasses Better Auth's usual
+  // requirement that the provider assert a verified email before auto-linking.
+  // That is safe ONLY because Maestro Connect is the platform's identity source
+  // of truth and verifies email ownership before issuing an identity, so a
+  // Maestro token's email is already proven. If that invariant ever changes, a
+  // token minted for an unverified email would become an account-takeover vector
+  // (attacker claims a victim's email at Maestro → auto-links to the victim's
+  // Desk account) — remove Maestro from `trustedProviders` then.
   account: {
     accountLinking: {
       enabled: true,

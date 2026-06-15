@@ -124,9 +124,12 @@ for environment setup.
 
 ## Maestro Connect integration
 
-Maestro Desk registers with Maestro Connect via `maestro.yml` (manifest v1). See
-`MAESTRO-AGENT.md` for the identity model (org / brand / user), routes, data sources, and
-scopes.
+Maestro Desk registers with Maestro Connect via `maestro.yml` (manifest v1), which
+declares the integration's routes, data sources, and scopes. The identity model maps
+Maestro **organizations** → tenants, **brands** → workspaces (a Desk workspace *is* a
+Maestro brand), and **users** → the token-derived signed-in agent. Sign-in with Maestro
+runs through Better Auth's `genericOAuth` (PKCE); see `api/src/lib/maestro.ts` and
+`api/src/lib/maestro-workspace.ts`.
 
 ## Further reading
 

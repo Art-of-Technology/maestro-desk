@@ -39,8 +39,6 @@ interface WorkspaceRow {
   suspended_at: string | null;
 }
 
-const WS_SELECT = 'id, name, slug, logo_url, primary_color, suspended_at';
-
 /**
  * Resolve (find-or-provision) the workspace for a brand and ensure the agent is
  * an active member. `roleName` is the Desk role their Maestro role maps to
@@ -91,7 +89,7 @@ export async function resolveBrandWorkspace(
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {
   const sql = getDb();
   const [row] = await sql<WorkspaceRow[]>`
-    select ${sql.unsafe(WS_SELECT)} from workspaces
+    select id, name, slug, logo_url, primary_color, suspended_at from workspaces
     where maestro_brand_id = ${brandId} and deleted_at is null
   `;
   return row ?? null;
@@ -105,30 +103,35 @@ async function provisionForBrand(brand: MaestroBrand): Promise<WorkspaceRow> {
   const baseSlug = brand.slug ? slugify(brand.slug) : slugify(name);
   const slug = `${baseSlug}-${brand.id.slice(0, 8)}`.slice(0, 60);
 
-  // provision_brand() (20260522160000) bootstraps the whole tenant atomically.
-  const [{ id }] = await sql<{ id: string }[]>`
-    select provision_brand(
-      ${name}, ${slug}, ${null}, ${brand.logoUrl ?? null}, ${null}
-    ) as id
-  `;
-
   try {
-    await sql`update workspaces set maestro_brand_id = ${brand.id} where id = ${id}`;
+    // provision_brand() (20260522160000) bootstraps the whole tenant; tagging it
+    // with maestro_brand_id must happen in the SAME transaction so a crash can't
+    // leave an orphan workspace that's never findable by brand. If a concurrent
+    // first sign-in already claimed this brand, the maestro_brand_id UPDATE hits
+    // the unique constraint, the whole transaction rolls back, and the
+    // half-built workspace never persists — no manual cleanup needed.
+    const [row] = await sql.begin(async (tx) => {
+      const [{ id }] = await tx<{ id: string }[]>`
+        select provision_brand(
+          ${name}, ${slug}, ${null}, ${brand.logoUrl ?? null}, ${null}
+        ) as id
+      `;
+      await tx`update workspaces set maestro_brand_id = ${brand.id} where id = ${id}`;
+      return tx<WorkspaceRow[]>`
+        select id, name, slug, logo_url, primary_color, suspended_at
+        from workspaces where id = ${id}
+      `;
+    });
+    return row;
   } catch (err) {
-    // 23505 = a concurrent first sign-in already claimed this brand. Retire the
-    // workspace we just created (it's empty) and use the winner.
+    // 23505 = a concurrent first sign-in won the race; the transaction rolled
+    // back, so just use the winner it provisioned.
     if ((err as { code?: string })?.code === '23505') {
-      await sql`update workspaces set deleted_at = now() where id = ${id}`;
       const winner = await findByBrand(brand.id);
       if (winner) return winner;
     }
     throw err;
   }
-
-  const [row] = await sql<WorkspaceRow[]>`
-    select ${sql.unsafe(WS_SELECT)} from workspaces where id = ${id}
-  `;
-  return row;
 }
 
 async function roleIdForName(workspaceId: string, roleName: string): Promise<string> {
