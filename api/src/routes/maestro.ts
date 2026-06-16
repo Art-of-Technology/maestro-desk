@@ -119,11 +119,10 @@ maestro.get('/workspace', requireAuthOnly, async (c) => {
     throw new HTTPException(409, { message: 'No linked Maestro account for this user.' });
   }
   try {
-    // Independent calls — fan out so the picker loads in one round-trip.
-    const [organizations, brands] = await Promise.all([
-      listUserOrganizations(token),
-      listUserBrands(token),
-    ]);
+    // Brands are listed per-org, so fetch the org list first and reuse it for
+    // the brand fan-out (listUserBrands(token, organizations)).
+    const organizations = await listUserOrganizations(token);
+    const brands = await listUserBrands(token, organizations);
     return c.json({ organizations, brands });
   } catch (err) {
     throw toHttp(err);
@@ -149,10 +148,8 @@ maestro.post('/select-brand', requireAuthOnly, async (c) => {
   let brand;
   let orgs;
   try {
-    const [brands, organizations] = await Promise.all([
-      listUserBrands(token),
-      listUserOrganizations(token),
-    ]);
+    const organizations = await listUserOrganizations(token);
+    const brands = await listUserBrands(token, organizations);
     brand = brands.find((b) => b.id === brandId);
     orgs = organizations;
   } catch (err) {
