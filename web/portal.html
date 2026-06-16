@@ -236,6 +236,11 @@
     // window.MAESTRO_API_BASE itself, so we don't clobber a pre-existing value.
     if (!window.MAESTRO_API_BASE && /^help\.maestro-desk\.com$/.test(location.hostname)) {
       window.MAESTRO_API_BASE = "https://api.maestro-desk.com";
+    } else if (!window.MAESTRO_API_BASE && location.hostname === "maestro-desk-jodi-1420s-projects.vercel.app") {
+      // Interim live testing on Vercel's *.vercel.app URL (no custom domain yet).
+      // Only this exact prod host points at the deployed API; PR previews
+      // (hashed hostnames) still fall back to localhost so they never hit prod.
+      window.MAESTRO_API_BASE = "https://maestro-desk-zjkl.vercel.app";
     }
     const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
     const params = new URLSearchParams(location.search);
