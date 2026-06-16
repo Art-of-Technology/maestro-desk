@@ -7,8 +7,6 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 > **URLs — interim vs target (2026-06-16).** The custom domain **`maestro-desk.com` is not registered** (it was never purchased — Vercel flagged `api.maestro-desk.com` as misconfigured, and the `api` subdomain assignment has been removed). Until the domain is registered, the app runs on its **Vercel-assigned URLs**:
 > | Role | Interim URL (use now) | Target (after registering `maestro-desk.com`) |
 > |---|---|---|
-> | Role | Interim URL (use now) | Target (after registering `maestro-desk.com`) |
-> |---|---|---|
 > | API (`maestro-desk-zjkl`) | `https://maestro-desk-zjkl.vercel.app` | `https://api.maestro-desk.com` |
 > | Agent app (`maestro-desk` SPA) | `https://maestro-desk-jodi-1420s-projects.vercel.app` | `https://desk.maestro-desk.com` |
 > | Portal | `https://maestro-desk-jodi-1420s-projects.vercel.app/portal.html` | `https://help.maestro-desk.com` |
