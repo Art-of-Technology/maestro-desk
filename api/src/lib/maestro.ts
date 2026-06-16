@@ -164,19 +164,78 @@ export function mapMaestroBrandRole(brand: MaestroBrand, orgs: MaestroOrganizati
   return 'Senior Agent';
 }
 
-/** Organizations the signed-in user can access (scope organizations:read). */
-export async function listUserOrganizations(token: string): Promise<MaestroOrganization[]> {
-  const data = await maestroFetch<{ organizations?: MaestroOrganization[] }>(
-    '/api/v1/proxy/organizations',
-    { token },
-  );
-  return data.organizations ?? [];
+// Raw org shape from the platform identity API: the caller's role is spelled
+// `role` (e.g. "VIEWER"/"OWNER"), which we normalise to `userRole` below.
+interface RawUserOrg {
+  id: string;
+  name: string;
+  slug: string;
+  role?: string | null;
+  userRole?: string | null;
 }
 
-/** Brands the signed-in user can access (scope brands:read). */
-export async function listUserBrands(token: string): Promise<MaestroBrand[]> {
-  const data = await maestroFetch<{ brands?: MaestroBrand[] }>('/api/v1/proxy/brands', { token });
-  return data.brands ?? [];
+/**
+ * Organizations the signed-in user is a MEMBER of (scope organizations:read).
+ *
+ * Uses the platform identity API (`/api/v1/organizations`), NOT a `/proxy/*`
+ * route: `/proxy/*` is for brand-scoped partner data (see /players →
+ * `/proxy/members`), and `/proxy/organizations` returns broad, unscoped data
+ * in a different envelope. The identity endpoint returns exactly the orgs this
+ * token belongs to, as `{ organizations: [{ id, name, slug, role }] }`.
+ */
+export async function listUserOrganizations(token: string): Promise<MaestroOrganization[]> {
+  const data = await maestroFetch<{ organizations?: RawUserOrg[] }>('/api/v1/organizations', {
+    token,
+  });
+  return (data.organizations ?? []).map((o) => ({
+    id: o.id,
+    name: o.name,
+    slug: o.slug,
+    // Normalise `role` → `userRole` so mapMaestroBrandRole's org fallback works.
+    userRole: o.role ?? o.userRole ?? null,
+  }));
+}
+
+/**
+ * Brands the signed-in user can access, across every org they belong to.
+ *
+ * The platform exposes brands per-organization (`/api/v1/organizations/<id>/brands`
+ * → `{ brands: [...] }`), so we fan out over the user's orgs and flatten. Pass
+ * `orgs` to reuse an already-fetched org list and avoid a second round-trip.
+ *
+ * Resilience: the per-org calls run concurrently via allSettled, so one bad org
+ * (suspended, rate-limited, missing a scope) doesn't wipe out brands from the
+ * healthy ones. If EVERY org fails we rethrow the first error rather than
+ * returning `[]` — an empty list is indistinguishable from "no brand access" to
+ * the caller and would mislead the agent ("ask your operator") during a real
+ * gateway outage.
+ */
+export async function listUserBrands(
+  token: string,
+  orgs?: MaestroOrganization[],
+): Promise<MaestroBrand[]> {
+  const organizations = orgs ?? (await listUserOrganizations(token));
+  const settled = await Promise.allSettled(
+    organizations.map((o) =>
+      maestroFetch<{ brands?: MaestroBrand[] }>(`/api/v1/organizations/${o.id}/brands`, {
+        token,
+      }).then((d) => d.brands ?? []),
+    ),
+  );
+
+  const fulfilled = settled.filter(
+    (r): r is PromiseFulfilledResult<MaestroBrand[]> => r.status === 'fulfilled',
+  );
+  if (fulfilled.length === 0 && organizations.length > 0) {
+    const rejected = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    throw rejected?.reason ?? new MaestroError('Failed to load brands from any organization', 502);
+  }
+
+  // Dedupe by id: a brand belongs to a single org, but this guards against a
+  // repeated org entry or a future flat endpoint returning overlaps.
+  const byId = new Map<string, MaestroBrand>();
+  for (const r of fulfilled) for (const b of r.value) byId.set(b.id, b);
+  return [...byId.values()];
 }
 
 // ─── Worker-context (capability B — headless email pipeline / AI drafting) ──
