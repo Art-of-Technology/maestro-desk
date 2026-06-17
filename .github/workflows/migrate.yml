@@ -1,0 +1,61 @@
+name: Migrate (Neon)
+
+# Applies pending Neon migrations to PRODUCTION on every push to main.
+#
+# Why this exists: the SPA + API auto-deploy to Vercel on push, but the SQL in
+# db/migrations/ was applied to prod by hand. That gap once left prod "a
+# migration behind" and 500'd brand-select until someone applied it manually
+# (see project notes). This makes the prod schema catch up automatically.
+#
+# Safety:
+#  - The runner (api/scripts/migrate.ts) is idempotent — it records applied
+#    files in schema_migrations and skips them, so re-runs are no-ops.
+#  - Each file runs in its own transaction; a failure rolls back and stops.
+#  - This targets the PROD DB only (the DATABASE_URL repo secret). Preview/dev
+#    DBs are never touched here.
+#  - No strict ordering vs Vercel's deploy (they run in parallel); fine for the
+#    repo's additive (`add column if not exists`) migration style.
+
+on:
+  push:
+    branches: [main]
+    # Only run when something migration-related changed — frontend/API-only
+    # pushes don't need a DB pass. (The migrate run itself is still idempotent.)
+    paths:
+      - 'db/migrations/**'
+      - 'api/scripts/migrate.ts'
+      - '.github/workflows/migrate.yml'
+  # Allow manual runs from the Actions tab (e.g. to re-apply after fixing a secret).
+  workflow_dispatch:
+
+# Never run two migration passes at once, and never cancel one mid-flight.
+concurrency:
+  group: migrate-neon-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: apply pending migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # Full repo checkout (default) so db/migrations/ at the repo root is
+        # present — the runner reads ../../db/migrations from api/scripts/.
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13" # match .github/workflows/ci.yml
+
+      - name: Install API deps
+        working-directory: api
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations to prod Neon
+        working-directory: api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: bun run migrate
