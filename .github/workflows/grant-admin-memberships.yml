@@ -1,0 +1,55 @@
+name: Grant platform-admin memberships (Neon)
+
+# Materializes an explicit Admin workspace_members row for a platform admin on
+# every brand (workspace). A god already has admin *capability* everywhere via
+# requireWorkspaceAdmin; this makes it a first-class membership too.
+#
+# WRITES to the production DB, but idempotent and guarded: the script refuses
+# unless the target email is already is_platform_admin = true, skips the system
+# bucket, and runs in a single transaction. Re-running is a no-op.
+#
+# Manual only — there is no push trigger. Run it from the Actions tab. Reuses
+# the same `production` environment secret (DATABASE_URL) as migrate.yml /
+# prod-inspect.yml, restricted to the `main` branch, so the connection string
+# never leaves CI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_email:
+        description: 'Platform-admin email to grant Admin membership on every brand'
+        required: false
+        default: 'jodi@weezboo.com'
+
+concurrency:
+  group: grant-admin-memberships-neon
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  grant:
+    name: grant platform-admin memberships
+    runs-on: ubuntu-latest
+    # DATABASE_URL is an environment secret on `production`, restricted to the
+    # `main` branch — a dispatch from any other branch cannot read it.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13" # match .github/workflows/ci.yml
+
+      - name: Install API deps
+        working-directory: api
+        run: bun install --frozen-lockfile
+
+      - name: Grant platform-admin memberships
+        working-directory: api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TARGET_EMAIL: ${{ inputs.target_email }}
+        run: bun run scripts/grant-admin-memberships.ts
