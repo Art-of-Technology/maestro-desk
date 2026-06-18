@@ -374,7 +374,8 @@ async function enterBrand(brandId) {
     // the same as via the agent "Sign in with Maestro" flow. Non-Maestro
     // workspaces (e.g. the internal maestro-desk) have no maestro_brand_id, so
     // this clears it.
-    const entered = STATE.brands.find((b) => b.id === brandId);
+    const entered = STATE.brands.find((b) => b.id === brandId)
+      || (STATE.detail?.brand?.id === brandId ? STATE.detail.brand : null);
     setBrandId(entered?.maestro_brand_id || null);
     await loadWorkspaceData();
     if (typeof updateNavBadges === 'function') updateNavBadges();
