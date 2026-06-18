@@ -103,6 +103,31 @@ async function main() {
       `  FOUND  is_platform_admin=${target.is_platform_admin}  ${cred}  linked_accounts=${target.total_accounts}  id=${target.id}${target.deleted_at ? '  [SOFT-DELETED]' : ''}`,
     );
   }
+  console.log('');
+
+  // Workspace memberships for the target email. The "+ Invite Agent" button
+  // (web/js/agents/index.js) only renders for a workspace ADMIN — a member
+  // whose role has is_admin = true — so this shows, per workspace, whether the
+  // target can actually invite agents there. Platform-admin is a separate,
+  // cross-workspace flag and does NOT imply workspace membership.
+  const memberships = await sql`
+    select w.slug, w.name, r.name as role, r.is_admin, m.active
+    from workspace_members m
+    join workspaces w on w.id = m.workspace_id
+    join roles r      on r.id = m.role_id
+    join users u      on u.id = m.user_id
+    where u.email = ${CHECK_EMAIL}
+    order by w.created_at asc
+  `;
+  console.log(`--- Workspace memberships for ${CHECK_EMAIL} (${memberships.length}) ---`);
+  if (memberships.length === 0) {
+    console.log('  (none) — not a member of any workspace; cannot invite agents until added to one.');
+  }
+  for (const m of memberships) {
+    console.log(
+      `  ${m.slug}  "${m.name}"  role="${m.role}"  is_admin=${m.is_admin}  active=${m.active}`,
+    );
+  }
   console.log('\n=== end ===');
 }
 
