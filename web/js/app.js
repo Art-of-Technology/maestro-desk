@@ -188,7 +188,12 @@ function escHtml(s) {
 // ─── App-wide utilities (isAdmin, escAttr) ─────────────────────────────────
 // Physically lodged inside the Roles section originally; lifted out when
 // Roles was extracted so they stay reachable across feature modules.
-function isAdmin() { return SESSION?.role === 'Admin'; }
+// A platform admin (god) has admin rights in every brand they enter — the
+// API's requireWorkspaceAdmin allows `ws_admin OR platform_admin`, so the UI
+// must too. SESSION.role is the literal 'Platform Admin' set at login
+// (auth/platform-admin.js); without this branch the invite/edit controls hide
+// for platform admins even though the server would accept the call.
+function isAdmin() { return SESSION?.role === 'Admin' || SESSION?.role === 'Platform Admin'; }
 function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
 
 // ─── Window bridge ─────────────────────────────────────────────────────────────
