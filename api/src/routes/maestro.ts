@@ -12,7 +12,7 @@ import {
   workerMaestroConfigured,
   MaestroError,
 } from '../lib/maestro.js';
-import { resolveBrandWorkspace } from '../lib/maestro-workspace.js';
+import { resolveBrandWorkspace, agentCanAccessBrand } from '../lib/maestro-workspace.js';
 
 // Maestro Connect integration routes.
 //
@@ -182,6 +182,13 @@ maestro.get('/players', requireAuthOnly, async (c) => {
   }
   const brandId = c.req.header('X-Brand-Id');
   if (!brandId) throw new HTTPException(400, { message: 'X-Brand-Id header required for player lookups.' });
+
+  // The gateway call uses the app token (broad members:read), so enforce that
+  // THIS agent is actually a member of the brand's workspace before looking
+  // anyone up — otherwise an agent could read any installed brand's players.
+  if (!(await agentCanAccessBrand(c.get('userId'), brandId))) {
+    throw new HTTPException(403, { message: 'You do not have access to this brand.' });
+  }
 
   // Exactly one key. `email` is forwarded as-is (the gateway accepts an email
   // OR a username on that param); numeric member id and Maestro id are distinct.

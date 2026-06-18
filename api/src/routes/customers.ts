@@ -1,19 +1,13 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { workerFetch, workerMaestroConfigured } from '../lib/maestro.js';
+import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
+import { agentCanAccessBrand } from '../lib/maestro-workspace.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const customers = new Hono();
 
 customers.use('*', requireAuth);
-
-function str(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'string') return v.trim() || null;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return null;
-}
 
 // Create (or find) a local customer from a live Maestro player — so an agent can
 // proactively open a conversation with someone who has NEVER contacted support
@@ -27,6 +21,11 @@ customers.post('/from-player', async (c) => {
   if (!workerMaestroConfigured()) return c.json({ error: 'Player lookup is not configured.' }, 503);
   const brandId = c.req.header('X-Brand-Id');
   if (!brandId) return c.json({ error: 'X-Brand-Id header required.' }, 400);
+  // Same per-agent brand gate as the lookup route: the re-fetch uses the app
+  // token, so confirm this agent belongs to the brand before resolving anyone.
+  if (!(await agentCanAccessBrand(c.get('userId'), brandId))) {
+    return c.json({ error: 'You do not have access to this brand.' }, 403);
+  }
 
   const body = (await c.req.json().catch(() => null)) as
     | { email?: string; memberId?: string; maestroUserId?: string }
@@ -43,7 +42,19 @@ customers.post('/from-player', async (c) => {
   let m: Record<string, unknown>;
   try {
     m = await workerFetch<Record<string, unknown>>('/api/v1/proxy/member/lookup', { brandId, query: key });
-  } catch {
+  } catch (err) {
+    // Distinguish failure modes so the agent gets an actionable message rather
+    // than a blanket 502: auth (bad/expired app token or brand not granted) vs
+    // unreachable gateway (status 0) vs any other upstream error.
+    if (err instanceof MaestroError) {
+      if (err.status === 401 || err.status === 403) {
+        return c.json({ error: 'Maestro rejected the lookup (token or brand access).' }, 502);
+      }
+      if (err.status === 0) {
+        return c.json({ error: 'Could not reach the Maestro gateway.' }, 502);
+      }
+      return c.json({ error: err.message || 'Maestro lookup failed.' }, 502);
+    }
     return c.json({ error: 'Could not reach Maestro to resolve the player.' }, 502);
   }
   if (!m || m.success === false || m.errorCode === 101) {

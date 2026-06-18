@@ -10,7 +10,7 @@
 // player can't be resolved, or any call fails, we return null and triage
 // proceeds exactly as before. Player data must never block a support reply.
 
-import { workerFetch, workerMaestroConfigured, MaestroError } from './maestro.js';
+import { workerFetch, workerMaestroConfigured, MaestroError, str } from './maestro.js';
 
 interface PlayerLookup {
   email?: string | null;
@@ -22,13 +22,6 @@ interface PlayerLookup {
 // Maestro member records are deliberately loosely typed here — the gateway owns
 // the canonical shape and we only read a curated, defensive subset.
 type Member = Record<string, unknown>;
-
-function str(v: unknown): string | null {
-  if (v === null || v === undefined) return null;
-  if (typeof v === 'string') return v.trim() || null;
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  return null;
-}
 
 function pick(obj: Member, ...keys: string[]): string | null {
   for (const k of keys) {
@@ -72,14 +65,14 @@ export async function buildPlayerContext(lookup: PlayerLookup): Promise<string |
   const bal = str(member.balance);
   const balCy = pick(member, 'balanceCy', 'currency');
   const balance = bal ? `${bal}${balCy ? ' ' + balCy : ''}` : null;
-  const attrs = member.attributes && typeof member.attributes === 'object' ? (member.attributes as Member) : {};
-  const aml = str(attrs.amlRiskLevel);
 
   if (vip) lines.push(`VIP level: ${vip}`);
   if (balance) lines.push(`Balance: ${balance}`);
   if (kyc) lines.push(`KYC: ${kyc}`);
   if (country) lines.push(`Country: ${country}`);
-  if (aml && aml !== '0') lines.push(`AML risk level: ${aml}`);
+  // NOTE: AML risk level (attributes.amlRiskLevel) is deliberately NOT sent to
+  // the LLM — it's a higher-tier compliance signal pending a data-handling/DPA
+  // sign-off. Re-add here once cleared.
 
   // NOTE: responsible-gambling (rg:read) had its own /proxy/members/<id>/rg call
   // here — removed: that path 404s and the platform hasn't confirmed an RG

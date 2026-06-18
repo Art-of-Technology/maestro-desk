@@ -86,6 +86,28 @@ export async function resolveBrandWorkspace(
   };
 }
 
+/**
+ * Authorization gate for brand-scoped player lookups. The lookup endpoints call
+ * the gateway with the APP token, which can read every brand the app is
+ * installed on — so we must enforce per-agent brand access HERE rather than
+ * leaning on the platform to scope it per-user. Returns true iff the agent is an
+ * active member of the Desk workspace that projects the given Maestro brand.
+ */
+export async function agentCanAccessBrand(userId: string, brandId: string): Promise<boolean> {
+  const sql = getDb();
+  const [row] = await sql<{ ok: number }[]>`
+    select 1 as ok
+    from workspaces w
+    join workspace_members wm on wm.workspace_id = w.id
+    where w.maestro_brand_id = ${brandId}
+      and w.deleted_at is null
+      and wm.user_id = ${userId}
+      and wm.active = true
+    limit 1
+  `;
+  return Boolean(row);
+}
+
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {
   const sql = getDb();
   const [row] = await sql<WorkspaceRow[]>`

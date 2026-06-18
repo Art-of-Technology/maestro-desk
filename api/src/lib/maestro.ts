@@ -35,6 +35,18 @@ export function workerMaestroConfigured(): boolean {
   return Boolean(env.MAESTRO_API_TOKEN);
 }
 
+/**
+ * Coerce a loosely-typed gateway value to a trimmed non-empty string, else null.
+ * Shared by the member-data consumers (player-context enrichment + the
+ * customers/from-player upsert) so the coercion can't drift between them.
+ */
+export function str(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string') return v.trim() || null;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  return null;
+}
+
 interface FetchOpts {
   /** Bearer token: the user's Maestro access token, or the worker API token. */
   token: string;
