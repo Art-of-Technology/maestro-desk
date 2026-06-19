@@ -1,0 +1,5 @@
+# Preload sets hermetic env vars before any test file loads, so env.ts's
+# load-time validation can't throw based on which file bun evaluates first
+# (the order differs between local and CI). See test-setup.ts.
+[test]
+preload = ["./test-setup.ts"]

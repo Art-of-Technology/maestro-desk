@@ -1,14 +1,13 @@
 name: CI
 
-# Runs the bridge/render guards on every PR and on pushes to main. These are
-# the same checks documented in scripts/ and in the module-split notes; until
-# now they were manual-only, which is how the #273 (open-ticket crash) and the
-# #275–#279 window-reach bugs reached main. CI makes them automatic gates.
-#
-# No package.json — this is a static SPA bundled with `bun build`. state.js and
-# data.js are ES modules now (bundled via the entry's import graph), so the
-# smokes only prepend the DOM/runtime shim ahead of the bundle (see
-# scripts/bridge-smoke-shim-prefix.js).
+# Two jobs run on every PR and on pushes to main:
+#   - guards: the frontend bridge/render checks (documented in scripts/ and the
+#     module-split notes). Until they were gated, the #273 (open-ticket crash)
+#     and #275–#279 window-reach bugs reached main. The frontend is a static SPA
+#     bundled with `bun build` — no frontend package.json; state.js/data.js are
+#     ES modules bundled via the entry's import graph, so the smokes prepend the
+#     DOM/runtime shim ahead of the bundle (scripts/bridge-smoke-shim-prefix.js).
+#   - api: the backend (api/) typecheck + tests, which build from api/package.json.
 
 on:
   pull_request:
@@ -53,3 +52,30 @@ jobs:
               scripts/detail-entry.bundled.js \
               scripts/detail-smoke-suffix.js > scripts/detail-smoke.js
           bun scripts/detail-smoke.js
+
+  # Backend (api/) typecheck + tests. Previously these existed but were never
+  # gated — a regression in auth/CORS/cron/email could merge freely. The tests
+  # are hermetic (lazy DB connection + a placeholder DATABASE_URL set in
+  # index.test.ts), so no database or secrets are required in CI.
+  api:
+    name: api typecheck + tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Tests
+        run: bun test
