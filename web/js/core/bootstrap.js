@@ -7,16 +7,15 @@
 // Why mutate in place: ~60 modules import TICKETS / CUSTOMERS / AGENTS from
 // core/data.js as live bindings, and a `const` export can't be reassigned
 // anyway. Mutating preserves the array identity so callers see the new contents
-// on their next render. (PERMISSIONS is the one reassigned binding — a `let`
-// with a setPermissions setter.)
+// on their next render.
 //
 // Demo persona flow doesn't call this — it relies on data.js's seed data.
 //
 // Future PRs: SLA_POLICIES, TAG_LIBRARY, KB_ARTICLES, INBOX,
-// CHANNELS, ROLES_MATRIX, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
+// CHANNELS, ROLES, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
 // ASSIGN_RULES are still seeded from data.js. Each migrates per-feature.
 
-import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, PERMISSIONS, ROLES_MATRIX, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES, setPermissions } from './data.js';
+import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from './data.js';
 import { apiGet } from './api-client.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
@@ -168,7 +167,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
 }
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, permsRes, cvRes, catsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
@@ -185,7 +184,6 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/custom-fields'),
     apiGet('/api/v1/assign-rules'),
     apiGet('/api/v1/roles'),
-    apiGet('/api/v1/permissions'),
     apiGet('/api/v1/custom-values?entity_type=customer'),
     apiGet('/api/v1/categories'),
   ]);
@@ -203,7 +201,6 @@ export async function loadWorkspaceData() {
   const cfRaw        = cfRes.custom_fields    || [];
   const arRaw        = arRes.assign_rules     || [];
   const rolesRaw     = rolesRes.roles         || [];
-  const permsRaw     = permsRes.permissions   || [];
   const cvRaw        = cvRes.custom_values    || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
@@ -419,21 +416,14 @@ export async function loadWorkspaceData() {
   }));
   replaceInPlace(CUSTOM_FIELDS, mappedCf);
 
-  // ─── PERMISSIONS (global catalogue) + ROLES_MATRIX ─────────────────────
-  // PERMISSIONS becomes the full list of {key, label} from the server.
-  // ROLES_MATRIX is reconstructed as { role_name: { perm_key: bool, ... } }.
-  // The per-role UUID lookup goes into the module-scope _roleUuidByName
-  // map so the roles module can address rows by UUID on mutation.
-  setPermissions(permsRaw.map((p) => ({ key: p.key, label: p.label })));
+  // ─── ROLES ─────────────────────────────────────────────────────────────
+  // ROLES is the set of role names. Authorization is the binary is_admin
+  // flag enforced server-side, so there's no per-permission grid to rebuild.
+  // The per-role UUID lookup goes into the module-scope _roleUuidByName map
+  // so the roles module can address rows by UUID on mutation.
   _roleUuidByName = {};
-  for (const k of Object.keys(ROLES_MATRIX)) delete ROLES_MATRIX[k];
-  for (const r of rolesRaw) {
-    const granted = new Set(r.permissions || []);
-    const cell = {};
-    for (const p of PERMISSIONS) cell[p.key] = granted.has(p.key);
-    ROLES_MATRIX[r.name] = cell;
-    _roleUuidByName[r.name] = r.id;
-  }
+  for (const r of rolesRaw) _roleUuidByName[r.name] = r.id;
+  replaceInPlace(ROLES, rolesRaw.map((r) => r.name));
 
   // ─── ASSIGN_RULES ──────────────────────────────────────────────────────
   // The DB stores assignee references as user UUIDs (agent_user_id or

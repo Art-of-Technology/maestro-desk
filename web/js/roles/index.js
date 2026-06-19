@@ -1,11 +1,12 @@
-// ─── Roles & Permissions ─────────────────────────────────────────────────────
+// ─── Roles ─────────────────────────────────────────────────────────────────
 // Config-section page with two views:
-//   1. The role × permission matrix (default).
+//   1. The roles list (default) — each role with its agent count.
 //   2. The per-role agents page (when ROLES_VIEW_AGENTS is set) — workload
-//      bars, member CRUD, plus the role's permission grid.
+//      bars and member CRUD.
 //
-// Admin role is protected: it can't be deleted, renamed, or stripped of the
-// "roles" permission (self-lockout guard).
+// Authorization is the binary is_admin flag enforced server-side; there is no
+// granular per-permission grid. The Admin role is protected: it can't be
+// deleted or renamed.
 //
 // Click/change handlers route through core/event-delegation.js.
 // renderRoles is the only export consumed by app.js; reassignAgent,
@@ -17,7 +18,7 @@
 // app.js. showModal, closeModal and openAgentFromDash (dashboard/index.js)
 // are direct ES imports.
 
-import { AGENTS, PERMISSIONS, ROLES_MATRIX, TICKETS } from '../core/data.js';
+import { AGENTS, ROLES, TICKETS } from '../core/data.js';
 import { AGENT_SELECTED, CURRENT_PAGE, ROLES_VIEW_AGENTS, setAgentSelected, setRolesViewAgents } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
@@ -27,63 +28,42 @@ import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid } from '../core
 import { showModal, closeModal } from '../core/modal.js';
 
 function rolesApiBacked() {
-  // If any role row carries a UUID lookup, the workspace is API-backed.
-  return Object.keys(ROLES_MATRIX).some((name) => getRoleUuid(name));
-}
-
-// Snapshot the granted permission keys for a role from the local matrix.
-function grantedKeys(roleName) {
-  const cell = ROLES_MATRIX[roleName] || {};
-  return Object.keys(cell).filter((k) => cell[k]);
+  // If any role carries a UUID lookup, the workspace is API-backed.
+  return ROLES.some((name) => getRoleUuid(name));
 }
 
 export function renderRoles() {
   if (ROLES_VIEW_AGENTS) return renderRoleAgentsPage(ROLES_VIEW_AGENTS);
-  const roles = Object.keys(ROLES_MATRIX);
   const admin = window.isAdmin();
-  const headerCells = PERMISSIONS.map(p => `<th style="text-align:center;min-width:90px">${p.label}</th>`).join('');
-  const rows = roles.map(r => {
+  const rows = ROLES.map(r => {
     const count = AGENTS.filter(a => a.role === r).length;
-    const cells = PERMISSIONS.map(p => {
-      const v = !!ROLES_MATRIX[r][p.key];
-      const lock = (r === 'Admin' && p.key === 'roles');
-      if (admin && !lock) {
-        return `<td style="text-align:center"><label class="toggle"><input type="checkbox" ${v?'checked':''} data-change-action="roles.togglePerm" data-role="${window.escAttr(r)}" data-perm="${window.escAttr(p.key)}"><span class="toggle-slider"></span></label></td>`;
-      }
-      return `<td style="text-align:center;color:${v?'var(--green)':'var(--ink4)'};font-weight:500">${v?'✓':'—'}</td>`;
-    }).join('');
     const actions = admin ? `<td style="text-align:right;white-space:nowrap">${r==='Admin' ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
       <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
       <td style="text-align:center"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${count}</span></td>
-      ${cells}
       ${actions}
     </tr>`;
   }).join('');
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Roles & Permissions</div>
+        <div class="tb-title">Roles</div>
         ${admin
-          ? `<button class="btn btn-sm" data-action="roles.addPermission">+ Permission</button>
-             <button class="btn btn-sm btn-solid" data-action="roles.addRole">+ Role</button>`
+          ? `<button class="btn btn-sm btn-solid" data-action="roles.addRole">+ Role</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="page-scroll">
         <div class="card">
-          <div class="card-title">Permission Matrix</div>
-          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Toggle access per role. Click a role name or agent count to see who's in that role.</div>
-          <div style="overflow-x:auto">
-            <table class="tbl" style="min-width:720px">
-              <thead><tr>
-                <th style="text-align:left">Role</th>
-                <th style="text-align:center">Agents</th>
-                ${headerCells}
-                ${admin?'<th></th>':''}
-              </tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>
+          <div class="card-title">Roles</div>
+          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin.</div>
+          <table class="tbl">
+            <thead><tr>
+              <th style="text-align:left">Role</th>
+              <th style="text-align:center">Agents</th>
+              ${admin?'<th></th>':''}
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
         </div>
       </div>
     </div>`;
@@ -91,9 +71,8 @@ export function renderRoles() {
 
 function renderRoleAgentsPage(role) {
   const list = AGENTS.filter(a => a.role === role);
-  const allRoles = Object.keys(ROLES_MATRIX);
+  const allRoles = ROLES;
   const admin = window.isAdmin();
-  const perms = ROLES_MATRIX[role] || {};
 
   // Aggregate stats
   const activeN = list.filter(a => a.active).length;
@@ -102,7 +81,6 @@ function renderRoleAgentsPage(role) {
   const csatScores = [];
   list.forEach(a => TICKETS.forEach(t => { if (t.agent === a.name && t.csat) csatScores.push(t.csat); }));
   const avgCSAT = csatScores.length ? csatScores.reduce((a, b) => a + b, 0) / csatScores.length : 0;
-  const granted = PERMISSIONS.filter(p => perms[p.key]);
 
   // Per-member workload
   const memberLoad = list.map(a => ({
@@ -137,22 +115,11 @@ function renderRoleAgentsPage(role) {
     </tr>`;
   }).join('');
 
-  const permCards = PERMISSIONS.map(p => {
-    const v = !!perms[p.key];
-    const lock = role === 'Admin' && p.key === 'roles';
-    return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);background:${v?'var(--purple-lt)':'var(--off2)'}">
-      <div style="font-size:12.5px;color:${v?'var(--purple)':'var(--ink2)'};font-weight:${v?'500':'400'}">${p.label}</div>
-      ${admin && !lock
-        ? `<label class="toggle"><input type="checkbox" ${v?'checked':''} data-change-action="roles.togglePermAndRender" data-role="${window.escAttr(role)}" data-perm="${window.escAttr(p.key)}"><span class="toggle-slider"></span></label>`
-        : `<span style="font-size:11px;color:${v?'var(--green)':'var(--ink4)'};font-family:'DM Mono',monospace">${v?'✓':'—'}</span>`}
-    </div>`;
-  }).join('');
-
   return `
     <div class="page">
       <div class="topbar">
         <div class="tb-breadcrumb">
-          <span data-action="roles.closeAgents">Roles &amp; Permissions</span>
+          <span data-action="roles.closeAgents">Roles</span>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${role}</span>
           ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
@@ -169,7 +136,7 @@ function renderRoleAgentsPage(role) {
           </div>
           <div style="flex:1;min-width:0">
             <div style="font-size:20px;font-weight:700;color:var(--ink);letter-spacing:-.02em">${role}</div>
-            <div style="font-size:13px;color:var(--ink3);margin-top:6px">${list.length} member${list.length===1?'':'s'} · ${granted.length} of ${PERMISSIONS.length} permissions${role==='Admin'?' · Protected role':''}</div>
+            <div style="font-size:13px;color:var(--ink3);margin-top:6px">${list.length} member${list.length===1?'':'s'}${role==='Admin'?' · Protected role':''}</div>
           </div>
         </div>
 
@@ -178,17 +145,6 @@ function renderRoleAgentsPage(role) {
           <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${activeN}</div><div class="r-tile-l" style="color:var(--green)">Active</div></div>
           <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${avgLoad}</div><div class="r-tile-l" style="color:var(--cyan)">Avg open load</div></div>
           <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatScores.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Team CSAT</div></div>
-        </div>
-
-        <div class="card" style="margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div class="card-title" style="margin:0">Permissions</div>
-            <span style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace">${granted.length} / ${PERMISSIONS.length} granted</span>
-          </div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">
-            ${permCards}
-          </div>
-          ${admin && role === 'Admin' ? '<div style="margin-top:12px;font-size:11px;color:var(--ink3);font-style:italic">The Roles &amp; Perms permission is locked on for the Admin role to prevent self-lockout.</div>' : ''}
         </div>
 
         ${list.length ? `
@@ -234,15 +190,15 @@ function renameRolePrompt(oldName) {
   `, async () => {
     const newName = document.getElementById('rn-name').value.trim();
     if (!newName || newName === oldName) { closeModal(); return; }
-    if (ROLES_MATRIX[newName]) return; // duplicate guard
+    if (ROLES.includes(newName)) return; // duplicate guard
     const uuid = getRoleUuid(oldName);
     if (uuid) {
       try { await apiPatch(`/api/v1/roles/${uuid}`, { name: newName }); }
       catch (err) { alert(`Couldn't rename: ${err?.message || err}`); return; }
       renameRoleUuid(oldName, newName);
     }
-    ROLES_MATRIX[newName] = ROLES_MATRIX[oldName];
-    delete ROLES_MATRIX[oldName];
+    const i = ROLES.indexOf(oldName);
+    if (i >= 0) ROLES[i] = newName;
     AGENTS.forEach(a => { if (a.role === oldName) a.role = newName; });
     if (ROLES_VIEW_AGENTS === oldName) setRolesViewAgents(newName);
     closeModal(); renderPage('roles');
@@ -252,32 +208,10 @@ function renameRolePrompt(oldName) {
 function openRoleAgents(role) { setRolesViewAgents(role); renderPage('roles'); }
 function closeRoleAgents()    { setRolesViewAgents(null); renderPage('roles'); }
 
-async function togglePermission(role, perm, val) {
-  if (!window.isAdmin() || !ROLES_MATRIX[role]) return;
-  const uuid = getRoleUuid(role);
-  if (uuid) {
-    // Optimistic: flip locally, send the new permission set, roll back on
-    // failure. Saves a round-trip when the user toggles multiple cells in
-    // a row.
-    const prev = !!ROLES_MATRIX[role][perm];
-    ROLES_MATRIX[role][perm] = val;
-    try {
-      await apiPatch(`/api/v1/roles/${uuid}`, { permissions: grantedKeys(role) });
-    } catch (err) {
-      ROLES_MATRIX[role][perm] = prev;
-      alert(`Couldn't update permission: ${err?.message || err}`);
-      renderPage('roles');
-      return;
-    }
-    return;
-  }
-  ROLES_MATRIX[role][perm] = val;
-}
-
 export async function reassignAgent(name, newRole) {
   if (!window.isAdmin()) return;
   const a = AGENTS.find(x => x.name === name);
-  if (!a || !ROLES_MATRIX[newRole]) return;
+  if (!a || !ROLES.includes(newRole)) return;
   if (a.userId) {
     const roleUuid = getRoleUuid(newRole);
     if (!roleUuid) { alert(`Couldn't find role "${newRole}"`); return; }
@@ -336,45 +270,18 @@ function addRolePrompt() {
   if (!window.isAdmin()) return;
   showModal('New role', `
     <div class="form-row"><label class="form-label">Role name</label><input class="form-input" id="nr-name" placeholder="e.g. Compliance Officer"/></div>
-    <div class="form-row"><label class="form-label">Copy permissions from</label>
-      <select class="form-input" id="nr-base">
-        <option value="">Start with no permissions</option>
-        ${Object.keys(ROLES_MATRIX).map(r => `<option value="${r}">${r}</option>`).join('')}
-      </select>
-    </div>
   `, async () => {
     const name = document.getElementById('nr-name').value.trim();
-    if (!name || ROLES_MATRIX[name]) return;
-    const base = document.getElementById('nr-base').value;
-    const perms = {};
-    PERMISSIONS.forEach(p => { perms[p.key] = base ? !!ROLES_MATRIX[base][p.key] : false; });
+    if (!name || ROLES.includes(name)) return;
     if (rolesApiBacked()) {
-      const grants = PERMISSIONS.map((p) => p.key).filter((k) => perms[k]);
       let resp;
-      try { resp = await apiPost('/api/v1/roles', { name, permissions: grants }); }
+      try { resp = await apiPost('/api/v1/roles', { name }); }
       catch (err) { alert(`Couldn't create role: ${err?.message || err}`); return; }
       setRoleUuid(resp.role.name, resp.role.id);
     }
-    ROLES_MATRIX[name] = perms;
+    ROLES.push(name);
     closeModal(); renderPage('roles');
   }, 'Create');
-}
-
-function addPermissionPrompt() {
-  if (!window.isAdmin()) return;
-  showModal('New permission', `
-    <div class="form-row"><label class="form-label">Display label</label><input class="form-input" id="np-label" placeholder="e.g. Billing Refunds"/></div>
-    <div class="form-row"><label class="form-label">Internal key</label><input class="form-input" id="np-key" placeholder="auto-generated from label if blank"/></div>
-  `, () => {
-    let label = document.getElementById('np-label').value.trim();
-    let key = document.getElementById('np-key').value.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-    if (!key && label) key = label.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
-    if (!label) label = key;
-    if (!key || PERMISSIONS.find(p => p.key === key)) return;
-    PERMISSIONS.push({key, label});
-    Object.keys(ROLES_MATRIX).forEach(r => { if (ROLES_MATRIX[r][key] === undefined) ROLES_MATRIX[r][key] = false; });
-    closeModal(); renderPage('roles');
-  }, 'Add');
 }
 
 function deleteRolePrompt(role) {
@@ -391,7 +298,8 @@ function deleteRolePrompt(role) {
       catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
       clearRoleUuid(role);
     }
-    delete ROLES_MATRIX[role];
+    const i = ROLES.indexOf(role);
+    if (i >= 0) ROLES.splice(i, 1);
     closeModal(); renderPage('roles');
   }, 'Delete');
 }
@@ -399,7 +307,6 @@ function deleteRolePrompt(role) {
 registerActions({
   'roles.openAgents':    (ds) => openRoleAgents(ds.role),
   'roles.closeAgents':   () => closeRoleAgents(),
-  'roles.addPermission': () => addPermissionPrompt(),
   'roles.addRole':       () => addRolePrompt(),
   'roles.deleteRole':    (ds) => deleteRolePrompt(ds.role),
   'roles.rename':        (ds) => renameRolePrompt(ds.role),
@@ -410,9 +317,5 @@ registerActions({
 });
 
 registerChangeActions({
-  'roles.togglePerm':          (ds, el) => togglePermission(ds.role, ds.perm, el.checked),
-  // Same as togglePerm but re-renders the page — used in the role-detail
-  // view where other UI on the page reflects the current matrix state.
-  'roles.togglePermAndRender': (ds, el) => { togglePermission(ds.role, ds.perm, el.checked); renderPage('roles'); },
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });
