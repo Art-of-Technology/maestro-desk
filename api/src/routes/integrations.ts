@@ -2,19 +2,16 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { fetchStripeContext } from '../lib/stripe-client.js';
-import { fetchShopifyContext } from '../lib/shopify-client.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
-// The Stripe/Shopify clients are external HTTP (no DB) and are unchanged.
 export const integrations = new Hono();
 
 integrations.use('*', requireAuth);
 
 // postgres.js upsert helper: insert the row, on (workspace_id) conflict update
 // all of the row's columns except workspace_id. `table` is a literal union —
-// only these three tables can ever be passed (no caller-supplied table names).
-type IntegrationTable = 'slack_integrations' | 'stripe_integrations' | 'shopify_integrations';
+// only this table can ever be passed (no caller-supplied table names).
+type IntegrationTable = 'slack_integrations';
 function upsertByWorkspace(sql: ReturnType<typeof getDb>, table: IntegrationTable, row: Record<string, unknown>) {
   const updateKeys = Object.keys(row).filter((k) => k !== 'workspace_id');
   return sql`insert into ${sql(table)} ${sql(row)} on conflict (workspace_id) do update set ${sql(row, ...updateKeys)}`;
@@ -78,153 +75,6 @@ integrations.delete('/slack', async (c) => {
   const workspaceId = c.get('workspaceId');
   await sql`delete from slack_integrations where workspace_id = ${workspaceId}`;
   return new Response(null, { status: 204 });
-});
-
-// ─── Stripe integration ─────────────────────────────────────────────────
-const StripeBody = z.object({
-  api_key: z.string().regex(/^(rk|sk)_(test|live)_\w+$/, 'Must be a Stripe restricted or secret key'),
-  active:  z.boolean().optional(),
-});
-
-integrations.get('/stripe', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const [data] = await sql`
-    select api_key, active, created_at, updated_at from stripe_integrations where workspace_id = ${workspaceId}
-  `;
-  if (!data) return c.json({ integration: null });
-  return c.json({
-    integration: {
-      active:     data.active,
-      has_key:    Boolean(data.api_key),
-      key_suffix: data.api_key ? data.api_key.slice(-6) : null,
-      mode:       data.api_key?.includes('_test_') ? 'test' : 'live',
-      created_at: data.created_at,
-      updated_at: data.updated_at,
-    },
-  });
-});
-
-integrations.put('/stripe', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const reqBody = await c.req.json().catch(() => null);
-  const parsed = StripeBody.safeParse(reqBody);
-  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  await upsertByWorkspace(sql, 'stripe_integrations', {
-    workspace_id: workspaceId,
-    api_key:      parsed.data.api_key,
-    active:       parsed.data.active ?? true,
-  });
-  return c.json({ ok: true });
-});
-
-integrations.delete('/stripe', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  await sql`delete from stripe_integrations where workspace_id = ${workspaceId}`;
-  return new Response(null, { status: 204 });
-});
-
-// ─── GET /customers/:id/stripe-context — Stripe data for a customer ───────
-integrations.get('/customers/:id/stripe-context', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const customerId = c.req.param('id');
-
-  const [integration] = await sql`
-    select api_key, active from stripe_integrations where workspace_id = ${workspaceId}
-  `;
-  if (!integration || !integration.active) return c.json({ configured: false, context: null });
-
-  const [customer] = await sql`
-    select email from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!customer?.email) return c.json({ configured: true, context: { customer: null, subscriptions: [], charges: [] } });
-
-  try {
-    const context = await fetchStripeContext({ apiKey: integration.api_key, email: customer.email });
-    return c.json({ configured: true, context });
-  } catch (err) {
-    console.error('[stripe] fetch failed:', err);
-    return c.json({ error: err instanceof Error ? err.message : 'Stripe lookup failed' }, 502);
-  }
-});
-
-// ─── Shopify integration ────────────────────────────────────────────────
-const ShopifyBody = z.object({
-  shop:         z.string().regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, 'Shop must be the myshopify subdomain (e.g. "acme-store")').max(60),
-  access_token: z.string().min(20).max(200),
-  active:       z.boolean().optional(),
-});
-
-integrations.get('/shopify', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const [data] = await sql`
-    select shop, access_token, active, created_at, updated_at from shopify_integrations where workspace_id = ${workspaceId}
-  `;
-  if (!data) return c.json({ integration: null });
-  return c.json({
-    integration: {
-      shop:         data.shop,
-      active:       data.active,
-      has_token:    Boolean(data.access_token),
-      token_suffix: data.access_token ? data.access_token.slice(-6) : null,
-      created_at:   data.created_at,
-      updated_at:   data.updated_at,
-    },
-  });
-});
-
-integrations.put('/shopify', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const reqBody = await c.req.json().catch(() => null);
-  const parsed = ShopifyBody.safeParse(reqBody);
-  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
-  const shop = parsed.data.shop
-    .replace(/^https?:\/\//, '')
-    .replace(/\.myshopify\.com\/?$/, '')
-    .toLowerCase();
-  await upsertByWorkspace(sql, 'shopify_integrations', {
-    workspace_id: workspaceId,
-    shop,
-    access_token: parsed.data.access_token,
-    active:       parsed.data.active ?? true,
-  });
-  return c.json({ ok: true });
-});
-
-integrations.delete('/shopify', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  await sql`delete from shopify_integrations where workspace_id = ${workspaceId}`;
-  return new Response(null, { status: 204 });
-});
-
-integrations.get('/customers/:id/shopify-context', async (c) => {
-  const sql = getDb();
-  const workspaceId = c.get('workspaceId');
-  const customerId = c.req.param('id');
-
-  const [integration] = await sql`
-    select shop, access_token, active from shopify_integrations where workspace_id = ${workspaceId}
-  `;
-  if (!integration || !integration.active) return c.json({ configured: false, context: null });
-
-  const [customer] = await sql`
-    select email from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!customer?.email) return c.json({ configured: true, context: { customer: null, orders: [] } });
-
-  try {
-    const context = await fetchShopifyContext({ shop: integration.shop, token: integration.access_token, email: customer.email });
-    return c.json({ configured: true, context });
-  } catch (err) {
-    console.error('[shopify] fetch failed:', err);
-    return c.json({ error: err instanceof Error ? err.message : 'Shopify lookup failed' }, 502);
-  }
 });
 
 // ─── Outgoing webhooks (multiple per workspace) ─────────────────────────

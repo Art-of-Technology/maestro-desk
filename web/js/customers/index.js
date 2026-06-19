@@ -31,16 +31,9 @@ import { registerActions, registerChangeActions, registerInputActions, registerM
 import { openTicket } from '../tickets/detail.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
-import { apiGet, apiPut, getBrandId } from '../core/api-client.js';
+import { apiPut, getBrandId } from '../core/api-client.js';
 import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
-
-// Lazy-loaded per-customer Stripe context. We only fetch once per
-// customer detail open (Map keyed by customer.id). Pending fetches
-// store the literal 'loading' so a re-render mid-flight doesn't
-// fire a second request.
-const STRIPE_CONTEXT_CACHE = new Map();
-const SHOPIFY_CONTEXT_CACHE = new Map();
 
 // ─── Customer table column state ─────────────────────────────────────────────
 
@@ -563,102 +556,6 @@ function showCustomerGDPR(custId) {
   `, null, null);
 }
 
-// Stripe context sidebar block. Triggers a one-shot fetch on first
-// render of a customer that has a server UUID, then caches the
-// result. The completion handler re-runs renderCustomers() so the
-// block swaps from "Loading…" to filled content. Demo personas (no
-// _uuid) never call the API — we just skip the block entirely.
-async function loadStripeContext(custId, uuid) {
-  try {
-    const res = await apiGet(`/api/v1/integrations/customers/${uuid}/stripe-context`);
-    STRIPE_CONTEXT_CACHE.set(custId, res);
-  } catch (err) {
-    STRIPE_CONTEXT_CACHE.set(custId, { error: err?.message || 'Stripe lookup failed' });
-  }
-  if (CUSTOMER_SELECTED === custId) renderCustomers();
-}
-
-function fmtStripeAmount(amount, currency) {
-  // Stripe amounts are in the smallest currency unit (cents for USD).
-  // Three-decimal currencies (BHD, KWD, JOD) and zero-decimal (JPY,
-  // KRW) exist but are rare — default to 2 decimals.
-  const ZERO_DEC = new Set(['JPY', 'KRW', 'VND', 'CLP']);
-  const code = (currency || 'usd').toUpperCase();
-  const div = ZERO_DEC.has(code) ? 1 : 100;
-  return `${(amount / div).toFixed(ZERO_DEC.has(code) ? 0 : 2)} ${code}`;
-}
-
-function renderStripeContextBlock(c) {
-  if (!c._uuid) return '';
-  const cached = STRIPE_CONTEXT_CACHE.get(c.id);
-  if (cached === undefined) {
-    STRIPE_CONTEXT_CACHE.set(c.id, 'loading');
-    loadStripeContext(c.id, c._uuid);
-  }
-  const state = STRIPE_CONTEXT_CACHE.get(c.id);
-
-  const wrap = (body) => `
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <div style="width:14px;height:14px;background:#635bff;border-radius:3px;display:flex;align-items:center;justify-content:center"><span style="color:#fff;font-size:9px;font-weight:700;font-family:Arial,sans-serif">S</span></div>
-        <div class="card-title" style="margin:0">Stripe</div>
-      </div>
-      ${body}
-    </div>`;
-
-  if (state === 'loading') {
-    return wrap(`<div style="color:var(--ink3);font-size:12px">Loading…</div>`);
-  }
-  if (state?.error) {
-    return wrap(`<div style="color:var(--red);font-size:12px">${window.escHtml(state.error)}</div>`);
-  }
-  if (!state || !state.configured) return '';
-  const ctx = state.context;
-  if (!ctx?.customer) {
-    return wrap(`<div style="color:var(--ink3);font-size:12px">No Stripe customer for ${window.escHtml(c.email)}</div>`);
-  }
-
-  const activeSub = ctx.subscriptions.find(s => s.status === 'active' || s.status === 'trialing')
-    || ctx.subscriptions[0]
-    || null;
-  let subRow = '';
-  if (activeSub) {
-    const price = activeSub.items?.data?.[0]?.price;
-    const planLabel = price?.nickname
-      || (price?.unit_amount != null ? `${fmtStripeAmount(price.unit_amount, price.currency)}/${price.recurring?.interval || 'mo'}` : '—');
-    const statusColor = activeSub.status === 'active' ? 'var(--green)'
-      : activeSub.status === 'trialing' ? 'var(--cyan)'
-      : activeSub.status === 'past_due' ? 'var(--amber)'
-      : 'var(--red)';
-    subRow = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule)">
-        <div>
-          <div style="font-size:12px;font-weight:500;color:var(--ink)">${window.escHtml(planLabel)}</div>
-          <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace">${ctx.subscriptions.length} subscription${ctx.subscriptions.length === 1 ? '' : 's'}</div>
-        </div>
-        <span class="tag" style="font-size:10px;border-color:${statusColor};color:${statusColor};background:transparent">${activeSub.status}</span>
-      </div>`;
-  }
-
-  const chargesRows = ctx.charges.slice(0, 5).map(ch => {
-    const dt = new Date(ch.created * 1000).toISOString().slice(0, 10);
-    const color = ch.refunded ? 'var(--ink3)' : ch.paid ? 'var(--green)' : 'var(--red)';
-    const label = ch.refunded ? 'refunded' : ch.status;
-    return `
-      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 0">
-        <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${dt}</span>
-        <span style="font-weight:500;color:var(--ink)">${fmtStripeAmount(ch.amount, ch.currency)}</span>
-        <span style="color:${color};font-size:10px;text-transform:uppercase">${label}</span>
-      </div>`;
-  }).join('');
-
-  return wrap(`
-    <div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-bottom:4px">${window.escHtml(ctx.customer.id)}</div>
-    ${subRow}
-    ${chargesRows ? `<div style="margin-top:8px"><div style="font-size:10px;text-transform:uppercase;color:var(--ink3);margin-bottom:4px">Recent charges</div>${chargesRows}</div>` : '<div style="color:var(--ink3);font-size:12px;margin-top:8px">No charges yet</div>'}
-  `);
-}
-
 // Small inline indicator for the email row. Hard / spam bounces are
 // the actionable cases (mail won't deliver) — soft bounces accumulate
 // silently in the count without alarming the agent.
@@ -668,83 +565,6 @@ function renderBounceBadge(c) {
   const label = state === 'spam' ? 'SPAM' : 'BOUNCING';
   const title = `${state === 'spam' ? 'Marked as spam' : 'Email bouncing'} — ${c.emailBounceCount || 0} event${(c.emailBounceCount || 0) === 1 ? '' : 's'}`;
   return `<span title="${window.escAttr(title)}" style="margin-left:8px;display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;color:var(--red);background:var(--red-lt);border:1px solid rgba(248,113,113,0.4);border-radius:3px;font-family:'DM Mono',monospace">${label}</span>`;
-}
-
-async function loadShopifyContext(custId, uuid) {
-  try {
-    const res = await apiGet(`/api/v1/integrations/customers/${uuid}/shopify-context`);
-    SHOPIFY_CONTEXT_CACHE.set(custId, res);
-  } catch (err) {
-    SHOPIFY_CONTEXT_CACHE.set(custId, { error: err?.message || 'Shopify lookup failed' });
-  }
-  if (CUSTOMER_SELECTED === custId) renderCustomers();
-}
-
-function renderShopifyContextBlock(c) {
-  if (!c._uuid) return '';
-  const cached = SHOPIFY_CONTEXT_CACHE.get(c.id);
-  if (cached === undefined) {
-    SHOPIFY_CONTEXT_CACHE.set(c.id, 'loading');
-    loadShopifyContext(c.id, c._uuid);
-  }
-  const state = SHOPIFY_CONTEXT_CACHE.get(c.id);
-
-  const wrap = (body) => `
-    <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <div style="width:14px;height:14px;background:#96bf48;border-radius:3px;display:flex;align-items:center;justify-content:center"><span style="color:#fff;font-size:9px;font-weight:700;font-family:Arial,sans-serif">S</span></div>
-        <div class="card-title" style="margin:0">Shopify</div>
-      </div>
-      ${body}
-    </div>`;
-
-  if (state === 'loading') {
-    return wrap(`<div style="color:var(--ink3);font-size:12px">Loading…</div>`);
-  }
-  if (state?.error) {
-    return wrap(`<div style="color:var(--red);font-size:12px">${window.escHtml(state.error)}</div>`);
-  }
-  if (!state || !state.configured) return '';
-  const ctx = state.context;
-  if (!ctx?.customer) {
-    return wrap(`<div style="color:var(--ink3);font-size:12px">No Shopify customer for ${window.escHtml(c.email)}</div>`);
-  }
-
-  const cust = ctx.customer;
-  const totalSpent = `${parseFloat(cust.total_spent).toFixed(2)} ${cust.currency}`;
-  const addrParts = [cust.default_address?.city, cust.default_address?.province, cust.default_address?.country].filter(Boolean);
-  const addr = addrParts.join(', ');
-
-  const ordersRows = ctx.orders.slice(0, 5).map(o => {
-    const dt = o.created_at.slice(0, 10);
-    const finColor = o.financial_status === 'paid' ? 'var(--green)'
-      : o.financial_status === 'refunded' ? 'var(--ink3)'
-      : o.financial_status === 'pending' ? 'var(--amber)'
-      : 'var(--ink2)';
-    const itemCount = o.line_items.reduce((sum, li) => sum + li.quantity, 0);
-    return `
-      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;padding:4px 0">
-        <span style="font-family:'DM Mono',monospace;color:var(--ink)">${window.escHtml(o.name)}</span>
-        <span style="font-family:'DM Mono',monospace;color:var(--ink3);font-size:10px">${dt}</span>
-        <span style="color:var(--ink3);font-size:10px">${itemCount} item${itemCount === 1 ? '' : 's'}</span>
-        <span style="font-weight:500;color:var(--ink)">${parseFloat(o.total_price).toFixed(2)} ${o.currency}</span>
-        <span style="color:${finColor};font-size:10px;text-transform:uppercase">${o.financial_status || '—'}</span>
-      </div>`;
-  }).join('');
-
-  return wrap(`
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--rule)">
-      <div>
-        <div style="font-size:12px;font-weight:500;color:var(--ink)">${cust.orders_count} order${cust.orders_count === 1 ? '' : 's'}</div>
-        ${addr ? `<div style="font-size:10px;color:var(--ink3)">${window.escHtml(addr)}</div>` : ''}
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:12px;font-weight:500;color:var(--ink)">${totalSpent}</div>
-        <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace">lifetime</div>
-      </div>
-    </div>
-    ${ordersRows ? `<div style="margin-top:8px"><div style="font-size:10px;text-transform:uppercase;color:var(--ink3);margin-bottom:4px">Recent orders</div>${ordersRows}</div>` : '<div style="color:var(--ink3);font-size:12px;margin-top:8px">No orders yet</div>'}
-  `);
 }
 
 function renderCustomerDetail(custId) {
@@ -805,9 +625,6 @@ function renderCustomerDetail(custId) {
         ${tagsList.map(([tag, count]) => `<span class="tag tag-neutral" style="font-size:11px;display:inline-flex;align-items:center;gap:5px">${tag} <span style="color:var(--ink3);font-family:'DM Mono',monospace">${count}</span></span>`).join('')}
       </div>
     </div>` : '';
-
-  const stripeBlock = renderStripeContextBlock(c);
-  const shopifyBlock = renderShopifyContextBlock(c);
 
   const timelineBlock = activity.length ? `
     <div class="card">
@@ -914,8 +731,6 @@ function renderCustomerDetail(custId) {
           <div class="r-tile" style="border-color:${c.consent?'rgba(52,211,153,0.3)':'rgba(248,113,113,0.3)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
         </div>
         ${tagsBlock}
-        ${stripeBlock}
-        ${shopifyBlock}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
           <div class="card">
             <div class="card-title">Profile</div>

@@ -38,10 +38,6 @@ import { registerActions, registerChangeActions, registerInputActions } from '..
 // when the Integrations tab is opened.
 let SLACK_INTEGRATION = null;
 let SLACK_LOADED = false;
-let STRIPE_INTEGRATION = null;
-let STRIPE_LOADED = false;
-let SHOPIFY_INTEGRATION = null;
-let SHOPIFY_LOADED = false;
 let OUTGOING_WEBHOOKS = [];
 let OUTGOING_WEBHOOKS_LOADED = false;
 let LAST_REVEALED_SECRET = null;        // shown once after a POST; cleared on next paint
@@ -858,187 +854,14 @@ function settingsIntegrations() {
         <span id="slack-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
       </div>
     </div>
-    ${settingsStripeSection()}
-    ${settingsShopifySection()}
     ${settingsOutgoingWebhooksSection()}
     ${settingsSuppressionListSection()}`;
 }
 
-function settingsStripeSection() {
-  if (!STRIPE_LOADED) {
-    STRIPE_LOADED = true;
-    apiGet('/api/v1/integrations/stripe')
-      .then((res) => { STRIPE_INTEGRATION = res.integration; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] stripe load failed:', err); });
-  }
-  const stripe = STRIPE_INTEGRATION;
-  const connected = Boolean(stripe?.has_key);
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Stripe</div>
-      <div class="settings-desc" style="margin-bottom:14px">
-        Surface a customer's Stripe subscription + recent charge history on the ticket sidebar.
-        Paste a <a href="https://dashboard.stripe.com/apikeys" target="_blank" style="color:var(--purple)">restricted Stripe API key</a> with read-only access on customers, subscriptions, and charges.
-      </div>
-      ${connected ? `
-        <div style="margin-bottom:14px;padding:10px 12px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:12px;color:var(--green);display:flex;gap:10px;align-items:center">
-          <span style="font-weight:600">Connected</span>
-          <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${stripe.mode === 'test' ? 'TEST' : 'LIVE'} mode · ...${window.escHtml(stripe.key_suffix || '')}</span>
-        </div>` : ''}
-      <div class="form-row">
-        <label class="form-label">${connected ? 'Replace API key' : 'API key'}</label>
-        <input class="form-input" id="stripe-key" type="password" placeholder="${connected ? 'Paste a new key to rotate' : 'rk_test_... or rk_live_...'}" autocomplete="off"/>
-      </div>
-      <div class="form-row" style="display:flex;align-items:center;gap:8px">
-        <label class="toggle"><input type="checkbox" id="stripe-active" ${stripe?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
-        <span style="font-size:13px;color:var(--ink2)">Active</span>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn btn-solid btn-sm" data-action="settings.saveStripe">${connected ? 'Update' : 'Connect'}</button>
-        ${connected ? '<button class="btn btn-sm btn-danger" data-action="settings.deleteStripe">Disconnect</button>' : ''}
-        <span id="stripe-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
-      </div>
-    </div>`;
-}
-
-async function saveStripeIntegration() {
-  if (!window.isAdmin()) return;
-  const key    = document.getElementById('stripe-key').value.trim();
-  const active = document.getElementById('stripe-active').checked;
-  const msg = document.getElementById('stripe-msg');
-  // When the field is empty + a key is already on file, the user is
-  // just toggling active. Patch with just the active flag in that case.
-  if (!key && !STRIPE_INTEGRATION?.has_key) {
-    msg.textContent = 'API key is required'; msg.style.color = 'var(--red)'; return;
-  }
-  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
-  try {
-    const body = key ? { api_key: key, active } : { api_key: rebuildKeyForToggle(), active };
-    if (!body.api_key) {
-      msg.textContent = 'Re-paste the key to update settings'; msg.style.color = 'var(--red)'; return;
-    }
-    await apiPut('/api/v1/integrations/stripe', body);
-    // Refresh the GET to get the masked summary back.
-    const res = await apiGet('/api/v1/integrations/stripe');
-    STRIPE_INTEGRATION = res.integration;
-    document.getElementById('stripe-key').value = '';
-    msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Save failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-// Stub used when the user toggles active without re-entering the key.
-// We don't have the key client-side (the server masks it), so the only
-// safe path is to require a re-paste for any update. Returning null
-// triggers that branch above.
-function rebuildKeyForToggle() { return null; }
-
-async function deleteStripeIntegration() {
-  if (!window.isAdmin()) return;
-  if (!confirm('Disconnect Stripe? Ticket sidebars will stop showing subscription + charge context.')) return;
-  try {
-    await apiDelete('/api/v1/integrations/stripe');
-    STRIPE_INTEGRATION = null;
-    renderPage('settings');
-  } catch (err) {
-    alert(`Couldn't disconnect: ${err?.message || err}`);
-  }
-}
-
-function settingsShopifySection() {
-  if (!SHOPIFY_LOADED) {
-    SHOPIFY_LOADED = true;
-    apiGet('/api/v1/integrations/shopify')
-      .then((res) => { SHOPIFY_INTEGRATION = res.integration; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] shopify load failed:', err); });
-  }
-  const shopify = SHOPIFY_INTEGRATION;
-  const connected = Boolean(shopify?.has_token);
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Shopify</div>
-      <div class="settings-desc" style="margin-bottom:14px">
-        Surface a customer's Shopify order history on the customer sidebar.
-        Create a <a href="https://help.shopify.com/manual/apps/app-types/custom-apps" target="_blank" style="color:var(--purple)">custom app</a> in your store admin with read access on customers + orders, then paste the Admin API access token below.
-      </div>
-      ${connected ? `
-        <div style="margin-bottom:14px;padding:10px 12px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:12px;color:var(--green);display:flex;gap:10px;align-items:center">
-          <span style="font-weight:600">Connected</span>
-          <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${window.escHtml(shopify.shop || '')}.myshopify.com · ...${window.escHtml(shopify.token_suffix || '')}</span>
-        </div>` : ''}
-      <div class="form-row">
-        <label class="form-label">Shop subdomain</label>
-        <div style="display:flex;align-items:center;gap:0">
-          <input class="form-input" id="shopify-shop" type="text" placeholder="acme-store" autocomplete="off" value="${connected ? window.escAttr(shopify.shop || '') : ''}" style="border-top-right-radius:0;border-bottom-right-radius:0"/>
-          <span style="padding:8px 12px;background:var(--off2);border:1px solid var(--rule);border-left:none;border-radius:0 var(--r) var(--r) 0;font-family:'DM Mono',monospace;font-size:12px;color:var(--ink3)">.myshopify.com</span>
-        </div>
-      </div>
-      <div class="form-row">
-        <label class="form-label">${connected ? 'Replace access token' : 'Admin API access token'}</label>
-        <input class="form-input" id="shopify-token" type="password" placeholder="${connected ? 'Paste a new token to rotate' : 'shpat_...'}" autocomplete="off"/>
-      </div>
-      <div class="form-row" style="display:flex;align-items:center;gap:8px">
-        <label class="toggle"><input type="checkbox" id="shopify-active" ${shopify?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
-        <span style="font-size:13px;color:var(--ink2)">Active</span>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:14px">
-        <button class="btn btn-solid btn-sm" data-action="settings.saveShopify">${connected ? 'Update' : 'Connect'}</button>
-        ${connected ? '<button class="btn btn-sm btn-danger" data-action="settings.deleteShopify">Disconnect</button>' : ''}
-        <span id="shopify-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
-      </div>
-    </div>`;
-}
-
-async function saveShopifyIntegration() {
-  if (!window.isAdmin()) return;
-  const shop   = document.getElementById('shopify-shop').value.trim();
-  const token  = document.getElementById('shopify-token').value.trim();
-  const active = document.getElementById('shopify-active').checked;
-  const msg = document.getElementById('shopify-msg');
-  if (!shop) {
-    msg.textContent = 'Shop subdomain required'; msg.style.color = 'var(--red)'; return;
-  }
-  if (!token && !SHOPIFY_INTEGRATION?.has_token) {
-    msg.textContent = 'Access token required'; msg.style.color = 'var(--red)'; return;
-  }
-  if (!token && SHOPIFY_INTEGRATION?.has_token) {
-    // Toggle-only update path is the same as Stripe: server masks the
-    // token so we can't reconstruct it. Force a re-paste.
-    msg.textContent = 'Re-paste the token to update settings'; msg.style.color = 'var(--red)'; return;
-  }
-  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
-  try {
-    await apiPut('/api/v1/integrations/shopify', { shop, access_token: token, active });
-    const res = await apiGet('/api/v1/integrations/shopify');
-    SHOPIFY_INTEGRATION = res.integration;
-    document.getElementById('shopify-token').value = '';
-    msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Save failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function deleteShopifyIntegration() {
-  if (!window.isAdmin()) return;
-  if (!confirm('Disconnect Shopify? Customer sidebars will stop showing order history.')) return;
-  try {
-    await apiDelete('/api/v1/integrations/shopify');
-    SHOPIFY_INTEGRATION = null;
-    renderPage('settings');
-  } catch (err) {
-    alert(`Couldn't disconnect: ${err?.message || err}`);
-  }
-}
-
 // ─── Outgoing webhooks ──────────────────────────────────────────────────
 //
-// Multiple webhooks per workspace, distinct from Slack/Stripe/Shopify
-// (which are single-instance). List + Create + Delete are exposed in
+// Multiple webhooks per workspace, distinct from Slack
+// (which is single-instance). List + Create + Delete are exposed in
 // this slice; rotating the secret = delete + recreate. Secrets are
 // surfaced once at creation time via LAST_REVEALED_SECRET, then
 // cleared on the next render so they can't be re-read by paging
@@ -1587,10 +1410,6 @@ registerActions({
   // integrations
   'settings.saveSlack':         () => saveSlackIntegration(),
   'settings.deleteSlack':       () => deleteSlackIntegration(),
-  'settings.saveStripe':        () => saveStripeIntegration(),
-  'settings.deleteStripe':      () => deleteStripeIntegration(),
-  'settings.saveShopify':       () => saveShopifyIntegration(),
-  'settings.deleteShopify':     () => deleteShopifyIntegration(),
   // outgoing webhooks
   'settings.createWebhook':     () => createOutgoingWebhook(),
   'settings.editWebhook':       (ds) => editOutgoingWebhook(ds.id),
