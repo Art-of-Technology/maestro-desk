@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
+import { enforceRateLimit } from '../lib/rate-limit.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
 import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.js';
@@ -113,6 +114,8 @@ const PublicTicket = z.object({
 });
 
 publicRoutes.post('/:slug/tickets', async (c) => {
+  const limited = await enforceRateLimit(c, { name: 'portal-ticket', max: 10, windowSeconds: 600 });
+  if (limited) return limited;
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
 
@@ -210,6 +213,9 @@ const PostSuggest = z.object({
 });
 
 publicRoutes.post('/:slug/kb-suggest', async (c) => {
+  // Each call is an LLM request — rate-limit per IP to cap cost abuse.
+  const limited = await enforceRateLimit(c, { name: 'portal-kb-suggest', max: 20, windowSeconds: 600 });
+  if (limited) return limited;
   const ws = await resolveWorkspace(c.req.param('slug'));
 
   const reqBody = await c.req.json().catch(() => null);
@@ -244,6 +250,10 @@ const PostAuthRequest = z.object({
 });
 
 publicRoutes.post('/:slug/auth/request', async (c) => {
+  // Per-IP cap on magic-link requests (each can send an email).
+  const ipLimited = await enforceRateLimit(c, { name: 'portal-auth-request', max: 5, windowSeconds: 900 });
+  if (ipLimited) return ipLimited;
+
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
 
@@ -253,6 +263,10 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const email = parsed.data.email.toLowerCase();
+
+  // Also cap per target email so one address can't be mail-bombed from many IPs.
+  const emailLimited = await enforceRateLimit(c, { name: 'portal-auth-request-email', by: email, max: 5, windowSeconds: 900 });
+  if (emailLimited) return emailLimited;
 
   const [customer] = await sql<{ id: string; first_name: string | null }[]>`
     select id, first_name from customers
@@ -333,6 +347,9 @@ const PostAuthVerify = z.object({
 });
 
 publicRoutes.post('/:slug/auth/verify', async (c) => {
+  // Cap token-guessing attempts per IP (tokens are already 32+ random chars).
+  const limited = await enforceRateLimit(c, { name: 'portal-auth-verify', max: 20, windowSeconds: 900 });
+  if (limited) return limited;
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
 

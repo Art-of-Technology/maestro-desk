@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { env } from '../lib/env.js';
+import { getDb } from '../lib/db.js';
 import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
@@ -34,5 +35,8 @@ cron.use('*', async (c, next) => {
 
 cron.get('/webhook-retry', async (c) => {
   const { processed } = await processPendingDeliveries();
+  // Piggyback the daily rate-limit table prune (drops long-expired buckets).
+  try { await getDb()`select prune_rate_limits()`; }
+  catch (err) { console.warn('[cron] prune_rate_limits failed:', err instanceof Error ? err.message : err); }
   return c.json({ ok: true, processed });
 });
