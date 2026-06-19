@@ -23,6 +23,7 @@ import { nav, updateNavBadges } from '../core/router.js';
 import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
+import { showModal, closeModal } from '../core/modal.js';
 import { renderNewBrand, resetForm as resetNewBrandForm, setOnClose as setNewBrandOnClose } from './new-brand.js';
 
 // ─── State ────────────────────────────────────────────────────────────────
@@ -335,6 +336,53 @@ async function refreshDetail(brandId) {
   }
 }
 
+// Slug the user must type to confirm an in-progress suspend. Held module-local
+// so the modal's input handler + confirm callback can both reach it.
+let _suspendSlug = null;
+
+// Suspending a live brand takes real players offline — too dangerous for a
+// one-click button sitting next to "Enter". Gate it behind a type-the-slug
+// modal: the Suspend button stays disabled until the typed text matches the
+// brand slug exactly, so it can't be triggered by a reflexive click or stray
+// Enter. Unsuspend is non-destructive (restores service) and stays one-click.
+function confirmSuspend(brandId) {
+  const brand = STATE.brands.find((b) => b.id === brandId)
+    || (STATE.detail?.brand?.id === brandId ? STATE.detail.brand : null);
+  if (!brand) return; // button only renders for brands we already hold
+
+  _suspendSlug = brand.slug;
+  const body = `
+    <div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:14px">
+      Real players on <strong>${escAttr(brand.name)}</strong> lose access
+      immediately — sign-in, tickets, and live updates all stop — until you
+      unsuspend it. No data is deleted.
+    </div>
+    <div class="label" style="margin-bottom:6px">
+      Type the slug <code>${escAttr(brand.slug)}</code> to confirm:
+    </div>
+    <input class="form-input" id="god-suspend-input"
+           data-input-action="god.suspendInput"
+           placeholder="${escAttr(brand.slug)}" autocomplete="off"
+           autocapitalize="off" spellcheck="false" style="width:100%"/>`;
+
+  showModal(`Suspend "${escAttr(brand.name)}"?`, body, () => {
+    const el = document.getElementById('god-suspend-input');
+    if (!el || el.value.trim() !== _suspendSlug) return; // guard; button is disabled anyway
+    closeModal();
+    setSuspended(brandId, true);
+  }, 'Suspend brand');
+
+  // showModal renders the confirm button enabled + btn-solid. Re-style it as a
+  // danger action and disable it until the slug matches (see god.suspendInput).
+  const btn = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.remove('btn-solid');
+    btn.classList.add('btn-danger');
+  }
+  document.getElementById('god-suspend-input')?.focus();
+}
+
 async function setSuspended(brandId, suspend) {
   STATE.actionPending = true;
   reRender();
@@ -399,7 +447,7 @@ registerActions({
     STATE.domainAction = {};
     reRender();
   },
-  'god.suspend':   (ds) => setSuspended(ds.id, true),
+  'god.suspend':   (ds) => confirmSuspend(ds.id),
   'god.unsuspend': (ds) => setSuspended(ds.id, false),
   'god.enterBrand': (ds) => enterBrand(ds.id),
   // New-brand wizard
@@ -422,6 +470,11 @@ registerActions({
 
 registerInputActions({
   'god.addDomainInput': (_ds, el) => { STATE.addDomainInput = el.value; },
+  // Enable the modal's Suspend button only when the typed slug matches exactly.
+  'god.suspendInput': (_ds, el) => {
+    const btn = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    if (btn) btn.disabled = el.value.trim() !== _suspendSlug;
+  },
 });
 
 function openBrand(id) {
