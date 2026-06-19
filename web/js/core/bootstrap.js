@@ -569,8 +569,6 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   t.csatComment     = d.csat_comment || '';
   t.csatRequestedAt    = d.csat_requested_at ? isoDate(d.csat_requested_at) : null;
   t.csatSubmittedAt    = d.csat_submitted_at ? isoDate(d.csat_submitted_at) : null;
-  t.csatLastRemindedAt = d.csat_last_reminded_at ? isoDate(d.csat_last_reminded_at) : null;
-  t.csatReminderCount  = d.csat_reminder_count ?? 0;
   t.snoozedUntil    = d.snoozed_until || null;
   t.snoozedAt       = d.snoozed_at || null;
   t.snoozeReason    = d.snooze_reason || '';

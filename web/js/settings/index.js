@@ -561,17 +561,14 @@ function settingsAI() {
     {v:'claude-sonnet-4-6',l:'Claude Sonnet 4.6'},
     {v:'claude-haiku-4-5', l:'Claude Haiku 4.5'},
   ];
-  // Workspace-level settings live server-side, loaded lazily on first
-  // paint of this tab. Re-render once the fetch resolves so the toggle
-  // reflects the current value.
+  // Warm the shared workspace-settings cache (the portal/branding tab reads
+  // it); either tab triggers the fetch, whichever paints first.
   if (!WORKSPACE_SETTINGS_LOADED) {
     WORKSPACE_SETTINGS_LOADED = true;
     apiGet('/api/v1/workspace/settings')
       .then((res) => { WORKSPACE_SETTINGS = res.workspace; renderPage('settings'); })
       .catch((err) => { console.warn('[settings] workspace load failed:', err); });
   }
-  const ws = WORKSPACE_SETTINGS;
-  const autoBumpOn = ws ? ws.auto_priority_bump_on_angry !== false : true;
   return `
     <div class="settings-section">
       <div class="settings-h">Claude API</div>
@@ -589,97 +586,7 @@ function settingsAI() {
       <div style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--ink3)'};font-family:'DM Mono',monospace;margin-top:8px">
         ${AI_API_KEY ? '✓ Key saved' : 'No key configured — AI Draft will return a fallback message'}
       </div>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-h">Sentiment automation</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
-        When a customer message is classified as angry, automatically bump the ticket's priority to <strong style="color:var(--ink2)">high</strong> (only if it's currently lower). A system message is added to the ticket explaining the change. Turning this off keeps sentiment scoring + badges + filters intact, but priority stays under explicit human control.
-      </div>
-      <div class="settings-row">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--ink)">Auto-bump priority on angry sentiment</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">Workspace-wide. Admins only.</div>
-        </div>
-        <label class="toggle"><input type="checkbox" ${autoBumpOn ? 'checked' : ''} data-change-action="settings.setAutoBump" ${window.isAdmin() ? '' : 'disabled'}/><span class="toggle-slider"></span></label>
-      </div>
-      <div id="auto-bump-msg" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
-    </div>
-
-    ${settingsCsatCadence(ws)}`;
-}
-
-function settingsCsatCadence(ws) {
-  const cadence = Array.isArray(ws?.csat_reminder_days) ? ws.csat_reminder_days : [3, 7, 14];
-  const cadenceStr = cadence.length === 0 ? '(none — reminders off)' : cadence.join(', ');
-  const isAdmin = window.isAdmin();
-  return `
-    <div class="settings-section">
-      <div class="settings-h">CSAT reminder cadence</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
-        Days after the initial CSAT request to send reminders. Cumulative — each value is days since the original request, not days since the previous reminder. Cap of 6 entries; each value 1–365 days, strictly ascending. Leave empty (just spaces / comma) to disable reminders entirely.
-      </div>
-      <div class="form-row">
-        <label class="form-label">Schedule (comma-separated days)</label>
-        <input class="form-input" id="csat-cadence-input" value="${window.escAttr(cadenceStr === '(none — reminders off)' ? '' : cadenceStr)}" placeholder="3, 7, 14" ${isAdmin ? '' : 'disabled'} style="font-family:'DM Mono',monospace"/>
-        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Currently: <span style="font-family:'DM Mono',monospace;color:var(--ink2)">${window.escHtml(cadenceStr)}</span></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:6px">
-        <button class="btn btn-solid btn-sm" data-action="settings.saveCsat" ${isAdmin ? '' : 'disabled'}>Save cadence</button>
-        <span id="csat-cadence-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;align-self:center"></span>
-      </div>
     </div>`;
-}
-
-async function saveCsatCadence() {
-  if (!window.isAdmin()) return;
-  const raw = (document.getElementById('csat-cadence-input').value || '').trim();
-  const msg = document.getElementById('csat-cadence-msg');
-  // Parse: comma-separated ints; empty string → empty array (reminders off).
-  const parsed = raw === ''
-    ? []
-    : raw.split(',').map((s) => s.trim()).filter(Boolean).map((s) => Number(s));
-  if (parsed.some((n) => !Number.isInteger(n) || n < 1 || n > 365)) {
-    msg.textContent = 'Each day must be an integer 1–365';
-    msg.style.color = 'var(--red)';
-    return;
-  }
-  if (parsed.length > 6) {
-    msg.textContent = 'At most 6 reminders';
-    msg.style.color = 'var(--red)';
-    return;
-  }
-  if (parsed.some((v, i) => i > 0 && v <= parsed[i - 1])) {
-    msg.textContent = 'Days must be strictly ascending';
-    msg.style.color = 'var(--red)';
-    return;
-  }
-  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
-  try {
-    const res = await apiPatch('/api/v1/workspace/settings', { csat_reminder_days: parsed });
-    WORKSPACE_SETTINGS = res.workspace;
-    msg.textContent = '✓ Saved';
-    msg.style.color = 'var(--green)';
-  } catch (err) {
-    msg.textContent = err?.message || 'Save failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function setAutoPriorityBump(enabled) {
-  if (!window.isAdmin()) return;
-  const msg = document.getElementById('auto-bump-msg');
-  if (msg) { msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)'; }
-  try {
-    const res = await apiPatch('/api/v1/workspace/settings', { auto_priority_bump_on_angry: enabled });
-    WORKSPACE_SETTINGS = res.workspace;
-    if (msg) { msg.textContent = enabled ? '✓ Enabled' : '✓ Disabled'; msg.style.color = 'var(--green)'; }
-  } catch (err) {
-    if (msg) { msg.textContent = err?.message || 'Save failed'; msg.style.color = 'var(--red)'; }
-    // Revert the visual state if the patch failed.
-    WORKSPACE_SETTINGS_LOADED = false;
-    renderPage('settings');
-  }
 }
 
 function settingsKnowledgeBase() {
@@ -1404,8 +1311,7 @@ registerActions({
   'settings.savePortalCopy':    () => savePortalCopy(),
   'settings.savePortalDomain':  () => savePortalDomain(),
   'settings.verifyPortalDomain':() => verifyPortalDomain(),
-  // CSAT / KB test
-  'settings.saveCsat':          () => saveCsatCadence(),
+  // KB test
   'settings.testKb':            () => testKbConnection(),
   // integrations
   'settings.saveSlack':         () => saveSlackIntegration(),
@@ -1432,7 +1338,6 @@ registerChangeActions({
   'settings.toggleNotif':   (ds, el) => toggleNotifPref(ds.key, el.checked),
   'settings.setMentionEmail':(ds, el) => setMentionEmailPref(el.checked),
   'settings.setAiModel':    (ds, el) => setAIModel(el.value),
-  'settings.setAutoBump':   (ds, el) => setAutoPriorityBump(el.checked),
   'settings.setLang':       (ds, el) => setAgentPreferredLang(el.value),
   'settings.setKbCfg':      setKbCfgHandler,
 });

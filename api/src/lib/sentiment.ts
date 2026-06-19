@@ -161,60 +161,8 @@ export async function scoreMessageSentiment(args: {
     `;
   }
 
-  // Anger triggers an automatic priority bump so the ticket surfaces
-  // in the agent's queue without requiring manual triage. Best-effort
-  // and silent on failure — sentiment already landed, the row update
-  // shouldn't block.
-  if (sentiment === 'angry') {
-    try {
-      await bumpPriorityForAnger({ workspaceId, ticketId });
-    } catch (err) {
-      console.warn('[sentiment] priority bump failed:', err instanceof Error ? err.message : err);
-    }
-  }
-
+  // Sentiment is scored and stored only — it drives the badge, list filter,
+  // and reports. It deliberately does NOT mutate ticket priority; automatic
+  // angry→high bumping was removed as too aggressive for marginal value.
   return sentiment;
-}
-
-// Priority ranks. Higher = more urgent. We bump tickets in the
-// {low, normal} band up to {high}; tickets already at high or urgent
-// stay where they are (a sentiment signal isn't strong enough to
-// override an explicit human priority).
-const PRIORITY_RANK: Record<string, number> = { low: 0, normal: 1, high: 2, urgent: 3 };
-const ANGER_BUMP_TARGET = 'high';
-
-async function bumpPriorityForAnger(args: {
-  workspaceId: string;
-  ticketId:    string;
-}): Promise<void> {
-  const { workspaceId, ticketId } = args;
-  const sql = getDb();
-
-  // Workspace can opt out while keeping sentiment scoring on. Defaults to true.
-  const [ws] = await sql<{ auto_priority_bump_on_angry: boolean }[]>`
-    select auto_priority_bump_on_angry from workspaces where id = ${workspaceId}
-  `;
-  if (ws && ws.auto_priority_bump_on_angry === false) return;
-
-  const [ticket] = await sql<{ priority_key: string }[]>`
-    select priority_key from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!ticket) return;
-
-  const currentRank = PRIORITY_RANK[ticket.priority_key] ?? PRIORITY_RANK.normal;
-  if (currentRank >= PRIORITY_RANK[ANGER_BUMP_TARGET]) return;
-  const fromPriority = ticket.priority_key;
-
-  await sql`
-    update tickets set priority_key = ${ANGER_BUMP_TARGET}
-    where id = ${ticketId} and workspace_id = ${workspaceId}
-  `;
-
-  // Audit row so the thread shows WHY the priority changed.
-  await sql`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
-    values (${workspaceId}, ${ticketId}, 'system', 'System',
-      ${`Priority bumped from ${fromPriority} to ${ANGER_BUMP_TARGET} — customer's last message was flagged as angry.`})
-  `;
 }

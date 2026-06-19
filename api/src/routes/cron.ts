@@ -1,26 +1,24 @@
 import { Hono } from 'hono';
 import { env } from '../lib/env.js';
 import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
-import { processCsatReminders } from '../lib/csat-survey.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
 // we reject anything without the matching secret. On the Hobby plan crons fire
 // once/day, so webhook FIRST attempts go out inline at the event
-// (lib/outgoing-webhooks) — these endpoints are the retry sweep + the daily
-// CSAT reminder pass. The underlying processX functions claim work with
-// FOR UPDATE SKIP LOCKED / a conditional UPDATE, so a duplicate invocation is
-// safe.
+// (lib/outgoing-webhooks) — this endpoint is the retry sweep. The underlying
+// processPendingDeliveries claims work with FOR UPDATE SKIP LOCKED, so a
+// duplicate invocation is safe.
 export const cron = new Hono();
 
 // Ops guard: on Vercel an unset CRON_SECRET silently 401s every cron request,
-// so the scheduled jobs (webhook retry, CSAT reminders) would never run with
-// no obvious signal. Warn loudly at boot. (Locally it's expected — the
-// in-process worker does the sweeping and the endpoints stay closed.)
+// so the scheduled webhook-retry job would never run with no obvious signal.
+// Warn loudly at boot. (Locally it's expected — the in-process worker does the
+// sweeping and the endpoints stay closed.)
 if (process.env.VERCEL && !env.CRON_SECRET) {
   console.warn(
     '[cron] CRON_SECRET is not set on Vercel — all /api/v1/cron/* requests will 401 and the ' +
-      'scheduled webhook-retry + CSAT-reminder jobs will NOT run. Set CRON_SECRET in the project env.',
+      'scheduled webhook-retry job will NOT run. Set CRON_SECRET in the project env.',
   );
 }
 
@@ -37,9 +35,4 @@ cron.use('*', async (c, next) => {
 cron.get('/webhook-retry', async (c) => {
   const { processed } = await processPendingDeliveries();
   return c.json({ ok: true, processed });
-});
-
-cron.get('/csat-reminders', async (c) => {
-  const sent = await processCsatReminders();
-  return c.json({ ok: true, sent });
 });

@@ -13,8 +13,8 @@ export const workspace = new Hono();
 
 workspace.use('*', requireAuth);
 
-const SETTINGS_COLS = `id, name, slug, logo_url, primary_color, auto_priority_bump_on_angry,
-  csat_reminder_days, portal_tagline, portal_intro, portal_footer,
+const SETTINGS_COLS = `id, name, slug, logo_url, primary_color,
+  portal_tagline, portal_intro, portal_footer,
   portal_custom_domain, portal_custom_domain_token, portal_custom_domain_verified`;
 
 // ─── GET /settings ──────────────────────────────────────────────────────
@@ -27,11 +27,6 @@ workspace.get('/settings', async (c) => {
 });
 
 const SettingsBody = z.object({
-  auto_priority_bump_on_angry: z.boolean().optional(),
-  csat_reminder_days: z.array(z.number().int().min(1).max(365))
-    .max(6)
-    .refine((arr) => arr.every((v, i) => i === 0 || v > arr[i - 1]), 'csat_reminder_days must be strictly ascending')
-    .optional(),
   logo_url:      z.string().url().nullable().optional(),
   primary_color: z.string().regex(/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/, 'primary_color must be a hex like #8b5cf6').nullable().optional(),
   portal_tagline: z.string().max(100).nullable().optional(),
