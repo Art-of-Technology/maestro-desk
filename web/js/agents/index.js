@@ -13,7 +13,7 @@
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // fmtMinutes — all still in app.js. Everything else is a direct ES import.
 
-import { AGENTS, CUSTOMERS, ROLES_MATRIX, TICKETS } from '../core/data.js';
+import { AGENTS, CUSTOMERS, ROLES, TICKETS } from '../core/data.js';
 import { AGENT_SELECTED, SESSION, setAgentSelected, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
@@ -42,7 +42,7 @@ function getAgentStats(name) {
 export function renderAgents() {
   if (AGENT_SELECTED) return renderAgentDetail(AGENT_SELECTED);
   const admin = window.isAdmin();
-  const allRoles = Object.keys(ROLES_MATRIX);
+  const allRoles = ROLES;
 
   let list = [...AGENTS];
   if (AGENT_FILTER_ROLE !== 'all')   list = list.filter(a => a.role === AGENT_FILTER_ROLE);
@@ -196,7 +196,7 @@ function renderAgentDetail(name) {
   const s = getAgentStats(name);
   const d = getAgentDeepStats(name);
   const admin = window.isAdmin();
-  const allRoles = Object.keys(ROLES_MATRIX);
+  const allRoles = ROLES;
 
   const statusItems = Object.entries(d.byStatus).sort((a, b) => b[1] - a[1]);
   const statusMax = Math.max(...statusItems.map(i => i[1]), 1);
@@ -365,7 +365,7 @@ function agentSetQuery(v) {
 
 function agentNew() {
   if (!window.isAdmin()) return;
-  const allRoles = Object.keys(ROLES_MATRIX);
+  const allRoles = ROLES;
   showModal('Invite agent', `
     <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
     <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="ag-email" type="email" placeholder="jane@company.com"/></div>

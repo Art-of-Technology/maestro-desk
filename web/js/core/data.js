@@ -7,17 +7,6 @@ export const AGENTS = [
   {name:'Tom Bates',   initials:'TB', role:'Senior Agent', active:true},
 ];
 
-export let PERMISSIONS = [
-  {key:'tickets',   label:'Tickets'},
-  {key:'customers', label:'Customers'},
-  {key:'reports',   label:'Reports'},
-  {key:'ai',        label:'AI Intelligence'},
-  {key:'workflows', label:'Workflows'},
-  {key:'tags',      label:'Tags'},
-  {key:'roles',     label:'Roles & Perms'},
-  {key:'gdpr',      label:'GDPR Actions'},
-];
-
 export const CUSTOMERS = [
   {id:'M001',first:'Sarah',last:'Mitchell',username:'smitchell',email:'sarah.m@acme.com',mobile:'+44 7700 100001',brand:'Acme Corp',vip:'Gold',jurisdiction:'UK',consent:true,kyc:'Verified',since:'2023-01-15',bo:'https://backoffice.example.com/M001',custom:{}},
   {id:'M002',first:'James',last:'Reed',username:'jreed',email:'james.r@globex.io',mobile:'+44 7700 100002',brand:'Globex',vip:'Silver',jurisdiction:'IE',consent:true,kyc:'Pending',since:'2022-11-03',bo:'https://backoffice.example.com/M002',custom:{}},
@@ -179,11 +168,11 @@ export const INBOX = [
    receivedAt:'2025-04-17 14:02', status:'new'},
 ];
 
-export const ROLES_MATRIX = {
-  'Admin':        {tickets:true,customers:true,reports:true,ai:true,workflows:true,tags:true,roles:true,gdpr:true},
-  'Senior Agent': {tickets:true,customers:true,reports:true,ai:true,workflows:false,tags:true,roles:false,gdpr:true},
-  'Read Only':    {tickets:false,customers:false,reports:true,ai:false,workflows:false,tags:false,roles:false,gdpr:false},
-};
+// The set of role names in the workspace. Bootstrap replaces this in place
+// from the API (/api/v1/roles); the demo persona flow uses these seeds.
+// Authorization is the binary is_admin flag enforced server-side — there is
+// no granular per-permission grid.
+export const ROLES = ['Admin', 'Senior Agent', 'Read Only'];
 
 export const KB_ARTICLES = [
   {id:'KB-001', title:'How to reset your account password', category:'Account', author:'Emma Clarke', updated:'2025-04-10',
@@ -196,8 +185,8 @@ export const KB_ARTICLES = [
    body:`Customers can export their transaction history as CSV from the customer portal.\n\nIn the agent UI, open the customer's profile from any ticket sidebar, then use the "Export" action. The CSV will be emailed to the customer's verified address within a few minutes.\n\nIf the customer reports the file did not arrive, first verify the email address is correct, then check whether the export job timed out — exports for accounts with more than 50,000 transactions are generated overnight.`},
   {id:'KB-005', title:'Setting up the Claude API key for AI Draft', category:'Getting Started', author:'Emma Clarke', updated:'2025-04-15',
    body:`The "AI Draft" button in the ticket composer uses the Anthropic Claude API to draft a reply based on the conversation history.\n\nTo enable it:\n\n1. Go to Settings → AI Assistant.\n2. Paste your Claude API key in the API key field. It should start with "sk-ant-".\n3. Choose a model. Sonnet 4.6 is the default and a good balance of speed and quality.\n\nThe key is stored locally in your browser via localStorage. It is never transmitted to our servers — requests go directly from your browser to api.anthropic.com.\n\nIf the API rejects your request, the composer surfaces the error message returned by Anthropic.`},
-  {id:'KB-006', title:'Creating custom roles and permissions', category:'Best Practices', author:'Emma Clarke', updated:'2025-04-08',
-   body:`Out of the box, this workspace ships with Admin, Senior Agent and Read Only roles. You can extend this for your team's needs.\n\nTo add a permission: Roles & Permissions → "+ Permission". Pick a label and an internal key. The new permission is added as a column on every existing role with default off.\n\nTo add a role: Roles & Permissions → "+ Role". Optionally copy the permissions of an existing role as a starting point.\n\nThe Admin role is protected — you cannot delete it, and the Roles & Permissions toggle on the Admin row is locked on to prevent accidental self-lockout.`},
+  {id:'KB-006', title:'Creating custom roles', category:'Best Practices', author:'Emma Clarke', updated:'2025-04-08',
+   body:`Out of the box, this workspace ships with Admin, Senior Agent and Read Only roles. You can extend this for your team's needs.\n\nTo add a role: Roles → "+ Role". A role is either Admin (full access) or non-admin — access is governed by that single flag rather than a per-feature permission grid.\n\nThe Admin role is protected — you cannot delete or rename it, which prevents accidental self-lockout.`},
   {id:'KB-007', title:'Resending invoices and billing documents', category:'Billing', author:'Tom Bates', updated:'2025-04-02',
    body:`Customers occasionally request a resend of their invoice or other billing documents.\n\nFor invoices from the current and previous quarter, use the customer portal action — these are regenerated on demand.\n\nFor older documents, raise an internal billing ticket with the customer ID and the invoice month. The finance team typically responds within one business day.\n\nNever attach billing documents directly to support tickets — always send via the secure document portal to maintain the audit trail.`},
 ];
@@ -205,6 +194,4 @@ export const KB_ARTICLES = [
 // ─── Setters ────────────────────────────────────────────────────────────────
 // data.js is now an ES module. The const collections are mutated in place
 // (.push/.splice and the bootstrap target.length=0 swap), so they read live
-// across importers and need no setter. PERMISSIONS is the only binding that is
-// reassigned (bootstrap replaces it wholesale with the server catalogue).
-export function setPermissions(v) { PERMISSIONS = v; }
+// across importers and need no setter.
