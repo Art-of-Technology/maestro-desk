@@ -89,7 +89,9 @@ runDbTests('tenant isolation (DB-backed)', () => {
     // Cascades to members/tickets/customers/etc.; then remove the two users.
     await sql`delete from workspaces where id in (${A.wsId}, ${B.wsId})`;
     await sql`delete from users where id in (${A.userId}, ${B.userId})`;
-    await sql.end({ timeout: 5 });
+    // NB: do NOT sql.end() — `sql` is the shared getDb() pool, so ending it
+    // would break any DB-backed test file that runs after this one. The bun
+    // test runner tears the process down at the end regardless.
   });
 
   it('A sees only A\'s tickets, never B\'s', async () => {
