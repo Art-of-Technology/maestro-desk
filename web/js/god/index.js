@@ -350,7 +350,7 @@ function confirmSuspend(brandId) {
     || (STATE.detail?.brand?.id === brandId ? STATE.detail.brand : null);
   if (!brand) return; // button only renders for brands we already hold
 
-  _suspendSlug = brand.slug;
+  _suspendSlug = (brand.slug || '').trim();
   const body = `
     <div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:14px">
       Real players on <strong>${escAttr(brand.name)}</strong> lose access
