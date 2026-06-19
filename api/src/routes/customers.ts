@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { nextDisplayId } from '../lib/display-id.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
 import { agentCanAccessBrand } from '../lib/maestro-workspace.js';
 
@@ -71,7 +72,7 @@ customers.post('/from-player', async (c) => {
   `;
   if (existing.length) return c.json({ customer: { id: existing[0].id }, created: false });
 
-  const displayId = `M${String(Math.floor(Math.random() * 9000 + 1000))}`;
+  const displayId = await nextDisplayId(sql, workspaceId, 'customer');
   const [created] = await sql<{ id: string }[]>`
     insert into customers
       (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction, kyc_status)

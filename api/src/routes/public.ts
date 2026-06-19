@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
+import { nextDisplayId } from '../lib/display-id.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
 import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.js';
@@ -111,14 +112,6 @@ const PublicTicket = z.object({
   body:    z.string().min(1).max(20000),
 });
 
-function nextTicketDisplayId(): string {
-  return `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
-
-function nextCustomerDisplayId(): string {
-  return `M${String(Math.floor(Math.random() * 9000 + 1000))}`;
-}
-
 publicRoutes.post('/:slug/tickets', async (c) => {
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
@@ -144,9 +137,10 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     const [first, ...rest] = input.name.trim().split(/\s+/);
     const last = rest.join(' ') || null;
     try {
+      const custDisplayId = await nextDisplayId(sql, ws.id, 'customer');
       const [created] = await sql<{ id: string }[]>`
         insert into customers (workspace_id, display_id, first_name, last_name, email)
-        values (${ws.id}, ${nextCustomerDisplayId()}, ${first}, ${last}, ${email})
+        values (${ws.id}, ${custDisplayId}, ${first}, ${last}, ${email})
         returning id
       `;
       customerId = created.id;
@@ -170,9 +164,10 @@ publicRoutes.post('/:slug/tickets', async (c) => {
   // insert throws, the ticket insert rolls back and the request surfaces a
   // clean 500 via the global error handler with nothing orphaned.
   const ticket = await sql.begin(async (tx) => {
+    const ticketDisplayId = await nextDisplayId(tx, ws.id, 'ticket');
     const [t] = await tx<{ id: string; display_id: string }[]>`
       insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state)
-      values (${ws.id}, ${nextTicketDisplayId()}, ${input.subject}, ${customerId}, 'open', 'normal', 'ok')
+      values (${ws.id}, ${ticketDisplayId}, ${input.subject}, ${customerId}, 'open', 'normal', 'ok')
       returning id, display_id
     `;
     // First message — author_label uses the customer's submitted name.

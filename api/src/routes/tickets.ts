@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { nextDisplayId } from '../lib/display-id.js';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.js';
 import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
@@ -882,9 +883,7 @@ tickets.post('/', async (c) => {
   }
   const input = parsed.data;
 
-  // display_id allocation is a placeholder — replace with a per-workspace
-  // sequence (or trigger) before this is exposed to real users.
-  const displayId = `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
+  const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 
   const [ticket] = await sql<{ id: string; display_id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)

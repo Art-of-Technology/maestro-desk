@@ -2,16 +2,12 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { nextDisplayId } from '../lib/display-id.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const inbox = new Hono();
 
 inbox.use('*', requireAuth);
-
-// Placeholder display-id generator — same shape as routes/tickets.ts.
-function nextTicketDisplayId(): string {
-  return `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
 
 // List inbox_messages, joined to tickets for the converted ticket's display_id
 // (so the UI can deep-link without an extra fetch).
@@ -118,11 +114,12 @@ inbox.post('/:id/convert', async (c) => {
     `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || msg.from_email || 'Customer';
 
   const ticket = await sql.begin(async (tx) => {
+    const displayId = await nextDisplayId(tx, workspaceId, 'ticket');
     const [t] = await tx`
       insert into tickets
         (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, source_inbox_id, sla_state)
       values
-        (${workspaceId}, ${nextTicketDisplayId()}, ${msg.subject || '(no subject)'}, ${customer.id},
+        (${workspaceId}, ${displayId}, ${msg.subject || '(no subject)'}, ${customer.id},
          'open', 'normal', ${categoryKey}, ${msg.id}, 'ok')
       returning id, display_id
     `;

@@ -1,4 +1,5 @@
 import { getDb } from './db.js';
+import { nextDisplayId } from './display-id.js';
 import {
   extractInReplyTo,
   extractMessageId,
@@ -20,20 +21,6 @@ function scoreInboundMessage(args: { workspaceId: string; ticketId: string; mess
   void scoreMessageSentiment(args).catch((err) => {
     console.warn('[sentiment] inbound score failed:', err instanceof Error ? err.message : err);
   });
-}
-
-// ─── Display ID generation ───────────────────────────────────────────────
-//
-// Placeholder — random 6-digit numbers. Same approach as POST /tickets.
-// Replace with a per-workspace sequence (or trigger) before this is
-// exposed to real users.
-
-function nextTicketDisplayId(): string {
-  return `TK-${Math.floor(Math.random() * 900000 + 100000)}`;
-}
-
-function nextCustomerDisplayId(): string {
-  return `M${String(Math.floor(Math.random() * 9000 + 1000))}`;
 }
 
 // ─── Inbox message helper ────────────────────────────────────────────────
@@ -242,9 +229,10 @@ export async function processInboundEmail(args: {
     const [firstName, ...rest] = (name ?? email.split('@')[0]).split(/\s+/);
     const lastName = rest.join(' ') || null;
     try {
+      const custDisplayId = await nextDisplayId(sql, workspaceId, 'customer');
       const [created] = await sql<{ id: string }[]>`
         insert into customers (workspace_id, display_id, first_name, last_name, email)
-        values (${workspaceId}, ${nextCustomerDisplayId()}, ${firstName}, ${lastName}, ${email})
+        values (${workspaceId}, ${custDisplayId}, ${firstName}, ${lastName}, ${email})
         returning id
       `;
       customerId = created.id;
@@ -267,9 +255,10 @@ export async function processInboundEmail(args: {
 
   // 2. Create the ticket. Status/priority/category are best-guess defaults;
   //    auto-triage may overwrite them.
+  const ticketDisplayId = await nextDisplayId(sql, workspaceId, 'ticket');
   const [newTicket] = await sql<{ id: string; display_id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state)
-    values (${workspaceId}, ${nextTicketDisplayId()}, ${subject}, ${customerId}, 'open', 'normal', 'ok')
+    values (${workspaceId}, ${ticketDisplayId}, ${subject}, ${customerId}, 'open', 'normal', 'ok')
     returning id, display_id
   `;
   if (!newTicket) throw new Error('Ticket create failed');
