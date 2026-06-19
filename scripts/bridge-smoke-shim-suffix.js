@@ -12,7 +12,7 @@ console.log('init OK — renderPage exposed');
 const _routes = [
   'dashboard', 'tickets', 'reports', 'customers',
   'agents', 'kb', 'inbox', 'channels', 'webhooks',
-  'workflows', 'tags', 'roles', 'settings', 'help',
+  'tags', 'roles', 'settings', 'help',
   'notifications', 'profile', 'layouts', 'custom-fields',
   'ticket-templates', 'kb-integration', 'business-hours',
   'sla-policies', 'assignment-rules', 'templates', 'macros',

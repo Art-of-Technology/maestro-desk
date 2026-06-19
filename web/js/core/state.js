@@ -38,9 +38,6 @@ export const TAG_SELECTED_NAMES = new Set();
 export let TAG_SORT_COL = 'count';
 export let TAG_SORT_DIR = -1;
 export let INBOX_SELECTED_ID = null;
-export let WF_SELECTED = null;
-export let WF_FILTER = 'all';
-export let WF_QUERY = '';
 export let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true };
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
 if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
@@ -105,9 +102,6 @@ export function setTagQuery(v) { TAG_QUERY = v; }
 export function setTagSortCol(v) { TAG_SORT_COL = v; }
 export function setTagSortDir(v) { TAG_SORT_DIR = v; }
 export function setInboxSelectedId(v) { INBOX_SELECTED_ID = v; }
-export function setWfSelected(v) { WF_SELECTED = v; }
-export function setWfFilter(v) { WF_FILTER = v; }
-export function setWfQuery(v) { WF_QUERY = v; }
 export function setNotifPrefs(v) { NOTIF_PREFS = v; }
 export function setRolesViewAgents(v) { ROLES_VIEW_AGENTS = v; }
 export function setSettingsTabValue(v) { SETTINGS_TAB = v; }

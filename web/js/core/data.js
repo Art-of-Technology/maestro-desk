@@ -69,13 +69,6 @@ export const CUSTOM_FIELDS = [
   {id:'cf3',label:'Renewal Date',   type:'date',   entity:'customer', required:false, defaultValue:''},
 ];
 
-export const WORKFLOWS = [
-  {id:'WF-001',name:'Auto-escalate urgent billing',trigger:'Priority = Urgent AND Category = Billing',action:'Assign to Senior Agent + Notify Manager',status:'active',  runCount:14,lastRun:'2 hours ago'},
-  {id:'WF-002',name:'GDPR 72h SLA alert',          trigger:'Category = GDPR AND Age > 72h',           action:'Send alert to DPO + Flag ticket',          status:'active',  runCount:3, lastRun:'1 day ago'},
-  {id:'WF-003',name:'Auto-resolve after 7 days',   trigger:'Status = Pending AND Last updated > 7d',  action:'Set status = Resolved',                    status:'inactive',runCount:0, lastRun:null},
-  {id:'WF-004',name:'Send CSAT survey on resolve', trigger:'Status changed to Resolved',              action:'Send satisfaction survey email',           status:'active',  runCount:42,lastRun:'15 min ago'},
-];
-
 export const TAG_LIBRARY = [
   {tag:'billing',count:12,type:'manual',conf:null},
   {tag:'payment',count:8,type:'manual',conf:null},

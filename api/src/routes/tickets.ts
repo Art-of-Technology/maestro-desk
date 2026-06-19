@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { runWorkflowsForTicket } from '../lib/workflow-engine.js';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.js';
 import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
@@ -224,9 +223,9 @@ tickets.patch('/:id', async (c) => {
   }
 
   // Workspace-scope check before the update; also captures the pre-update
-  // column values the workflow engine compares for change-detection triggers.
-  const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
-    select status_key, priority_key, category_key, assigned_user_id from tickets
+  // column values used below for change-detection (Slack / webhook events).
+  const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null }[]>`
+    select status_key, priority_key, category_key from tickets
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
   `;
   if (!existing) return c.json({ error: 'Ticket not found' }, 404);
@@ -243,15 +242,7 @@ tickets.patch('/:id', async (c) => {
 
   await sql`update tickets set ${sql(updates)} where id = ${ticketId} and workspace_id = ${workspaceId}`;
 
-  // Fire workflow engine against the post-update row. The engine may
-  // mutate further fields (assign_role / set_status / add_tag), so we
-  // re-fetch below to return the canonical post-engine state.
-  try { await runWorkflowsForTicket({ workspaceId, ticketId, prevRow: existing }); }
-  catch (err) { console.error('[workflow-engine] top-level failure:', err); }
-
-  // Slack notifications for the state transitions the workspace cares
-  // about. Fired AFTER the workflow engine so the Slack message reflects
-  // any engine-driven follow-up updates (e.g. assign_role).
+  // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
   const priorityChanged = updates.priority_key !== undefined && updates.priority_key !== existing.priority_key;
   if (statusChanged && updates.status_key === 'resolved') {

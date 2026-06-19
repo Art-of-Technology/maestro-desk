@@ -12,11 +12,11 @@
 //
 // Demo persona flow doesn't call this — it relies on data.js's seed data.
 //
-// Future PRs: WORKFLOWS, SLA_POLICIES, TAG_LIBRARY, KB_ARTICLES, INBOX,
+// Future PRs: SLA_POLICIES, TAG_LIBRARY, KB_ARTICLES, INBOX,
 // CHANNELS, ROLES_MATRIX, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
 // ASSIGN_RULES are still seeded from data.js. Each migrates per-feature.
 
-import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, PERMISSIONS, ROLES_MATRIX, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES, WORKFLOWS, setPermissions } from './data.js';
+import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, PERMISSIONS, ROLES_MATRIX, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES, setPermissions } from './data.js';
 import { apiGet } from './api-client.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
@@ -168,7 +168,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
 }
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, workflowsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, permsRes, cvRes, catsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, permsRes, cvRes, catsRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
@@ -177,7 +177,6 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/agents'),
     apiGet('/api/v1/inbox'),
     apiGet('/api/v1/channels'),
-    apiGet('/api/v1/workflows'),
     apiGet('/api/v1/sla-policies'),
     apiGet('/api/v1/tags'),
     apiGet('/api/v1/kb-articles'),
@@ -196,7 +195,6 @@ export async function loadWorkspaceData() {
   const ticketsRaw   = ticketsRes.tickets     || [];
   const inboxRaw     = inboxRes.inbox         || [];
   const channelsRaw  = channelsRes.channels   || [];
-  const workflowsRaw = workflowsRes.workflows || [];
   const slaRaw       = slaRes.sla_policies    || [];
   const tagsRaw      = tagsRes.tags           || [];
   const kbRaw        = kbRes.articles         || [];
@@ -330,22 +328,6 @@ export async function loadWorkspaceData() {
     convertedTicketId:  e.converted_ticket_display_id || null,
   }));
   replaceInPlace(INBOX, mappedInbox);
-
-  // ─── WORKFLOWS ──────────────────────────────────────────────────────────
-  // trigger / action live as JSONB on the server with `{ text: "..." }`
-  // for v1, so unwrap on the way in. Older or hand-edited rows might be
-  // bare strings or richer objects — workflowRuleText handles both.
-  const mappedWorkflows = workflowsRaw.map((w) => ({
-    _uuid:    w.id,
-    id:       w.display_id,
-    name:     w.name,
-    trigger:  workflowRuleText(w.trigger),
-    action:   workflowRuleText(w.action),
-    status:   w.status,
-    runCount: w.run_count || 0,
-    lastRun:  w.last_run_at ? fmtRelative(w.last_run_at) : null,
-  }));
-  replaceInPlace(WORKFLOWS, mappedWorkflows);
 
   // ─── SLA_POLICIES ───────────────────────────────────────────────────────
   // category_key is null on the server for "any category"; the SPA models
@@ -506,39 +488,6 @@ function assignmentServerToClient(srv, userByUuid) {
     team: (srv.team_user_ids || []).map((uid) => userByUuid[uid]?.name).filter(Boolean),
     ...(srv.rr_index !== undefined ? { rrIndex: srv.rr_index } : {}),
   };
-}
-
-// Unwrap the JSONB trigger/action shape into a single display string.
-// Three formats land here:
-//   - bare string                       — old/hand-edited rows
-//   - { text: "..." }                   — v1 SPA-created rows
-//   - structured { all: [predicates] }  — seeded rules (and future engine)
-//   - structured { type, ...params, then? }  — seeded actions
-// Anything we don't recognise falls through to JSON for visibility.
-function workflowRuleText(val) {
-  if (!val) return '';
-  if (typeof val === 'string') return val;
-  if (typeof val !== 'object') return String(val);
-  if (typeof val.text === 'string') return val.text;
-  if (Array.isArray(val.all)) return val.all.map(wfPredicateText).join(' AND ');
-  if (Array.isArray(val.any)) return val.any.map(wfPredicateText).join(' OR ');
-  if (typeof val.type === 'string') return wfActionText(val);
-  return JSON.stringify(val);
-}
-
-function wfPredicateText(p) {
-  const opMap = { eq: '=', neq: '≠', gt: '>', lt: '<', gte: '≥', lte: '≤', in: 'in' };
-  const op = opMap[p?.op] || p?.op || '?';
-  return `${p?.field || '?'} ${op} ${p?.value ?? ''}`;
-}
-
-function wfActionText(a) {
-  const params = Object.entries(a)
-    .filter(([k]) => k !== 'type' && k !== 'then')
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ');
-  const head = params ? `${a.type}(${params})` : a.type;
-  return a.then ? `${head} → ${wfActionText(a.then)}` : head;
 }
 
 // Fetches the full detail (messages, tags, ai_tags, time_entries) for a

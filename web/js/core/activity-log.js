@@ -7,7 +7,7 @@
 //
 // Lives in core/ rather than tickets/ because it's a sink that crosses
 // every feature, and the read side is consumed by the Activity Log page
-// which aggregates from tickets + workflows + customer notes.
+// which aggregates from tickets + customer notes.
 //
 // Click/change/input handlers on the Activity Log page route through
 // core/event-delegation.js. No inline `on*=` references remain.
@@ -15,8 +15,8 @@
 // the first two are reached by ~10 modules via direct ES import, and
 // renderActivityLog is called by app.js's router.
 
-import { CUSTOMERS, TICKETS, WORKFLOWS } from './data.js';
-import { ACT_FILTER_ENTITY, ACT_FILTER_TYPE, SESSION, setActFilterEntity, setActFilterType, setCustomerSelected, setWfSelected } from './state.js';
+import { CUSTOMERS, TICKETS } from './data.js';
+import { ACT_FILTER_ENTITY, ACT_FILTER_TYPE, SESSION, setActFilterEntity, setActFilterType, setCustomerSelected } from './state.js';
 import { renderPage } from './router.js';
 import { registerActions, registerChangeActions, registerInputActions } from './event-delegation.js';
 import { navTo } from './keybindings.js';
@@ -45,7 +45,7 @@ export function getTicketEvents(t) {
 }
 
 // ─── Activity log page ───────────────────────────────────────────────────────
-// Aggregates events from tickets + workflows + customer notes, sorted newest
+// Aggregates events from tickets + customer notes, sorted newest
 // first. ACT_QUERY is page-internal search state; ACT_FILTER_ENTITY and
 // ACT_FILTER_TYPE live in state.js because inline `onchange` handlers in the
 // filter dropdowns mutate them directly.
@@ -82,19 +82,6 @@ function getAllActivity() {
       });
     }
   });
-  // Workflow run history
-  WORKFLOWS.forEach(w => (w.history || []).forEach(h => {
-    events.push({
-      ts: h.ts,
-      sortKey: h.ts,
-      author: h.triggeredBy || 'System',
-      kind: 'workflow',
-      entity: 'workflow',
-      entityId: w.id,
-      entityName: w.name,
-      details: `${h.type === 'manual' ? 'Manual run' : 'Triggered run'}${h.ticketId ? ' on ' + h.ticketId : ''}`,
-    });
-  }));
   // Customer notes
   CUSTOMERS.forEach(c => (c.notes || []).forEach(n => {
     events.push({
@@ -118,7 +105,6 @@ const ACT_KIND_META = {
   priority: { label: 'Priority', color: 'var(--amber)' },
   agent:    { label: 'Agent',    color: 'var(--purple)' },
   tag:      { label: 'Tag',      color: 'var(--green)' },
-  workflow: { label: 'Workflow', color: 'var(--purple)' },
   note:     { label: 'Note',     color: 'var(--amber)' },
   created:  { label: 'Created',  color: 'var(--cyan)' },
   system:   { label: 'System',   color: 'var(--ink3)' },
@@ -134,7 +120,6 @@ function actSetQuery(q) {
 function actGotoEntity(entity, id) {
   if (entity === 'ticket')        openTicket(id);
   else if (entity === 'customer') { setCustomerSelected(id); navTo('customers'); }
-  else if (entity === 'workflow') { setWfSelected(id); navTo('workflows'); }
 }
 
 export function renderActivityLog() {
@@ -155,7 +140,6 @@ export function renderActivityLog() {
   const total = all.length;
   const tickets = all.filter(e => e.entity === 'ticket').length;
   const customers = all.filter(e => e.entity === 'customer').length;
-  const workflows = all.filter(e => e.entity === 'workflow').length;
 
   const rows = list.slice(0, 200).map(e => {
     const meta = ACT_KIND_META[e.kind] || ACT_KIND_META.system;
@@ -175,7 +159,6 @@ export function renderActivityLog() {
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Events</div></div>
         <div class="kpi"><div class="kpi-n c-blue">${tickets}</div><div class="kpi-l">On tickets</div></div>
-        <div class="kpi"><div class="kpi-n c-purple">${workflows}</div><div class="kpi-l">Workflow runs</div></div>
         <div class="kpi"><div class="kpi-n c-amber">${customers}</div><div class="kpi-l">Customer notes</div></div>
       </div>
       <div class="filter-bar" style="flex-wrap:wrap">
@@ -185,7 +168,6 @@ export function renderActivityLog() {
           <option value="all"      ${ACT_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
           <option value="ticket"   ${ACT_FILTER_ENTITY==='ticket'?'selected':''}>Tickets</option>
           <option value="customer" ${ACT_FILTER_ENTITY==='customer'?'selected':''}>Customers</option>
-          <option value="workflow" ${ACT_FILTER_ENTITY==='workflow'?'selected':''}>Workflows</option>
         </select>
         <select class="filter-select" data-change-action="activity.setFilterType">
           <option value="all"      ${ACT_FILTER_TYPE==='all'?'selected':''}>All types</option>
@@ -199,7 +181,7 @@ export function renderActivityLog() {
           <tbody>${rows}</tbody>
         </table>
         ${list.length===0 ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No activity events match</div><div class="empty-line"></div></div>` : ''}
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Aggregates events from ticket history (status/priority/agent/tag changes, creation), workflow runs, and customer internal notes. Click a row to jump to the source entity.</div>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5">Aggregates events from ticket history (status/priority/agent/tag changes, creation) and customer internal notes. Click a row to jump to the source entity.</div>
       </div>
     </div>`;
 }
