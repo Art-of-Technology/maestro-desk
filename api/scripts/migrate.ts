@@ -23,7 +23,14 @@ if (!DATABASE_URL) {
 // api/scripts/ -> repo root -> db/migrations
 const migrationsDir = join(import.meta.dir, '..', '..', 'db', 'migrations');
 
-const sql = postgres(DATABASE_URL, { ssl: 'require', max: 1, prepare: false });
+// Neon's URL carries sslmode=require; a local/CI Postgres has no TLS, so honour
+// an explicit sslmode=disable and skip it there (used when applying migrations
+// to the test database in CI).
+const sql = postgres(DATABASE_URL, {
+  ssl: DATABASE_URL.includes('sslmode=disable') ? false : 'require',
+  max: 1,
+  prepare: false,
+});
 
 async function main() {
   await sql`

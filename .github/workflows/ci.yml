@@ -53,16 +53,34 @@ jobs:
               scripts/detail-smoke-suffix.js > scripts/detail-smoke.js
           bun scripts/detail-smoke.js
 
-  # Backend (api/) typecheck + tests. Previously these existed but were never
-  # gated — a regression in auth/CORS/cron/email could merge freely. The tests
-  # are hermetic (lazy DB connection + a placeholder DATABASE_URL set in
-  # index.test.ts), so no database or secrets are required in CI.
+  # Backend (api/) typecheck + tests. Previously ungated — a regression in
+  # auth/CORS/cron/email could merge freely. The hermetic tests need no DB, but
+  # the cross-tenant isolation suite (tenant-isolation.test.ts) does, so we run
+  # a Postgres service, apply the migrations to it, and set RUN_DB_TESTS=1 so
+  # that suite runs against a real database (sslmode=disable — the service has
+  # no TLS, unlike Neon).
   api:
     name: api typecheck + tests
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: api
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: maestro_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/maestro_test?sslmode=disable
+      RUN_DB_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -77,5 +95,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Tests
+      - name: Apply migrations to the test database
+        run: bun run migrate
+
+      - name: Tests (hermetic + DB-backed isolation suite)
         run: bun test

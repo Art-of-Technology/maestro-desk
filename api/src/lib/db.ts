@@ -24,8 +24,10 @@ export function getDb() {
   }
   if (!_sql) {
     _sql = postgres(env.DATABASE_URL, {
-      // Neon requires TLS.
-      ssl: 'require',
+      // Neon requires TLS (the prod URL carries sslmode=require). A local /
+      // CI Postgres has no TLS, so honour an explicit sslmode=disable in the
+      // connection string and skip it there — used by the DB-backed tests.
+      ssl: env.DATABASE_URL.includes('sslmode=disable') ? false : 'require',
       // Keep the pool small — the API runs as short-lived serverless
       // functions on Vercel (target stack), so a large pool is wasteful.
       max: 5,
