@@ -15,3 +15,8 @@ process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=requi
 process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
+// postmark-outbound.test.ts needs Postmark to read as "configured" at env-parse
+// time (it stubs fetch, so nothing is actually sent). env is parsed once, so
+// these must be present before the first load — same reason as above.
+process.env.POSTMARK_SERVER_TOKEN ||= 'test-server-token';
+process.env.POSTMARK_OUTBOUND_FROM ||= 'support@maestro.test';
