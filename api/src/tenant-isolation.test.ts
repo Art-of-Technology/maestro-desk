@@ -86,9 +86,13 @@ runDbTests('tenant isolation (DB-backed)', () => {
 
   afterAll(async () => {
     if (!sql) return;
-    // Cascades to members/tickets/customers/etc.; then remove the two users.
-    await sql`delete from workspaces where id in (${A.wsId}, ${B.wsId})`;
-    await sql`delete from users where id in (${A.userId}, ${B.userId})`;
+    // Guard on populated ids so a partial beforeAll failure (e.g. signUp ok but
+    // provision_brand threw) doesn't make teardown itself throw on undefined
+    // and mask the real error. Cascades to members/tickets/customers/etc.
+    const wsIds = [A.wsId, B.wsId].filter(Boolean);
+    if (wsIds.length) await sql`delete from workspaces where id in ${sql(wsIds)}`;
+    const userIds = [A.userId, B.userId].filter(Boolean);
+    if (userIds.length) await sql`delete from users where id in ${sql(userIds)}`;
     // NB: do NOT sql.end() — `sql` is the shared getDb() pool, so ending it
     // would break any DB-backed test file that runs after this one. The bun
     // test runner tears the process down at the end regardless.
