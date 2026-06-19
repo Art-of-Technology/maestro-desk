@@ -17,7 +17,7 @@
 // bindings. TICKETS and INBOX are imported from core/data.js for updateNavBadges.
 
 import { INBOX, TICKETS } from './data.js';
-import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setInboxSelectedId, setKbSelected, setRolesViewAgents, setTagSelected, setWfSelected } from './state.js';
+import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setInboxSelectedId, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';
 import { renderInbox } from '../inbox/index.js';
@@ -27,7 +27,6 @@ import { renderReports } from '../reports/index.js';
 import { renderAgents } from '../agents/index.js';
 import { renderAI, initAI } from '../ai/page.js';
 import { renderKB } from '../kb/index.js';
-import { renderWorkflows } from '../workflows/index.js';
 import { renderTags } from '../tags/index.js';
 import { renderRoles } from '../roles/index.js';
 import { renderSLA } from '../tickets/sla-policies.js';
@@ -65,7 +64,6 @@ export function renderPage(page) {
   if (page !== 'customers') { setCustomerSelected(null); CUSTOMER_SELECTED_IDS.clear(); resetPlayerLookup(); }
   if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
   if (page !== 'inbox')     setInboxSelectedId(null);
-  if (page !== 'workflows') setWfSelected(null);
   if (page !== 'tags')      { setTagSelected(null); TAG_SELECTED_NAMES.clear(); }
   setCurrentPage(page);
   setCurrentTicket(null);
@@ -82,7 +80,6 @@ export function renderPage(page) {
     agents:    renderAgents,
     ai:        renderAI,
     kb:        renderKB,
-    workflows: renderWorkflows,
     tags:      renderTags,
     roles:     renderRoles,
     sla:           renderSLA,

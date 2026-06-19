@@ -1,7 +1,7 @@
 // ─── Dashboard ────────────────────────────────────────────────────────────────
-// Dashboard page: top KPIs, customisable widget grid, and the 13 widget tile
+// Dashboard page: top KPIs, customisable widget grid, and the 12 widget tile
 // renderers (recent activity, today, status, priority, SLA health, agent
-// load, AI tags, workflows, KB, volume trend, top customers, personal,
+// load, AI tags, KB, volume trend, top customers, personal,
 // CSAT). The widget shell that hosts these tiles (drag/drop, hide/show,
 // chart-type switcher, layout persistence) lives in `core/widget-shell.js`
 // and is shared with the Reports page.
@@ -16,7 +16,7 @@
 // hydrates the layout from them) and are registered with the widget shell via
 // registerWidgetCatalog('dash', …) at the bottom — no window exposure.
 
-import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS, WORKFLOWS } from '../core/data.js';
+import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { DASH_LAYOUT, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
@@ -119,25 +119,6 @@ function dashAITags() {
         <div style="font-size:11px;color:var(--ink3);margin-top:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Pending review</div>
       </div>
       <div style="font-size:11px;color:var(--ink3);text-align:center;line-height:1.5">${count > 0 ? `Across ${tickets} ticket${tickets===1?'':'s'} — open a ticket to accept or dismiss.` : 'All current AI suggestions have been reviewed.'}</div>
-    </div>`;
-}
-
-function dashWorkflows() {
-  const active = WORKFLOWS.filter(w => w.status === 'active').length;
-  const runs = WORKFLOWS.reduce((s, w) => s + (w.runCount || 0), 0);
-  const recentlyRun = WORKFLOWS.filter(w => w.lastRun).slice(0, 2);
-  return `
-    <div class="card span-4">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="card-title" style="margin:0">Automation</div>
-        <span class="link" data-action="dash.nav" data-page="workflows" style="font-size:11px">All →</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-        <div class="r-tile" style="padding:12px"><div class="r-tile-n" style="color:var(--green);font-size:22px">${active}</div><div class="r-tile-l" style="color:var(--ink3);font-size:10px">Active</div></div>
-        <div class="r-tile" style="padding:12px"><div class="r-tile-n" style="color:var(--purple);font-size:22px">${runs}</div><div class="r-tile-l" style="color:var(--ink3);font-size:10px">Runs (30d)</div></div>
-      </div>
-      ${recentlyRun.length ? `<div style="font-size:11px;color:var(--ink3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Recent</div>
-        ${recentlyRun.map(w => `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink2);padding:3px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${w.name}</span><span style="font-family:'DM Mono',monospace;color:var(--ink3);flex-shrink:0;margin-left:8px">${w.lastRun}</span></div>`).join('')}` : ''}
     </div>`;
 }
 
@@ -327,7 +308,6 @@ export const DASH_WIDGETS = [
   { id:'agent-load',  title:'Agent load',            span:'span-8',  render:s => dashAgentLoad() },
   { id:'personal',    title:'My queue',              span:'span-4',  render:s => dashPersonal() },
   { id:'ai-tags',     title:'AI tag suggestions',    span:'span-4',  render:s => dashAITags() },
-  { id:'workflows',   title:'Workflows',             span:'span-4',  render:s => dashWorkflows() },
   { id:'kb',          title:'Knowledge base',        span:'span-4',  render:s => dashKB() },
   { id:'top-customers', title:'Top customers',       span:'span-8',  render:s => dashTopCustomers() },
 ];

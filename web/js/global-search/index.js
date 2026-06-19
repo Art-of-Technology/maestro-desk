@@ -40,7 +40,6 @@ export const SEARCH_PAGES = [
   {p:'agents',    l:'Agents'},
   {p:'ai',        l:'AI Intelligence'},
   {p:'kb',        l:'Knowledge Base'},
-  {p:'workflows', l:'Workflows'},
   {p:'tags',      l:'Tags'},
   {p:'roles',     l:'Roles & Permissions'},
   {p:'sla',       l:'SLA Policies'},
