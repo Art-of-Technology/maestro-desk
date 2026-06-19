@@ -28,9 +28,6 @@ mock.module('../lib/env.js', () => ({ env: { ...realEnv, CRON_SECRET } }));
 mock.module('../lib/outgoing-webhooks.js', () => ({
   processPendingDeliveries: async () => ({ processed: 3 }),
 }));
-mock.module('../lib/csat-survey.js', () => ({
-  processCsatReminders: async () => 2,
-}));
 
 const { cron } = await import('./cron.js');
 
@@ -55,13 +52,5 @@ describe('cron endpoints — CRON_SECRET guard', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, processed: 3 });
-  });
-
-  it('runs the csat-reminders sweep with the correct bearer (200)', async () => {
-    const res = await cron.request('/csat-reminders', {
-      headers: { Authorization: `Bearer ${CRON_SECRET}` },
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, sent: 2 });
   });
 });

@@ -7,13 +7,11 @@
 import app from './index.js';
 import { env } from './lib/env.js';
 import { startWebhookWorker } from './lib/outgoing-webhooks.js';
-import { startCsatReminderWorker } from './lib/csat-survey.js';
 
 console.log(`maestro-desk API listening on http://localhost:${env.PORT}`);
 
 // In-process workers — local only (this file isn't loaded on Vercel).
 startWebhookWorker();
-startCsatReminderWorker();
 
 export default {
   port: env.PORT,

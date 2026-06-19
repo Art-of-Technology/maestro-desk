@@ -9,7 +9,6 @@
 
 import { describe, expect, it, mock } from 'bun:test';
 import * as webhooks from './lib/outgoing-webhooks.js';
-import * as csat from './lib/csat-survey.js';
 
 // Hermetic env so env.ts validation passes without a real api/.env. The DB URL
 // is a placeholder — the connection is lazy, so no socket is opened here.
@@ -18,11 +17,10 @@ process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
-// No-op only the worker-start functions so importing index.ts doesn't kick
-// off polling timers; spread the real modules so their other exports (e.g.
+// No-op the worker-start function so importing index.ts doesn't kick off the
+// polling timer; spread the real module so its other exports (e.g.
 // dispatchTicketEvent), which the route files import, stay intact.
 mock.module('./lib/outgoing-webhooks.js', () => ({ ...webhooks, startWebhookWorker: () => {} }));
-mock.module('./lib/csat-survey.js', () => ({ ...csat, startCsatReminderWorker: () => {} }));
 
 // The Bun.serve config now lives in the local dev entry (src/dev.ts);
 // src/index.ts is the Vercel entry (`export default app`). dev.ts imports
