@@ -6,7 +6,7 @@ import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
 import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.js';
 import { getOutboundFrom } from '../lib/outbound-from.js';
-import { env } from '../lib/env.js';
+import { env, isLocalDev } from '../lib/env.js';
 
 export const publicRoutes = new Hono();
 
@@ -290,14 +290,15 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
 
   // Logging policy: the magic-link URL carries a live auth token and the
   // email is customer PII — neither may reach production logs (they're
-  // retained by the platform). In local dev (not on Vercel) we still print
-  // the full link so first-run setups can copy it from the console when
-  // Postmark isn't configured. In production we log only non-sensitive
-  // identifiers for traceability.
-  if (process.env.VERCEL) {
-    console.log(`[portal-auth] magic link issued for customer ${customer.id} (ws ${ws.slug})`);
-  } else {
+  // retained by the platform). Only in local dev do we print the full link,
+  // so first-run setups can copy it from the console when Postmark isn't
+  // configured. Anywhere production-like (Vercel or NODE_ENV=production) we
+  // log only non-sensitive identifiers for traceability — see isLocalDev,
+  // which fails safe so a non-Vercel production env still redacts.
+  if (isLocalDev) {
     console.log(`[portal-auth] magic link for ${email}: ${url}`);
+  } else {
+    console.log(`[portal-auth] magic link issued for customer ${customer.id} (ws ${ws.slug})`);
   }
 
   // Best-effort email send. If POSTMARK_SERVER_TOKEN isn't set OR the

@@ -114,3 +114,13 @@ const Env = z.object({
 
 export const env = Env.parse(process.env);
 export type Env = z.infer<typeof Env>;
+
+// Runtime environment flag (distinct from the validated config above —
+// these are ambient signals injected by the platform, not app config).
+// `VERCEL` is set on every Vercel deployment; `NODE_ENV` is the standard
+// production marker. We consider the app "local dev" ONLY when neither
+// signals a deployed/production environment — so anything production-like
+// fails safe. Use this to gate behaviour that's acceptable locally but not
+// in production (e.g. logging sensitive auth links). Prefer this over a bare
+// `process.env.VERCEL` check so the prod/dev decision lives in one place.
+export const isLocalDev = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
