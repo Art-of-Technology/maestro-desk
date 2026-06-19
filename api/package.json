@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.0",
     "@getpubby/sdk": "^0.2.0",
+    "@sentry/node": "^10.59.0",
     "@vercel/functions": "^3.6.3",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.6.14",

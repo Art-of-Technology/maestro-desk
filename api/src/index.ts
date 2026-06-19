@@ -1,3 +1,6 @@
+// Sentry must initialise before anything else loads. DSN-gated, so this is a
+// no-op until SENTRY_DSN is set (see lib/instrument.ts).
+import { captureException, flushSentry } from './lib/instrument.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -114,14 +117,17 @@ app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 app.route('/api/v1/maestro', maestro);
 
-app.onError((err, c) => {
+app.onError(async (err, c) => {
   if (err instanceof HTTPException) {
-    return err.getResponse();
+    return err.getResponse();   // expected 4xx — not an incident, never reported
   }
-  // Log the full error server-side; return a generic message to the client.
-  // The DB error text (table/column/constraint names) is an information-leak
-  // vector, so it stays in the log, not the response.
+  // Report the unhandled error to Sentry (no-op when the DSN is unset), then
+  // log it server-side. The DB error text (table/column/constraint names) is
+  // an information-leak vector, so it stays in the log, not the response.
+  captureException(err, { path: c.req.path, method: c.req.method });
   console.error('Unhandled error:', err);
+  // Flush before the serverless function can freeze, so the event isn't lost.
+  await flushSentry();
   return c.json({ error: 'Internal server error' }, 500);
 });
 

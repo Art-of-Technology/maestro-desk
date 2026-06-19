@@ -109,6 +109,14 @@ const Env = z.object({
   MAESTRO_GATEWAY_URL: z.string().url().default('https://api.mert.md'),
   MAESTRO_API_TOKEN: z.string().default(''),
   MAESTRO_BRAND_ID: z.string().default(''),
+  // Sentry error tracking (observability). Both optional: when SENTRY_DSN is
+  // empty, lib/instrument.ts does NOT call Sentry.init, so the SDK no-ops
+  // (captureException/flush become no-ops) and the app runs exactly as before.
+  // Set the DSN in the Vercel Production env to turn it on — no code change.
+  // SENTRY_ENVIRONMENT tags events (e.g. 'production' / 'preview'); defaults to
+  // VERCEL_ENV or 'development' in instrument.ts when unset.
+  SENTRY_DSN: z.string().default(''),
+  SENTRY_ENVIRONMENT: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 
