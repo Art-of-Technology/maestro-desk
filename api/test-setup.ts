@@ -20,3 +20,10 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 // these must be present before the first load — same reason as above.
 process.env.POSTMARK_SERVER_TOKEN ||= 'test-server-token';
 process.env.POSTMARK_OUTBOUND_FROM ||= 'support@maestro.test';
+// cors.test.ts pins APP_BASE_URL to a prod-like origin to tell allow from deny.
+// It mock.module's env.js to do so, but mock.module is global and index.js gets
+// module-cached, so whether that mock "wins" depends on which file loads
+// index.js first. Setting it in the real env here makes the CORS origin
+// deterministic regardless of file order. Keep in sync with cors.test's
+// APP_ORIGIN constant.
+process.env.APP_BASE_URL ||= 'https://desk.maestro-desk.com';
