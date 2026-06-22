@@ -146,6 +146,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     const inbox = await sql<any[]>`select from_email, body, subject from inbox_messages where converted_ticket_id = ${ctx.ticketId}`;
     expect(inbox[0].from_email).toBeNull();
     expect(inbox[0].body).toBeNull();
+    expect(inbox[0].subject).toBeNull();
 
     const era = await sql<any[]>`select fields_erased, reason, completed_at from gdpr_erasures where customer_id = ${ctx.customerId}`;
     expect(era.length).toBe(1);
