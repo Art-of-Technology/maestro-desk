@@ -12,7 +12,9 @@ import {
   workerMaestroConfigured,
   MaestroError,
 } from '../lib/maestro.js';
-import { resolveBrandWorkspace, agentCanAccessBrand } from '../lib/maestro-workspace.js';
+import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
+import { summarizePlayerAccess } from '../lib/player-audit.js';
+import { writeAudit } from '../middleware/platform-admin.js';
 
 // Maestro Connect integration routes.
 //
@@ -186,7 +188,10 @@ maestro.get('/players', requireAuthOnly, async (c) => {
   // The gateway call uses the app token (broad members:read), so enforce that
   // THIS agent is actually a member of the brand's workspace before looking
   // anyone up — otherwise an agent could read any installed brand's players.
-  if (!(await agentCanAccessBrand(c.get('userId'), brandId))) {
+  // The workspace id doubles as the audit row's tenant below.
+  const userId = c.get('userId');
+  const workspaceId = await agentBrandWorkspaceId(userId, brandId);
+  if (!workspaceId) {
     throw new HTTPException(403, { message: 'You do not have access to this brand.' });
   }
 
@@ -208,6 +213,18 @@ maestro.get('/players', requireAuthOnly, async (c) => {
     if (!member || member.success === false || member.errorCode === 101) {
       return c.json({ found: false }, 404);
     }
+    // Read-access audit: record WHO viewed WHICH player's sensitive data (the
+    // "who looked at this account" trail regulators expect). Logs the stable
+    // player id + the categories exposed (balance/kyc/…) — never the values.
+    const access = summarizePlayerAccess(member);
+    await writeAudit({
+      workspaceId,
+      actorUserId: userId,
+      action: 'player.viewed',
+      targetType: 'player',
+      targetId: access.playerId,
+      metadata: { brand_id: brandId, lookup_key: Object.keys(key)[0], accessed: access.accessed },
+    });
     return c.json({ found: true, member });
   } catch (err) {
     throw toHttp(err);
