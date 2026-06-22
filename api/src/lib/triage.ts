@@ -124,6 +124,7 @@ interface WorkspaceLookups {
   statuses: { key: string; label: string }[];
   workspaceName: string;
   autoReply: WorkspaceAutoReplyConfig;
+  aiPlayerEnrichment: boolean;
 }
 
 function buildWorkspaceContext(lookups: WorkspaceLookups): string {
@@ -155,16 +156,32 @@ interface TicketSnapshot {
   messages: { role: string; author_label: string; body: string; created_at: string }[];
 }
 
+// The CUSTOMER line for the triage prompt. When player-account enrichment is
+// OFF (the default, data-minimising posture) the player attributes (VIP tier,
+// jurisdiction) are dropped — only the name and brand remain, both needed to
+// address the reply. Exported for testing.
+export function customerContextLine(
+  t: Pick<TicketSnapshot, 'customer_label' | 'customer_vip_tier' | 'customer_brand' | 'customer_jurisdiction'>,
+  includePlayerAttrs: boolean,
+): string {
+  const parts = [t.customer_label];
+  if (includePlayerAttrs && t.customer_vip_tier) parts.push(`VIP ${t.customer_vip_tier}`);
+  if (t.customer_brand) parts.push(t.customer_brand);
+  if (includePlayerAttrs && t.customer_jurisdiction) parts.push(t.customer_jurisdiction);
+  return parts.join(' · ');
+}
+
 // `playerContext` is the optional live Maestro player block (see
-// lib/player-context.ts) — null when Maestro isn't configured or the player
-// couldn't be resolved, in which case the prompt is unchanged.
-function buildUserMessage(t: TicketSnapshot, playerContext: string | null): string {
+// lib/player-context.ts) — null when Maestro isn't configured, the player
+// couldn't be resolved, OR the workspace hasn't opted in to player-account
+// enrichment (the default). `includePlayerAttrs` mirrors that opt-in.
+function buildUserMessage(t: TicketSnapshot, playerContext: string | null, includePlayerAttrs: boolean): string {
   const thread = t.messages
     .map((m) => `[${m.created_at} · ${m.role.toUpperCase()} · ${m.author_label}]\n${m.body}`)
     .join('\n\n---\n\n');
   return `Triage ticket ${t.display_id}.
 
-CUSTOMER: ${t.customer_label}${t.customer_vip_tier ? ` · VIP ${t.customer_vip_tier}` : ''}${t.customer_brand ? ` · ${t.customer_brand}` : ''}${t.customer_jurisdiction ? ` · ${t.customer_jurisdiction}` : ''}
+CUSTOMER: ${customerContextLine(t, includePlayerAttrs)}
 CURRENT STATUS: ${t.current_status_key}
 CURRENT CATEGORY: ${t.current_category_key ?? '(none)'}
 CURRENT PRIORITY: ${t.current_priority_key ?? '(none)'}
@@ -259,13 +276,15 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     },
   ];
 
-  // Enrich with live Maestro player data when configured (best-effort: any
-  // failure or missing config yields null and the prompt is unchanged).
-  const playerContext = await buildPlayerContext({
-    email: ticketRes.customer_email,
-    username: ticketRes.customer_username,
-  });
-  const userMessage = buildUserMessage(ticketRes, playerContext);
+  // Enrich with live Maestro player data ONLY when the workspace has opted in
+  // (ai_player_enrichment). Default is off — the data-minimising posture: no
+  // balance/KYC/country/VIP reaches the LLM unless a brand explicitly enables
+  // it (AML is excluded regardless). Best-effort even when on: any failure or
+  // missing config yields null and the prompt is unchanged.
+  const playerContext = lookups.aiPlayerEnrichment
+    ? await buildPlayerContext({ email: ticketRes.customer_email, username: ticketRes.customer_username })
+    : null;
+  const userMessage = buildUserMessage(ticketRes, playerContext, lookups.aiPlayerEnrichment);
 
   // 3. Call Claude with tool_choice forcing the tool. We deliberately do NOT
   //    enable adaptive thinking here — the Anthropic API rejects the
@@ -487,8 +506,8 @@ async function loadWorkspaceLookups(
     sql<{ key: string; label: string }[]>`select key, label from ticket_categories where workspace_id = ${workspaceId} and is_active = true order by label`,
     sql<{ key: string; label: string }[]>`select key, label from ticket_priorities where workspace_id = ${workspaceId} order by sort_order`,
     sql<{ key: string; label: string }[]>`select key, label from ticket_statuses where workspace_id = ${workspaceId} order by sort_order`,
-    sql<{ name: string; auto_reply_min_confidence: number | null; auto_reply_categories: string[] | null }[]>`
-      select name, auto_reply_min_confidence, auto_reply_categories from workspaces where id = ${workspaceId}`,
+    sql<{ name: string; auto_reply_min_confidence: number | null; auto_reply_categories: string[] | null; ai_player_enrichment: boolean | null }[]>`
+      select name, auto_reply_min_confidence, auto_reply_categories, ai_player_enrichment from workspaces where id = ${workspaceId}`,
   ]);
   const ws = wsRows[0];
   return {
@@ -501,6 +520,7 @@ async function loadWorkspaceLookups(
       categories: ws?.auto_reply_categories ?? [],
       name: ws?.name ?? 'Support',
     },
+    aiPlayerEnrichment: ws?.ai_player_enrichment === true,
   };
 }
 

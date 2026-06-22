@@ -15,7 +15,8 @@ workspace.use('*', requireAuth);
 
 const SETTINGS_COLS = `id, name, slug, logo_url, primary_color,
   portal_tagline, portal_intro, portal_footer,
-  portal_custom_domain, portal_custom_domain_token, portal_custom_domain_verified`;
+  portal_custom_domain, portal_custom_domain_token, portal_custom_domain_verified,
+  ai_player_enrichment`;
 
 // ─── GET /settings ──────────────────────────────────────────────────────
 workspace.get('/settings', async (c) => {
@@ -33,6 +34,9 @@ const SettingsBody = z.object({
   portal_intro:   z.string().max(1000).nullable().optional(),
   portal_footer:  z.string().max(500).nullable().optional(),
   portal_custom_domain: z.string().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i, 'Invalid hostname').max(253).nullable().optional(),
+  // Opt-in to sending live player account data (balance/KYC/VIP/country) to the
+  // LLM during triage. Default is false (data-minimising). AML is always excluded.
+  ai_player_enrichment: z.boolean().optional(),
 }).strict();
 
 // ─── POST /branding/logo — admin; Cloudflare R2 upload (Step 4) ───────────
