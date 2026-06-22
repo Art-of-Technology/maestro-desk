@@ -1,9 +1,16 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
 import { agentCanAccessBrand } from '../lib/maestro-workspace.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { eraseCustomer } from '../lib/gdpr-erasure.js';
+import { writeAudit } from '../middleware/platform-admin.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const customers = new Hono();
@@ -99,4 +106,47 @@ customers.get('/', async (c) => {
     order by display_id asc
   `;
   return c.json({ customers: rows });
+});
+
+// POST /:id/erase — GDPR right-to-erasure for a customer. Admin-only (the brand
+// owner handles erasure requests; platform admins too via requireWorkspaceAdmin).
+// Nulls/redacts the customer's PII across all surfaces + writes the audit row.
+customers.post('/:id/erase', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const raw = await c.req.json().catch(() => ({}));
+  const parsed = eraseBody.safeParse(raw ?? {});
+  if (!parsed.success) return c.json({ error: 'Invalid request body' }, 400);
+  const reason = parsed.data.reason || null;
+
+  const result = await eraseCustomer({ workspaceId, customerId, requestedByUserId: userId, reason });
+  if (!result) return c.json({ error: 'Customer not found' }, 404);
+
+  // Only audit a real erasure, not an idempotent re-request on an already-erased
+  // customer (no new gdpr_erasures row was written either).
+  if (!result.alreadyErased) {
+    await writeAudit({
+      workspaceId,
+      actorUserId: userId,
+      action: 'customer.erased',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: {
+        fields_erased: result.fieldsErased,
+        tickets_affected: result.ticketsAffected,
+        notes_deleted: result.notesDeleted,
+        messages_redacted: result.messagesRedacted,
+        inbox_redacted: result.inboxRedacted,
+        reason,
+      },
+    });
+  }
+
+  return c.json(result);
 });
