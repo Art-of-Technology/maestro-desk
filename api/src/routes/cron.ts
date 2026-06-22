@@ -46,6 +46,11 @@ cron.get('/webhook-retry', async (c) => {
 // each workspace's retention window. Idempotent: a re-run just deletes whatever
 // is now expired. Safe to run daily.
 cron.get('/retention', async (c) => {
-  const { purgedTickets } = await purgeExpiredTickets();
-  return c.json({ ok: true, purgedTickets });
+  try {
+    const { purgedTickets } = await purgeExpiredTickets();
+    return c.json({ ok: true, purgedTickets });
+  } catch (err) {
+    console.error('[cron] retention purge failed:', err instanceof Error ? err.message : err);
+    return c.json({ ok: false, error: 'retention purge failed' }, 500);
+  }
 });

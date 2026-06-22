@@ -9,3 +9,8 @@
 
 alter table workspaces
   add column if not exists retention_days int default 1825;
+
+-- Supports the daily purge's resolved_at < cutoff scan. Partial: only resolved
+-- tickets are ever purge candidates.
+create index if not exists tickets_resolved_at_idx
+  on tickets (resolved_at) where resolved_at is not null;
