@@ -9,20 +9,21 @@ const full = {
 };
 
 describe('customerContextLine — player-account minimisation', () => {
-  it('drops VIP tier and jurisdiction when enrichment is OFF (default)', () => {
+  it('drops ALL customer attributes (VIP, brand, jurisdiction) when enrichment is OFF — name only', () => {
     const line = customerContextLine(full, false);
-    expect(line).toBe('Jane Doe · Acme Casino'); // name + brand only
+    expect(line).toBe('Jane Doe');
     expect(line).not.toContain('Gold');
+    expect(line).not.toContain('Acme Casino');
     expect(line).not.toContain('MT');
   });
 
-  it('includes VIP tier and jurisdiction when enrichment is ON', () => {
+  it('includes VIP tier, brand and jurisdiction when enrichment is ON', () => {
     const line = customerContextLine(full, true);
     expect(line).toBe('Jane Doe · VIP Gold · Acme Casino · MT');
   });
 
   it('handles missing optional fields gracefully', () => {
     expect(customerContextLine({ customer_label: 'Jane', customer_vip_tier: null, customer_brand: null, customer_jurisdiction: null }, true)).toBe('Jane');
-    expect(customerContextLine({ customer_label: 'Jane', customer_vip_tier: 'Gold', customer_brand: null, customer_jurisdiction: 'MT' }, false)).toBe('Jane');
+    expect(customerContextLine({ customer_label: 'Jane', customer_vip_tier: 'Gold', customer_brand: 'Acme', customer_jurisdiction: 'MT' }, false)).toBe('Jane');
   });
 });

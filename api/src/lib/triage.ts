@@ -157,16 +157,19 @@ interface TicketSnapshot {
 }
 
 // The CUSTOMER line for the triage prompt. When player-account enrichment is
-// OFF (the default, data-minimising posture) the player attributes (VIP tier,
-// jurisdiction) are dropped — only the name and brand remain, both needed to
-// address the reply. Exported for testing.
+// OFF (the default, data-minimising posture) every customer-record attribute
+// (VIP tier, brand, jurisdiction) is dropped — only the name remains, which the
+// AI needs to address the reply. Brand is gated too: it's a per-customer column
+// of ambiguous provenance, and the AI already has the brand/workspace identity
+// from its system context for sign-off, so it adds nothing here. Exported for
+// testing.
 export function customerContextLine(
   t: Pick<TicketSnapshot, 'customer_label' | 'customer_vip_tier' | 'customer_brand' | 'customer_jurisdiction'>,
   includePlayerAttrs: boolean,
 ): string {
   const parts = [t.customer_label];
   if (includePlayerAttrs && t.customer_vip_tier) parts.push(`VIP ${t.customer_vip_tier}`);
-  if (t.customer_brand) parts.push(t.customer_brand);
+  if (includePlayerAttrs && t.customer_brand) parts.push(t.customer_brand);
   if (includePlayerAttrs && t.customer_jurisdiction) parts.push(t.customer_jurisdiction);
   return parts.join(' · ');
 }
