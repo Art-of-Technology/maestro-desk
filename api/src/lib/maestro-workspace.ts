@@ -93,10 +93,13 @@ export async function resolveBrandWorkspace(
  * leaning on the platform to scope it per-user. Returns true iff the agent is an
  * active member of the Desk workspace that projects the given Maestro brand.
  */
-export async function agentCanAccessBrand(userId: string, brandId: string): Promise<boolean> {
+// Returns the id of the workspace backing this Maestro brand IF the agent is an
+// active member of it, else null. The primitive behind agentCanAccessBrand —
+// callers that also need the workspace id (e.g. to write an audit row) use this.
+export async function agentBrandWorkspaceId(userId: string, brandId: string): Promise<string | null> {
   const sql = getDb();
-  const [row] = await sql<{ ok: number }[]>`
-    select 1 as ok
+  const [row] = await sql<{ id: string }[]>`
+    select w.id
     from workspaces w
     join workspace_members wm on wm.workspace_id = w.id
     where w.maestro_brand_id = ${brandId}
@@ -105,7 +108,11 @@ export async function agentCanAccessBrand(userId: string, brandId: string): Prom
       and wm.active = true
     limit 1
   `;
-  return Boolean(row);
+  return row?.id ?? null;
+}
+
+export async function agentCanAccessBrand(userId: string, brandId: string): Promise<boolean> {
+  return (await agentBrandWorkspaceId(userId, brandId)) !== null;
 }
 
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {

@@ -26,9 +26,11 @@ redact the personal data** and stamp `customers.erased_at`.
 
 - **`tickets` / `ticket_messages` rows** — kept (redacted) so the support history and the
   audit trail referencing the now-anonymous customer survive.
-- **`events` / `audit_events`** — the activity/audit log is the tamper-evidence trail; it
-  references the anonymized customer, not their content. (Read-access auditing +
-  append-only hardening is the separate `feat/player-access-audit` item.)
+- **`events` / `audit_events`** — the activity/audit log; it references the anonymized
+  customer, not their content. Player-data **reads** are now logged here too (a
+  `player.viewed` audit event on every successful live player lookup — `routes/maestro.ts`
+  + `lib/player-audit.ts`, categories not values). Still pending: append-only /
+  tamper-evident hardening of `audit_events` (a follow-up).
 
 ## Deferred surfaces (tracked elsewhere)
 
