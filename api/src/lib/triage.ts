@@ -4,6 +4,7 @@ import { anthropic, computeCostMicro } from './anthropic.js';
 import { getDb } from './db.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import {
+  detectResponsibleGamblingConcern,
   evaluateAutoReply,
   postAutoReply,
   type AutoReplyDecision,
@@ -366,7 +367,15 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   //    successful; auto-reply is a downstream side-effect. We log and
   //    return decision: { eligible: true, ... } so callers can see what
   //    happened.
-  const decision = evaluateAutoReply(triage, lookups.autoReply);
+  // Responsible-gambling safety gate: hold the auto-reply for a human if the
+  // customer is disclosing gambling harm, asking to self-exclude/limit, or in
+  // distress. Scan only customer-authored content (subject + customer messages)
+  // — agent/AI replies must not trip the gate.
+  const rgConcern = detectResponsibleGamblingConcern([
+    ticketRes.subject,
+    ...ticketRes.messages.filter((m) => m.role === 'customer').map((m) => m.body),
+  ]);
+  const decision = evaluateAutoReply(triage, lookups.autoReply, rgConcern);
   let autoReply: TriageResult['auto_reply'] = { decision, posted: false };
   if (decision.eligible) {
     try {

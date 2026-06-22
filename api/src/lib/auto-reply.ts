@@ -20,6 +20,51 @@ export interface WorkspaceAutoReplyConfig {
   name: string;                      // workspace name, used as sign-off in the reply
 }
 
+// ─── Responsible-gambling safety gate ─────────────────────────────────────
+//
+// Duty of care: never send an automated, canned reply to a customer who is
+// disclosing gambling harm, asking to be self-excluded, requesting a limit, or
+// in acute distress. Those tickets must reach a human.
+//
+// This is a CONTENT signal, not an account-status one — Maestro has no
+// confirmed RG/self-exclusion endpoint yet (see lib/player-context.ts), so we
+// detect the concern from what the customer actually wrote. When the platform
+// gives us an account-level RG/self-exclusion flag, add it as a second source
+// that ORs into this gate.
+//
+// Bias is deliberately toward holding: a false positive just means a human
+// handles a ticket the AI could have (cheap); a false negative means an
+// automated reply to someone in crisis (unacceptable). Matching is
+// case-insensitive; multi-word phrases are specific enough to keep the
+// false-positive rate low for an iGaming support desk.
+const RG_CONCERN_PATTERNS: RegExp[] = [
+  // Self-exclusion & RG tooling / providers
+  /self[\s-]?exclu/i, /\bgamstop\b/i, /\bgamban\b/i, /\bgamcare\b/i, /\bbe ?gamble ?aware\b/i,
+  /cooling[\s-]?off/i, /\bexclude me\b/i, /\bclose my account\b/i,
+  // Limits (an RG tool request, not a routine query)
+  /deposit limit/i, /loss limit/i, /wager limit/i, /\bset (a )?limit\b/i, /lower my limit/i,
+  // Harm / addiction / loss of control
+  /gambling (problem|addiction|harm)/i, /problem gambling/i, /compulsive gambl/i,
+  /addicted to gambl/i, /can'?t stop gambl/i, /chasing (my )?losses/i,
+  /out of control/i, /responsible (gambling|gaming)/i,
+  // Acute distress / safeguarding
+  /suicid/i, /\bkill myself\b/i, /end my life/i, /self[\s-]?harm/i, /harm myself/i,
+];
+
+/**
+ * Returns true if any of the supplied customer-authored texts (subject + the
+ * customer's own messages) signal a responsible-gambling concern. Pure +
+ * deterministic. Pass only customer-authored content — agent/AI replies must
+ * not trip the gate.
+ */
+export function detectResponsibleGamblingConcern(texts: (string | null | undefined)[]): boolean {
+  for (const t of texts) {
+    if (!t) continue;
+    if (RG_CONCERN_PATTERNS.some((re) => re.test(t))) return true;
+  }
+  return false;
+}
+
 // ─── Evaluation ──────────────────────────────────────────────────────────
 
 export type AutoReplyDecision =
@@ -27,21 +72,32 @@ export type AutoReplyDecision =
   | { eligible: false; reason:
       | 'workspace_disabled'
       | 'category_not_allowed'
+      | 'responsible_gambling_hold'
       | 'confidence_below_threshold' };
 
 /**
  * Pure function — no DB access, easy to unit test. Returns eligibility +
  * a tag describing why so callers can log it.
+ *
+ * `rgConcern` is the responsible-gambling safety signal from
+ * detectResponsibleGamblingConcern(). It overrides confidence — a high-
+ * confidence reply to a harm/self-exclusion disclosure is exactly the case we
+ * must hold for a human — but is only evaluated for tickets the workspace
+ * would otherwise auto-reply to (enabled + allowed category).
  */
 export function evaluateAutoReply(
   triage: TriageOutput,
   config: WorkspaceAutoReplyConfig,
+  rgConcern = false,
 ): AutoReplyDecision {
   if (config.min_confidence === null || config.categories.length === 0) {
     return { eligible: false, reason: 'workspace_disabled' };
   }
   if (!config.categories.includes(triage.category_key)) {
     return { eligible: false, reason: 'category_not_allowed' };
+  }
+  if (rgConcern) {
+    return { eligible: false, reason: 'responsible_gambling_hold' };
   }
   if (triage.confidence < config.min_confidence) {
     return { eligible: false, reason: 'confidence_below_threshold' };
