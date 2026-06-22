@@ -45,7 +45,7 @@ const RG_CONCERN_PATTERNS: RegExp[] = [
   /deposit limit/i, /loss limit/i, /wager limit/i, /\bset (a )?limit\b/i, /lower my limit/i,
   // Harm / addiction / loss of control
   /gambling (problem|addiction|harm)/i, /problem gambling/i, /compulsive gambl/i,
-  /addicted to gambl/i, /\baddiction\b/i, /can'?t stop gambl/i, /chasing (my )?losses/i,
+  /addicted to gambl/i, /can'?t stop gambl/i, /chasing (my )?losses/i,
   /out of control/i, /responsible (gambling|gaming)/i,
   // Acute distress / safeguarding
   /suicid/i, /\bkill myself\b/i, /end my life/i, /self[\s-]?harm/i, /harm myself/i,
