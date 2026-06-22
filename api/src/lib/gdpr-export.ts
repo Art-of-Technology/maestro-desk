@@ -12,7 +12,13 @@ import { getDb } from './db.js';
 
 export interface CustomerExport {
   exported_at: string;
-  workspace_id: string;
+  // Provenance for the data subject: which brand/workspace held the data. The
+  // internal workspace uuid is deliberately not exposed (cf. the stripped
+  // customer.id).
+  workspace: { name: string; slug: string };
+  // erased_at is surfaced so the caller can distinguish a live record from one
+  // whose PII has already been erased (mostly-null bundle).
+  erased: boolean;
   customer: Record<string, unknown>;
   notes: Array<{ text: string; created_at: string }>;
   tickets: Array<Record<string, unknown> & { messages: Array<Record<string, unknown>> }>;
@@ -34,6 +40,10 @@ export async function exportCustomer(args: {
     where id = ${customerId} and workspace_id = ${workspaceId}
   `;
   if (!customer) return null;
+
+  const [ws] = await sql<{ name: string; slug: string }[]>`
+    select name, slug from workspaces where id = ${workspaceId}
+  `;
 
   const notes = await sql<{ text: string; created_at: string }[]>`
     select text, created_at from customer_notes
@@ -93,7 +103,8 @@ export async function exportCustomer(args: {
 
   return {
     exported_at: new Date().toISOString(),
-    workspace_id: workspaceId,
+    workspace: { name: ws?.name ?? '', slug: ws?.slug ?? '' },
+    erased: Boolean(customer.erased_at),
     customer: customerOut,
     notes,
     tickets: ticketsWithMessages,

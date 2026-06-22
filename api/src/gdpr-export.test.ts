@@ -114,5 +114,18 @@ runDbTests('GDPR export (DB-backed)', () => {
     expect(body.inbox_messages[0].from_email).toBe(`jane-${slug}@player.test`);
 
     expect(typeof body.exported_at).toBe('string');
+    expect(body.workspace.slug).toBe(slug);     // provenance, not internal uuid
+    expect((body as any).workspace_id).toBeUndefined();
+  });
+
+  it('returns 410 Gone once the customer has been erased', async () => {
+    const erase = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(erase.status).toBe(200);
+    const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/export`);
+    expect(res.status).toBe(410);
   });
 });
