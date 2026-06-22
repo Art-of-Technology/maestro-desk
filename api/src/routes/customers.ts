@@ -7,6 +7,7 @@ import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/
 import { agentCanAccessBrand } from '../lib/maestro-workspace.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
+import { exportCustomer } from '../lib/gdpr-export.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -106,6 +107,35 @@ customers.get('/', async (c) => {
     order by display_id asc
   `;
   return c.json({ customers: rows });
+});
+
+// GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
+// returns the customer's full personal-data bundle as a downloadable JSON file.
+customers.get('/:id/export', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const bundle = await exportCustomer({ workspaceId, customerId });
+  if (!bundle) return c.json({ error: 'Customer not found' }, 404);
+
+  // Exporting everything we hold about a person is a sensitive read — log it.
+  await writeAudit({
+    workspaceId,
+    actorUserId: userId,
+    action: 'customer.exported',
+    targetType: 'customer',
+    targetId: customerId,
+    metadata: { tickets: bundle.tickets.length, notes: bundle.notes.length, inbox_messages: bundle.inbox_messages.length },
+  });
+
+  const filename = `customer-${bundle.customer.display_id ?? customerId}-export.json`;
+  c.header('Content-Disposition', `attachment; filename="${filename}"`);
+  return c.json(bundle);
 });
 
 // POST /:id/erase — GDPR right-to-erasure for a customer. Admin-only (the brand
