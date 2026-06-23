@@ -29,6 +29,15 @@ mock.module('../lib/outgoing-webhooks.js', () => ({
   processPendingDeliveries: async () => ({ processed: 3 }),
 }));
 
+// Audit-chain verify is swapped per-test (clean vs tampered); default = clean.
+let auditResult: {
+  checked: number;
+  tampered: Array<{ workspaceId: string; firstBadSeq: number | null; firstBadId: string | null }>;
+} = { checked: 2, tampered: [] };
+mock.module('../lib/audit-verify.js', () => ({
+  verifyAuditChains: async () => auditResult,
+}));
+
 const { cron } = await import('./cron.js');
 
 afterAll(() => mock.restore());
@@ -52,5 +61,30 @@ describe('cron endpoints — CRON_SECRET guard', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, processed: 3 });
+  });
+
+  it('rejects audit-verify with no bearer (401)', async () => {
+    const res = await cron.request('/audit-verify');
+    expect(res.status).toBe(401);
+  });
+
+  it('runs audit-verify and reports a clean result (200)', async () => {
+    auditResult = { checked: 2, tampered: [] };
+    const res = await cron.request('/audit-verify', {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, checked: 2, tamperedCount: 0, tampered: [] });
+  });
+
+  it('surfaces tampered chains with ok:false in the audit-verify response (200)', async () => {
+    const tampered = [{ workspaceId: 'ws-1', firstBadSeq: 5, firstBadId: 'row-5' }];
+    auditResult = { checked: 3, tampered };
+    const res = await cron.request('/audit-verify', {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.status).toBe(200); // the check ran successfully…
+    // …but ok:false signals the audit is unhealthy (tamper detected).
+    expect(await res.json()).toEqual({ ok: false, checked: 3, tamperedCount: 1, tampered });
   });
 });
