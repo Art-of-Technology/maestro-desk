@@ -117,6 +117,14 @@ const Env = z.object({
   // VERCEL_ENV or 'development' in instrument.ts when unset.
   SENTRY_DSN: z.string().default(''),
   SENTRY_ENVIRONMENT: z.string().default(''),
+  // Live ops alerts (lib/alert.ts) — pushed on audit-chain tamper, unhandled API
+  // errors, and failed crons. Two independent channels, both optional:
+  //   ALERT_EMAIL_TO        → recipient for Postmark email alerts (also needs
+  //                           POSTMARK_SERVER_TOKEN + POSTMARK_OUTBOUND_FROM).
+  //   SLACK_ALERT_WEBHOOK_URL → a Slack Incoming Webhook (hooks.slack.com/...).
+  // With neither set, alerting no-ops; alerts always also go to the logs.
+  ALERT_EMAIL_TO: z.string().default(''),
+  SLACK_ALERT_WEBHOOK_URL: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
 });
 

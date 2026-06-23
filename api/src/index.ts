@@ -1,6 +1,7 @@
 // Sentry must initialise before anything else loads. DSN-gated, so this is a
 // no-op until SENTRY_DSN is set (see lib/instrument.ts).
 import { captureException, flushSentry } from './lib/instrument.js';
+import { sendOpsAlert } from './lib/alert.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
@@ -126,6 +127,16 @@ app.onError(async (err, c) => {
   // an information-leak vector, so it stays in the log, not the response.
   captureException(err, { path: c.req.path, method: c.req.method });
   console.error('Unhandled error:', err);
+  // Live alert (no-op until a channel is configured; best-effort — never throws).
+  // De-dup signature is method+path+error-type so a hot broken route collapses
+  // to one message/hour. No request body / PII: just the error name + message.
+  const name = err instanceof Error ? err.constructor.name : 'Error';
+  await sendOpsAlert({
+    signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
+    severity: 'critical',
+    title: `Unhandled API error: ${name} at ${c.req.method} ${c.req.path}`,
+    detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
+  });
   // Flush before the serverless function can freeze, so the event isn't lost.
   await flushSentry();
   return c.json({ error: 'Internal server error' }, 500);

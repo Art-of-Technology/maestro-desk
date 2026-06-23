@@ -11,6 +11,7 @@
 
 import { getDb } from './db.js';
 import { captureException } from './instrument.js';
+import { sendOpsAlert } from './alert.js';
 
 export interface TamperedChain {
   workspaceId: string;
@@ -42,6 +43,20 @@ export async function verifyAuditChains(): Promise<{ checked: number; tampered: 
       new Error(`audit_events tamper detected in ${tampered.length} workspace chain(s)`),
       { tampered },
     );
+    // Live alert. Signature keyed on the affected workspaces so a different set
+    // re-alerts immediately rather than being suppressed by an earlier one.
+    const workspaces = tampered.map((t) => t.workspaceId).sort();
+    await sendOpsAlert({
+      signature: `audit-tamper:${workspaces.join(',')}`,
+      severity: 'critical',
+      title: `Audit log tampering detected in ${tampered.length} workspace(s)`,
+      detail:
+        `audit_events_verify() found ${tampered.length} workspace chain(s) that failed integrity ` +
+        `verification — a row was altered or deleted. This should be impossible through the app ` +
+        `(audit_events is append-only); it implies direct database access.\n\n` +
+        `Affected (workspace_id @ first bad seq):\n` +
+        tampered.map((t) => `  • ${t.workspaceId} @ seq ${t.firstBadSeq ?? '?'}`).join('\n'),
+    });
   }
 
   return { checked: rows.length, tampered };

@@ -4,6 +4,19 @@ import { getDb } from '../lib/db.js';
 import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
 import { purgeExpiredTickets } from '../lib/retention.js';
 import { verifyAuditChains } from '../lib/audit-verify.js';
+import { sendOpsAlert } from '../lib/alert.js';
+
+// A cron job failed to run cleanly — fire a live alert (no-op until a channel
+// is configured) so a silently-broken scheduled task surfaces. Signature is per
+// job, so one alert per job per cooldown.
+async function alertCronFailure(job: string, err: unknown): Promise<void> {
+  await sendOpsAlert({
+    signature: `cron:${job}:fail`,
+    severity: 'critical',
+    title: `Cron job "${job}" failed`,
+    detail: `The scheduled "${job}" job threw: ${err instanceof Error ? err.message : String(err)}`,
+  });
+}
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -36,10 +49,20 @@ cron.use('*', async (c, next) => {
 });
 
 cron.get('/webhook-retry', async (c) => {
-  const { processed } = await processPendingDeliveries();
-  // Piggyback the daily rate-limit table prune (drops long-expired buckets).
+  let processed: number;
+  try {
+    ({ processed } = await processPendingDeliveries());
+  } catch (err) {
+    console.error('[cron] webhook-retry failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('webhook-retry', err);
+    return c.json({ ok: false, error: 'webhook-retry failed' }, 500);
+  }
+  // Piggyback the daily housekeeping prunes (drop long-expired rate-limit
+  // buckets and stale ops-alert dedup signatures). Best-effort.
   try { await getDb()`select prune_rate_limits()`; }
   catch (err) { console.warn('[cron] prune_rate_limits failed:', err instanceof Error ? err.message : err); }
+  try { await getDb()`select prune_ops_alerts()`; }
+  catch (err) { console.warn('[cron] prune_ops_alerts failed:', err instanceof Error ? err.message : err); }
   return c.json({ ok: true, processed });
 });
 
@@ -52,6 +75,7 @@ cron.get('/retention', async (c) => {
     ({ purgedTickets } = await purgeExpiredTickets());
   } catch (err) {
     console.error('[cron] retention purge failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('retention', err);
     return c.json({ ok: false, error: 'retention purge failed' }, 500);
   }
   // Piggyback the daily audit-chain integrity check. The Hobby plan caps the
@@ -67,6 +91,7 @@ cron.get('/retention', async (c) => {
     audit = { checked, tampered: tampered.length };
   } catch (err) {
     console.error('[cron] audit-verify (via retention) failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('audit-verify', err);
   }
   return c.json({ ok: true, purgedTickets, audit });
 });
@@ -85,6 +110,7 @@ cron.get('/audit-verify', async (c) => {
     return c.json({ ok: tampered.length === 0, checked, tamperedCount: tampered.length, tampered });
   } catch (err) {
     console.error('[cron] audit-verify failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('audit-verify', err);
     return c.json({ ok: false, error: 'audit-verify failed' }, 500);
   }
 });
