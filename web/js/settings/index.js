@@ -32,6 +32,7 @@ import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE } from '../core/
 import { showModal, closeModal } from '../core/modal.js';
 import { COLLAPSED_SECTIONS, resetAllCollapsedSections } from '../core/collapsible.js';
 import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
+import { settingsEmailBranding, settingsMySignature } from '../email-branding/index.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -68,8 +69,8 @@ export function renderSettings() {
     {k:'knowledge-base', l:'Knowledge Base'},
     {k:'language',      l:'Language'},
     {k:'integrations',  l:'Integrations'},
-    // Categories is workspace config — admins only.
-    ...(window.isAdmin() ? [{k:'categories', l:'Categories'}] : []),
+    // Email branding + Categories are workspace config — admins only.
+    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'categories', l:'Categories'}] : []),
   ];
   const tabbar = tabs.map(t => `<div class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</div>`).join('');
   let panel = '';
@@ -80,6 +81,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'knowledge-base') panel = settingsKnowledgeBase();
   else if (SETTINGS_TAB === 'language')      panel = settingsLanguage();
   else if (SETTINGS_TAB === 'integrations')  panel = settingsIntegrations();
+  else if (SETTINGS_TAB === 'email')         panel = settingsEmailBranding();
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
   return `
     <div class="page">
@@ -121,7 +123,8 @@ function settingsProfile() {
         </div>
       </div>
       <div style="margin-top:16px"><button class="btn btn-danger" data-action="settings.logout">Sign out</button></div>
-    </div>`;
+    </div>
+    ${settingsMySignature()}`;
 }
 
 function updateProfileName(name) {

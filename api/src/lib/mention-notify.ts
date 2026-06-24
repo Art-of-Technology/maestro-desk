@@ -11,6 +11,7 @@
 import { env } from './env.js';
 import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
 import { getOutboundFrom } from './outbound-from.js';
+import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
@@ -88,9 +89,12 @@ export async function notifyMentionedAgents(args: {
       '',
       workspaceName,
     ].join('\n');
+    // Brand with the workspace header/footer and the mentioning agent's own
+    // signature (authorUserId) — this email comes from a named teammate.
+    const composed = await composeEmail({ workspaceId, authorUserId, bodyText: textBody });
     try {
       await sendEmail({
-        to: u.email, subject, textBody, fromEmail, fromName,
+        to: u.email, subject, textBody: composed.text, htmlBody: composed.html, fromEmail, fromName,
         replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
       });
       sent++;

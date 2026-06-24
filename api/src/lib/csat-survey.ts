@@ -16,6 +16,7 @@
 import { env } from './env.js';
 import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
 import { getOutboundFrom } from './outbound-from.js';
+import { composeEmail } from './email-branding.js';
 import { makeUnsubscribeToken, unsubscribeUrl } from './unsubscribe.js';
 import { getDb } from './db.js';
 
@@ -105,11 +106,16 @@ export async function sendCsatSurvey(args: {
     ...(unsubUrl ? ['', `Don't want these emails? Unsubscribe: ${unsubUrl}`] : []),
   ].join('\n');
 
+  // Wrap with the workspace's default brand header/footer (logo + sign-off).
+  // No author signature — this is a brand/system email.
+  const composed = await composeEmail({ workspaceId, bodyText: textBody });
+
   try {
     await sendEmail({
       to: customerEmail,
       subject,
-      textBody,
+      textBody: composed.text,
+      htmlBody: composed.html,
       fromEmail,
       fromName,
       replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,

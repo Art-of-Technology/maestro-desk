@@ -19,6 +19,10 @@ export interface SendEmailArgs {
   to: string;
   subject: string;
   textBody: string;
+  // Optional HTML body. When present, Postmark sends a multipart email with
+  // both parts and the recipient's client picks HTML; textBody remains the
+  // fallback for plain-text clients. Used to render brand header/footer logos.
+  htmlBody?: string | null;
   fromEmail: string;
   fromName: string;
   // RFC Message-ID of the email we're replying to. When present, sent as
@@ -60,8 +64,10 @@ export function isPostmarkConfigured(): boolean {
 }
 
 /**
- * Send a plain-text email via Postmark. Throws PostmarkNotConfiguredError if
- * env vars are unset, PostmarkSendError if Postmark refuses the send.
+ * Send an email via Postmark — plain text always, plus an optional HTML body
+ * (htmlBody) for a richer rendering with the text part as fallback. Throws
+ * PostmarkNotConfiguredError if env vars are unset, PostmarkSendError if
+ * Postmark refuses the send.
  */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   if (!isPostmarkConfigured()) {
@@ -97,6 +103,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     To: string;
     Subject: string;
     TextBody: string;
+    HtmlBody?: string;
     MessageStream: string;
     Headers: Array<{ Name: string; Value: string }>;
     ReplyTo?: string;
@@ -108,6 +115,9 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     MessageStream: STREAM,
     Headers: headers,
   };
+  if (args.htmlBody) {
+    body.HtmlBody = args.htmlBody;
+  }
   if (args.replyTo) {
     body.ReplyTo = args.replyTo;
   }

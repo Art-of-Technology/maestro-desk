@@ -11,6 +11,7 @@ import {
   sendEmail,
 } from './postmark-outbound.js';
 import { getOutboundFrom } from './outbound-from.js';
+import { composeEmail } from './email-branding.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────
 
@@ -182,13 +183,18 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
 
   // 4b. Send via Postmark. On failure, leave the draft and return — don't
   //     create the event row, so a manual re-triage from the UI can retry.
+  // Brand the AI reply with the workspace's default header/footer. No author
+  // signature — the auto-reply is sent as the brand, not a named agent.
+  const composed = await composeEmail({ workspaceId, bodyText: draftReply });
+
   let postmarkMessageId: string;
   let rfcMessageId: string;
   try {
     const result = await sendEmail({
       to: sendContext.customerEmail,
       subject: replySubject(sendContext.subject),
-      textBody: draftReply,
+      textBody: composed.text,
+      htmlBody: composed.html,
       fromEmail,
       fromName,
       inReplyTo: sendContext.lastCustomerMessageId,

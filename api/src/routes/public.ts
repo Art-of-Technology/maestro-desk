@@ -9,6 +9,7 @@ import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
 import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.js';
 import { getOutboundFrom } from '../lib/outbound-from.js';
+import { composeEmail } from '../lib/email-branding.js';
 import { verifyUnsubscribeToken } from '../lib/unsubscribe.js';
 import { env, isLocalDev } from '../lib/env.js';
 
@@ -318,16 +319,20 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   try {
     const from = await getOutboundFrom(ws.id);
     if (from) {
-      await sendEmail({
-        to:        email,
-        subject:   `Sign in to ${ws.name}`,
-        textBody:  `Hi${customer.first_name ? ' ' + customer.first_name : ''},
+      const textBody = `Hi${customer.first_name ? ' ' + customer.first_name : ''},
 
 You requested a sign-in link for ${ws.name}. Click below to view your tickets:
 
 ${url}
 
-This link expires in 15 minutes. If you didn't request it, you can ignore this email.`,
+This link expires in 15 minutes. If you didn't request it, you can ignore this email.`;
+      // Brand with the workspace's default header/footer (no author signature).
+      const composed = await composeEmail({ workspaceId: ws.id, bodyText: textBody });
+      await sendEmail({
+        to:        email,
+        subject:   `Sign in to ${ws.name}`,
+        textBody:  composed.text,
+        htmlBody:  composed.html,
         fromEmail: from.fromEmail,
         fromName:  from.fromName,
       });
