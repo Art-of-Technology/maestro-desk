@@ -103,8 +103,17 @@ tickets.get('/', async (c) => {
 tickets.get('/sync', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
   const rawCursor = c.req.query('cursor');
   const limit = Math.min(parseInt(c.req.query('limit') ?? '200', 10), 500);
+
+  // Coarse activity heartbeat: the SPA polls /sync every ~60s on every page,
+  // so this is our "agent is in the app" signal for offline-notification
+  // routing (lib/activity.ts). Awaited (not fire-and-forget) so the write
+  // isn't dropped when the serverless function freezes after responding;
+  // a stamp failure is swallowed so it never breaks the sync.
+  try { await sql`update users set last_active_at = now() where id = ${userId}`; }
+  catch (err) { console.warn('[activity] last_active_at stamp failed:', err instanceof Error ? err.message : err); }
 
   if (!rawCursor) {
     return c.json({ tickets: [], cursor: `${new Date().toISOString()}|` });
