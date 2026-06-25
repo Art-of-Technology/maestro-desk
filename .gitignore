@@ -21,3 +21,6 @@ scripts/detail-entry.bundled.js
 scripts/detail-smoke.js
 build.err
 .vercel
+
+# Smoke/build artifacts anywhere (not just root scripts/)
+*.bundled.js
