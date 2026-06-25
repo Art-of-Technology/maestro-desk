@@ -12,6 +12,8 @@ import { triageTicket } from './triage.js';
 import { BudgetExceededError } from './budget.js';
 import { scoreMessageSentiment } from './sentiment.js';
 import { publishTicketChanged } from './pubby.js';
+import { isUserActive } from './activity.js';
+import { isPushConfigured, sendPushToUser } from './push.js';
 
 // Fire-and-forget wrapper around scoreMessageSentiment used by the
 // inbound-email and reply paths. We never want sentiment to break the
@@ -377,6 +379,12 @@ async function attachReplyToTicket(args: {
     console.error('[inbound-email] failed to queue retriage:', err);
   }
 
+  // Push the assigned agent if they're not currently in the app (offline-agent
+  // notifications, stage 3). Awaited so the work isn't dropped on serverless
+  // freeze; fully guarded so a push hiccup never fails the inbound webhook.
+  try { await pushOfflineAssignee(workspaceId, ticketId); }
+  catch (err) { console.warn('[push] offline-assignee notify failed:', err instanceof Error ? err.message : err); }
+
   void publishTicketChanged(workspaceId, ticketId);
   return {
     ticket_id: ticketId,
@@ -387,4 +395,34 @@ async function attachReplyToTicket(args: {
     deduped: false,
     threaded: true,
   };
+}
+
+// Notify the ticket's assigned agent of a new customer reply via Web Push, but
+// ONLY when they're offline (an agent in the app already gets the live toast/
+// bell) and we haven't already pushed about this turn. last_reply_notified_at
+// throttles a fast back-and-forth to a single push until the agent replies
+// (which clears it — see POST /:id/messages). No-ops when push is unconfigured
+// or the ticket is unassigned (e.g. the unrouted bucket).
+async function pushOfflineAssignee(workspaceId: string, ticketId: string): Promise<void> {
+  if (!isPushConfigured()) return;
+  const sql = getDb();
+  const [t] = await sql<{ assigned_user_id: string | null; notified: string | null; subject: string; slug: string; display_id: string }[]>`
+    select t.assigned_user_id, t.last_reply_notified_at as notified, t.subject, t.display_id, w.slug
+    from tickets t join workspaces w on w.id = t.workspace_id
+    where t.id = ${ticketId} and t.workspace_id = ${workspaceId}
+  `;
+  if (!t?.assigned_user_id) return;                       // unassigned — nobody to notify
+  if (t.notified) return;                                 // already pushed this turn; wait for the agent to act
+  if (await isUserActive(t.assigned_user_id)) return;     // in the app — the in-app toast/bell covers it
+
+  const url = `/?ws=${encodeURIComponent(t.slug || '')}#ticket/${encodeURIComponent(t.display_id)}`;
+  const res = await sendPushToUser(t.assigned_user_id, {
+    title: 'New customer reply',
+    body: `${t.display_id} — ${t.subject}`.slice(0, 140),
+    url,
+    tag: `ticket-${ticketId}`,
+  });
+  if (res.sent > 0) {
+    await sql`update tickets set last_reply_notified_at = now() where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  }
 }

@@ -354,6 +354,11 @@ tickets.post('/:id/messages', async (c) => {
   // so a saved reply is never lost to a mail hiccup.
   let delivery: AgentReplyDelivery | undefined;
   if (input.role === 'agent') {
+    // The agent is handling this ticket again — clear the offline-push throttle
+    // so the next customer reply re-notifies. Awaited (serverless-safe) and
+    // swallowed so it never blocks the reply.
+    try { await sql`update tickets set last_reply_notified_at = null where id = ${ticketId} and workspace_id = ${workspaceId}`; }
+    catch (err) { console.warn('[push] clear notify throttle failed:', err instanceof Error ? err.message : err); }
     try {
       delivery = await sendAgentReplyEmail({
         workspaceId, ticketId, messageId: message.id, authorUserId: userId, body: input.body,
