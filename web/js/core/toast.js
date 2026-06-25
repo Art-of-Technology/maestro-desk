@@ -12,7 +12,7 @@ const COLORS = {
   info:    'var(--ink2, #475569)',
 };
 
-export function showToast(message, kind = 'info', ms = 4000) {
+export function showToast(message, kind = 'info', ms = 4000, onClick = null) {
   let host = document.getElementById('toast-host');
   if (!host) {
     host = document.createElement('div');
@@ -24,6 +24,10 @@ export function showToast(message, kind = 'info', ms = 4000) {
   el.setAttribute('role', 'status');
   el.style.cssText = `pointer-events:auto;max-width:340px;padding:10px 14px;border-radius:10px;background:var(--bg,#fff);color:var(--ink,#0f172a);font-size:13px;line-height:1.4;box-shadow:0 8px 24px -8px rgba(0,0,0,0.4);border-left:3px solid ${COLORS[kind] || COLORS.info};opacity:0;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease`;
   el.textContent = message;
+  if (onClick) {
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', () => { try { onClick(); } finally { el.remove(); } });
+  }
   host.appendChild(el);
   // Next frame: animate in.
   requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateY(0)'; });

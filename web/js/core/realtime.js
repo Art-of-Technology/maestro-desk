@@ -19,6 +19,7 @@ import { apiGet, API_BASE, getJwt, getWorkspaceId } from './api-client.js';
 const { Pubby } = PubbySdk;
 import { tick as listSyncTick } from '../tickets/list-sync.js';
 import { reloadTicketByUuid } from '../tickets/detail.js';
+import { maybeToastNewResponse } from '../notifications/index.js';
 
 let _pubby = null;
 
@@ -50,11 +51,15 @@ export async function startRealtime() {
   pubby.connect();
 
   const channel = pubby.subscribe(`private-ws-${workspaceId}-tickets`);
-  channel.bind('ticket.changed', (data) => {
-    // Signal → fetch. Pull the cursor delta into the list/TICKETS, and if the
-    // changed ticket is the one open, reload its detail immediately.
-    listSyncTick();
-    if (data && typeof data.id === 'string') reloadTicketByUuid(data.id);
+  channel.bind('ticket.changed', async (data) => {
+    // Signal → fetch. Pull the cursor delta into the list/TICKETS first so the
+    // local ticket reflects the new latest-message role, then: reload the open
+    // detail, and toast if this is a new customer reply on a ticket I own.
+    await listSyncTick();
+    if (data && typeof data.id === 'string') {
+      reloadTicketByUuid(data.id);
+      maybeToastNewResponse(data.id);
+    }
   });
 }
 

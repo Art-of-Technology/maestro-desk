@@ -122,6 +122,10 @@ export function updateOrInsertTicket(row, lookups) {
   t.mergedAt      = row.merged_at      || null;
   t._statusBeforeMerge = row.status_before_merge || null;
   t.sentiment     = row.latest_customer_sentiment || null;
+  // Role of the latest message — drives the "new customer response" notification
+  // (awaiting reply when this is 'customer'). Changes server-side as the thread
+  // grows, so it must update on the delta path.
+  t.lastMessageRole = row.last_message_role || null;
   // mergedInto display_id resolves from the uuid + current TICKETS state
   if (row.merged_into_id) {
     const parent = TICKETS.find((x) => x._uuid === row.merged_into_id);
@@ -163,6 +167,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     msgs:            [],
     timeEntries:     [],
     sentiment:       t.latest_customer_sentiment || null,
+    lastMessageRole: t.last_message_role || null,
   };
 }
 
@@ -270,6 +275,7 @@ export async function loadWorkspaceData() {
     msgs:            [],
     timeEntries:     [],
     sentiment:       t.latest_customer_sentiment || null,
+    lastMessageRole: t.last_message_role || null,
   }));
   // Resolve merge pointers display_id ↔ display_id across the loaded set.
   // Children outside the current page won't appear in mergedFrom — paginate-

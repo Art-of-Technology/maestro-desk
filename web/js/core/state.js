@@ -38,9 +38,10 @@ export const TAG_SELECTED_NAMES = new Set();
 export let TAG_SORT_COL = 'count';
 export let TAG_SORT_DIR = -1;
 export let INBOX_SELECTED_ID = null;
-export let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true };
+export let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null') || { breach:true, escalated:true, gdpr:true, warn:true, wake:true, mention:true, response:true };
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
 if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
+if (typeof NOTIF_PREFS.response === 'undefined') NOTIF_PREFS.response = true;
 export let ROLES_VIEW_AGENTS = null; // role name → show agents-in-role page; null → matrix
 export let SETTINGS_TAB = 'profile';
 export let LAYOUTS_TAB = 'ticket';

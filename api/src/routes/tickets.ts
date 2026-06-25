@@ -61,6 +61,9 @@ tickets.get('/', async (c) => {
     select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
            customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
            snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
+           (select tm.role from ticket_messages tm
+              where tm.ticket_id = tickets.id and tm.deleted_at is null
+              order by tm.created_at desc limit 1) as last_message_role,
            count(*) over() ::int as total_count
     from tickets
     where workspace_id = ${workspaceId} and deleted_at is null
@@ -119,7 +122,11 @@ tickets.get('/sync', async (c) => {
     ? sql`and (updated_at > ${cursorTs} or (updated_at = ${cursorTs} and id > ${cursorId}))`
     : sql`and updated_at > ${cursorTs}`;
   const rows = [...await sql`
-    select ${cols} from tickets
+    select ${cols},
+           (select tm.role from ticket_messages tm
+              where tm.ticket_id = tickets.id and tm.deleted_at is null
+              order by tm.created_at desc limit 1) as last_message_role
+    from tickets
     where workspace_id = ${workspaceId} ${cursorClause}
     order by updated_at asc, id asc
     limit ${limit}

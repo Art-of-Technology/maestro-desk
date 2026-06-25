@@ -26,12 +26,13 @@
 // are module-internal now.
 
 import { TICKETS } from '../core/data.js';
-import { NOTIF_PREFS, SESSION } from '../core/state.js';
+import { NOTIF_PREFS, SESSION, CURRENT_TICKET } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal, closeModal } from '../core/modal.js';
+import { showToast } from '../core/toast.js';
 // setSettingsTab is reached via window to avoid a notifications↔settings
 // import cycle (settings imports refreshNotifBadge from here). Settings is
 // still bridged; this can become a direct import once Settings migrates.
@@ -87,10 +88,52 @@ function getNotifications() {
       n = {id:'gdpr-'+t.id, type:'gdpr', color:'var(--red)', title:'GDPR request', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.sla === 'warn' && NOTIF_PREFS.warn) {
       n = {id:'warn-'+t.id, type:'warn', color:'var(--amber)', title:'SLA warning', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
+    } else if (NOTIF_PREFS.response !== false && awaitingMyReply(t)) {
+      // Lowest priority in the chain: a more urgent signal (breach/escalated/
+      // gdpr/warn) on the same ticket takes the slot and already surfaces it.
+      n = {id:'response-'+t.id, type:'response', color:'var(--cyan)', title:'New customer reply', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     }
     if (n && !NOTIFICATIONS_DISMISSED.has(n.id)) out.push(n);
   }
   return out;
+}
+
+// "Awaiting my reply" — an open/escalated ticket assigned to me whose latest
+// message is from the customer (and not currently snoozed). lastMessageRole
+// comes from the list endpoint; fall back to the loaded thread for demo
+// personas (whose seeded tickets carry msgs but no server field).
+function lastRoleOf(t) {
+  if (t.lastMessageRole) return t.lastMessageRole;
+  const m = t.msgs && t.msgs.length ? t.msgs[t.msgs.length - 1] : null;
+  return m ? m.r : null;
+}
+function awaitingMyReply(t) {
+  if (!SESSION?.name || t.agent !== SESSION.name) return false;
+  if (t.status !== 'open' && t.status !== 'escalated') return false;
+  if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) return false;
+  return lastRoleOf(t) === 'customer';
+}
+
+// Per-ticket snapshot of the last-seen latest-message role, so the realtime
+// push toasts ONCE on the transition into "awaiting my reply" rather than on
+// every unrelated change to a ticket that's already awaiting a reply.
+const RESPONSE_SEEN = new Map();   // ticket uuid → last-seen lastMessageRole
+
+// Called by the realtime ticket.changed handler AFTER the list delta-sync has
+// updated TICKETS. Fires a transient toast for a newly-arrived customer reply
+// on a ticket assigned to me, unless I'm already viewing it.
+export function maybeToastNewResponse(ticketUuid) {
+  if (NOTIF_PREFS.response === false || !SESSION?.name) return;
+  const t = TICKETS.find((x) => x._uuid === ticketUuid);
+  if (!t) return;
+  const role = lastRoleOf(t);
+  const prev = RESPONSE_SEEN.get(ticketUuid);
+  RESPONSE_SEEN.set(ticketUuid, role);
+  if (role !== 'customer' || prev === 'customer') return;   // only the transition into customer-latest
+  if (!awaitingMyReply(t)) return;                          // assigned to me, open, not snoozed
+  refreshNotifBadge();                                      // reflect the new awaiting-reply item in the bell
+  if (t.id === CURRENT_TICKET) return;                      // already open on screen — the thread reload covers it
+  showToast(`💬 New reply on ${t.id} — ${t.subject}`, 'info', 6000, () => openTicket(t.id));
 }
 
 export function refreshNotifBadge() {
@@ -203,7 +246,7 @@ export function renderNotificationsPage() {
   const total = all.length;
   const unread = all.filter(n => !NOTIFICATIONS_READ.has(n.id)).length;
   const read = total - unread;
-  const types = { breach:0, escalated:0, gdpr:0, warn:0 };
+  const types = { breach:0, escalated:0, gdpr:0, warn:0, response:0 };
   all.forEach(n => { if (types[n.type] !== undefined) types[n.type]++; });
   const highPri = types.breach + types.escalated + types.gdpr;
 
@@ -248,6 +291,7 @@ export function renderNotificationsPage() {
           <option value="escalated" ${NOTIF_PAGE_FILTER_TYPE==='escalated'?'selected':''}>Escalated (${types.escalated})</option>
           <option value="gdpr"      ${NOTIF_PAGE_FILTER_TYPE==='gdpr'?'selected':''}>GDPR (${types.gdpr})</option>
           <option value="warn"      ${NOTIF_PAGE_FILTER_TYPE==='warn'?'selected':''}>SLA warning (${types.warn})</option>
+          <option value="response"  ${NOTIF_PAGE_FILTER_TYPE==='response'?'selected':''}>New responses (${types.response})</option>
         </select>
         <select class="filter-select" data-change-action="notif.setFilterRead">
           <option value="all"    ${NOTIF_PAGE_FILTER_READ==='all'?'selected':''}>All statuses</option>

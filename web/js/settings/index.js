@@ -492,6 +492,7 @@ function settingsNotifications() {
     {k:'warn',      l:'SLA warnings',  d:'Tickets approaching SLA breach'},
     {k:'wake',      l:'Snooze wake-ups', d:'Tickets that have come back from a snooze'},
     {k:'mention',   l:'@mentions',     d:'You were @-mentioned in an internal note'},
+    {k:'response',  l:'New customer responses', d:'A customer replied to a ticket assigned to you'},
   ];
   // Email preferences live server-side (per-user, on public.users).
   // Lazy-load on tab open + re-render once the fetch lands so the
