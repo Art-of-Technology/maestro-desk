@@ -152,44 +152,27 @@ export async function processInboundEmail(args: {
   const externalMessageId = extractMessageId(payload);
   const inReplyTo = extractInReplyTo(payload);
 
-  // 0a. Thread-attach — if In-Reply-To references a Message-Id we've seen
-  //     before (our own outbound or a prior customer message), attach this
-  //     email as a new customer message on the existing ticket instead of
-  //     creating a new one. Match against any role (customer + ai), since
-  //     replies to our auto-replies target our ai ticket_messages.
-  if (inReplyTo) {
-    const [t] = await sql<{ id: string; display_id: string; customer_id: string; deleted_at: string | null }[]>`
-      select t.id, t.display_id, t.customer_id, t.deleted_at
-      from ticket_messages tm
-      join tickets t on t.id = tm.ticket_id
-      where tm.workspace_id = ${workspaceId} and tm.external_message_id = ${inReplyTo} and tm.deleted_at is null
-      limit 1
-    `;
-    // Skip thread-attach if the parent ticket has been soft-deleted —
-    // fall through to normal create flow so the reply still surfaces.
-    if (t && !t.deleted_at) {
-      return await attachReplyToTicket({
-        workspaceId, ticketId: t.id, ticketDisplayId: t.display_id,
-        customerId: t.customer_id, body, name, email,
-        externalMessageId, payload,
-      });
-    }
-  }
+  // The thread-attach + dedup lookups below are intentionally
+  // WORKSPACE-AGNOSTIC. The webhook resolves a destination workspace from the
+  // To: domain, but replies routed through a shared inbound address (e.g.
+  // Postmark's `…@inbound.postmarkapp.com`, used when a brand has no verified
+  // sending domain) carry no brand in the recipient — domain resolution then
+  // falls back to the unrouted bucket. An RFC Message-ID is globally unique,
+  // so matching on it directly attaches the reply to the original ticket in
+  // its OWN workspace regardless of how the recipient resolved. Both lookups
+  // are backed by the ts_msg_external_id index (20260625120000).
 
-  // 0b. Dedup check — Postmark retries deliver the same payload multiple
-  //    times. Match by RFC Message-ID; if we already wrote a customer message
-  //    with this ID, return the existing ticket instead of creating a
-  //    duplicate. Skipped when Message-ID is missing (some senders omit it)
-  //    — those payloads can't be deduped and will produce a duplicate ticket
-  //    on retry. The partial unique index in 20260522130000 is defense-in-
-  //    depth against the concurrent-retry race; the application check below
-  //    avoids creating orphan tickets on the way to a 23505.
+  // 0a. Dedup — Postmark retries redeliver the same payload. If we've already
+  //     stored a customer message with this incoming RFC Message-ID, return
+  //     that ticket instead of creating/attaching a duplicate. Done BEFORE
+  //     thread-attach so a retried reply isn't appended to its parent twice.
+  //     Skipped when the sender omits Message-ID (can't be deduped).
   if (externalMessageId) {
     const [dup] = await sql<{ ticket_id: string; display_id: string; customer_id: string }[]>`
       select tm.ticket_id, t.display_id, t.customer_id
       from ticket_messages tm
       join tickets t on t.id = tm.ticket_id
-      where tm.workspace_id = ${workspaceId} and tm.role = 'customer'
+      where tm.role = 'customer'
         and tm.external_message_id = ${externalMessageId} and tm.deleted_at is null
       limit 1
     `;
@@ -203,6 +186,30 @@ export async function processInboundEmail(args: {
         deduped: true,
         threaded: false,
       };
+    }
+  }
+
+  // 0b. Thread-attach — if In-Reply-To references a Message-ID we sent (our
+  //     outbound agent reply / auto-reply) or a prior customer message, attach
+  //     this email onto THAT ticket — in its own workspace — instead of
+  //     creating a new one. Match against any role; skip a soft-deleted parent
+  //     ticket so the reply still surfaces via the normal create flow.
+  if (inReplyTo) {
+    const [t] = await sql<{ id: string; workspace_id: string; display_id: string; customer_id: string }[]>`
+      select t.id, t.workspace_id, t.display_id, t.customer_id
+      from ticket_messages tm
+      join tickets t on t.id = tm.ticket_id
+      where tm.external_message_id = ${inReplyTo}
+        and tm.deleted_at is null and t.deleted_at is null
+      order by tm.created_at desc
+      limit 1
+    `;
+    if (t) {
+      return await attachReplyToTicket({
+        workspaceId: t.workspace_id, ticketId: t.id, ticketDisplayId: t.display_id,
+        customerId: t.customer_id, body, name, email,
+        externalMessageId, payload,
+      });
     }
   }
 
