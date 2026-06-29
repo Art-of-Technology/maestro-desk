@@ -19,6 +19,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least-privilege default token. Neither job writes anything — no deploy, no
+# package push — so the read-only scope is sufficient (and the PR gate should
+# never run with a write-capable token).
+permissions:
+  contents: read
+
 jobs:
   guards:
     name: build + collision + smokes
@@ -36,6 +42,12 @@ jobs:
 
       - name: Bridge collision check
         run: bun scripts/bridge-collision-check.mjs
+
+      # Catches a module that READS a shared state/data binding without
+      # IMPORTING it — a bug the bundled smokes can't see (the bare name resolves
+      # in the single bundle scope) but native ESM throws on in production.
+      - name: Import-completeness audit
+        run: bun scripts/import-audit.mjs
 
       - name: Route smoke — every route renders
         run: |
