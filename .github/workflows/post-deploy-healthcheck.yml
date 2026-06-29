@@ -1,0 +1,101 @@
+name: Post-deploy health-check
+
+# After a push to main — which triggers Vercel to deploy the API + SPA and the
+# migrate workflow to apply Neon migrations, all in parallel and externally —
+# poll the live deployment until it is healthy, so a broken deploy or a DB /
+# connectivity failure surfaces HERE in Actions instead of via a user report.
+#
+# LIMITATION: the health endpoints carry no git-SHA marker, so this verifies the
+# API is UP and Neon is REACHABLE after the push — NOT that this exact commit is
+# live. It catches a hard-down deploy, a broken serverless function, or a
+# migration that breaks readiness; it cannot detect a stale-but-healthy deploy.
+# An initial delay lets a typical Vercel build land first so the probe is more
+# likely to reflect the new deployment.
+#
+# ROLLBACK is manual: promote the previous deployment in the Vercel dashboard
+# (or `vercel rollback`). See PROD_SETUP.md → Rollback.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Newest push supersedes an in-flight check (we only care about the latest deploy).
+concurrency:
+  group: post-deploy-healthcheck
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Interim Vercel hosts — maestro-desk.com is not yet registered (PROD_SETUP.md).
+  # Swap to https://api.maestro-desk.com / https://desk.maestro-desk.com once the
+  # custom domain is live; nothing else here changes.
+  API_BASE: https://maestro-desk-zjkl.vercel.app
+  SPA_BASE: https://maestro-desk-jodi-1420s-projects.vercel.app
+  INITIAL_DELAY_SECONDS: "30"
+  MAX_ATTEMPTS: "16"
+  SLEEP_SECONDS: "15"
+
+jobs:
+  healthcheck:
+    name: poll live deployment
+    runs-on: ubuntu-latest
+    # Worst case (both probes time out every attempt): 30 + 16×(10+10+15) ≈ 9.8 min,
+    # comfortably under 15 — so a hard-down deploy fails via the clean ::error::
+    # + rollback message below, not via a timeout kill.
+    timeout-minutes: 15
+    steps:
+      - name: Wait for the API + SPA to be healthy
+        run: |
+          set -u
+          echo "Giving the Vercel deploy ${INITIAL_DELAY_SECONDS}s to land before probing…"
+          sleep "$INITIAL_DELAY_SECONDS"
+
+          attempt=1
+          while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+            echo "── attempt ${attempt}/${MAX_ATTEMPTS} ──"
+            ok=1
+
+            # Liveness: GET /api/v1/health -> 200 {"ok":true,...}
+            live=$(curl -sS -m 10 -w '\n%{http_code}' "$API_BASE/api/v1/health" || true)
+            live_code=$(printf '%s' "$live" | tail -n1)
+            live_body=$(printf '%s' "$live" | sed '$d')
+            if [ "$live_code" = "200" ] && printf '%s' "$live_body" | grep -q '"ok":true'; then
+              echo "  liveness  OK   ($API_BASE/api/v1/health)"
+            else
+              echo "  liveness  WAIT (http ${live_code}: ${live_body})"; ok=0
+            fi
+
+            # Readiness: GET /api/v1/health/ready -> 200 {"ok":true,...} (Neon reachable)
+            ready=$(curl -sS -m 10 -w '\n%{http_code}' "$API_BASE/api/v1/health/ready" || true)
+            ready_code=$(printf '%s' "$ready" | tail -n1)
+            ready_body=$(printf '%s' "$ready" | sed '$d')
+            if [ "$ready_code" = "200" ] && printf '%s' "$ready_body" | grep -q '"ok":true'; then
+              echo "  readiness OK   ($API_BASE/api/v1/health/ready)"
+            else
+              echo "  readiness WAIT (http ${ready_code}: ${ready_body})"; ok=0
+            fi
+
+            if [ "$ok" = "1" ]; then
+              # SPA root — soft check: Vercel deployment protection can gate it, so
+              # warn on a non-200 but don't fail the job (the API is the hard gate).
+              spa_code=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "$SPA_BASE" || true)
+              if [ "$spa_code" = "200" ]; then
+                echo "  spa root  OK   ($SPA_BASE)"
+              else
+                echo "::warning::SPA root returned http ${spa_code} (soft check — not failing the job)"
+              fi
+              echo "✅ deployment healthy after ${attempt} attempt(s)."
+              exit 0
+            fi
+
+            attempt=$((attempt + 1))
+            sleep "$SLEEP_SECONDS"
+          done
+
+          echo "::error::Deployment did not become healthy within ~$((MAX_ATTEMPTS * SLEEP_SECONDS))s of probing."
+          echo "API: ${API_BASE}  SPA: ${SPA_BASE}"
+          echo "Rollback: promote the previous deployment in the Vercel dashboard (or 'vercel rollback'). See PROD_SETUP.md → Rollback."
+          exit 1
