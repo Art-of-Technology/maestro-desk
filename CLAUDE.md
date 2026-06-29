@@ -57,4 +57,11 @@ The database is **Neon Postgres**, accessed directly via `postgres.js` (`getDb()
 
 ## Workflow
 
-Feature branch per change, PR, then `/cem-pr-loop` (Octopus review) to a 4+/5 score before merge. When merging a stack, don't `--delete-branch` a PR that's still the base of another open PR (it auto-closes the child) — retarget children to `main` first.
+**Mandatory gates — every change passes these in order (don't skip ahead):**
+
+1. **Plan first.** Write an implementation plan before any edit; use plan mode (`EnterPlanMode`) for non-trivial work. No edits before a plan exists.
+2. **Validate the plan (twice).** Re-check the plan yourself first (adversarial pass: wrong assumptions, missing steps, simpler approach, blast radius), then get the requester's approval (`ExitPlanMode`). Execute only after approval.
+3. **Execute the approved plan.** If reality diverges mid-flight, stop, re-plan, and get approval again.
+4. **Validate the code before the PR.** Before `gh pr create`: run the CI gates above (build + bridge-collision + route smoke + detail smoke) **and** the import-completeness static audit (the smokes don't catch missing imports — see Gotchas), then run `/code-review` and resolve its findings. (On Jodi's machine a `PreToolUse` hook also forces this checkpoint.)
+
+**Branching & review.** Feature branch per change (`feat/…`, `fix/…`), PR, then `/cem-pr-loop` (Octopus review) to a 4+/5 score before merge. When merging a stack, don't `--delete-branch` a PR that's still the base of another open PR (it auto-closes the child) — retarget children to `main` first.
