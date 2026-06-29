@@ -38,11 +38,12 @@ bun scripts/full-smoke.js
 bun build scripts/detail-smoke-entry.js > scripts/detail-entry.bundled.js
 cat scripts/bridge-smoke-shim-prefix.js scripts/detail-entry.bundled.js scripts/detail-smoke-suffix.js > scripts/detail-smoke.js
 bun scripts/detail-smoke.js
+bun scripts/import-audit.mjs                               # 5. import-completeness (see Gotchas)
 ```
 
 ## Gotchas / safety nets
 
-- **The smokes bundle everything into one scope**, so a *missing cross-module import* still resolves there (bare ref → bundle top-level var) and neither `bun build` nor the smokes will catch it. **Production is native ESM**, where the same bare ref throws `ReferenceError`. After any import-migration work, verify import-completeness with a **static audit** (comment-stripped scan; path-flexible — `core/` files import `./state.js`, others `../core/state.js`; spread-aware so `[...FOO]` counts as a read).
+- **The smokes bundle everything into one scope**, so a *missing cross-module import* still resolves there (bare ref → bundle top-level var) and neither `bun build` nor the smokes will catch it. **Production is native ESM**, where the same bare ref throws `ReferenceError`. This is now scripted as **`bun scripts/import-audit.mjs`** (CI step 5, in `ci.yml`'s `guards` job): it derives the watched names live from `core/state.js` + `core/data.js`, then flags any module that reads one without importing it (comment/string/regex-stripped JS lexer that keeps template `${…}` interiors; dotted `obj.NAME`/`window.NAME` ignored; spread-aware). Scope is the state/data shared bindings only — it does **not** verify cross-feature-module function imports (a possible future extension).
 - **Adding a state/data global:** export it; add a `setX` setter only if it's *reassigned* anywhere (in-place mutation needs none); every consuming module must import it.
 - Bundling regex/script tip: `git ls-files web/js` (not a `**` pathspec); use `String.raw` for regex in scripts (template literals eat `\w`/`\b`); files are CRLF — make literal-replacement scripts EOL-aware.
 
