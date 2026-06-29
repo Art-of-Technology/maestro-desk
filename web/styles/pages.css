@@ -65,6 +65,20 @@
 .ai-followups{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 12px}
 .ai-followup{padding:6px 12px;border:1px solid var(--rule);border-radius:var(--r);font-size:12px;color:var(--ink2);background:var(--off);cursor:pointer;transition:all .15s}
 .ai-followup:hover{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
+/* ── Configuration hub ── */
+.confighub-subtitle{font-size:11px;color:var(--ink3);font-style:italic}
+.confighub-group{margin-bottom:26px}
+.confighub-group-title{font-family:'Inter',sans-serif;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:10px}
+.confighub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.confighub-card{display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--off);cursor:pointer;transition:all .15s}
+.confighub-card:hover{border-color:var(--purple);background:var(--purple-lt)}
+.confighub-icon{width:18px;height:18px;flex-shrink:0;color:var(--ink2)}
+.confighub-card:hover .confighub-icon{color:var(--purple)}
+.confighub-body{flex:1;min-width:0}
+.confighub-label{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:3px}
+.confighub-summary{font-size:11px;color:var(--ink3);line-height:1.45}
+.confighub-chev{width:13px;height:13px;flex-shrink:0;color:var(--ink3);opacity:0;transition:opacity .15s}
+.confighub-card:hover .confighub-chev{opacity:1;color:var(--purple)}
 /* ── Help & Support ── */
 .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .help-quickstart{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}

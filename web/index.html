@@ -157,68 +157,12 @@
           <span class="sb-lbl">Customer Portal</span>
         </div>
       </div>
+      <!-- Config moved behind the top-bar settings cog → Configuration hub
+           (web/js/config-hub/index.js). Only the platform-admin God view
+           stays in the sidebar, since it's a platform tool, not workspace
+           config. nav-roles lives in the hub now; its legacy callers guard
+           for the missing element. -->
       <div class="sb-section">
-        <div class="sb-heading">Config</div>
-        <div class="sb-item" data-action="app.nav" data-page="sla">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 3.5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="sb-lbl">SLA Policies</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="business-hours">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="2.5" width="10" height="9" rx="1" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 5.5h10M4 1.5v2M9 1.5v2M3.5 8h2M7.5 8h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Business Hours</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="assignment-rules">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="3.5" cy="3.5" r="1.5" stroke="currentColor" stroke-width="1.1"/><circle cx="9.5" cy="3.5" r="1.5" stroke="currentColor" stroke-width="1.1"/><circle cx="6.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.1"/><path d="M3.5 5v1.5L6.5 8M9.5 5v1.5L6.5 8" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Assignment Rules</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="csat">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M6.5 1.8l1.45 2.94 3.25.47-2.35 2.29.55 3.23L6.5 9.2 3.6 10.73l.55-3.23-2.35-2.29 3.25-.47z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
-          <span class="sb-lbl">CSAT Surveys</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="templates">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="2" y="1.5" width="9" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M4 4.5h5M4 6.5h5M4 8.5h3" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Templates</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="macros">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M6.5 1.5l-3 5h2.5l-1 4.5 4-5.5h-2.5l1-4z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
-          <span class="sb-lbl">Macros</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="ticket-templates">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="2.5" width="10" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 4.5h10M3.5 7h6M3.5 8.5h4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Ticket Templates</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="custom-fields">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="3" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="7.5" width="10" height="3" rx=".7" stroke="currentColor" stroke-width="1.2"/><circle cx="3.5" cy="4.5" r=".7" fill="currentColor"/><circle cx="3.5" cy="9" r=".7" fill="currentColor"/></svg>
-          <span class="sb-lbl">Custom Fields</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="layouts">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1.5" y="1.5" width="4" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/><rect x="7.5" y="1.5" width="4" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/><rect x="1.5" y="7.5" width="10" height="4" rx=".7" stroke="currentColor" stroke-width="1.1"/></svg>
-          <span class="sb-lbl">Layouts</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="channels">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 4.5h10v6h-10z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M1.5 4.5l5 4 5-4" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="11" cy="3" r="1.5" fill="currentColor"/></svg>
-          <span class="sb-lbl">Channels</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="webhooks">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M3 3.5l4 4 4-4M3 9.5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="sb-lbl">Webhooks</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="tags">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M1.5 6.5L6.5 1.5h4v4L5.5 11.5l-4-4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="9" cy="4" r="1" fill="currentColor"/></svg>
-          <span class="sb-lbl">Tags</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="roles" id="nav-roles">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4 4h5M4 6.5h3M4 9h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Roles & Perms</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="settings">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="1.8" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 1.5v1.5M6.5 10v1.5M11.5 6.5h-1.5M3 6.5h-1.5M9.6 9.6l-1.1-1.1M4.5 4.5l-1.1-1.1M9.6 3.4l-1.1 1.1M4.5 8.5l-1.1 1.1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
-          <span class="sb-lbl">Settings</span>
-        </div>
-        <div class="sb-item" data-action="app.nav" data-page="help">
-          <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5.2c0-1 .7-1.7 1.6-1.7s1.6.7 1.6 1.6c0 .9-1.6 1-1.6 2.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6.5" cy="9.5" r=".7" fill="currentColor"/></svg>
-          <span class="sb-lbl">Help & Support</span>
-        </div>
         <div class="sb-item" data-action="app.nav" data-page="god" id="nav-god" style="display:none">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><path d="M6.5 1.5l5 2v4c0 2.5-2 4.5-5 5.5C3.5 12 1.5 10 1.5 7.5v-4l5-2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M4.5 6.5l1.5 1.5L9 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="sb-lbl">Platform · Brands</span>
@@ -241,6 +185,9 @@
         <div class="gs-results" id="gs-results"></div>
       </div>
       <div class="gs-actions">
+        <button class="cog-btn" id="cog-btn" data-action="app.config" title="Settings &amp; configuration">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="2.1" stroke="currentColor" stroke-width="1.3"/><path d="M7.5 1.4v1.7M7.5 11.9v1.7M13.6 7.5h-1.7M3.1 7.5H1.4M11.81 3.19l-1.2 1.2M4.39 10.61l-1.2 1.2M11.81 11.81l-1.2-1.2M4.39 4.39l-1.2-1.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
         <div class="notif-wrap">
           <button class="notif-btn" id="notif-btn" data-action="notif.toggle" title="Notifications">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 6a4 4 0 1 1 8 0c0 3 1 4.5 1 4.5H2s1-1.5 1-4.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M5.5 11.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>

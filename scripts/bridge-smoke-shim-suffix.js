@@ -16,6 +16,7 @@ const _routes = [
   'notifications', 'profile', 'layouts', 'custom-fields',
   'ticket-templates', 'kb-integration', 'business-hours',
   'sla-policies', 'assignment-rules', 'templates', 'macros',
+  'config',
 ];
 
 let _failed = 0;

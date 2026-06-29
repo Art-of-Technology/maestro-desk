@@ -61,6 +61,9 @@
 /* ── Notifications ── */
 .gs-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
 .notif-wrap{position:relative}
+.cog-btn{background:transparent;border:1px solid var(--rule);border-radius:var(--r);padding:6px 9px;cursor:pointer;color:var(--ink2);transition:all .15s;display:flex;align-items:center;justify-content:center}
+.cog-btn:hover{border-color:var(--purple);color:var(--purple)}
+.cog-btn.active{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
 .notif-btn{position:relative;background:transparent;border:1px solid var(--rule);border-radius:var(--r);padding:6px 9px;cursor:pointer;color:var(--ink2);transition:all .15s;display:flex;align-items:center;justify-content:center}
 .notif-btn:hover{border-color:var(--purple);color:var(--purple)}
 .notif-btn.active{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}

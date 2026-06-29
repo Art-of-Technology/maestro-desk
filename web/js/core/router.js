@@ -44,6 +44,7 @@ import { renderSearchResults } from '../global-search/index.js';
 import { renderChannels } from '../channels/index.js';
 import { renderWebhooks } from '../webhooks/index.js';
 import { renderSettings } from '../settings/index.js';
+import { renderConfigHub } from '../config-hub/index.js';
 import { renderHelp } from '../help/index.js';
 import { renderNotificationsPage, refreshNotifBadge } from '../notifications/index.js';
 import { renderProfile } from '../profile/index.js';
@@ -53,6 +54,9 @@ import { stopPresence } from './presence.js';
 
 export function nav(page, el) {
   document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+  // The top-bar config cog manages its own active state (set in app.config);
+  // any sidebar/card navigation clears it so it doesn't stay visually pressed.
+  document.getElementById('cog-btn')?.classList.remove('active');
   if (el) el.classList.add('active');
   renderPage(page);
 }
@@ -97,6 +101,7 @@ export function renderPage(page) {
     channels:      renderChannels,
     webhooks:      renderWebhooks,
     settings:      renderSettings,
+    config:        renderConfigHub,
     help:          renderHelp,
     notifications: renderNotificationsPage,
     profile:       renderProfile,
