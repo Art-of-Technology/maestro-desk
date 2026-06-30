@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { putObject, listKeys, deleteKeys, publicUrl } from '../lib/r2.js';
+import { sniffImageMime } from '../lib/image-sniff.js';
 
 // Migration to Neon — Step 3 (DB access on getDb(), admin gate via
 // requireWorkspaceAdmin) + Step 4 (POST /branding/logo now stores the file in
@@ -43,8 +44,12 @@ const SettingsBody = z.object({
 }).strict();
 
 // ─── POST /branding/logo — admin; Cloudflare R2 upload (Step 4) ───────────
-const ALLOWED_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
-const MAX_BYTES    = 2 * 1024 * 1024;
+// SVG is intentionally NOT allowed: it's active content (can carry <script>),
+// and logos are served inline from the public R2 origin, so an SVG logo would
+// be a stored-XSS vector. We also verify the file's MAGIC BYTES rather than the
+// client-declared MIME, so a mislabeled payload can't be smuggled in (#6/#7).
+const extByMime: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+const MAX_BYTES = 2 * 1024 * 1024;
 
 workspace.post('/branding/logo', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
@@ -58,15 +63,17 @@ workspace.post('/branding/logo', async (c) => {
   if (!file || typeof file === 'string') return c.json({ error: 'Missing file part' }, 400);
   if (file.size === 0) return c.json({ error: 'Empty file' }, 400);
   if (file.size > MAX_BYTES) return c.json({ error: `File too large; max ${MAX_BYTES} bytes` }, 400);
-  if (!ALLOWED_MIME.has(file.type)) return c.json({ error: `Unsupported MIME type: ${file.type}` }, 400);
 
-  const extByMime: Record<string, string> = {
-    'image/png': 'png', 'image/jpeg': 'jpg', 'image/svg+xml': 'svg', 'image/webp': 'webp',
-  };
-  const key = `${workspaceId}/logo-${Date.now()}.${extByMime[file.type]}`;
+  // Trust the bytes, not file.type. Reject anything that isn't a real PNG/JPEG/WebP.
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const mime = sniffImageMime(bytes);
+  if (!mime) return c.json({ error: 'Unsupported or mismatched image type (PNG, JPEG, or WebP only)' }, 400);
+
+  // Random segment in the key so logo URLs aren't guessable/enumerable and two
+  // uploads in the same millisecond can't collide (#19).
+  const key = `${workspaceId}/logo-${Date.now()}-${crypto.randomUUID()}.${extByMime[mime]}`;
   try {
-    await putObject(key, bytes, file.type);
+    await putObject(key, bytes, mime);
   } catch (err) {
     // Log the detail server-side (it can include the R2/S3 error body, which
     // may echo signing internals); return a generic message to the client.
