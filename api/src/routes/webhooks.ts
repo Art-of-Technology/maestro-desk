@@ -121,21 +121,28 @@ webhooks.post('/slack/events', async (c) => {
   const teamId = payload.team_id;
   if (!teamId) return c.json({ error: 'Missing team_id' }, 400);
 
-  // Lookup the integration row by team_id. The team_id is stable per
-  // Slack workspace, so we use it as the join key into our
-  // slack_integrations table. We don't store team_id explicitly yet —
-  // the migration adds it implicitly via the first chat.postMessage
-  // response. Until that happens, scan by signing_secret presence and
-  // attempt to verify against each.
-  //
-  // For now: pick the integration whose signing_secret verifies. This
-  // is O(workspaces-with-slack-configured); fine at hundreds, would
-  // need a team_id column for tens of thousands.
-  const candidates = await getDb()<{ workspace_id: string; signing_secret: string | null; bot_token: string | null; active: boolean }[]>`
-    select workspace_id, signing_secret, bot_token, active
+  // Pick the candidate integration(s) by team_id (stable per Slack workspace),
+  // then verify the HMAC signature against the candidate's signing_secret.
+  // Fast path: the row already tagged with this team_id → O(1) indexed read.
+  // Cache miss (first event for this team, or the team changed): fall back to
+  // the full active scan — same cost as before, but only on a miss — and
+  // re-tag the matched row so subsequent events are O(1). team_id is only a
+  // routing hint; the signature check below remains the real authority.
+  const sql = getDb();
+  type IntegrationRow = { workspace_id: string; signing_secret: string | null; bot_token: string | null };
+  let candidates = await sql<IntegrationRow[]>`
+    select workspace_id, signing_secret, bot_token
     from slack_integrations
-    where signing_secret is not null and active = true
+    where team_id = ${teamId} and signing_secret is not null and active = true
   `;
+  const needsBackfill = candidates.length === 0;
+  if (needsBackfill) {
+    candidates = await sql<IntegrationRow[]>`
+      select workspace_id, signing_secret, bot_token
+      from slack_integrations
+      where signing_secret is not null and active = true
+    `;
+  }
 
   const signature = c.req.header('x-slack-signature') || null;
   const timestamp = c.req.header('x-slack-request-timestamp') || null;
@@ -151,6 +158,19 @@ webhooks.post('/slack/events', async (c) => {
   if (!verified) {
     console.warn('[slack-events] signature did not match any workspace');
     throw new HTTPException(401, { message: 'Bad signature' });
+  }
+
+  // Self-healing backfill: tag (or re-tag) the matched row with this team_id so
+  // future events hit the O(1) fast path. Covers both an untagged row and a
+  // workspace that re-pointed to a different Slack team. Best-effort: the event
+  // is already verified, so a tagging hiccup must not fail it (we'd just take
+  // the fallback scan again next time).
+  if (needsBackfill) {
+    try {
+      await sql`update slack_integrations set team_id = ${teamId} where workspace_id = ${verified.workspace_id}`;
+    } catch (err) {
+      console.warn('[slack-events] team_id backfill failed:', err instanceof Error ? err.message : err);
+    }
   }
 
   try {
