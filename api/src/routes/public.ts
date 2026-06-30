@@ -525,7 +525,7 @@ publicRoutes.get('/:slug/csat/:token', async (c) => {
     select t.display_id, t.subject, t.csat_score, t.csat_submitted_at, c.first_name as customer_first_name
     from tickets t left join customers c on c.id = t.customer_id
     where t.workspace_id = ${ws.id} and t.csat_token = ${token} and t.deleted_at is null
-      and t.csat_requested_at > now() - (${CSAT_TOKEN_TTL_DAYS} || ' days')::interval
+      and t.csat_requested_at > now() - make_interval(days => ${CSAT_TOKEN_TTL_DAYS})
   `;
   if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
   return c.json({
@@ -563,7 +563,7 @@ publicRoutes.post('/:slug/csat/:token', async (c) => {
   const [ticket] = await sql<{ id: string; csat_submitted_at: string | null }[]>`
     select id, csat_submitted_at from tickets
     where workspace_id = ${ws.id} and csat_token = ${token} and deleted_at is null
-      and csat_requested_at > now() - (${CSAT_TOKEN_TTL_DAYS} || ' days')::interval
+      and csat_requested_at > now() - make_interval(days => ${CSAT_TOKEN_TTL_DAYS})
   `;
   if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
   if (ticket.csat_submitted_at) {
