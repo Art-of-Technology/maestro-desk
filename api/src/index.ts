@@ -8,6 +8,7 @@ import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 import { env } from './lib/env.js';
 import { auth } from './lib/auth.js';
+import { authRateLimit } from './lib/auth-rate-limit.js';
 import { health } from './routes/health.js';
 import { me } from './routes/me.js';
 import { workspace } from './routes/workspace.js';
@@ -88,6 +89,9 @@ app.use('*', cors({
 // Better Auth handler (migration to Neon — Step 2). Serves sign-in, session,
 // and account endpoints under /api/auth/*. Mounted before the v1 routes; the
 // v1 auth middleware will verify Better Auth sessions once the cutover lands.
+// authRateLimit runs first to throttle the credential / reset-email POSTs
+// (brute-force + reset-bombing protection — advisory #5).
+app.use('/api/auth/*', authRateLimit);
 app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
 
 app.route('/api/v1/health', health);
