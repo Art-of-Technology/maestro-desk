@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
+import { assertSafeWebhookUrl } from '../lib/ssrf.js';
 
-// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
+// Migration to Neon — Step 3. Workspace-scoped via getDb(). Listing (GET) is
+// member-level (reads expose only a token suffix + non-secret config), but all
+// WRITES are admin-only via requireWorkspaceAdmin: integration config is an
+// admin surface, and an unguarded write lets a non-admin repoint a webhook URL
+// (exfiltrating customer payloads), rotate secrets, or wipe integrations.
 export const integrations = new Hono();
 
 integrations.use('*', requireAuth);
@@ -49,6 +55,9 @@ integrations.get('/slack', async (c) => {
 });
 
 integrations.put('/slack', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
@@ -71,6 +80,9 @@ integrations.put('/slack', async (c) => {
 });
 
 integrations.delete('/slack', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   await sql`delete from slack_integrations where workspace_id = ${workspaceId}`;
@@ -99,11 +111,20 @@ integrations.get('/webhooks', async (c) => {
 });
 
 integrations.post('/webhooks', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const reqBody = await c.req.json().catch(() => null);
   const parsed = WebhookBody.safeParse(reqBody);
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+
+  try {
+    await assertSafeWebhookUrl(parsed.data.url);
+  } catch {
+    return c.json({ error: 'URL resolves to a disallowed (private/internal) address' }, 400);
+  }
 
   const secret = generateWebhookSecret();
   const [data] = await sql`
@@ -124,6 +145,9 @@ const PatchWebhookBody = z.object({
 }).strict();
 
 integrations.patch('/webhooks/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -133,6 +157,14 @@ integrations.patch('/webhooks/:id', async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const { rotate_secret, ...fields } = parsed.data;
   if (Object.keys(fields).length === 0 && !rotate_secret) return c.json({ error: 'No fields to update' }, 400);
+
+  if (fields.url !== undefined) {
+    try {
+      await assertSafeWebhookUrl(fields.url);
+    } catch {
+      return c.json({ error: 'URL resolves to a disallowed (private/internal) address' }, 400);
+    }
+  }
 
   const updates: Record<string, unknown> = { ...fields };
   let revealedSecret: string | null = null;
@@ -151,6 +183,9 @@ integrations.patch('/webhooks/:id', async (c) => {
 });
 
 integrations.delete('/webhooks/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -173,6 +208,9 @@ integrations.get('/webhooks/:id/deliveries', async (c) => {
 });
 
 integrations.post('/webhooks/:id/deliveries/:deliveryId/retry', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const webhookId = c.req.param('id');
@@ -210,6 +248,9 @@ integrations.get('/postmark/suppressed', async (c) => {
 });
 
 integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('customerId');

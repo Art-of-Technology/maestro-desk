@@ -201,4 +201,45 @@ runDbTests('tenant isolation (DB-backed)', () => {
     });
     expect(patched.status).toBe(200);
   });
+
+  // ─── Integration management is admin-only (GHSA-6qq2-v492-r8r6 #2) ───────
+  // A non-admin must not be able to create/repoint outgoing webhooks (which
+  // would exfiltrate ticket payloads) or write the Slack integration.
+  it('non-admin member cannot create an outgoing webhook (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'evil', url: 'https://example.com/hook', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('non-admin member cannot write the Slack integration (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com/services/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an outgoing webhook (201)', async () => {
+    // Literal public IP keeps this hermetic — net.isIP short-circuits the SSRF
+    // guard before any dns.lookup, so the test needs no network.
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `hook-${RUN}`, url: 'https://1.1.1.1/hook', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects an outgoing webhook URL that resolves to an internal address (400)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `ssrf-${RUN}`, url: 'http://169.254.169.254/latest/meta-data/', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(400);
+  });
 });
