@@ -242,4 +242,49 @@ runDbTests('tenant isolation (DB-backed)', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // ─── SLA policy + assignment-rule writes are admin-only (#9/#10) ─────────
+  it('non-admin member cannot create an SLA policy (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/sla-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `sla-${RUN}`, priority_key: 'normal', first_response_min: 30, resolution_min: 120 }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an SLA policy (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/sla-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `sla-${RUN}`, priority_key: 'normal', first_response_min: 30, resolution_min: 120 }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('non-admin member cannot create an assignment rule (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/assign-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `rule-${RUN}`, priority: 1,
+        conditions: { priority: 'any', category: 'any', vip: 'any' },
+        assignment: { mode: 'round-robin', team_user_ids: [A.userId] },
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an assignment rule (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/assign-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `rule-${RUN}`, priority: 1,
+        conditions: { priority: 'any', category: 'any', vip: 'any' },
+        assignment: { mode: 'round-robin', team_user_ids: [A.userId] },
+      }),
+    });
+    expect(res.status).toBe(201);
+  });
 });

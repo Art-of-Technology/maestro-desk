@@ -4,6 +4,7 @@ import { captureException, flushSentry } from './lib/instrument.js';
 import { sendOpsAlert } from './lib/alert.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
 import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 import { env } from './lib/env.js';
@@ -84,6 +85,28 @@ app.use('*', cors({
   },
   allowHeaders: ['Authorization', 'Content-Type', 'X-Workspace-Id', 'X-Brand-Id'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+}));
+
+// Security headers (advisory #8). nosniff + frame-deny + HSTS + a tight CSP.
+// The only HTML this API serves is the unsubscribe page (inline styles, no
+// scripts), so `default-src 'none'` + inline styles is safe; every other
+// response is JSON (CSP is inert on fetched JSON). The cross-origin isolation
+// headers (CORP/COEP/COOP) are DISABLED so they can't constrain the
+// deliberately CORS-open white-label portal API (/api/v1/public/*).
+app.use('*', secureHeaders({
+  xFrameOptions: 'DENY',
+  xContentTypeOptions: 'nosniff',
+  referrerPolicy: 'no-referrer',
+  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+  contentSecurityPolicy: {
+    defaultSrc: ["'none'"],
+    styleSrc: ["'unsafe-inline'"],
+    frameAncestors: ["'none'"],
+    baseUri: ["'none'"],
+  },
+  crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
 }));
 
 // Better Auth handler (migration to Neon — Step 2). Serves sign-in, session,
