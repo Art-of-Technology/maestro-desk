@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
@@ -40,21 +41,62 @@ export type PostmarkInbound = z.infer<typeof PostmarkInbound>;
 
 // ─── Authentication ──────────────────────────────────────────────────────
 //
-// Webhook URL pattern: https://<host>/api/v1/webhooks/postmark/inbound?secret=<value>
+// The shared secret may arrive via (preferred → fallback):
+//   1. Authorization: Bearer <secret>
+//   2. Authorization: Basic base64(user:<secret>)   ← Postmark HTTP Basic Auth
+//   3. ?secret=<secret>  (DEPRECATED — leaks into access/proxy/referrer logs
+//      and Postmark's UI; kept only so the live config keeps working)
 //
-// Postmark's URL validator rejects the older `user:pass@host` Basic Auth
-// pattern, and base64 secrets in the password slot often contain `/`, `+`,
-// `=` which break URL parsing anyway. A query-string secret is cleaner and
-// works through proxies that strip embedded credentials for security.
+// Compared in constant time. Reconfigure the Postmark inbound + bounce
+// webhooks to send the secret via HTTP Basic Auth (password slot), then a
+// follow-up can drop the query fallback so the secret never rides in a URL.
 //
-// Production should add HMAC signature verification on top — see Postmark's
-// "Webhook Signature" feature. Deferred.
+// Postmark inbound carries no HMAC/timestamp signature, so body-signature
+// verification and replay protection are not available — the secret is the
+// credential. (Documented residual.)
+
+function safeEqual(a: string, expected: string): boolean {
+  const ab = Buffer.from(a);
+  const eb = Buffer.from(expected);
+  // Differing lengths can't be equal; the secret's length is not itself secret,
+  // and timingSafeEqual throws on unequal-length buffers.
+  if (ab.length !== eb.length) return false;
+  return timingSafeEqual(ab, eb);
+}
+
+// Every place the secret might be presented. Collected (rather than
+// short-circuited on the header) so a stray/wrong Authorization header can't
+// shadow a valid query secret.
+function candidateSecrets(c: Context): string[] {
+  const out: string[] = [];
+  const auth = c.req.header('authorization');
+  if (auth) {
+    const sp = auth.indexOf(' ');
+    const scheme = (sp === -1 ? auth : auth.slice(0, sp)).toLowerCase();
+    const value = sp === -1 ? '' : auth.slice(sp + 1).trim();
+    if (scheme === 'bearer' && value) {
+      out.push(value);
+    } else if (scheme === 'basic' && value) {
+      try {
+        const decoded = Buffer.from(value, 'base64').toString('utf8');
+        const colon = decoded.indexOf(':');
+        out.push(colon === -1 ? decoded : decoded.slice(colon + 1)); // password slot
+      } catch {
+        // malformed base64 — ignore, fall through to other candidates
+      }
+    }
+  }
+  const q = c.req.query('secret');
+  if (q) out.push(q);
+  return out;
+}
 
 export function assertPostmarkAuth(c: Context): void {
-  const secret = c.req.query('secret');
-  if (!secret || secret !== env.POSTMARK_INBOUND_SECRET) {
-    throw new HTTPException(401, { message: 'Bad or missing webhook secret' });
+  const expected = env.POSTMARK_INBOUND_SECRET;
+  for (const candidate of candidateSecrets(c)) {
+    if (safeEqual(candidate, expected)) return;
   }
+  throw new HTTPException(401, { message: 'Bad or missing webhook credentials' });
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
