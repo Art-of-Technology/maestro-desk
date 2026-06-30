@@ -118,7 +118,10 @@ export async function assertSafeWebhookUrl(raw: string): Promise<void> {
     throw new Error(`Disallowed URL scheme: ${url.protocol}`);
   }
 
-  const host = url.hostname;
+  // url.hostname keeps the brackets for an IPv6 literal ([::1]); strip them so
+  // net.isIP recognises it and we take the deterministic literal-IP branch
+  // instead of falling through to a (resolver-dependent) dns.lookup.
+  const host = url.hostname.replace(/^\[(.+)\]$/, '$1');
   // A literal IP host is checked directly; a name is resolved (all records).
   if (net.isIP(host) !== 0) {
     if (isBlockedAddress(host)) throw new Error('URL host is a private or internal address');
