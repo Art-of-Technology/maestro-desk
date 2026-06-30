@@ -40,23 +40,22 @@ function rejects(c: Context) {
 }
 
 describe('assertPostmarkAuth', () => {
-  it('accepts a valid ?secret= query (back-compat)', () => accepts(ctx({ query: SECRET })));
   it('accepts a valid Bearer token', () => accepts(ctx({ auth: `Bearer ${SECRET}` })));
   it('accepts valid Basic auth (secret in password slot)', () => accepts(ctx({ auth: basic('postmark', SECRET) })));
 
-  it('rejects a wrong query secret', () => rejects(ctx({ query: 'nope-nope-nope-123' })));
   it('rejects when nothing is provided', () => rejects(ctx({})));
   it('rejects a wrong Bearer token', () => rejects(ctx({ auth: 'Bearer wrong-secret-000000' })));
+  it('rejects a wrong Basic password', () => rejects(ctx({ auth: basic('postmark', 'wrong-secret-000000') })));
 
-  it('a wrong Authorization header does not shadow a valid query secret', () =>
-    accepts(ctx({ auth: 'Bearer totally-wrong-00000', query: SECRET })));
+  // The URL ?secret= query is no longer accepted — the secret must ride in the
+  // Authorization header, never the URL.
+  it('rejects a ?secret= query, even with the correct value', () => rejects(ctx({ query: SECRET })));
 
-  it('rejects a same-length-but-different secret (compare is real, not length-only)', () => {
+  it('rejects a same-length-but-different Basic password (real compare, not length-only)', () => {
     const sameLen = 'x'.repeat(SECRET.length);
     expect(sameLen.length).toBe(SECRET.length);
-    rejects(ctx({ query: sameLen }));
+    rejects(ctx({ auth: basic('postmark', sameLen) }));
   });
 
-  it('rejects a malformed Basic header but still honours a valid query', () =>
-    accepts(ctx({ auth: 'Basic !!!not-base64!!!', query: SECRET })));
+  it('rejects a malformed Basic header', () => rejects(ctx({ auth: 'Basic !!!not-base64!!!' })));
 });

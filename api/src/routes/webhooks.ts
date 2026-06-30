@@ -12,7 +12,7 @@ export const webhooks = new Hono();
 // POST /api/v1/webhooks/postmark/inbound
 //
 // Postmark POSTs an inbound email here. We:
-//   1. Validate the webhook secret (in the URL query string).
+//   1. Validate the webhook secret (HTTP Basic Auth header; see assertPostmarkAuth).
 //   2. Parse the JSON payload with Zod.
 //   3. Resolve the destination workspace from the To: domain — match
 //      against workspace_email_domains, else fall back to the system

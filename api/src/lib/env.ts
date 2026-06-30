@@ -22,9 +22,11 @@ const Env = z.object({
   // the local static server; set to https://desk.maestro-desk.com in prod.
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   ANTHROPIC_API_KEY: z.string().min(20),
-  // Secret Postmark passes as a query string on the inbound webhook URL:
-  // https://<tunnel-host>/api/v1/webhooks/postmark/inbound?secret=<value>
-  // (URL-embedded Basic Auth is rejected by Postmark's URL validator.)
+  // Shared secret for the Postmark inbound + bounce webhooks, sent via HTTP
+  // Basic Auth (the password slot) — configure the webhook URL as
+  // https://postmark:<value>@<host>/api/v1/webhooks/postmark/inbound. The
+  // secret rides in the Authorization header, never the URL query; the old
+  // ?secret= form is no longer accepted (see lib/postmark.ts).
   POSTMARK_INBOUND_SECRET: z.string().min(16),
   // Outbound — Server API Token from Postmark (Settings → API Tokens).
   // Verified sender address (Sender Signatures or domain-verified).
