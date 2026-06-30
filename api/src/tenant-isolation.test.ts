@@ -287,4 +287,51 @@ runDbTests('tenant isolation (DB-backed)', () => {
     });
     expect(res.status).toBe(201);
   });
+
+  // ─── #16: ticket create must not reference another workspace's customer ──
+  it('cannot create a ticket referencing another workspace\'s customer (404)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'x-tenant', customer_id: B.customerId }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('can create a ticket with its own workspace customer (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'same-tenant', customer_id: A.customerId }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  // ─── #24: Slack webhook_url must be exactly hooks.slack.com (no look-alike) ─
+  it('rejects a look-alike Slack webhook host (400)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com.evil.com/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts a genuine hooks.slack.com webhook (ok)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com/services/T/B/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // ─── #18: readiness probe must not leak the platform tenant count ────────
+  it('readiness probe does not expose the workspace count', async () => {
+    const res = await app.request('/api/v1/health/ready');
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.workspaces).toBeUndefined();
+  });
 });

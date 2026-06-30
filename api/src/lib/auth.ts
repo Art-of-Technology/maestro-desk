@@ -65,6 +65,10 @@ export const auth = betterAuth({
   trustedOrigins: [env.APP_BASE_URL, env.BETTER_AUTH_URL],
   emailAndPassword: {
     enabled: true,
+    // Require a reasonably strong password for agent/admin accounts (advisory
+    // #23). We do NOT set requireEmailVerification: invited agents are created
+    // email-first and never verify, so requiring it would lock them out.
+    minPasswordLength: 12,
     // Emailed when a user requests (or is sent) a password reset — the only
     // way invited agents/owners set their first password (no password carried
     // over from Supabase). We bypass Better Auth's default reset URL and link

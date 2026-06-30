@@ -65,12 +65,12 @@ webhooks.post('/postmark/inbound', async (c) => {
     const routing = resolution.routed ? `matched ${resolution.matchedDomain}` : 'UNROUTED';
     const dest = `workspace ${resolution.workspaceId} (${routing})`;
     if (result.deduped) {
-      console.log(`[postmark] inbound to ${to?.email ?? '(unknown)'} → ${dest} → DEDUPED to existing ticket ${result.ticket_display_id}`);
+      console.log(`[postmark] inbound → ${dest} → DEDUPED to existing ticket ${result.ticket_display_id}`);
     } else if (result.threaded) {
-      console.log(`[postmark] inbound to ${to?.email ?? '(unknown)'} → ${dest} → THREADED reply on ticket ${result.ticket_display_id}`);
+      console.log(`[postmark] inbound → ${dest} → THREADED reply on ticket ${result.ticket_display_id}`);
     } else {
       console.log(
-        `[postmark] inbound to ${to?.email ?? '(unknown)'} → ${dest} ` +
+        `[postmark] inbound → ${dest} ` +
           `→ ticket ${result.ticket_display_id} (new_customer=${result.is_new_customer}, auto_triage=${result.auto_triage_queued})`,
       );
     }

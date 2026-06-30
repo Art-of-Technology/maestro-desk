@@ -922,6 +922,14 @@ tickets.post('/', async (c) => {
   }
   const input = parsed.data;
 
+  // Confirm the customer belongs to this workspace — never insert a ticket that
+  // references another workspace's customer (advisory #16).
+  const [customer] = await sql`
+    select 1 from customers
+    where id = ${input.customer_id} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!customer) return c.json({ error: 'Customer not found' }, 404);
+
   const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 
   const [ticket] = await sql<{ id: string; display_id: string }[]>`

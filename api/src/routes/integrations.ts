@@ -27,7 +27,10 @@ function upsertByWorkspace(sql: ReturnType<typeof getDb>, table: IntegrationTabl
 const EVENT_NAMES = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
 
 const SlackBody = z.object({
-  webhook_url:    z.string().url().startsWith('https://hooks.slack.com/'),
+  webhook_url:    z.string().url().refine(
+    (u) => { try { const p = new URL(u); return p.protocol === 'https:' && p.host === 'hooks.slack.com'; } catch { return false; } },
+    'must be a https://hooks.slack.com/ URL',
+  ),
   channel:        z.string().max(80).nullable().optional(),
   active:         z.boolean().optional(),
   events:         z.array(z.enum(EVENT_NAMES)).min(1).max(EVENT_NAMES.length),

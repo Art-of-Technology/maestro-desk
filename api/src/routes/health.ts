@@ -13,10 +13,11 @@ health.get('/', (c) => c.json({ ok: true, ts: new Date().toISOString() }));
 async function neonReadiness(c: Context) {
   try {
     const sql = getDb();
-    const [{ count }] = await sql<{ count: number }[]>`
-      select count(*)::int from workspaces
-    `;
-    return c.json({ ok: true, db: 'neon', workspaces: count });
+    // Touch a workspace-scoped table to prove the schema is present, but do NOT
+    // return the platform-wide tenant count — that's a business-metric leak to
+    // an unauthenticated caller (advisory #18).
+    await sql`select 1 from workspaces limit 1`;
+    return c.json({ ok: true, db: 'neon' });
   } catch (err) {
     // Log the detail server-side; don't leak connection/internal detail to the
     // client in the probe response.
