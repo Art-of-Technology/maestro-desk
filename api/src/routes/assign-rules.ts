@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
 
-// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
-// conditions + assignment are jsonb (wrapped with sql.json on write).
+// Migration to Neon — Step 3. Reads are member-level; create/edit/delete are
+// admin-only (requireWorkspaceAdmin) — assignment rules are workspace routing
+// config, and an unguarded write lets any member reroute tickets to themselves
+// or break auto-assignment. conditions + assignment are jsonb (sql.json on write).
 export const assignRules = new Hono();
 
 assignRules.use('*', requireAuth);
@@ -51,6 +54,9 @@ assignRules.get('/', async (c) => {
 });
 
 assignRules.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
@@ -79,6 +85,9 @@ const PatchRule = z.object({
 }).strict();
 
 assignRules.patch('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -104,6 +113,9 @@ assignRules.patch('/:id', async (c) => {
 });
 
 assignRules.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');

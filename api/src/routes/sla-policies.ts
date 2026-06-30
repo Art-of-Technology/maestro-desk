@@ -1,9 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
 
-// Migration to Neon — Step 3. Member-level, workspace-scoped CRUD via getDb().
+// Migration to Neon — Step 3. Reads are member-level; create/edit/delete are
+// admin-only (requireWorkspaceAdmin) — SLA policies are workspace config, and
+// an unguarded write lets any member rewrite/delete breach tracking. All
+// workspace-scoped via getDb().
 export const slaPolicies = new Hono();
 
 slaPolicies.use('*', requireAuth);
@@ -38,6 +42,9 @@ slaPolicies.get('/', async (c) => {
 });
 
 slaPolicies.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
@@ -69,6 +76,9 @@ const PatchPolicy = z.object({
 }).strict();
 
 slaPolicies.patch('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -108,6 +118,9 @@ slaPolicies.patch('/:id', async (c) => {
 });
 
 slaPolicies.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
