@@ -145,30 +145,16 @@ function gsGo(type, id) {
   else if (type === 'customer') openCustomerModal(id);
   else if (type === 'article') {
     setKbSelected(id);
-    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
-    let target = null;
-    document.querySelectorAll('.sb-item').forEach(i => {
-      if ((i.getAttribute('onclick') || '').includes("'kb'")) target = i;
-    });
-    if (target) target.classList.add('active');
-    renderPage('kb');
+    nav('kb');
   }
   else if (type === 'agent') {
     const a = AGENTS.find(x => x.name === id);
     if (!a) return;
     setRolesViewAgents(a.role);
-    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
-    const rolesItem = document.getElementById('nav-roles');
-    if (rolesItem) rolesItem.classList.add('active');
-    renderPage('roles');
+    nav('roles');
   }
   else if (type === 'page') {
-    let target = null;
-    document.querySelectorAll('.sb-item').forEach(i => {
-      const a = i.getAttribute('onclick') || '';
-      if (a.includes(`'${id}'`)) target = i;
-    });
-    nav(id, target);
+    nav(id);
   }
 }
 

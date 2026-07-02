@@ -1,10 +1,9 @@
 // ─── App-wide keybindings + navigation helpers ──────────────────────────────
 // Two named exports plus a side-effect keydown listener:
 //
-//   - navTo(page)            — sidebar-style nav from any context. Finds the
-//                              matching .sb-item by its onclick attribute and
-//                              calls nav(page, target), imported from
-//                              core/router.js.
+//   - navTo(page)            — sidebar-style nav from any context. Thin wrapper
+//                              over nav(page) (core/router.js), which resolves
+//                              and highlights the owning sidebar item itself.
 //   - focusGlobalSearch()    — focuses the #gs-input and selects it. Called
 //                              from an inline onclick in help/index.js, so
 //                              the window-bridge entry is required.
@@ -16,12 +15,7 @@ import { nav } from './router.js';
 import { toggleQuickSwitcher } from '../quick-switcher/index.js';
 
 export function navTo(page) {
-  let target = null;
-  document.querySelectorAll('.sb-item').forEach(i => {
-    const a = i.getAttribute('onclick') || '';
-    if (a.includes(`'${page}'`)) target = i;
-  });
-  nav(page, target);
+  nav(page);
 }
 
 export function focusGlobalSearch() {
