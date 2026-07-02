@@ -237,6 +237,10 @@ Object.assign(
 // both only through these data-action handlers.
 registerActions({
   'app.nav':    (ds, el) => nav(ds.page, el),
+  // Header tab switch on a merged destination (Conversations, Insights). Unlike
+  // app.nav it does NOT touch .sb-item.active — it re-renders the sibling page
+  // while leaving the merged sidebar item highlighted (see core/page-tabs.js).
+  'pagetab.go': (ds) => renderPage(ds.page),
   // The top-bar settings cog opens the Configuration hub. It isn't a sidebar
   // item, so it manages its own active state: highlight the cog and clear the
   // sidebar here; nav() clears the cog's active class on the next navigation.

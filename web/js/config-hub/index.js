@@ -57,6 +57,8 @@ const GROUPS = [
         icon:'<path d="M1.5 4.5h10v6h-10z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M1.5 4.5l5 4 5-4" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><circle cx="11" cy="3" r="1.5" fill="currentColor"/>' },
       { page:'webhooks',         label:'Webhooks',          summary:'Push ticket events to external systems in real time.',
         icon:'<path d="M3 3.5l4 4 4-4M3 9.5h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' },
+      { page:'portal',           label:'Customer Portal',   summary:'Preview the self-service portal your customers see, using real ticket data.',
+        icon:'<circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 6.5h10M6.5 1.5c1.5 1.5 2.3 3.3 2.3 5s-.8 3.5-2.3 5M6.5 1.5c-1.5 1.5-2.3 3.3-2.3 5s.8 3.5 2.3 5" stroke="currentColor" stroke-width="1.1" fill="none"/>' },
     ],
   },
   {

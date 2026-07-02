@@ -19,6 +19,7 @@
 import { AGENTS, CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
+import { pageTabs } from '../core/page-tabs.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
@@ -202,7 +203,7 @@ export function renderTickets() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Tickets</div>
+        ${pageTabs([{key:'tickets',label:'Tickets'},{key:'inbox',label:'Inbox'}],'tickets')}
         <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
         <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
       </div>
