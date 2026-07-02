@@ -449,6 +449,16 @@ export function openTicket(id) {
     </div>` : '';
 
   const main = document.getElementById('main-area');
+  // Preserve the reader's place across in-place re-renders (openTicket is also
+  // the re-render path for tag/status edits, presence repaints, async loads,
+  // etc.). main.innerHTML below rebuilds a fresh .thread scrolled to the top,
+  // so capture the outgoing thread's position first: keep it only if the same
+  // ticket was already open AND scrolled up from the bottom; otherwise (a fresh
+  // open, or already pinned to the newest message) we jump to the latest reply.
+  const prevThread = document.getElementById('thread-' + id);
+  const keepScroll = prevThread &&
+    (prevThread.scrollHeight - prevThread.scrollTop - prevThread.clientHeight > 40)
+      ? prevThread.scrollTop : null;
   main.innerHTML = `
     <div class="page">
       <div class="topbar">
@@ -625,6 +635,11 @@ export function openTicket(id) {
         </div>
       </div>
     </div>`;
+
+  // Show the most recent reply on open: scroll to the bottom, unless we're
+  // restoring a scrolled-up reader's position from an in-place re-render.
+  const thread = document.getElementById('thread-' + id);
+  if (thread) thread.scrollTop = keepScroll === null ? thread.scrollHeight : keepScroll;
 }
 
 function setComposeTab(tab, id) { setComposeTabValue(tab); openTicket(id); }
