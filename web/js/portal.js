@@ -410,7 +410,7 @@
           const a = byId[s.article_id];
           if (!a) return '';
           return `
-            <a class="ai-sugg" href="#" data-id="${escHtml(a.display_id)}">
+            <a class="ai-sugg" href="#" data-id="${escHtml(a.id)}">
               <span class="kb-cat">${escHtml(a.category || 'Help')}</span>
               <span class="ai-sugg-title">${escHtml(a.title)}</span>
               <span class="ai-sugg-conf">${Math.round(s.confidence)}%</span>
