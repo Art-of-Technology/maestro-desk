@@ -22,7 +22,7 @@ export function openCustomerModal(custId) {
   const c = CUSTOMERS.find(x => x.id === custId); if (!c) return;
   const esc = window.escHtml;
   const vipRaw = c.vip || '';
-  showModal(`${esc(c.first + ' ' + c.last)}`, `
+  showModal(`${c.first + ' ' + c.last}`, `
     <div class="ts-row"><span class="ts-key">Customer ID</span><span class="ts-val">${esc(c.id)}</span></div>
     <div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${esc(c.email || '')}</span></div>
     <div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${esc(c.mobile || '')}</span></div>

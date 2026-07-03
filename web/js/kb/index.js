@@ -190,7 +190,7 @@ export function renderKB() {
     return `
       <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(a.id)}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-          <div class="kb-card-cat" style="margin:0">${a.category}</div>
+          <div class="kb-card-cat" style="margin:0">${window.escHtml(a.category)}</div>
           ${a.featured ? '<span style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-weight:600">★ Featured</span>' : ''}
         </div>
         <div class="kb-card-t">${titleHtml}</div>
@@ -227,7 +227,7 @@ export function renderKB() {
             </div>
             ${sortedCats.map(([cat, count]) => `
               <div class="kb-cat-item ${KB_FILTER_CAT===cat?'active':''}" data-action="kb.setCat" data-cat="${window.escAttr(cat)}">
-                <span class="kb-cat-name">${cat}</span>
+                <span class="kb-cat-name">${window.escHtml(cat)}</span>
                 <span class="kb-cat-count">${count}</span>
               </div>`).join('')}
           </div>
@@ -235,8 +235,8 @@ export function renderKB() {
         <div class="kb-main">
           <div class="filter-bar">
             <span class="filter-label">Search</span>
-            <input class="filter-select" placeholder="Search articles…" style="width:280px" value="${KB_QUERY}" data-input-action="kb.setQuery"/>
-            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${KB_FILTER_CAT}`:''}</span>
+            <input class="filter-select" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
           </div>
           <div class="page-scroll">
             ${list.length ? `<div class="kb-grid">${cards}</div>` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No articles match</div><div class="empty-line"></div></div>`}
@@ -282,13 +282,13 @@ function renderKBArticle(id) {
       <div class="page-scroll">
         <div class="kb-article">
           <div class="kb-card-cat" style="display:flex;align-items:center;gap:8px">
-            <span>${a.category}</span>
+            <span>${window.escHtml(a.category)}</span>
             ${a.featured ? '<span style="color:var(--amber);font-weight:600">★ Featured</span>' : ''}
           </div>
-          <h1 class="kb-article-h">${a.title}</h1>
+          <h1 class="kb-article-h">${window.escHtml(a.title)}</h1>
           <div class="kb-article-meta">
             <span>${a.id}</span>
-            <span>By ${a.author}</span>
+            <span>By ${window.escHtml(a.author)}</span>
             <span>Updated ${a.updated}</span>
             <span>${views} view${views===1?'':'s'}</span>
             <span>${reading} min read · ${wordCount} words</span>
@@ -311,8 +311,8 @@ function renderKBArticle(id) {
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
               ${related.map(r => `
                 <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(r.id)}" style="padding:12px">
-                  <div class="kb-card-cat" style="margin-bottom:6px">${r.category}</div>
-                  <div class="kb-card-t" style="font-size:13px">${r.title}</div>
+                  <div class="kb-card-cat" style="margin-bottom:6px">${window.escHtml(r.category)}</div>
+                  <div class="kb-card-t" style="font-size:13px">${window.escHtml(r.title)}</div>
                 </div>`).join('')}
             </div>
           </div>` : ''}
@@ -340,12 +340,12 @@ function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
   const a = initial || {title:'', category:cats[0]||'Getting Started', body:''};
   return `
-    <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="kb-title" value="${a.title.replace(/"/g,'&quot;')}"/></div>
+    <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="kb-title" value="${window.escAttr(a.title)}"/></div>
     <div class="form-row"><label class="form-label">Category</label>
-      <input class="form-input" id="kb-cat" list="kb-cat-list" value="${a.category.replace(/"/g,'&quot;')}"/>
-      <datalist id="kb-cat-list">${cats.map(c => `<option value="${c}">`).join('')}</datalist>
+      <input class="form-input" id="kb-cat" list="kb-cat-list" value="${window.escAttr(a.category)}"/>
+      <datalist id="kb-cat-list">${cats.map(c => `<option value="${window.escAttr(c)}">`).join('')}</datalist>
     </div>
-    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${a.body}</textarea></div>`;
+    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${window.escHtml(a.body)}</textarea></div>`;
 }
 
 function kbNewArticle() {
@@ -389,7 +389,7 @@ function kbEditArticle(id) {
 function kbDeleteArticle(id) {
   if (!window.isAdmin()) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
-  showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${a.title}</strong>? This cannot be undone.</div>`, async () => {
+  showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(a.title)}</strong>? This cannot be undone.</div>`, async () => {
     if (a._uuid) {
       try { await apiDelete(`/api/v1/kb-articles/${a._uuid}`); }
       catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }

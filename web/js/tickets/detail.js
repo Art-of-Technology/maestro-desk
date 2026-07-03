@@ -252,7 +252,7 @@ export function openTicket(id) {
   const followerAvatars = followers.map(name => {
     const ag = AGENTS.find(a => a.name === name);
     const initials = ag ? ag.initials : (name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase());
-    return `<div title="${name}" style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;margin-left:-6px;border:2px solid var(--off)">${initials}</div>`;
+    return `<div title="${window.escAttr(name)}" style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;margin-left:-6px;border:2px solid var(--off)">${initials}</div>`;
   }).join('');
   const followersBlock = `
     <div class="ts-section">
@@ -269,8 +269,8 @@ export function openTicket(id) {
       <div class="ts-heading">Suggested KB</div>
       ${kbSuggestions.map(a => `
         <div data-action="td.openKB" data-kb-id="${window.escAttr(a.id)}" style="padding:8px 10px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;margin-bottom:5px;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)'" onmouseout="this.style.borderColor='var(--rule)'">
-          <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${a.category}</div>
-          <div style="font-size:12px;color:var(--ink);font-weight:500;line-height:1.3">${a.title}</div>
+          <div style="font-size:10px;color:var(--purple);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px">${window.escHtml(a.category)}</div>
+          <div style="font-size:12px;color:var(--ink);font-weight:500;line-height:1.3">${window.escHtml(a.title)}</div>
         </div>`).join('')}
     </div>` : '';
 
@@ -345,7 +345,7 @@ export function openTicket(id) {
         return `
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--rule)">
             <div style="flex:1;min-width:0;cursor:pointer" data-action="td.openTicket" data-ticket-id="${window.escAttr(linkedId)}">
-              <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lt.subject}</div>
+              <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(lt.subject)}</div>
               <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
                 <span class="tag tag-${lt.status}" style="font-size:9px">${lt.status}</span>
                 <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(linkedId)}</span>
@@ -366,8 +366,8 @@ export function openTicket(id) {
           <div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--rule)">
             <div style="width:6px;height:6px;border-radius:50%;background:${eventColors[e.type] || 'var(--ink4)'};margin-top:5px;flex-shrink:0"></div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:11px;color:var(--ink2);line-height:1.4;word-break:break-word">${e.details}</div>
-              <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:2px">${e.author === 'System' ? '' : e.author + ' · '}${e.ts}</div>
+              <div style="font-size:11px;color:var(--ink2);line-height:1.4;word-break:break-word">${window.escHtml(e.details)}</div>
+              <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:2px">${e.author === 'System' ? '' : window.escHtml(e.author) + ' · '}${e.ts}</div>
             </div>
           </div>`).join('')}
       </div>
@@ -487,12 +487,12 @@ export function openTicket(id) {
       <div style="padding:14px 20px 10px;border-bottom:1px solid var(--rule);flex-shrink:0">
         ${mergedBanner}
         ${snoozeBanner}
-        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${t.subject}</div>
+        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${window.escHtml(t.subject)}</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span class="tag tag-${t.status}">${t.status}</span>
           <span class="tag tag-${t.priority}">${t.priority}</span>
-          <span class="tag tag-neutral">${t.category}</span>
-          ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${tg}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
+          <span class="tag tag-neutral">${window.escHtml(t.category)}</span>
+          ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${window.escHtml(tg)}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
           <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase"/>
           <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="sla-${t.sla}">${t.sla.toUpperCase()}</span></span>
         </div>
@@ -568,12 +568,12 @@ export function openTicket(id) {
           <div class="ts-section" style="cursor:pointer" data-action="td.openCustomer" data-cust-id="${window.escAttr(cust.id)}">
             <div class="ts-heading">Customer</div>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
-              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">${cust.first} ${cust.last}</div><div style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${cust.id}</div></div>
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
+              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div><div style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${cust.id}</div></div>
             </div>
-            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${cust.brand}</span></div>
-            <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${cust.vip.toLowerCase()}">${cust.vip}</span></div>
-            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${cust.jurisdiction}</span></div>
+            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
+            <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${cust.vip.toLowerCase()}">${window.escHtml(cust.vip)}</span></div>
+            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>
           </div>`:``}
           <div class="ts-section">
             <div class="ts-heading">CSAT</div>
@@ -627,7 +627,7 @@ export function openTicket(id) {
             <div class="ts-heading">Other tickets (${otherTickets.length})</div>
             ${otherTickets.map(ot=>`
               <div class="other-ticket" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}">
-                <div class="other-ticket-subj">${ot.subject}</div>
+                <div class="other-ticket-subj">${window.escHtml(ot.subject)}</div>
                 <span class="tag tag-${ot.status}">${ot.status}</span>
               </div>`).join('')}
           </div>`:''}

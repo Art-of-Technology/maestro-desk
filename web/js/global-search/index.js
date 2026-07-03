@@ -108,20 +108,20 @@ function globalSearch(q) {
     html += tickets.map(t => {
       const cust = CUSTOMERS.find(c => c.id === t.customerId);
       const meta = cust ? `${cust.first} ${cust.last}` : '—';
-      return `<div class="gs-result" data-mousedown-action="gs.go" data-type="ticket" data-ref="${window.escAttr(t.id)}"><span class="gs-result-type">${t.id}</span><span class="gs-result-main">${t.subject}</span><span class="gs-result-meta">${meta}</span></div>`;
+      return `<div class="gs-result" data-mousedown-action="gs.go" data-type="ticket" data-ref="${window.escAttr(t.id)}"><span class="gs-result-type">${t.id}</span><span class="gs-result-main">${window.escHtml(t.subject)}</span><span class="gs-result-meta">${window.escHtml(meta)}</span></div>`;
     }).join('');
   }
   if (customers.length) {
     html += '<div class="gs-group">Customers</div>';
-    html += customers.map(c => `<div class="gs-result" data-mousedown-action="gs.go" data-type="customer" data-ref="${window.escAttr(c.id)}"><span class="gs-result-type">${c.id}</span><span class="gs-result-main">${c.first} ${c.last}</span><span class="gs-result-meta">${c.email}</span></div>`).join('');
+    html += customers.map(c => `<div class="gs-result" data-mousedown-action="gs.go" data-type="customer" data-ref="${window.escAttr(c.id)}"><span class="gs-result-type">${c.id}</span><span class="gs-result-main">${window.escHtml(c.first + ' ' + c.last)}</span><span class="gs-result-meta">${window.escHtml(c.email)}</span></div>`).join('');
   }
   if (agents.length) {
     html += '<div class="gs-group">Agents</div>';
-    html += agents.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="agent" data-ref="${window.escAttr(a.name)}"><span class="gs-result-type">${a.role}</span><span class="gs-result-main">${a.name}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
+    html += agents.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="agent" data-ref="${window.escAttr(a.name)}"><span class="gs-result-type">${window.escHtml(a.role)}</span><span class="gs-result-main">${window.escHtml(a.name)}</span><span class="gs-result-meta">${a.active?'Active':'Deactivated'}</span></div>`).join('');
   }
   if (articles.length) {
     html += '<div class="gs-group">Knowledge Base</div>';
-    html += articles.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="article" data-ref="${window.escAttr(a.id)}"><span class="gs-result-type">${a.id}</span><span class="gs-result-main">${a.title}</span><span class="gs-result-meta">${a.category}</span></div>`).join('');
+    html += articles.map(a => `<div class="gs-result" data-mousedown-action="gs.go" data-type="article" data-ref="${window.escAttr(a.id)}"><span class="gs-result-type">${a.id}</span><span class="gs-result-main">${window.escHtml(a.title)}</span><span class="gs-result-meta">${window.escHtml(a.category)}</span></div>`).join('');
   }
   if (pages.length) {
     html += '<div class="gs-group">Pages</div>';

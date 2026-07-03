@@ -238,11 +238,11 @@ function mergeTagPrompt(sourceName) {
   if (!window.isAdmin()) return;
   const candidates = TAG_LIBRARY.filter(t => t.tag !== sourceName);
   showModal(`Merge "${sourceName}" into…`, `
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">All tickets using <strong style="color:var(--ink)">${sourceName}</strong> will be re-tagged with the target. The source tag will be deleted.</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">All tickets using <strong style="color:var(--ink)">${window.escHtml(sourceName)}</strong> will be re-tagged with the target. The source tag will be deleted.</div>
     <div style="max-height:380px;overflow-y:auto">
       ${candidates.length ? candidates.map(t => `
         <div data-mousedown-action="tags.mergeFromModal" data-source="${window.escAttr(sourceName)}" data-target="${window.escAttr(t.tag)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-          <span class="tag tag-neutral" style="font-size:11px">${t.tag}</span>
+          <span class="tag tag-neutral" style="font-size:11px">${window.escHtml(t.tag)}</span>
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-left:auto">${t.count} use${t.count===1?'':'s'}</span>
         </div>`).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No other tags to merge into</div>'}
     </div>
