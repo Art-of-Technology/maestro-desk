@@ -162,6 +162,12 @@ maestro.post('/select-brand', requireAuthOnly, async (c) => {
 
   const roleName = mapMaestroBrandRole(brand, orgs);
   const membership = await resolveBrandWorkspace(userId, brand, roleName);
+  // The agent still holds the brand at Maestro, but an admin may have deactivated
+  // their Desk membership. requireAuth would 403 every subsequent call anyway;
+  // reject up front so the brand pick doesn't appear to succeed.
+  if (!membership.active) {
+    throw new HTTPException(403, { message: 'Your access to this brand has been deactivated.' });
+  }
   return c.json({ membership, brand: { id: brand.id, name: brand.name } });
 });
 
