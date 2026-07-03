@@ -39,7 +39,7 @@ const RuleBody = z.object({
   status:      z.enum(['active', 'inactive']).optional(),
   conditions:  Conditions,
   assignment:  Assignment,
-});
+}).strict();
 
 assignRules.get('/', async (c) => {
   const sql = getDb();

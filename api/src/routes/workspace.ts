@@ -58,6 +58,15 @@ workspace.post('/branding/logo', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
+  // Coarse pre-filter: reject clearly-oversized uploads by Content-Length before
+  // parseBody buffers the whole body into memory (advisory #11). This is the
+  // multipart ENVELOPE (file bytes + boundary/part-headers), so it slightly
+  // over-counts — a generous slack avoids false-rejecting a logo near the limit;
+  // the post-parse file.size check below is the authoritative gate. Absent /
+  // chunked (no header) falls through to that gate.
+  const declaredLen = Number(c.req.header('content-length') || 0);
+  if (declaredLen > MAX_BYTES + 8192) return c.json({ error: `File too large; max ${MAX_BYTES} bytes` }, 400);
+
   const form = await c.req.parseBody({ all: false }).catch(() => null);
   const file = form?.file as File | undefined;
   if (!file || typeof file === 'string') return c.json({ error: 'Missing file part' }, 400);

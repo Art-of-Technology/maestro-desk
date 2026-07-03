@@ -64,7 +64,7 @@ const CreateBrand = z.object({
   ai_credits_micro: z.number().int().min(0).max(10_000_000_000).default(0),
   auto_reply_min_confidence: z.number().int().min(0).max(100).nullable().default(null),
   auto_reply_categories: z.array(z.string()).default([]),
-});
+}).strict();
 
 const UpdateBrand = z.object({
   name: z.string().min(1).max(120).optional(),
@@ -77,7 +77,7 @@ const UpdateBrand = z.object({
   // null = unsuspend; ISO string or 'now' to suspend. Use null/now sugar so
   // the UI doesn't have to construct timestamps.
   suspended_at: z.union([z.literal('now'), z.string().datetime(), z.null()]).optional(),
-});
+}).strict();
 
 // ─── Routes ────────────────────────────────────────────────────────────────
 
