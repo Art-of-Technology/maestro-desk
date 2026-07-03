@@ -103,7 +103,7 @@ export function renderAgents() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${AGENT_QUERY}" data-input-action="agents.setQuery"/>
+        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${window.escAttr(AGENT_QUERY)}" data-input-action="agents.setQuery"/>
         <select class="filter-select" data-change-action="agents.setRoleFilter">
           <option value="all" ${AGENT_FILTER_ROLE==='all'?'selected':''}>All roles</option>
           ${allRoles.map(r => `<option value="${window.escAttr(r)}" ${AGENT_FILTER_ROLE===r?'selected':''}>${window.escHtml(r)}</option>`).join('')}
