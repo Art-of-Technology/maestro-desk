@@ -4,7 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
-import { agentCanAccessBrand } from '../lib/maestro-workspace.js';
+import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
@@ -30,10 +30,17 @@ customers.post('/from-player', async (c) => {
   if (!workerMaestroConfigured()) return c.json({ error: 'Player lookup is not configured.' }, 503);
   const brandId = c.req.header('X-Brand-Id');
   if (!brandId) return c.json({ error: 'X-Brand-Id header required.' }, 400);
-  // Same per-agent brand gate as the lookup route: the re-fetch uses the app
-  // token, so confirm this agent belongs to the brand before resolving anyone.
-  if (!(await agentCanAccessBrand(c.get('userId'), brandId))) {
+  // Per-agent brand gate + tenant coherence (advisory #10): the re-fetch uses the
+  // app token, so confirm this agent belongs to the brand AND that the brand's
+  // workspace is the one we're about to write the player's PII into. Without the
+  // second check an agent who belongs to workspace A *and* has access to a
+  // different brand B could pull brand B's player PII into workspace A.
+  const brandWorkspaceId = await agentBrandWorkspaceId(c.get('userId'), brandId);
+  if (!brandWorkspaceId) {
     return c.json({ error: 'You do not have access to this brand.' }, 403);
+  }
+  if (brandWorkspaceId !== workspaceId) {
+    return c.json({ error: 'The selected brand does not match this workspace.' }, 400);
   }
 
   const body = (await c.req.json().catch(() => null)) as
