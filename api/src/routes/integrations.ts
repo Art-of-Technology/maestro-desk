@@ -36,7 +36,7 @@ const SlackBody = z.object({
   events:         z.array(z.enum(EVENT_NAMES)).min(1).max(EVENT_NAMES.length),
   bot_token:      z.string().regex(/^xoxb-[\w-]+$/, 'Bot token must start with xoxb-').nullable().optional(),
   signing_secret: z.string().min(16).max(200).nullable().optional(),
-});
+}).strict();
 
 integrations.get('/slack', async (c) => {
   const sql = getDb();
@@ -100,7 +100,7 @@ const WebhookBody = z.object({
   url:    z.string().url(),
   events: z.array(z.enum(OUTGOING_EVENTS)).min(1).max(OUTGOING_EVENTS.length),
   active: z.boolean().optional(),
-});
+}).strict();
 
 integrations.get('/webhooks', async (c) => {
   const sql = getDb();

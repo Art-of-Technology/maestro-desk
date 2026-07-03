@@ -34,7 +34,7 @@ const CreateBody = z.object({
   filters:   Filters,
   is_shared: z.boolean().optional(),
   is_pinned: z.boolean().optional(),
-});
+}).strict();
 
 const PatchBody = z.object({
   name:      z.string().min(1).max(100).optional(),

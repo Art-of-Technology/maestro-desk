@@ -39,7 +39,7 @@ const FieldBody = z.object({
   required:      z.boolean().optional(),
   default_value: z.string().nullable().optional(),
   sort_order:    z.number().int().optional(),
-});
+}).strict();
 
 customFields.get('/', async (c) => {
   const sql = getDb();

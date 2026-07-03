@@ -102,7 +102,7 @@ export async function notifyMentionedAgents(args: {
       const detail = err instanceof PostmarkSendError
         ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
         : err instanceof Error ? err.message : String(err);
-      console.warn(`[mention-notify] failed for ${u.email} on ticket ${ticketId}: ${detail}`);
+      console.warn(`[mention-notify] failed for user ${u.id} on ticket ${ticketId}: ${detail}`);
       skipped++;
     }
   }

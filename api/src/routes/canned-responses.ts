@@ -18,7 +18,7 @@ const TemplateBody = z.object({
   name:     z.string().min(1).max(200),
   category: z.string().max(100).nullable().optional(),
   body:     z.string().min(1),
-});
+}).strict();
 
 cannedResponses.get('/', async (c) => {
   const sql = getDb();
