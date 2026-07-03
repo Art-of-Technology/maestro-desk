@@ -12,7 +12,7 @@ A static SPA — vanilla JS ES modules, **no framework and no bundler in product
 
 The codebase finished migrating off two pieces of implicit global coupling. The current shape:
 
-- **Single module entry.** `index.html` loads only `web/js/app.js` as a module. There are no classic `<script src>` tags for app code — `web/js/core/state.js` and `web/js/core/data.js` are ES modules pulled in through `app.js`'s import graph.
+- **Single module entry.** `index.html` loads the app from one module, `web/js/app.js` — `web/js/core/state.js` and `web/js/core/data.js` are ES modules pulled in through its import graph. The one classic `<script src>` is `web/js/api-base.js` (a small bootstrap that sets `window.MAESTRO_API_BASE` by hostname); it must be a classic, non-deferred script loaded **before** the `app.js` module so the global is set before the module graph reads it. `portal.html` similarly loads `api-base.js` then its own classic `web/js/portal.js`. These were externalized from formerly-inline `<script>` blocks so the SPA can ship a strict CSP (`script-src 'self'`, no `unsafe-inline`) — see `web/vercel.json`.
 
 - **Routing lives in `web/js/core/router.js`** — `nav`, `renderPage`, `updateNavBadges`, and the page registry. Every caller imports them directly; **they are not on the window bridge.** `app.js` is bootstrap-only (login/logout, workspace brand, layout hydration, startup, the bridge).
 
