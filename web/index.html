@@ -11,30 +11,10 @@
 <link rel="stylesheet" href="styles/shell.css"/>
 <link rel="stylesheet" href="styles/components.css"/>
 <link rel="stylesheet" href="styles/pages.css"/>
-<script>
-  // Production API base. There is no bundler/build step, so we pick the API
-  // host at runtime by hostname. Only the known prod hosts point at the Vercel
-  // API; everything else (localhost dev, Vercel PR previews, etc.) falls back
-  // to the api-client default of http://localhost:3001 so previews never
-  // silently hit production. Must run before js/app.js imports api-client.js.
-  if (/^(desk|help)\.maestro-desk\.com$/.test(location.hostname)) {
-    window.MAESTRO_API_BASE = "https://api.maestro-desk.com";
-  } else if (location.hostname === "maestro-desk-jodi-1420s-projects.vercel.app") {
-    // Interim live testing on Vercel's *.vercel.app URLs (no custom domain yet).
-    // Only this exact prod SPA host points at the deployed API; PR previews
-    // (hashed hostnames) still fall back to localhost so they never hit prod.
-    window.MAESTRO_API_BASE = "https://maestro-desk-zjkl.vercel.app";
-  } else if (location.hostname === "maestro-desk-git-staging-jodi-1420s-projects.vercel.app") {
-    // STAGING (rehearsal env): the `staging` git branch auto-deploys to this
-    // Vercel branch URL and must point at the STAGING API deploy (backed by the
-    // Neon staging-branch DB). ⚠ CONFIRM these two hostnames against the real
-    // Vercel branch-deploy URLs (SPA + API projects → Deployments → `staging`)
-    // and update if Vercel's slug differs or a custom staging alias is assigned.
-    // If wrong, staging falls back to localhost (login fails on STAGING ONLY —
-    // prod is unaffected).
-    window.MAESTRO_API_BASE = "https://maestro-desk-zjkl-git-staging-jodi-1420s-projects.vercel.app";
-  }
-</script>
+<!-- Runtime API-base selection, extracted to an external classic script so this
+     page can ship a strict CSP (script-src 'self', no inline). Runs before the
+     app module below, so window.MAESTRO_API_BASE is set in time. -->
+<script src="js/api-base.js"></script>
 </head>
 <body>
 
