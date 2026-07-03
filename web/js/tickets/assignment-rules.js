@@ -188,7 +188,7 @@ export function showAgentOOOModal(name) {
   const a = AGENTS.find(x => x.name === name);
   if (!a) return;
   const today = new Date().toISOString().slice(0, 10);
-  showModal(`Out of office · ${window.escHtml(name)}`, `
+  showModal(`Out of office · ${name}`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">While ${window.escHtml(a.name.split(' ')[0])} is OOO, the assignment rules engine skips them in round-robin and least-busy modes. Direct assignment still works — admins may intentionally page someone on leave.</div>
     <div class="form-grid">
       <div class="form-row"><label class="form-label">From</label><input class="form-input" type="date" id="ooo-from" value="${window.escAttr(a.oooFrom || today)}"/></div>

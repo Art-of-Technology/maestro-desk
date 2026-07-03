@@ -101,7 +101,7 @@ export async function removeTimeEntry(ticketId, entryId) {
 export function showLogTimeModal(ticketId) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t) return;
-  showModal(`Log time on ${window.escHtml(t.id)}`, `
+  showModal(`Log time on ${t.id}`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">Logged time rolls up in the ticket sidebar, the agent's totals, and the Reports page.</div>
     <div class="form-row"><label class="form-label">Quick presets</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap">

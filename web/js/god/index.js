@@ -367,7 +367,7 @@ function confirmSuspend(brandId) {
            placeholder="${escAttr(brand.slug)}" autocomplete="off"
            autocapitalize="off" spellcheck="false" style="width:100%"/>`;
 
-  showModal(`Suspend "${escAttr(brand.name)}"?`, body, () => {
+  showModal(`Suspend "${brand.name}"?`, body, () => {
     const el = document.getElementById('god-suspend-input');
     if (!el || el.value.trim() !== _suspendSlug) return; // guard; button is disabled anyway
     closeModal();

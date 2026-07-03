@@ -48,14 +48,14 @@ function getCustColumns() {
 
 function custCellValue(c, colId) {
   if(colId==='id') return `<td class="bold">${c.id}</td>`;
-  if(colId==='name') return `<td style="font-weight:500;color:var(--ink)">${c.first} ${c.last}</td>`;
-  if(colId==='username') return `<td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${c.username}</td>`;
-  if(colId==='brand') return `<td>${c.brand}</td>`;
-  if(colId==='vip') return `<td><span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span></td>`;
-  if(colId==='jurisdiction') return `<td style="font-family:'DM Mono',monospace;font-size:11px">${c.jurisdiction}</td>`;
+  if(colId==='name') return `<td style="font-weight:500;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</td>`;
+  if(colId==='username') return `<td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(c.username)}</td>`;
+  if(colId==='brand') return `<td>${window.escHtml(c.brand)}</td>`;
+  if(colId==='vip') return `<td><span class="vip-badge vip-${c.vip.toLowerCase()}">${window.escHtml(c.vip)}</span></td>`;
+  if(colId==='jurisdiction') return `<td style="font-family:'DM Mono',monospace;font-size:11px">${window.escHtml(c.jurisdiction)}</td>`;
   if(colId==='consent') return `<td><span class="tag ${c.consent?'tag-resolved':'tag-gdpr'}">${c.consent?'Yes':'No'}</span></td>`;
-  if(colId==='kyc') return `<td><span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}">${c.kyc}</span></td>`;
-  if(colId.startsWith('cf_')) { const cfId=colId.slice(3); return `<td style="font-size:12px;color:var(--ink2)">${c.custom?.[cfId]||'—'}</td>`; }
+  if(colId==='kyc') return `<td><span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}">${window.escHtml(c.kyc)}</span></td>`;
+  if(colId.startsWith('cf_')) { const cfId=colId.slice(3); return `<td style="font-size:12px;color:var(--ink2)">${window.escHtml(c.custom?.[cfId]||'—')}</td>`; }
   return '<td>—</td>';
 }
 
@@ -100,7 +100,7 @@ export function refreshCustTable(list) {
   if (thead) thead.innerHTML = buildCustHeaders();
   if (tbody) {
     const groups = groupCustomersBy(list, CUST_GROUP_BY);
-    const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${key}</td></tr>`;
+    const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
     tbody.innerHTML = groups.map(g =>
       (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
     ).join('');
@@ -115,7 +115,7 @@ function showColumnPanel() {
       ${cols.map((col,i)=>`
         <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);background:var(--off2)">
           <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;font-weight:500;color:var(--ink)">${col.label}</span>
+            <span style="font-size:13px;font-weight:500;color:var(--ink)">${window.escHtml(col.label)}</span>
             ${col.isCustom?`<span style="font-size:10px;color:var(--purple);background:var(--purple-lt);padding:1px 6px;border-radius:3px">Custom</span>`:''}
             ${col.fixed?`<span style="font-size:10px;color:var(--ink3)">(always shown)</span>`:''}
           </div>
@@ -261,7 +261,7 @@ export function renderCustomers() {
   ];
 
   const groups = groupCustomersBy(filtered, CUST_GROUP_BY);
-  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${key}</td></tr>`;
+  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
   const tableBody = groups.map(g =>
     (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
   ).join('');
@@ -312,7 +312,7 @@ export function renderCustomers() {
       ${bulkBar}
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${CUST_QUERY}" data-input-action="cust.filter"/>
+        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${window.escAttr(CUST_QUERY)}" data-input-action="cust.filter"/>
         <select class="filter-select" data-change-action="cust.setVIP">
           <option value="all"      ${CUST_VIP_FILTER==='all'?'selected':''}>All VIP tiers</option>
           <option value="Platinum" ${CUST_VIP_FILTER==='Platinum'?'selected':''}>Platinum</option>
@@ -587,10 +587,10 @@ function renderCustomerDetail(custId) {
   const ticketRows = s.tickets.map(t => `
     <tr data-action="cust.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
       <td class="bold">${t.id}</td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${t.subject}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}</td>
       <td><span class="tag tag-${t.status}">${t.status}</span></td>
       <td><span class="tag tag-${t.priority}">${t.priority}</span></td>
-      <td>${t.agent}</td>
+      <td>${window.escHtml(t.agent)}</td>
       <td><span class="sla-${t.sla}" style="font-size:11px;text-transform:uppercase;font-weight:500">${t.sla}</span></td>
       <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${t.updated}</td>
     </tr>`).join('');
@@ -602,8 +602,8 @@ function renderCustomerDetail(custId) {
     // removing the field definitions is gated (see the Roles page).
     return `
       <div class="form-row">
-        <label class="form-label">${cf.label}</label>
-        <input class="form-input" type="${inputType}" value="${String(val).replace(/"/g,'&quot;')}" data-input-action="cust.updateField" data-cust-id="${window.escAttr(c.id)}" data-field-id="${window.escAttr(cf.id)}"/>
+        <label class="form-label">${window.escHtml(cf.label)}</label>
+        <input class="form-input" type="${inputType}" value="${window.escAttr(val)}" data-input-action="cust.updateField" data-cust-id="${window.escAttr(c.id)}" data-field-id="${window.escAttr(cf.id)}"/>
       </div>`;
   }).join('') || '<div style="color:var(--ink3);font-size:12px;padding:8px 0">No custom fields defined. They can be added from the Custom Fields page (Senior Agent and above).</div>';
 
@@ -614,7 +614,7 @@ function renderCustomerDetail(custId) {
         <div class="card-title" style="margin:0;color:var(--red)">Risk indicators</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${risks.map(r => `<span class="tag" style="font-size:10px;border-color:${r.level==='high'?'rgba(248,113,113,0.5)':'rgba(251,191,36,0.5)'};color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${r.text}</span>`).join('')}
+        ${risks.map(r => `<span class="tag" style="font-size:10px;border-color:${r.level==='high'?'rgba(248,113,113,0.5)':'rgba(251,191,36,0.5)'};color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${window.escHtml(r.text)}</span>`).join('')}
       </div>
     </div>` : '';
 
@@ -622,7 +622,7 @@ function renderCustomerDetail(custId) {
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">Common topics</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${tagsList.map(([tag, count]) => `<span class="tag tag-neutral" style="font-size:11px;display:inline-flex;align-items:center;gap:5px">${tag} <span style="color:var(--ink3);font-family:'DM Mono',monospace">${count}</span></span>`).join('')}
+        ${tagsList.map(([tag, count]) => `<span class="tag tag-neutral" style="font-size:11px;display:inline-flex;align-items:center;gap:5px">${window.escHtml(tag)} <span style="color:var(--ink3);font-family:'DM Mono',monospace">${count}</span></span>`).join('')}
       </div>
     </div>` : '';
 
@@ -633,12 +633,12 @@ function renderCustomerDetail(custId) {
         ${activity.map(a => `
           <div class="cust-timeline-item role-${a.role}" data-action="cust.openTicket" data-ticket-id="${window.escAttr(a.ticketId)}">
             <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
-              <span style="font-size:11px;font-weight:600;color:var(--ink)">${a.from}</span>
+              <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(a.from)}</span>
               ${a.role === 'note' ? '<span class="note-mark">Note</span>' : a.role === 'ai' ? '<span class="ai-mark">AI</span>' : ''}
               <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${a.ticketId}</span>
               <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-left:auto">${a.ts}</span>
             </div>
-            <div style="font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.text}</div>
+            <div style="font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(a.text)}</div>
           </div>
         `).join('')}
       </div>
@@ -653,11 +653,11 @@ function renderCustomerDetail(custId) {
       ${notes.length ? notes.map((n, i) => `
         <div class="cust-note">
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
-            <span style="font-size:11px;font-weight:600;color:var(--ink)">${n.author}</span>
+            <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(n.author)}</span>
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${n.ts}</span>
             ${admin ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
           </div>
-          <div style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${n.text}</div>
+          <div style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${window.escHtml(n.text)}</div>
         </div>
       `).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No notes yet — share context with the team by adding one.</div>'}
     </div>`;
@@ -668,7 +668,7 @@ function renderCustomerDetail(custId) {
         <div class="tb-breadcrumb">
           <span data-action="cust.closeProfile">Customers</span>
           <span class="tb-sep">/</span>
-          <span style="color:var(--ink);font-weight:500">${c.first} ${c.last}</span>
+          <span style="color:var(--ink);font-weight:500">${window.escHtml(c.first)} ${window.escHtml(c.last)}</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this customer"></div>
           </span>
@@ -676,17 +676,17 @@ function renderCustomerDetail(custId) {
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-size:18px;font-weight:600;color:var(--ink)">${c.first} ${c.last}</div>
+            <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
               <span style="font-family:'DM Mono',monospace">${c.id}</span>
-              <span class="vip-badge vip-${c.vip.toLowerCase()}">${c.vip}</span>
-              <span>${c.brand}</span>
-              <span style="font-family:'DM Mono',monospace">${c.jurisdiction}</span>
+              <span class="vip-badge vip-${c.vip.toLowerCase()}">${window.escHtml(c.vip)}</span>
+              <span>${window.escHtml(c.brand)}</span>
+              <span style="font-family:'DM Mono',monospace">${window.escHtml(c.jurisdiction)}</span>
             </div>
           </div>
-          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${window.escHtml(c.mergedInto)}</span>` : `<span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${c.kyc}</span>`}
+          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${window.escHtml(c.mergedInto)}</span>` : `<span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${window.escHtml(c.kyc)}</span>`}
         </div>
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
@@ -710,16 +710,16 @@ function renderCustomerDetail(custId) {
           }).join('')}
         </div>` : ''}
         <div class="cust-quickactions">
-          <a href="mailto:${c.email}" class="btn btn-sm">
+          <a href="mailto:${window.escAttr(c.email)}" class="btn btn-sm">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2.5" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 3l4.5 3.5L10.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Email
           </a>
-          <a href="tel:${c.mobile.replace(/\s/g,'')}" class="btn btn-sm">
+          <a href="tel:${window.escAttr(c.mobile.replace(/\s/g,''))}" class="btn btn-sm">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h2l1 2.5L3.5 5a8 8 0 0 0 3.5 3.5L8.5 7l2.5 1V11a1 1 0 0 1-1 1A9 9 0 0 1 1 2.5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
             Call
           </a>
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
-          ${c.bo ? `<a href="${c.bo}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : ''}
+          ${c.bo ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
           ${admin && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>

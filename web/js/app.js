@@ -186,8 +186,16 @@ function fmtMinutes(m) {
   const min = m % 60;
   return `${h}h${min ? ' ' + min + 'm' : ''}`;
 }
+// Escapes the five HTML-significant chars. Safe for both text nodes AND
+// double/single-quoted attribute values (quotes are escaped too). Mirrors the
+// correct impl in core/presence.js — keep the two in sync.
 function escHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s ?? '').replace(/[&<>"']/g, ch => (
+    ch === '&' ? '&amp;' :
+    ch === '<' ? '&lt;'  :
+    ch === '>' ? '&gt;'  :
+    ch === '"' ? '&quot;': '&#39;'
+  ));
 }
 
 // ─── CSAT surveys ────────────────────────────────────────────────────────────
@@ -206,7 +214,11 @@ function isAdmin() { return SESSION?.role === 'Admin' || SESSION?.role === 'Plat
 // Gates create/remove of custom-field DEFINITIONS; editing field values is
 // open to all agents and is not gated by this.
 function canManageCustomFields() { return isAdmin() || SESSION?.canManageCustomFields === true; }
-function escAttr(s) { return String(s).replace(/'/g, "\\'"); }
+// HTML-attribute escaper. Was a JS-string escaper (\' only) which gave NO
+// breakout protection in the double-quoted attributes it's used in — now a
+// true HTML escaper. The app has no inline on*= handlers relying on the old
+// backslash behavior (data-action delegation everywhere).
+function escAttr(s) { return escHtml(s); }
 
 // ─── Window bridge ─────────────────────────────────────────────────────────────
 // Re-exposes a handful of functions onto window. Every feature module has

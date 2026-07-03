@@ -71,10 +71,10 @@ export function renderAgents() {
     return `
       <div class="agent-card ${a.active?'':'inactive'}" data-action="agents.openDetail" data-name="${window.escAttr(a.name)}">
         <div class="agent-card-head">
-          <div class="agent-av">${a.initials}</div>
+          <div class="agent-av">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:0">
-            <div class="agent-name">${a.name}</div>
-            <div class="agent-role">${a.role}</div>
+            <div class="agent-name">${window.escHtml(a.name)}</div>
+            <div class="agent-role">${window.escHtml(a.role)}</div>
           </div>
           ${ooo ? `<span class="tag" style="font-size:9px;flex-shrink:0;background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || ('Until ' + (a.oooTo || 'further notice')))}">OOO</span>` : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.active?'Active':'Off'}</span>`}
         </div>
@@ -99,14 +99,14 @@ export function renderAgents() {
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total agents</div></div>
         <div class="kpi"><div class="kpi-n c-green">${activeN}</div><div class="kpi-l">Active</div></div>
         <div class="kpi"><div class="kpi-n c-blue">${avgLoad}</div><div class="kpi-l">Avg open load</div></div>
-        <div class="kpi"><div class="kpi-n c-amber" style="font-size:18px;line-height:1.1">${topAgent?topAgent.name:'—'}</div><div class="kpi-l">Top CSAT ${topAgent?'· '+topCSAT.toFixed(1):''}</div></div>
+        <div class="kpi"><div class="kpi-n c-amber" style="font-size:18px;line-height:1.1">${topAgent?window.escHtml(topAgent.name):'—'}</div><div class="kpi-l">Top CSAT ${topAgent?'· '+topCSAT.toFixed(1):''}</div></div>
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${AGENT_QUERY}" data-input-action="agents.setQuery"/>
+        <input class="filter-select" id="agent-search" placeholder="Search agents…" style="width:200px" value="${window.escAttr(AGENT_QUERY)}" data-input-action="agents.setQuery"/>
         <select class="filter-select" data-change-action="agents.setRoleFilter">
           <option value="all" ${AGENT_FILTER_ROLE==='all'?'selected':''}>All roles</option>
-          ${allRoles.map(r => `<option value="${r}" ${AGENT_FILTER_ROLE===r?'selected':''}>${r}</option>`).join('')}
+          ${allRoles.map(r => `<option value="${window.escAttr(r)}" ${AGENT_FILTER_ROLE===r?'selected':''}>${window.escHtml(r)}</option>`).join('')}
         </select>
         <select class="filter-select" data-change-action="agents.setStatusFilter">
           <option value="all"      ${AGENT_FILTER_STATUS==='all'?'selected':''}>All statuses</option>
@@ -224,15 +224,15 @@ function renderAgentDetail(name) {
   const topCustRows = d.topCustomers.length ? d.topCustomers.map(({ cust, count }) => {
     const pct = (count / d.topCustomers[0].count) * 100;
     return `<div data-action="agents.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
-      <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
-      <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
+      <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
+      <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:22px;text-align:right">${count}</div>
     </div>`;
   }).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:8px 0">No customers handled</div>';
 
   const tagsBlock = d.topTags.length
-    ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${d.topTags.map(([tag, c]) => `<span class="tag tag-neutral" style="font-size:11px;display:inline-flex;align-items:center;gap:5px">${tag} <span style="color:var(--ink3);font-family:'DM Mono',monospace">${c}</span></span>`).join('')}</div>`
+    ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${d.topTags.map(([tag, c]) => `<span class="tag tag-neutral" style="font-size:11px;display:inline-flex;align-items:center;gap:5px">${window.escHtml(tag)} <span style="color:var(--ink3);font-family:'DM Mono',monospace">${c}</span></span>`).join('')}</div>`
     : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:8px 0">No tags used yet</div>';
 
   const recentRows = d.recent.length ? d.recent.map(r => `
@@ -242,15 +242,15 @@ function renderAgentDetail(name) {
         ${r.role === 'note' ? '<span class="note-mark">Note</span>' : '<span style="font-size:9px;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Reply</span>'}
         <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-left:auto">${r.ts}</span>
       </div>
-      <div style="color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.text}</div>
+      <div style="color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(r.text)}</div>
     </div>`).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No activity recorded</div>';
 
   const ticketRows = s.tickets.map(t => {
     const cust = CUSTOMERS.find(c => c.id === t.customerId);
     return `<tr data-action="agents.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
       <td class="bold">${t.id}</td>
-      <td>${cust ? cust.first + ' ' + cust.last : '—'}</td>
-      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.subject}</td>
+      <td>${cust ? window.escHtml(cust.first + ' ' + cust.last) : '—'}</td>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(t.subject)}</td>
       <td><span class="tag tag-${t.status}">${t.status}</span></td>
       <td><span class="tag tag-${t.priority}">${t.priority}</span></td>
       <td><span class="sla-${t.sla}" style="font-size:11px;text-transform:uppercase;font-weight:500">${t.sla}</span></td>
@@ -264,22 +264,22 @@ function renderAgentDetail(name) {
         <div class="tb-breadcrumb">
           <span data-action="agents.closeDetail">Agents</span>
           <span class="tb-sep">/</span>
-          <span style="color:var(--ink);font-weight:500">${a.name}</span>
+          <span style="color:var(--ink);font-weight:500">${window.escHtml(a.name)}</span>
         </div>
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${a.initials}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:0">
-            <div style="font-size:18px;font-weight:600;color:var(--ink)">${a.name}</div>
-            <div style="font-size:12px;color:var(--ink3);margin-top:2px">${a.role}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>
+            <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(a.name)}</div>
+            <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>
           </div>
           ${isAgentOOO(a.name)
             ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + window.escHtml(a.oooTo) : ''}</span>`
             : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>`}
           ${admin || (SESSION && SESSION.name === a.name) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             ${admin ? `<select class="filter-select" data-change-action="agents.reassign" data-name="${window.escAttr(a.name)}" style="font-size:12px">
-              ${allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('')}
+              ${allRoles.map(r => `<option value="${window.escAttr(r)}" ${a.role===r?'selected':''}>${window.escHtml(r)}</option>`).join('')}
             </select>` : ''}
             <button class="btn btn-sm" data-action="agents.editOOO" data-name="${window.escAttr(a.name)}">${isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
             ${admin ? (a.active
@@ -370,7 +370,7 @@ function agentNew() {
     <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
     <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="ag-email" type="email" placeholder="jane@company.com"/></div>
     <div class="form-row"><label class="form-label">Role</label>
-      <select class="form-input" id="ag-role">${allRoles.map(r => `<option value="${r}" ${r==='Senior Agent'?'selected':''}>${r}</option>`).join('')}</select>
+      <select class="form-input" id="ag-role">${allRoles.map(r => `<option value="${window.escAttr(r)}" ${r==='Senior Agent'?'selected':''}>${window.escHtml(r)}</option>`).join('')}</select>
     </div>
     <div style="font-size:11px;color:var(--ink3);margin-top:6px">We'll email them a link to set their password and join this workspace.</div>
   `, async () => {

@@ -979,7 +979,7 @@ async function resetSuppressedCustomer(customerId) {
 
 function showOutgoingWebhookDeliveries(id, name) {
   showModal(
-    `Deliveries · ${window.escHtml(name)}`,
+    `Deliveries · ${name}`,
     `<div id="wh-deliveries-body" data-webhook-id="${window.escAttr(id)}" style="min-height:120px;color:var(--ink3);font-size:12px">Loading…</div>`,
     null, null, true,
   );
@@ -1067,7 +1067,7 @@ function editOutgoingWebhook(id) {
   // so the buttons are inlined into the body and routed through
   // data-action delegation (settings.saveWebhookEdit / rotateSecret /
   // closeModal) instead.
-  showModal(`Edit webhook · ${window.escHtml(w.name)}`,
+  showModal(`Edit webhook · ${w.name}`,
     `<input type="hidden" id="we-id" value="${window.escAttr(w.id)}"/>
      <div class="form-row">
        <label class="form-label">Name</label>
