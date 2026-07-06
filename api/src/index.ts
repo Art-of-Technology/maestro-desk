@@ -7,7 +7,7 @@ import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
-import { env } from './lib/env.js';
+import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './lib/env.js';
 import { auth } from './lib/auth.js';
 import { authRateLimit } from './lib/auth-rate-limit.js';
 import { health } from './routes/health.js';
@@ -46,13 +46,14 @@ const app = new Hono();
 
 // Browser origins allowed to call the AUTHENTICATED agent API + /api/auth/*.
 // The agent SPA is served from APP_BASE_URL (https://desk.maestro-desk.com in
-// prod, http://localhost:5173 in dev). Vercel PR previews are deliberately NOT
-// allowed: index.html only points desk./help. at the deployed API, so a preview
-// SPA targets localhost:3001 and never calls the deployed API cross-origin.
-// Note this is defense-in-depth, not the auth boundary — the SPA authenticates
-// with bearer tokens in sessionStorage, not ambient cookies, so a cross-origin
-// page can't replay credentials regardless. Better Auth's own trustedOrigins
-// (lib/auth.ts) separately guards /api/auth/*.
+// prod, http://localhost:5173 in dev). On PREVIEW deployments only (staging —
+// see isVercelPreview), PR-preview SPA origins under this team's *.vercel.app
+// namespace are also allowed, so features are verifiable from the preview link
+// (web/js/api-base.js points those hosts at the staging API). Production CORS
+// is unchanged. Note this is defense-in-depth, not the auth boundary — the SPA
+// authenticates with bearer tokens in sessionStorage, not ambient cookies, so
+// a cross-origin page can't replay credentials regardless. Better Auth's own
+// trustedOrigins (lib/auth.ts) separately guards /api/auth/*.
 const AGENT_ORIGINS = [env.APP_BASE_URL, 'http://localhost:5173'];
 
 // A request gets the OPEN CORS policy only when its path unambiguously lives
@@ -81,7 +82,12 @@ app.use('*', cors({
     if (isPublicApiPath(c.req.path)) return origin || '*';
     // Authenticated agent API + auth: reflect only allowlisted origins; an
     // empty return omits Access-Control-Allow-Origin so the browser blocks it.
-    return AGENT_ORIGINS.includes(origin) ? origin : '';
+    if (AGENT_ORIGINS.includes(origin)) return origin;
+    // Preview deployments additionally reflect PR-preview SPA origins. The
+    // flag is read here (request time), not hoisted into AGENT_ORIGINS, so
+    // tests can toggle it via mock.module.
+    if (isVercelPreview && PREVIEW_SPA_ORIGIN_RE.test(origin)) return origin;
+    return '';
   },
   allowHeaders: ['Authorization', 'Content-Type', 'X-Workspace-Id', 'X-Brand-Id'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
