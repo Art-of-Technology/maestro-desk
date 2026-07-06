@@ -11,8 +11,11 @@ process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
 const APP_ORIGIN = 'https://desk.maestro-desk.com';
-const { env: realEnv } = await import('./lib/env.js');
-mock.module('./lib/env.js', () => ({ env: { ...realEnv, APP_BASE_URL: APP_ORIGIN } }));
+// Spread the whole real module so every export (isLocalDev, isVercelPreview,
+// PREVIEW_SPA_ORIGIN_RE, …) survives the mock — index.js imports several, and a
+// partial stub would silently make them undefined.
+const realEnvMod = await import('./lib/env.js');
+mock.module('./lib/env.js', () => ({ ...realEnvMod, env: { ...realEnvMod.env, APP_BASE_URL: APP_ORIGIN } }));
 const app = (await import('./index.js')).default;
 
 afterAll(() => mock.restore());

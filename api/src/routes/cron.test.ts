@@ -19,10 +19,10 @@ const CRON_SECRET = 'test-cron-secret';
 // Spread the real parsed env so the stub has every field (env.ts may already be
 // cached from another test file with CRON_SECRET=''), then force CRON_SECRET.
 // Mocking env.ts before importing cron.ts makes the guard independent of how
-// env was first parsed. A complete stub also means the override is harmless if
-// it leaks to a later file.
-const { env: realEnv } = await import('../lib/env.js');
-mock.module('../lib/env.js', () => ({ env: { ...realEnv, CRON_SECRET } }));
+// env was first parsed. Spreading the full module keeps every export present so
+// the override is harmless if it leaks to a later file.
+const realEnvMod = await import('../lib/env.js');
+mock.module('../lib/env.js', () => ({ ...realEnvMod, env: { ...realEnvMod.env, CRON_SECRET } }));
 
 // Stub the sweeps so the handlers return without hitting the DB.
 mock.module('../lib/outgoing-webhooks.js', () => ({
