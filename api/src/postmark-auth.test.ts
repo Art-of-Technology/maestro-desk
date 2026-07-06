@@ -13,8 +13,10 @@ process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'unit-test-secret-0123456789';
 
 const SECRET = 'unit-test-secret-0123456789';
-const { env: realEnv } = await import('./lib/env.js');
-mock.module('./lib/env.js', () => ({ env: { ...realEnv, POSTMARK_INBOUND_SECRET: SECRET } }));
+const realEnvMod = await import('./lib/env.js');
+// Spread the full module so every export survives the mock (a partial stub
+// would drop siblings like isVercelPreview if this override leaks to a later file).
+mock.module('./lib/env.js', () => ({ ...realEnvMod, env: { ...realEnvMod.env, POSTMARK_INBOUND_SECRET: SECRET } }));
 const { assertPostmarkAuth } = await import('./lib/postmark.js');
 
 function ctx({ auth, query }: { auth?: string; query?: string }): Context {
