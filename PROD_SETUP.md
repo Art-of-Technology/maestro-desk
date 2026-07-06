@@ -80,7 +80,7 @@ This is atomic: the API verifies Better Auth sessions and the SPA signs in via B
   - **MX** on the support domain → `inbound.postmarkapp.com` so inbound mail hits the webhook
   - **CNAMEs** for `desk` / `help` → the Vercel SPA deployment, and `api` → the Vercel API deployment
 - [ ] 👤 Verify the domain in Postmark (DKIM + Return-Path) — DNS can take minutes–hours.
-- [ ] 👤 Configure the Postmark inbound webhook → `https://maestro-desk-zjkl.vercel.app/api/v1/webhooks/postmark/inbound?secret=<POSTMARK_INBOUND_SECRET>` (interim API host; → `https://api.maestro-desk.com/...` once the domain is live).
+- [ ] 👤 Configure the Postmark inbound webhook with **HTTP Basic Auth** (the secret rides in the `Authorization` header, never the URL) → `https://postmark:<POSTMARK_INBOUND_SECRET>@maestro-desk-zjkl.vercel.app/api/v1/webhooks/postmark/inbound` (interim API host; → `https://api.maestro-desk.com/...` once the domain is live). The bounce webhook uses Postmark's HTTP Basic Auth username/password fields (username `postmark`, password = the secret). The `?secret=` query form is no longer accepted.
 - [ ] 🤖 Add the support domain to `workspace_email_domains` so inbound routes to your workspace (not the unrouted bucket).
 
 ## 6. Smoke + pilot

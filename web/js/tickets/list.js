@@ -19,6 +19,7 @@
 import { AGENTS, CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
+import { pageTabs } from '../core/page-tabs.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
@@ -202,7 +203,7 @@ export function renderTickets() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Tickets</div>
+        ${pageTabs([{key:'tickets',label:'Tickets'},{key:'inbox',label:'Inbox'}],'tickets')}
         <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
         <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
       </div>
@@ -216,10 +217,10 @@ export function renderTickets() {
       <div class="tab-bar">${tabs}</div>
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Search</span>
-        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${FILTER_QUERY}" data-input-action="tickets.setQuery"/>
+        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="category">
           <option value="all">All categories</option>
-          ${cats.map(c=>`<option value="${c}" ${FILTER_CATEGORY===c?'selected':''}>${c}</option>`).join('')}
+          ${cats.map(c=>`<option value="${window.escAttr(c)}" ${FILTER_CATEGORY===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
         </select>
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="priority">
           <option value="all">All priorities</option>
@@ -230,7 +231,7 @@ export function renderTickets() {
         </select>
         <select class="filter-select" data-change-action="tickets.setAgent">
           <option value="all">All agents</option>
-          ${AGENTS.map(a=>`<option value="${a.name}" ${FILTER_AGENT===a.name?'selected':''}>${a.name}</option>`).join('')}
+          ${AGENTS.map(a=>`<option value="${window.escAttr(a.name)}" ${FILTER_AGENT===a.name?'selected':''}>${window.escHtml(a.name)}</option>`).join('')}
         </select>
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="sentiment" title="Filter by latest customer sentiment">
           <option value="all">All sentiments</option>
@@ -246,11 +247,11 @@ export function renderTickets() {
           <option value="category" ${TICKET_GROUP_BY==='category'?'selected':''}>Group by category</option>
           <option value="agent"    ${TICKET_GROUP_BY==='agent'?'selected':''}>Group by agent</option>
         </select>
-        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${FILTER_CATEGORY}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
+        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_CATEGORY)}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
         ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
-        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${FILTER_AGENT}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
+        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
         ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
-        ${FILTER_QUERY?`<span class="filter-tag">"${FILTER_QUERY}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
+        ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">

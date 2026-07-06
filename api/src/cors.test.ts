@@ -1,14 +1,15 @@
 // Tests for the CORS policy in index.ts. The authenticated agent API + auth
-// routes are locked to APP_BASE_URL + localhost dev (no Vercel previews — they
-// target localhost, not the deployed API); the public/portal API
-// (/api/v1/public/*) stays open so white-label portals on arbitrary verified
-// custom domains can call it.
+// routes are locked to APP_BASE_URL + localhost dev; on PREVIEW deployments
+// only (isVercelPreview), team PR-preview SPA origins are also reflected so
+// features are verifiable from a preview link (they target the staging API).
+// The public/portal API (/api/v1/public/*) stays open so white-label portals
+// on arbitrary verified custom domains can call it.
 //
 // We drive the policy through OPTIONS preflights (handled by the cors
 // middleware directly, so no route handler / DB is touched) plus one real GET
 // against the DB-free health route.
 
-import { describe, expect, it, mock, afterAll } from 'bun:test';
+import { describe, expect, it, mock, afterAll, beforeEach, afterEach } from 'bun:test';
 
 // Hermetic env so env.ts validates without an api/.env.
 process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=require';
@@ -17,11 +18,19 @@ process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
 // Pin APP_BASE_URL to a prod-like origin so allow/deny are distinguishable.
-// Spread the real parsed env so the stub is complete (env may already be cached
-// from another test file), then override. Mock before importing index.ts.
+// Spread the real module (env may already be cached from another test file) so
+// the stub keeps every export (isLocalDev, isVercelPreview, …), then override.
+// Mock before importing index.ts. index.ts reads isVercelPreview at request
+// time, so setPreview() below can flip it per-test via mock.module.
 const APP_ORIGIN = 'https://desk.maestro-desk.com';
-const { env: realEnv } = await import('./lib/env.js');
-mock.module('./lib/env.js', () => ({ env: { ...realEnv, APP_BASE_URL: APP_ORIGIN } }));
+// A team PR-preview SPA origin: git-BRANCH deploy under the team namespace.
+const PREVIEW_ORIGIN = 'https://maestro-desk-git-feat-x-abc12-jodi-1420s-projects.vercel.app';
+const realEnvMod = await import('./lib/env.js');
+const stubEnv = { ...realEnvMod.env, APP_BASE_URL: APP_ORIGIN };
+function setPreview(flag: boolean) {
+  mock.module('./lib/env.js', () => ({ ...realEnvMod, env: stubEnv, isVercelPreview: flag }));
+}
+setPreview(false);
 
 const app = (await import('./index.js')).default;
 
@@ -49,13 +58,50 @@ describe('CORS — authenticated agent API', () => {
     expect(acao(res)).toBe(APP_ORIGIN);
   });
 
-  it('denies a *.vercel.app preview origin (previews target localhost, not the deployed API)', async () => {
+  it('denies a *.vercel.app origin outside the team namespace', async () => {
     const res = await preflight('/api/v1/tickets', 'https://maestro-desk-git-feature.vercel.app');
+    expect(acao(res)).toBeNull();
+  });
+
+  it('denies a team PR-preview origin on non-preview deployments', async () => {
+    const res = await preflight('/api/v1/tickets', PREVIEW_ORIGIN);
     expect(acao(res)).toBeNull();
   });
 
   it('denies an unknown origin (no Allow-Origin header)', async () => {
     const res = await preflight('/api/v1/tickets', 'https://evil.example.com');
+    expect(acao(res)).toBeNull();
+  });
+});
+
+// PR-preview SPA origins are reflected ONLY on preview deployments
+// (isVercelPreview), where api-base.js points them at the staging API.
+describe('CORS — preview deployments (isVercelPreview)', () => {
+  beforeEach(() => setPreview(true));
+  afterEach(() => setPreview(false));
+
+  it('reflects a team PR-preview origin', async () => {
+    const res = await preflight('/api/v1/tickets', PREVIEW_ORIGIN);
+    expect(res.status).toBe(204);
+    expect(acao(res)).toBe(PREVIEW_ORIGIN);
+  });
+
+  it('still denies lookalike origins (anchored regex)', async () => {
+    // Suffix attack: the team hostname as a subdomain of an attacker domain.
+    let res = await preflight('/api/v1/tickets', `${PREVIEW_ORIGIN}.attacker.com`);
+    expect(acao(res)).toBeNull();
+    // Outside the team namespace entirely.
+    res = await preflight('/api/v1/tickets', 'https://maestro-desk-git-feature.vercel.app');
+    expect(acao(res)).toBeNull();
+  });
+
+  // Production deployment URLs share the team suffix but must NOT match — the
+  // pattern requires a `git-<branch>` marker and excludes `git-main`, so prod's
+  // hash deployment URL and its main-branch alias both stay denied even here.
+  it('denies production deployment URLs (hash + git-main alias)', async () => {
+    let res = await preflight('/api/v1/tickets', 'https://maestro-desk-abc123-jodi-1420s-projects.vercel.app');
+    expect(acao(res)).toBeNull();
+    res = await preflight('/api/v1/tickets', 'https://maestro-desk-git-main-jodi-1420s-projects.vercel.app');
     expect(acao(res)).toBeNull();
   });
 });

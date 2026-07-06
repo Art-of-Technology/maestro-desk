@@ -27,6 +27,9 @@ runDbTests('tenant isolation (DB-backed)', () => {
   // customerId } for two fully separate tenants A and B.
   const A = { email: `iso-a-${RUN}@t.test`, slug: `iso-a-${RUN}` } as Record<string, string>;
   const B = { email: `iso-b-${RUN}@t.test`, slug: `iso-b-${RUN}` } as Record<string, string>;
+  // C is a NON-admin member of tenant A, used to prove role management is
+  // admin-gated (advisory GHSA-6qq2-v492-r8r6 — privilege escalation).
+  const C = { email: `iso-c-${RUN}@t.test` } as Record<string, string>;
 
   async function signUp(email: string): Promise<{ id: string; token: string }> {
     const { auth } = await import('./lib/auth.js');
@@ -82,6 +85,22 @@ runDbTests('tenant isolation (DB-backed)', () => {
     B.userId = ub.id; B.token = ub.token;
     await setupTenant(A);
     await setupTenant(B);
+
+    // Add C as an ACTIVE, NON-admin member of tenant A under a fresh
+    // is_admin=false role. This is the principal the role-management gate
+    // must reject.
+    const uc = await signUp(C.email);
+    C.userId = uc.id; C.token = uc.token;
+    const [memberRole] = await sql<{ id: string }[]>`
+      insert into roles (workspace_id, name, is_admin)
+      values (${A.wsId}, 'Member', false)
+      returning id
+    `;
+    C.memberRoleId = memberRole.id;
+    await sql`
+      insert into workspace_members (workspace_id, user_id, role_id, active)
+      values (${A.wsId}, ${C.userId}, ${memberRole.id}, true)
+    `;
   });
 
   afterAll(async () => {
@@ -91,7 +110,7 @@ runDbTests('tenant isolation (DB-backed)', () => {
     // and mask the real error. Cascades to members/tickets/customers/etc.
     const wsIds = [A.wsId, B.wsId].filter(Boolean);
     if (wsIds.length) await sql`delete from workspaces where id in ${sql(wsIds)}`;
-    const userIds = [A.userId, B.userId].filter(Boolean);
+    const userIds = [A.userId, B.userId, C.userId].filter(Boolean);
     if (userIds.length) await sql`delete from users where id in ${sql(userIds)}`;
     // NB: do NOT sql.end() — `sql` is the shared getDb() pool, so ending it
     // would break any DB-backed test file that runs after this one. The bun
@@ -139,5 +158,180 @@ runDbTests('tenant isolation (DB-backed)', () => {
   it('symmetric: B cannot act as A\'s workspace (403)', async () => {
     const res = await as(B.token, A.wsId, '/api/v1/tickets');
     expect(res.status).toBe(403);
+  });
+
+  // ─── Role management is admin-only (GHSA-6qq2-v492-r8r6) ─────────────────
+  // A non-admin member must not be able to create/edit roles — otherwise it
+  // can flip its own role's is_admin and self-escalate to workspace admin.
+  it('non-admin member cannot PATCH a role to is_admin (403, no write)', async () => {
+    const res = await as(C.token, A.wsId, `/api/v1/roles/${C.memberRoleId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_admin: true }),
+    });
+    expect(res.status).toBe(403);
+    // Prove the guard ran BEFORE the write — the role must still be non-admin.
+    const [role] = await sql<{ is_admin: boolean }[]>`
+      select is_admin from roles where id = ${C.memberRoleId}
+    `;
+    expect(role.is_admin).toBe(false);
+  });
+
+  it('non-admin member cannot create a role (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/roles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `escalate-${RUN}`, is_admin: true }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can still manage roles (POST 201 + PATCH 200)', async () => {
+    const created = await as(A.token, A.wsId, '/api/v1/roles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `QA-${RUN}`, is_admin: false }),
+    });
+    expect(created.status).toBe(201);
+    const { role }: any = await created.json();
+    const patched = await as(A.token, A.wsId, `/api/v1/roles/${role.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `QA-${RUN}-renamed` }),
+    });
+    expect(patched.status).toBe(200);
+  });
+
+  // ─── Integration management is admin-only (GHSA-6qq2-v492-r8r6 #2) ───────
+  // A non-admin must not be able to create/repoint outgoing webhooks (which
+  // would exfiltrate ticket payloads) or write the Slack integration.
+  it('non-admin member cannot create an outgoing webhook (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'evil', url: 'https://example.com/hook', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('non-admin member cannot write the Slack integration (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com/services/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an outgoing webhook (201)', async () => {
+    // Literal public IP keeps this hermetic — net.isIP short-circuits the SSRF
+    // guard before any dns.lookup, so the test needs no network.
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `hook-${RUN}`, url: 'https://1.1.1.1/hook', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('rejects an outgoing webhook URL that resolves to an internal address (400)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/webhooks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `ssrf-${RUN}`, url: 'http://169.254.169.254/latest/meta-data/', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // ─── SLA policy + assignment-rule writes are admin-only (#9/#10) ─────────
+  it('non-admin member cannot create an SLA policy (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/sla-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `sla-${RUN}`, priority_key: 'normal', first_response_min: 30, resolution_min: 120 }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an SLA policy (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/sla-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: `sla-${RUN}`, priority_key: 'normal', first_response_min: 30, resolution_min: 120 }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it('non-admin member cannot create an assignment rule (403)', async () => {
+    const res = await as(C.token, A.wsId, '/api/v1/assign-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `rule-${RUN}`, priority: 1,
+        conditions: { priority: 'any', category: 'any', vip: 'any' },
+        assignment: { mode: 'round-robin', team_user_ids: [A.userId] },
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('workspace admin can create an assignment rule (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/assign-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: `rule-${RUN}`, priority: 1,
+        conditions: { priority: 'any', category: 'any', vip: 'any' },
+        assignment: { mode: 'round-robin', team_user_ids: [A.userId] },
+      }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  // ─── #16: ticket create must not reference another workspace's customer ──
+  it('cannot create a ticket referencing another workspace\'s customer (404)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'x-tenant', customer_id: B.customerId }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('can create a ticket with its own workspace customer (201)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject: 'same-tenant', customer_id: A.customerId }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  // ─── #24: Slack webhook_url must be exactly hooks.slack.com (no look-alike) ─
+  it('rejects a look-alike Slack webhook host (400)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com.evil.com/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('accepts a genuine hooks.slack.com webhook (ok)', async () => {
+    const res = await as(A.token, A.wsId, '/api/v1/integrations/slack', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ webhook_url: 'https://hooks.slack.com/services/T/B/x', events: ['ticket.created'] }),
+    });
+    expect(res.status).toBe(200);
+  });
+
+  // ─── #18: readiness probe must not leak the platform tenant count ────────
+  it('readiness probe does not expose the workspace count', async () => {
+    const res = await app.request('/api/v1/health/ready');
+    expect(res.status).toBe(200);
+    const body: any = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.workspaces).toBeUndefined();
   });
 });

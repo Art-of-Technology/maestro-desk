@@ -22,9 +22,11 @@ const Env = z.object({
   // the local static server; set to https://desk.maestro-desk.com in prod.
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   ANTHROPIC_API_KEY: z.string().min(20),
-  // Secret Postmark passes as a query string on the inbound webhook URL:
-  // https://<tunnel-host>/api/v1/webhooks/postmark/inbound?secret=<value>
-  // (URL-embedded Basic Auth is rejected by Postmark's URL validator.)
+  // Shared secret for the Postmark inbound + bounce webhooks, sent via HTTP
+  // Basic Auth (the password slot) — configure the webhook URL as
+  // https://postmark:<value>@<host>/api/v1/webhooks/postmark/inbound. The
+  // secret rides in the Authorization header, never the URL query; the old
+  // ?secret= form is no longer accepted (see lib/postmark.ts).
   POSTMARK_INBOUND_SECRET: z.string().min(16),
   // Outbound — Server API Token from Postmark (Settings → API Tokens).
   // Verified sender address (Sender Signatures or domain-verified).
@@ -148,3 +150,25 @@ export type Env = z.infer<typeof Env>;
 // in production (e.g. logging sensitive auth links). Prefer this over a bare
 // `process.env.VERCEL` check so the prod/dev decision lives in one place.
 export const isLocalDev = !process.env.VERCEL && process.env.NODE_ENV !== 'production';
+
+// True only on Vercel PREVIEW deployments (branch deploys incl. staging; never
+// production — Vercel sets VERCEL_ENV='production' there; on the Node runtime
+// VERCEL_ENV is always present, no "expose system env vars" opt-in needed).
+// Gates the loosened CORS/trusted-origins that let PR-preview SPAs talk to the
+// staging API.
+export const isVercelPreview = process.env.VERCEL_ENV === 'preview';
+
+// The team's Vercel PR-preview SPA origins — git-BRANCH deploys only, e.g.
+// https://maestro-desk-git-<branch>-jodi-1420s-projects.vercel.app (staging's
+// own `git-staging` host matches too, which is intended). The `git-` marker is
+// REQUIRED and `git-main-` is excluded so PRODUCTION deployment URLs never
+// match: Vercel also assigns prod a `maestro-desk-<hash>-…` deployment URL and
+// a `git-main` alias, and matching those would let this loosening touch prod.
+// Single source of truth: index.ts CORS and auth.ts trustedOrigins both import
+// this, so the two layers can't drift apart. Residual (accepted): the trailing
+// team slug can be spoofed by anyone who registers a Vercel project literally
+// named to end in `-jodi-1420s-projects`; tolerated because this only ever
+// widens CORS/trust on PREVIEW deploys (never prod), against the staging DB,
+// and auth is bearer-token in sessionStorage (no ambient cookies to replay).
+export const PREVIEW_SPA_ORIGIN_RE =
+  /^https:\/\/maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/;

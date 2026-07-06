@@ -161,8 +161,8 @@ function renderNotifications() {
       <div class="notif-item ${NOTIFICATIONS_READ.has(n.id)?'read':''}" data-mousedown-action="notif.openFromDropdown" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
         <div class="notif-dot" style="background:${n.color}"></div>
         <div class="notif-body">
-          <div class="notif-row"><div class="notif-name">${n.title}</div><div class="notif-time">${n.ts}</div></div>
-          <div class="notif-text">${n.body}</div>
+          <div class="notif-row"><div class="notif-name">${window.escHtml(n.title)}</div><div class="notif-time">${n.ts}</div></div>
+          <div class="notif-text">${window.escHtml(n.body)}</div>
         </div>
       </div>`).join('');
     html += `<div style="padding:10px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" data-mousedown-action="notif.closeAndGo" style="font-size:11px;font-weight:500">View all notifications →</span></div>`;
@@ -257,11 +257,11 @@ export function renderNotificationsPage() {
         <div style="width:4px;border-radius:2px;background:${n.color};flex-shrink:0;align-self:stretch"></div>
         <div style="flex:1;min-width:0;cursor:pointer" data-action="notif.openFromPage" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
-            <span style="font-size:13px;font-weight:600;color:var(--ink)">${n.title}</span>
+            <span style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(n.title)}</span>
             ${!isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--purple);box-shadow:0 0 6px var(--purple);flex-shrink:0"></span>' : ''}
             <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${n.ts}</span>
           </div>
-          <div style="font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.body}</div>
+          <div style="font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(n.body)}</div>
         </div>
         <div style="display:flex;gap:4px;align-items:center;flex-shrink:0" data-action="">
           ${!isRead ? `<button class="btn btn-sm" data-action="notif.markRead" data-notif-id="${window.escAttr(n.id)}" title="Mark read">Mark read</button>` : ''}

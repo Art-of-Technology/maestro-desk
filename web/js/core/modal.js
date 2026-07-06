@@ -19,19 +19,25 @@ import { registerActions } from './event-delegation.js';
 
 let _onConfirm = null;
 
+// `title` and `confirmLabel` are always PLAIN TEXT — escape them here so no
+// caller can inject markup through a modal title (customer/tag/brand names etc.
+// flow in). `body` is intentional caller-built HTML and is NOT escaped here;
+// callers are responsible for escaping user data inside the body.
+// Reached via the window bridge (like every other core module) — showModal only
+// runs at interaction time, long after app.js wires up window.escHtml.
 export function showModal(title, body, onConfirm, confirmLabel='Save', isLarge=false) {
   _onConfirm = onConfirm || null;
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-bg" data-action="modal.close">
       <div class="${isLarge?'modal modal-lg':'modal'}" data-action="">
         <div class="modal-head">
-          <div class="modal-title">${title}</div>
+          <div class="modal-title">${window.escHtml(title)}</div>
           <div class="modal-close" data-action="modal.close">×</div>
         </div>
         <div class="modal-body">${body}</div>
         ${onConfirm?`<div class="modal-foot">
           <button class="btn" data-action="modal.close">Cancel</button>
-          <button class="btn btn-solid" data-action="modal.confirm">${confirmLabel}</button>
+          <button class="btn btn-solid" data-action="modal.confirm">${window.escHtml(confirmLabel)}</button>
         </div>`:''}
       </div>
     </div>`;

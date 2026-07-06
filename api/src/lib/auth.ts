@@ -1,7 +1,7 @@
 import { betterAuth } from 'better-auth';
 import { bearer, genericOAuth } from 'better-auth/plugins';
 import { Pool } from 'pg';
-import { env } from './env.js';
+import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './env.js';
 import { sendEmail, isPostmarkConfigured } from './postmark-outbound.js';
 
 // "Sign in with Maestro" (Maestro Connect OIDC). Only mounted when the app's
@@ -62,9 +62,25 @@ export const auth = betterAuth({
   // and password-reset accept it. BETTER_AUTH_URL (the API's own origin) is
   // also trusted so the Maestro OAuth flow can land on the API-hosted
   // oauth-complete bridge (routes/maestro.ts) as its callbackURL.
-  trustedOrigins: [env.APP_BASE_URL, env.BETTER_AUTH_URL],
+  // On preview deployments (staging) additionally trust the requesting PR-preview
+  // SPA origin so login POSTs from a preview link aren't rejected. We reflect the
+  // request's own Origin only when it passes the SAME regex the CORS layer uses
+  // (PREVIEW_SPA_ORIGIN_RE) — the function form keeps the two layers on one exact
+  // pattern rather than a looser wildcard string that could drift or over-match
+  // (trustedOrigins also gates callbackURL/redirect targets, so a broader match
+  // here would be an open-redirect surface). Never widened in production.
+  trustedOrigins: (request?: Request) => {
+    const base = [env.APP_BASE_URL, env.BETTER_AUTH_URL];
+    if (!isVercelPreview) return base;
+    const origin = request?.headers.get('origin');
+    return origin && PREVIEW_SPA_ORIGIN_RE.test(origin) ? [...base, origin] : base;
+  },
   emailAndPassword: {
     enabled: true,
+    // Require a reasonably strong password for agent/admin accounts (advisory
+    // #23). We do NOT set requireEmailVerification: invited agents are created
+    // email-first and never verify, so requiring it would lock them out.
+    minPasswordLength: 12,
     // Emailed when a user requests (or is sent) a password reset — the only
     // way invited agents/owners set their first password (no password carried
     // over from Supabase). We bypass Better Auth's default reset URL and link

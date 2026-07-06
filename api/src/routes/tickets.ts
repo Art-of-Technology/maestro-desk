@@ -258,6 +258,17 @@ tickets.patch('/:id', async (c) => {
     if (!cat) return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
   }
 
+  // Reject assigning the ticket to a user who isn't an active member of this
+  // workspace (advisory #9). null clears the assignment and needs no check;
+  // mirrors the customer_id membership check on create.
+  if (updates.assigned_user_id != null) {
+    const [member] = await sql`
+      select 1 from workspace_members
+      where user_id = ${updates.assigned_user_id} and workspace_id = ${workspaceId} and active = true
+    `;
+    if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
+  }
+
   await sql`update tickets set ${sql(updates)} where id = ${ticketId} and workspace_id = ${workspaceId}`;
 
   // Slack notifications for the state transitions the workspace cares about.
@@ -921,6 +932,14 @@ tickets.post('/', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
+
+  // Confirm the customer belongs to this workspace — never insert a ticket that
+  // references another workspace's customer (advisory #16).
+  const [customer] = await sql`
+    select 1 from customers
+    where id = ${input.customer_id} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!customer) return c.json({ error: 'Customer not found' }, 404);
 
   const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 

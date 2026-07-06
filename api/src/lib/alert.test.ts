@@ -16,15 +16,16 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
 // Mutable env: alert.ts reads env.X at call time and the imported `env` is this
 // same reference, so flipping a property mid-test flips the gate.
-const { env: realEnv } = await import('./env.js');
+const realEnvMod = await import('./env.js');
 const envObj = {
-  ...realEnv,
+  ...realEnvMod.env,
   ALERT_EMAIL_TO: '',
   SLACK_ALERT_WEBHOOK_URL: '',
   POSTMARK_SERVER_TOKEN: 'postmark-token',
   POSTMARK_OUTBOUND_FROM: 'alerts@maestro-desk.test',
 };
-mock.module('./env.js', () => ({ env: envObj, isLocalDev: false }));
+// Spread the full module so no export is dropped; keep isLocalDev:false override.
+mock.module('./env.js', () => ({ ...realEnvMod, env: envObj, isLocalDev: false }));
 
 // DB stub — getDb() returns a tagged-template fn that yields the claim result.
 let claimResult: Array<{ should_send: boolean; suppressed_since: number }> = [

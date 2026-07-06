@@ -19,6 +19,7 @@
 import { CHANNELS, CUSTOMERS, INBOX, TICKETS } from '../core/data.js';
 import { INBOX_FILTER_CHANNEL, INBOX_FILTER_STATUS, INBOX_SELECTED_ID, setCustomerSelected, setInboxFilterChannel, setInboxFilterStatus, setInboxSelectedId } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
+import { pageTabs } from '../core/page-tabs.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
@@ -220,7 +221,7 @@ export function renderInbox() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Inbox</div>
+        ${pageTabs([{key:'tickets',label:'Tickets'},{key:'inbox',label:'Inbox'}],'inbox')}
         <span style="font-size:11px;color:var(--ink3);font-style:italic">Incoming mail across email and webform channels — convert into tickets, dismiss, or mark spam.</span>
       </div>
       <div class="kpi-bar">

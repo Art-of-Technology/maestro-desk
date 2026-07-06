@@ -1,11 +1,15 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
 
-// Migration to Neon — Step 3. Member-level (the original roles RLS was
-// `using (workspace_id = current_workspace_id())` — any workspace member),
-// workspace-scoped via getDb(). Multi-table writes run in transactions.
+// Migration to Neon — Step 3. Listing roles is member-level (the original
+// roles read RLS was `using (workspace_id = current_workspace_id())` — any
+// workspace member), but CREATE/UPDATE/DELETE are ADMIN-only: a role carries
+// `is_admin`, so letting a non-admin write roles is a privilege-escalation
+// path (a member could flip their own role's is_admin). Mutations gate on
+// requireWorkspaceAdmin, matching routes/agents.ts. Workspace-scoped via getDb().
 export const roles = new Hono();
 
 roles.use('*', requireAuth);
@@ -32,6 +36,9 @@ roles.get('/', async (c) => {
 
 // ─── POST / — create role ────────────────────────────────────────────────
 roles.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
@@ -61,6 +68,9 @@ const PatchRole = z.object({
 }).strict();
 
 roles.patch('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -94,6 +104,9 @@ roles.patch('/:id', async (c) => {
 
 // ─── DELETE /:id — refuse if any workspace_members reference it ──────────
 roles.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');

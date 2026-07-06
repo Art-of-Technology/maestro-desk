@@ -18,7 +18,7 @@ const TemplateBody = z.object({
   priority_key: z.enum(['urgent', 'high', 'normal', 'low']).nullable().optional(),
   subject:      z.string().max(500).nullable().optional(),
   body:         z.string().nullable().optional(),
-});
+}).strict();
 
 ticketTemplates.get('/', async (c) => {
   const sql = getDb();

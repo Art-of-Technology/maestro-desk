@@ -52,12 +52,25 @@ import { renderGod } from '../god/index.js';
 import { applyCollapsibleHeaders } from './collapsible.js';
 import { stopPresence } from './presence.js';
 
+// Merged sidebar destinations own extra page keys through their header tabs
+// (Conversations = tickets|inbox, Insights = reports|activity). Map those tab
+// keys to the sidebar item that represents them so programmatic navigation
+// (global search, quick switcher, deep links) highlights the right row. Keys
+// with their own sidebar item — or none at all, e.g. config-hub-only pages like
+// portal — need no entry; the lookup falls through to data-page or no highlight.
+const NAV_ITEM_FOR_PAGE = { inbox: 'tickets', activity: 'reports' };
+
 export function nav(page, el) {
   document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
   // The top-bar config cog manages its own active state (set in app.config);
   // any sidebar/card navigation clears it so it doesn't stay visually pressed.
   document.getElementById('cog-btn')?.classList.remove('active');
-  if (el) el.classList.add('active');
+  // Highlight the clicked element when we have one (sidebar row or config-hub
+  // card); otherwise resolve the owning sidebar item from the page key so
+  // programmatic callers don't each re-implement the lookup. Pages with no
+  // sidebar row simply get no highlight.
+  const item = el || document.querySelector(`.sb-item[data-page="${NAV_ITEM_FOR_PAGE[page] || page}"]`);
+  if (item) item.classList.add('active');
   renderPage(page);
 }
 

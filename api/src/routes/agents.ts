@@ -6,6 +6,7 @@ import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { auth } from '../lib/auth.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { deriveNameFromEmail, initialsFromName, randomPassword } from '../lib/invite.js';
+import { revokeSessionsIfNoAccess } from '../lib/sessions.js';
 
 // Migration to Neon — Step 3. workspace_members management.
 //   GET    — list (any member; mirrors workspace_members_visible RLS)
@@ -169,6 +170,10 @@ agents.patch('/:userId', async (c) => {
   `;
   if (!updated) return c.json({ error: 'Membership not found' }, 404);
 
+  // Deactivating a member may remove their last access — revoke their sessions
+  // so identity-only endpoints (/whoami, /push) stop working too (#22).
+  if (parsed.data.active === false) await revokeSessionsIfNoAccess(sql, targetUserId);
+
   const [agent] = await AGENT_SELECT(sql, workspaceId, targetUserId);
   return c.json({ agent });
 });
@@ -234,5 +239,10 @@ agents.delete('/:userId', async (c) => {
     returning user_id
   `;
   if (!deleted) return c.json({ error: 'Membership not found' }, 404);
+
+  // Removing the membership may leave the user with no access — revoke their
+  // sessions so their bearer token stops working everywhere (#22).
+  await revokeSessionsIfNoAccess(sql, targetUserId);
+
   return new Response(null, { status: 204 });
 });

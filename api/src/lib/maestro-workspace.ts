@@ -17,6 +17,7 @@ export interface BrandWorkspace {
   workspace_primary_color: string | null;
   role_name: string | null;
   is_admin: boolean;
+  active: boolean;
   suspended: boolean;
 }
 
@@ -56,19 +57,31 @@ export async function resolveBrandWorkspace(
   let ws = await findByBrand(brand.id);
   if (!ws) ws = await provisionForBrand(brand);
 
-  // Ensure membership. Role is set ONLY on first insert; an existing member
-  // keeps whatever role they have (an operator may have promoted/demoted them).
+  // Ensure membership. A brand-new member is created active; an EXISTING member
+  // is left untouched (`do nothing`) — role AND active are preserved. This is
+  // deliberate: an admin who DEACTIVATES an agent (workspace_members.active =
+  // false, via PATCH /agents/:userId) must have that stick, so a later Maestro
+  // re-login can't silently resurrect access. No system path sets active = false,
+  // so nothing legitimately needs re-login to auto-reactivate; reactivation is an
+  // explicit admin action (the invite/add upsert in routes/agents.ts). Role
+  // likewise stays as the operator set it since first sign-in.
+  //
+  // NOTE: this only makes the `active` flag durable. A hard DELETE of the
+  // membership (DELETE /agents/:userId) leaves no row, so an agent who still
+  // holds the brand upstream is re-provisioned active on next sign-in — Maestro
+  // brand access is the source of truth for membership *existence*; `active` is
+  // the durable local override. Deactivate, don't delete, to block persistently.
   const roleId = await roleIdForName(ws.id, roleName);
   await sql`
     insert into workspace_members (workspace_id, user_id, role_id, active)
     values (${ws.id}, ${userId}, ${roleId}, true)
-    on conflict (workspace_id, user_id) do update set active = true
+    on conflict (workspace_id, user_id) do nothing
   `;
 
-  // Read back the member's effective role (their existing one if they predated
-  // this sign-in, else the one we just assigned).
-  const [member] = await sql<{ role_name: string | null; is_admin: boolean | null }[]>`
-    select r.name as role_name, r.is_admin
+  // Read back the member's effective role + active flag (their existing values if
+  // they predated this sign-in, else the ones we just inserted).
+  const [member] = await sql<{ role_name: string | null; is_admin: boolean | null; active: boolean }[]>`
+    select r.name as role_name, r.is_admin, wm.active
     from workspace_members wm
     left join roles r on r.id = wm.role_id
     where wm.workspace_id = ${ws.id} and wm.user_id = ${userId}
@@ -82,6 +95,7 @@ export async function resolveBrandWorkspace(
     workspace_primary_color: ws.primary_color,
     role_name: member?.role_name ?? null,
     is_admin: Boolean(member?.is_admin),
+    active: Boolean(member?.active),
     suspended: Boolean(ws.suspended_at),
   };
 }
@@ -90,12 +104,13 @@ export async function resolveBrandWorkspace(
  * Authorization gate for brand-scoped player lookups. The lookup endpoints call
  * the gateway with the APP token, which can read every brand the app is
  * installed on — so we must enforce per-agent brand access HERE rather than
- * leaning on the platform to scope it per-user. Returns true iff the agent is an
- * active member of the Desk workspace that projects the given Maestro brand.
+ * leaning on the platform to scope it per-user.
+ *
+ * Returns the id of the Desk workspace that projects this Maestro brand IF the
+ * agent is an active member of it, else null. Callers use both the null-check
+ * (does the agent have brand access?) and the id (to confirm the brand's
+ * workspace matches the one being written to, and to write audit rows).
  */
-// Returns the id of the workspace backing this Maestro brand IF the agent is an
-// active member of it, else null. The primitive behind agentCanAccessBrand —
-// callers that also need the workspace id (e.g. to write an audit row) use this.
 export async function agentBrandWorkspaceId(userId: string, brandId: string): Promise<string | null> {
   const sql = getDb();
   const [row] = await sql<{ id: string }[]>`
@@ -109,10 +124,6 @@ export async function agentBrandWorkspaceId(userId: string, brandId: string): Pr
     limit 1
   `;
   return row?.id ?? null;
-}
-
-export async function agentCanAccessBrand(userId: string, brandId: string): Promise<boolean> {
-  return (await agentBrandWorkspaceId(userId, brandId)) !== null;
 }
 
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {

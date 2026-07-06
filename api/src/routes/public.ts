@@ -217,7 +217,8 @@ const PostSuggest = z.object({
 
 publicRoutes.post('/:slug/kb-suggest', async (c) => {
   // Each call is an LLM request — rate-limit per IP to cap cost abuse.
-  const limited = await enforceRateLimit(c, { name: 'portal-kb-suggest', max: 20, windowSeconds: 600 });
+  // Fail CLOSED: a DB outage must not open the door to unbounded LLM spend.
+  const limited = await enforceRateLimit(c, { name: 'portal-kb-suggest', max: 20, windowSeconds: 600, failClosed: true });
   if (limited) return limited;
   const ws = await resolveWorkspace(c.req.param('slug'));
 
@@ -254,7 +255,8 @@ const PostAuthRequest = z.object({
 
 publicRoutes.post('/:slug/auth/request', async (c) => {
   // Per-IP cap on magic-link requests (each can send an email).
-  const ipLimited = await enforceRateLimit(c, { name: 'portal-auth-request', max: 5, windowSeconds: 900 });
+  // Fail CLOSED: a DB outage must not open the door to unbounded email sends.
+  const ipLimited = await enforceRateLimit(c, { name: 'portal-auth-request', max: 5, windowSeconds: 900, failClosed: true });
   if (ipLimited) return ipLimited;
 
   const ws = await resolveWorkspace(c.req.param('slug'));
@@ -268,7 +270,7 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   const email = parsed.data.email.toLowerCase();
 
   // Also cap per target email so one address can't be mail-bombed from many IPs.
-  const emailLimited = await enforceRateLimit(c, { name: 'portal-auth-request-email', by: email, max: 5, windowSeconds: 900 });
+  const emailLimited = await enforceRateLimit(c, { name: 'portal-auth-request-email', by: email, max: 5, windowSeconds: 900, failClosed: true });
   if (emailLimited) return emailLimited;
 
   const [customer] = await sql<{ id: string; first_name: string | null }[]>`
@@ -457,6 +459,10 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
   const sess = await withCustomer(c, ws.id);
   if (!sess) return c.json({ error: 'Sign in to reply' }, 401);
 
+  // Cap reply volume so a valid session can't flood a thread.
+  const limited = await enforceRateLimit(c, { name: 'portal-reply', max: 30, windowSeconds: 600 });
+  if (limited) return limited;
+
   const sql = getDb();
   const reqBody = await c.req.json().catch(() => null);
   const parsed = PostCustomerReply.safeParse(reqBody);
@@ -500,19 +506,26 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
 //
 // The customer reaches this through a link in the auto-survey email; we
 // don't ask them to sign in (the link is itself the proof). GET returns
-// the minimal ticket context; POST records the rating + optional
-// comment. Either endpoint returns 404 for unknown tokens — that's both
-// "wrong token" and "already submitted with a token we'd have rotated",
-// because token revocation isn't built yet.
+// the minimal ticket context; POST records the rating + optional comment.
+// Either endpoint 404s for unknown tokens, tokens older than the TTL
+// (expiry), and tokens cleared after submission (rotation) — so a leaked
+// link is not a permanent unauthenticated read of customer data (#12).
+const CSAT_TOKEN_TTL_DAYS = 30;
 
 publicRoutes.get('/:slug/csat/:token', async (c) => {
+  const limited = await enforceRateLimit(c, { name: 'portal-csat', max: 30, windowSeconds: 600 });
+  if (limited) return limited;
+
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
   const token = c.req.param('token');
+  // Expired tokens 404 like unknown ones — a leaked survey link must not be a
+  // permanent unauthenticated read of customer name + subject (#12).
   const [ticket] = await sql<{ display_id: string; subject: string; csat_score: number | null; csat_submitted_at: string | null; customer_first_name: string | null }[]>`
     select t.display_id, t.subject, t.csat_score, t.csat_submitted_at, c.first_name as customer_first_name
     from tickets t left join customers c on c.id = t.customer_id
     where t.workspace_id = ${ws.id} and t.csat_token = ${token} and t.deleted_at is null
+      and t.csat_requested_at > now() - make_interval(days => ${CSAT_TOKEN_TTL_DAYS})
   `;
   if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
   return c.json({
@@ -533,6 +546,9 @@ const CsatSubmit = z.object({
 });
 
 publicRoutes.post('/:slug/csat/:token', async (c) => {
+  const limited = await enforceRateLimit(c, { name: 'portal-csat', max: 30, windowSeconds: 600 });
+  if (limited) return limited;
+
   const ws = await resolveWorkspace(c.req.param('slug'));
   const sql = getDb();
   const token = c.req.param('token');
@@ -547,18 +563,22 @@ publicRoutes.post('/:slug/csat/:token', async (c) => {
   const [ticket] = await sql<{ id: string; csat_submitted_at: string | null }[]>`
     select id, csat_submitted_at from tickets
     where workspace_id = ${ws.id} and csat_token = ${token} and deleted_at is null
+      and csat_requested_at > now() - make_interval(days => ${CSAT_TOKEN_TTL_DAYS})
   `;
   if (!ticket) throw new HTTPException(404, { message: 'Survey not found' });
   if (ticket.csat_submitted_at) {
     return c.json({ error: 'Survey already submitted' }, 409);
   }
 
+  // Record the rating and clear the token: the survey is one-shot, and nulling
+  // the token stops the link from returning customer data after submission (#12).
   await sql`
     update tickets set
       csat_score        = ${parsed.data.score},
       csat_stars        = ${parsed.data.score},
       csat_comment      = ${parsed.data.comment || null},
-      csat_submitted_at = now()
+      csat_submitted_at = now(),
+      csat_token        = null
     where id = ${ticket.id} and workspace_id = ${ws.id}
   `;
 

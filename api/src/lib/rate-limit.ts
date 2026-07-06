@@ -39,6 +39,27 @@ export interface RateLimitOptions {
    * alone.
    */
   by?: string;
+  /**
+   * When the limiter itself errors (DB unreachable), the default is to fail
+   * OPEN (allow the request) so a transient hiccup doesn't take the surface
+   * down. Set this for COST-BEARING actions (sending email, LLM calls) where
+   * allowing unbounded requests during a DB outage is worse than a brief 503 —
+   * the limiter then fails CLOSED (returns a 503) instead.
+   */
+  failClosed?: boolean;
+}
+
+// Decision for when the limiter itself errors (DB unreachable): cost-bearing
+// callers fail CLOSED (a brief 503 beats unbounded email/LLM spend); everything
+// else fails OPEN (null → proceed) so a transient DB hiccup doesn't take the
+// portal down. Exported so it can be unit-tested without fault-injecting the DB.
+export function limiterErrorResult(c: Context, opts: Pick<RateLimitOptions, 'failClosed' | 'windowSeconds'>): Response | null {
+  if (!opts.failClosed) return null;
+  return c.json(
+    { error: 'Service temporarily unavailable — please try again shortly.' },
+    503,
+    { 'Retry-After': String(opts.windowSeconds) },
+  );
 }
 
 export async function enforceRateLimit(c: Context, opts: RateLimitOptions): Promise<Response | null> {
@@ -55,10 +76,8 @@ export async function enforceRateLimit(c: Context, opts: RateLimitOptions): Prom
     `;
     if (row) { allowed = row.allowed; retryAfter = row.retry_after; }
   } catch (err) {
-    // Fail OPEN on a limiter error: a transient DB hiccup must not take down
-    // the portal. The error is logged; the request proceeds.
-    console.warn('[rate-limit] check failed, allowing request:', err instanceof Error ? err.message : err);
-    return null;
+    console.warn('[rate-limit] check failed:', err instanceof Error ? err.message : err);
+    return limiterErrorResult(c, opts);
   }
 
   if (allowed) return null;

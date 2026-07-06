@@ -140,7 +140,7 @@ export function showSnoozeModal(ticketId) {
   const pillRow = presets.map(p => `
     <button type="button" class="btn btn-sm" style="flex:1" data-action="snooze.preset" data-key="${p.key}">${p.label}</button>`).join('');
   const defaultIso = snoozePresetIso('4h').slice(0, 16);
-  showModal(`Snooze ${window.escHtml(t.id)}`, `
+  showModal(`Snooze ${t.id}`, `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:12px;line-height:1.5">SLA evaluation pauses while snoozed. The ticket wakes itself when the time is reached and posts a notification.</div>
     <div class="form-row"><label class="form-label">Quick presets</label>
       <div style="display:flex;gap:6px">${pillRow}</div>

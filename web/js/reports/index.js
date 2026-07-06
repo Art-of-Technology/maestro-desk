@@ -16,6 +16,7 @@
 import { TICKETS } from '../core/data.js';
 import { REPORT_LAYOUT } from '../core/state.js';
 import { renderPage } from '../core/router.js';
+import { pageTabs } from '../core/page-tabs.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
@@ -298,7 +299,7 @@ export function renderReports() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Reports</div>
+        ${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'}],'reports')}
         <select class="filter-select" data-change-action="reports.setTF">
           <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
           <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>

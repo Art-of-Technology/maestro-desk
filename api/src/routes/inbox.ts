@@ -106,7 +106,7 @@ inbox.post('/:id/convert', async (c) => {
   // Category from the channel default, if any.
   let categoryKey: string | null = null;
   if (msg.channel_id) {
-    const [ch] = await sql`select default_category_key from channels where id = ${msg.channel_id}`;
+    const [ch] = await sql`select default_category_key from channels where id = ${msg.channel_id} and workspace_id = ${workspaceId}`;
     categoryKey = ch?.default_category_key || null;
   }
 

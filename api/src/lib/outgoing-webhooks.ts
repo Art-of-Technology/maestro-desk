@@ -24,6 +24,7 @@
 import { createHmac } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
 import { getDb } from './db.js';
+import { assertSafeWebhookUrl } from './ssrf.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 // Outbound HTTP unchanged.
@@ -225,26 +226,46 @@ async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; se
   const timestamp = Math.floor(Date.now() / 1000).toString();
   let status: number | null = null;
   let err: string | null = null;
+  // SSRF guard: refuse to deliver to a private/internal/metadata address.
+  // This is the authoritative check (write-time validation can be bypassed by
+  // later DNS changes). A rejection is a PERMANENT failure — the URL won't
+  // become safe on retry.
+  let blockedUrl = false;
   try {
-    const res = await fetch(wh.url, {
-      method:  'POST',
-      headers: {
-        'Content-Type':         'application/json',
-        'X-Maestro-Event':      d.payload.event,
-        'X-Maestro-Timestamp':  timestamp,
-        'X-Maestro-Signature':  sign(wh.secret, timestamp, body),
-      },
-      body,
-      signal: AbortSignal.timeout(5000),
-    });
-    status = res.status;
-    if (!res.ok) err = `HTTP ${res.status}`;
+    await assertSafeWebhookUrl(wh.url);
   } catch (e) {
-    err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+    blockedUrl = true;
+    err = e instanceof Error ? e.message.slice(0, 200) : 'blocked URL';
+  }
+
+  if (!blockedUrl) {
+    try {
+      const res = await fetch(wh.url, {
+        method:  'POST',
+        headers: {
+          'Content-Type':         'application/json',
+          'X-Maestro-Event':      d.payload.event,
+          'X-Maestro-Timestamp':  timestamp,
+          'X-Maestro-Signature':  sign(wh.secret, timestamp, body),
+        },
+        body,
+        // Do not follow redirects: a 3xx to an internal host would defeat the
+        // SSRF guard above. An unfollowed redirect records as a non-2xx failure.
+        redirect: 'manual',
+        signal: AbortSignal.timeout(5000),
+      });
+      status = res.status;
+      if (!res.ok) err = `HTTP ${res.status}`;
+    } catch (e) {
+      err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+    }
   }
 
   const succeeded = status !== null && status >= 200 && status < 300;
-  const permanentFail = status !== null && status >= 400 && status < 500 && !PERMANENT_4XX_EXCEPTIONS.has(status);
+  // 3xx is permanent now that we don't follow redirects; a blocked URL is too.
+  const permanentFail = blockedUrl
+    || (status !== null && status >= 300 && status < 400)
+    || (status !== null && status >= 400 && status < 500 && !PERMANENT_4XX_EXCEPTIONS.has(status));
   const exhausted = succeeded
     ? false
     : permanentFail || attempts >= MAX_ATTEMPTS;

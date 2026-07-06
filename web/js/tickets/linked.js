@@ -160,7 +160,7 @@ export function showLinkTicketModal(id) {
         <div data-mousedown-action="linked.linkAndClose" data-id="${window.escAttr(id)}" data-other-id="${window.escAttr(x.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
           <span class="tag tag-${x.status}" style="font-size:9px">${x.status}</span>
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${x.id}</span>
-          <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.subject}</span>
+          <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(x.subject)}</span>
         </div>`).join('')
     : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No tickets available to link</div>';
   showModal('Link a ticket', `
