@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.13",
   "scripts": {
     "dev": "bun --hot src/dev.ts",
     "start": "bun src/dev.ts",
