@@ -70,4 +70,19 @@ runDbTests('ticket list last_message_role (DB-backed)', () => {
     await addMsg('customer');
     expect(await listRole()).toBe('customer');      // customer replied again → awaiting
   });
+
+  it('returns the exact total only on the first page', async () => {
+    // Page 0 carries the window count (this workspace has exactly one ticket).
+    const p0 = await (await as('/api/v1/tickets?limit=50&offset=0')).json() as any;
+    expect(typeof p0.total).toBe('number');
+    expect(p0.total).toBe(1);
+    expect(p0.tickets.length).toBe(1);
+    expect(p0.tickets[0]).not.toHaveProperty('total_count'); // internal column stripped
+
+    // Beyond page 0 the count is skipped — `total` is omitted, rows still valid.
+    const p1 = await (await as('/api/v1/tickets?limit=50&offset=50')).json() as any;
+    expect('total' in p1).toBe(false);
+    expect(Array.isArray(p1.tickets)).toBe(true);
+    expect(p1.tickets.length).toBe(0);
+  });
 });
