@@ -57,22 +57,33 @@ tickets.get('/', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50', 10), 200);
   const offset = parseInt(c.req.query('offset') ?? '0', 10);
 
+  // The exact total (`count(*) over()`) scans every non-deleted ticket in the
+  // workspace, so compute it only on the first page. The SPA seeds its "N of M"
+  // + hasMore from page 0 and retains it across "load more" (`res.total ??
+  // _ticketsTotal` in core/bootstrap.js), so later pages omit the count — this
+  // turns a per-page full count into once per list-open.
+  const withCount = offset === 0;
   const rows = await sql`
     select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
            customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
            snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
            (select tm.role from ticket_messages tm
               where tm.ticket_id = tickets.id and tm.deleted_at is null
-              order by tm.created_at desc limit 1) as last_message_role,
-           count(*) over() ::int as total_count
+              order by tm.created_at desc limit 1) as last_message_role
+           ${withCount ? sql`, count(*) over() ::int as total_count` : sql``}
     from tickets
     where workspace_id = ${workspaceId} and deleted_at is null
     order by updated_at desc
     limit ${limit} offset ${offset}
   `;
-  const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
   const tickets = rows.map(({ total_count, ...r }) => r);
-  return c.json({ tickets, total, limit, offset });
+  // Only send `total` when we computed it (page 0); the SPA keeps its prior
+  // value otherwise. Empty first page → 0.
+  if (withCount) {
+    const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+    return c.json({ tickets, total, limit, offset });
+  }
+  return c.json({ tickets, limit, offset });
 });
 
 // ─── GET /sync — incremental list deltas since a client cursor ──────────

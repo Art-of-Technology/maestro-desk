@@ -108,6 +108,26 @@ runDbTests('data retention (DB-backed)', () => {
     expect(after[0].n).toBe(0);
   });
 
+  it('purges a large backlog across multiple batches', async () => {
+    // Fresh workspace so the count is exact regardless of other tests' data.
+    const bslug = `ret-batch-${RUN}`;
+    const [{ provision_brand: wsB }] = await sql<{ provision_brand: string }[]>`select provision_brand(${bslug}, ${bslug}) as provision_brand`;
+    await sql`update workspaces set retention_days = 365 where id = ${wsB}`;
+    const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const N = 5;
+    for (let i = 0; i < N; i++) await seedTicket(wsB, `TK-batch-${i}-${bslug}`, daysAgo(800));
+
+    // batchSize 2 forces multiple iterations (ceil(5/2) = 3 batches).
+    const before = await sql<{ n: number }[]>`select count(*)::int as n from tickets where workspace_id = ${wsB}`;
+    expect(before[0].n).toBe(N);
+    const { purgedTickets } = await purgeExpiredTickets(2);
+    expect(purgedTickets).toBeGreaterThanOrEqual(N);
+    const after = await sql<{ n: number }[]>`select count(*)::int as n from tickets where workspace_id = ${wsB}`;
+    expect(after[0].n).toBe(0);
+
+    await sql`delete from workspaces where id = ${wsB}`;
+  });
+
   it('never purges a workspace with retention disabled (NULL)', async () => {
     await purgeExpiredTickets();
     const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from tickets where id = ${ctx.held}`;
