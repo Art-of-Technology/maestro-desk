@@ -1,6 +1,21 @@
 import webpush from 'web-push';
+import { Agent } from 'node:https';
 import { env } from './env.js';
 import { getDb } from './db.js';
+import { safeLookup } from './ssrf.js';
+
+// Connect-time SSRF guard for the outbound push POST (audit follow-up). web-push
+// uses node https.request (not fetch), so the undici dispatcher used for
+// webhooks doesn't apply — instead we hand it an https.Agent whose DNS lookup
+// re-runs the block-list on the exact address dialed, defeating a rebind of a
+// stored endpoint. web-push honors an `agent` that is an https.Agent instance.
+// keepAlive stays off (default): a push is a one-shot POST, nothing to reuse.
+// The write-time assertSafePushEndpoint check remains the portable guard for
+// any runtime that doesn't honor Agent `lookup` (prod is Node, which does).
+let pushAgent: Agent | undefined;
+function safePushAgent(): Agent {
+  return (pushAgent ??= new Agent({ lookup: safeLookup }));
+}
 
 // Web Push delivery for offline-agent notifications. VAPID-gated: when the
 // keypair is unset the whole feature no-ops (isPushConfigured() === false),
@@ -51,7 +66,10 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         body,
-        { TTL: 60 * 60 },   // hold up to 1h if the device is offline, then drop
+        {
+          TTL: 60 * 60,             // hold up to 1h if the device is offline, then drop
+          agent: safePushAgent(),   // connect-time SSRF re-validation (see above)
+        },
       );
       sent++;
     } catch (err: any) {

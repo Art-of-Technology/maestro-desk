@@ -43,7 +43,9 @@ runDbTests('web push subscriptions + delivery (DB-backed)', () => {
   });
 
   it('subscribes a browser, then unsubscribes it', async () => {
-    const sub = { endpoint: `https://push.example.com/${RUN}/a`, keys: { p256dh: 'pubkey-a', auth: 'authsecret-a' } };
+    // Public literal IP so assertSafePushEndpoint passes without a live DNS
+    // lookup (the endpoint is never dialed — /subscribe only validates + stores).
+    const sub = { endpoint: `https://1.1.1.1/${RUN}/a`, keys: { p256dh: 'pubkey-a', auth: 'authsecret-a' } };
     const res = await auth('/api/v1/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
     expect(res.status).toBe(201);
     const [row] = await sql<{ user_id: string }[]>`select user_id from push_subscriptions where endpoint = ${sub.endpoint}`;

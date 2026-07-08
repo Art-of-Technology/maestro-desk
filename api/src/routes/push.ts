@@ -4,6 +4,7 @@ import { requireAuthOnly } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { env } from '../lib/env.js';
 import { isPushConfigured, sendPushToUser } from '../lib/push.js';
+import { assertSafePushEndpoint } from '../lib/ssrf.js';
 
 // Web Push subscription management (push stage 2). All routes are user-scoped
 // (requireAuthOnly — a push subscription belongs to a browser/user, not a
@@ -32,6 +33,15 @@ push.post('/subscribe', requireAuthOnly, async (c) => {
   const parsed = Subscribe.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid subscription', issues: parsed.error.issues }, 400);
   const { endpoint, keys } = parsed.data;
+  // SSRF guard: the endpoint is a user-supplied URL the server will POST to
+  // later (sendPushToUser). Reject non-https / private / internal targets at
+  // write time so a malicious endpoint is never stored. (Rebinding of a stored
+  // endpoint is caught again at connect time by the https.Agent in lib/push.ts.)
+  try {
+    await assertSafePushEndpoint(endpoint);
+  } catch {
+    return c.json({ error: 'Invalid push endpoint' }, 400);
+  }
   const ua = c.req.header('user-agent')?.slice(0, 400) ?? null;
 
   const sql = getDb();

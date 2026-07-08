@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { LookupAddress } from 'node:dns';
-import { assertSafeWebhookUrl, makeSafeLookup } from './lib/ssrf.js';
+import { assertSafeWebhookUrl, assertSafePushEndpoint, makeSafeLookup } from './lib/ssrf.js';
 
 describe('assertSafeWebhookUrl', () => {
   const blocked = [
@@ -55,6 +55,44 @@ describe('assertSafeWebhookUrl', () => {
       await expect(assertSafeWebhookUrl(url)).resolves.toBeUndefined();
     });
   }
+});
+
+// Push endpoints must be https AND public. Hermetic: scheme rejection and
+// literal-IP hosts need no DNS (assertSafeWebhookUrl checks IP literals sync).
+describe('assertSafePushEndpoint', () => {
+  const rejected = [
+    'http://fcm.googleapis.com/send/abc',   // non-https scheme
+    'ftp://example.com/',                     // non-https scheme
+    'https://127.0.0.1/send',                 // private literal
+    'https://10.0.0.1/send',                  // private literal
+    'https://169.254.169.254/send',           // cloud metadata
+    'https://[::1]/send',                     // IPv6 loopback
+    'not a url',                              // malformed
+  ];
+  for (const url of rejected) {
+    it(`rejects ${url}`, async () => {
+      await expect(assertSafePushEndpoint(url)).rejects.toThrow();
+    });
+  }
+
+  const allowed = [
+    'https://1.1.1.1/send',
+    'https://[2606:4700:4700::1111]/send',
+  ];
+  for (const url of allowed) {
+    it(`allows ${url}`, async () => {
+      await expect(assertSafePushEndpoint(url)).resolves.toBeUndefined();
+    });
+  }
+
+  // Userinfo trickery (`public@private`) must not smuggle a private target
+  // past the guard — the real host is the part after `@`, and both parsers
+  // agree on it, so it's rejected. Covers the class the legacy-host re-check
+  // exists to backstop.
+  it('rejects userinfo pointing the real host at a private literal', async () => {
+    await expect(assertSafePushEndpoint('https://1.1.1.1@10.0.0.1/send')).rejects.toThrow();
+    await expect(assertSafePushEndpoint('https://1.1.1.1@127.0.0.1/send')).rejects.toThrow();
+  });
 });
 
 // Connect-time lookup used by the outgoing-webhook undici Agent. Tested with an
