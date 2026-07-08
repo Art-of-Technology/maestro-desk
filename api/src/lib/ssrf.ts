@@ -163,6 +163,30 @@ export async function assertSafeWebhookUrl(raw: string): Promise<void> {
   if (err) throw err;
 }
 
+// Validates a Web Push endpoint. Real push endpoints are always https URLs at a
+// push-service HOSTNAME (FCM/Mozilla/WNS) — never a raw IP. We reject IP-literal
+// hosts outright, which is what makes the whole guard airtight: net.connect
+// skips the connect-time safeLookup (used by lib/push.ts's Agent) for IP
+// literals, so a literal is the one host the connect-time guard cannot
+// re-validate. Requiring a hostname guarantees every stored endpoint IS
+// re-checked at connect time, where a rebind to a private address is refused —
+// and it sidesteps WHATWG-vs-legacy-url.parse host-parsing differentials, since
+// those can only be weaponized by smuggling in a literal. Pure/synchronous (no
+// DNS): safe to re-run cheaply at send time. Throws on rejection; callers map
+// that to a 400 (subscribe) or a skip (send).
+export async function assertSafePushEndpoint(raw: string): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Invalid URL');
+  }
+  if (url.protocol !== 'https:') throw new Error('Push endpoint must be https');
+  const host = url.hostname.replace(/^\[(.+)\]$/, '$1');
+  if (!host) throw new Error('Push endpoint host is empty');
+  if (net.isIP(host) !== 0) throw new Error('Push endpoint host must be a domain name');
+}
+
 // ── Connect-time validation (defeats DNS rebinding) ───────────────────────────
 //
 // A lookup function with the node:net `options.lookup` signature, for use in an

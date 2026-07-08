@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { LookupAddress } from 'node:dns';
-import { assertSafeWebhookUrl, makeSafeLookup } from './lib/ssrf.js';
+import { assertSafeWebhookUrl, assertSafePushEndpoint, makeSafeLookup } from './lib/ssrf.js';
 
 describe('assertSafeWebhookUrl', () => {
   const blocked = [
@@ -53,6 +53,39 @@ describe('assertSafeWebhookUrl', () => {
   for (const url of allowed) {
     it(`allows ${url}`, async () => {
       await expect(assertSafeWebhookUrl(url)).resolves.toBeUndefined();
+    });
+  }
+});
+
+// Push endpoints must be https at a hostname (never a raw IP). Fully hermetic:
+// every case is decided by scheme + net.isIP, with no DNS.
+describe('assertSafePushEndpoint', () => {
+  const rejected = [
+    'http://fcm.googleapis.com/send/abc',      // non-https scheme
+    'ftp://example.com/',                        // non-https scheme
+    'https://1.1.1.1/send',                      // IP literal (even public) — rejected
+    'https://10.0.0.1/send',                     // private literal
+    'https://169.254.169.254/send',              // cloud metadata literal
+    'https://[2606:4700:4700::1111]/send',       // IPv6 literal (even public) — rejected
+    'https://[::1]/send',                        // IPv6 loopback literal
+    'https://8.8.8.8@10.0.0.1/send',             // userinfo → real host is the 10.0.0.1 literal
+    'not a url',                                 // malformed
+  ];
+  for (const url of rejected) {
+    it(`rejects ${url}`, async () => {
+      await expect(assertSafePushEndpoint(url)).rejects.toThrow();
+    });
+  }
+
+  const allowed = [
+    'https://fcm.googleapis.com/fcm/send/abc123',
+    'https://updates.push.services.mozilla.com/wpush/v2/xyz',
+    'https://abc.notify.windows.com/w/?token=q',
+    'https://user@fcm.googleapis.com/send/abc',  // userinfo stripped, host is a domain
+  ];
+  for (const url of allowed) {
+    it(`allows ${url}`, async () => {
+      await expect(assertSafePushEndpoint(url)).resolves.toBeUndefined();
     });
   }
 });
