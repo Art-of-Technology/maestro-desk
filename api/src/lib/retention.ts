@@ -1,9 +1,15 @@
 // Data-retention purge (owner decision 2026-06-22): delete resolved tickets once
 // they pass their workspace's retention window, measured from resolved_at. The
-// PII-bearing children (messages, attachments, csat, time entries, viewers, …)
+// PII-bearing child ROWS (messages, attachments, csat, time entries, viewers, …)
 // are removed by the ON DELETE CASCADE FKs to tickets; aggregate logs that
 // reference a ticket with ON DELETE SET NULL (ai_usage_log, automation events)
 // are retained with their ticket link nulled.
+//
+// NOTE: the cascade removes attachment ROWS but NOT the R2 objects they point to
+// (storage_key). Attachment upload isn't wired yet, so nothing is orphaned
+// today; when it ships, this purge must also delete the R2 objects (gather
+// storage_keys before the ticket delete, then deleteKeys post-purge) — the same
+// object cleanup gdpr-erasure.ts already does. Tracked in docs/gdpr-pii-inventory.md.
 //
 // Set-based across all workspaces, each applying its own retention_days — no
 // per-workspace loop, so cost doesn't grow with brand count. NULL retention_days

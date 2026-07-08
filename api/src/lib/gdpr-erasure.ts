@@ -10,6 +10,8 @@
 // second pass or a duplicate audit row.
 
 import { getDb } from './db.js';
+import { deleteKeys } from './r2.js';
+import { sendOpsAlert } from './alert.js';
 
 // Marker for NOT NULL text columns we can't null (subject, message body).
 const ERASED = '[erased]';
@@ -28,6 +30,13 @@ export interface EraseResult {
   notesDeleted: number;
   messagesRedacted: number;
   inboxRedacted: number;
+  attachmentsDeleted: number;
+}
+
+// The R2 object deleter — injectable so tests can record the keys without R2
+// config or a network call. Defaults to the real lib/r2 deleteKeys.
+export interface EraseDeps {
+  deleteObjects?: (keys: string[]) => Promise<void>;
 }
 
 /**
@@ -40,11 +49,19 @@ export async function eraseCustomer(args: {
   customerId: string;
   requestedByUserId: string | null;
   reason?: string | null;
-}): Promise<EraseResult | null> {
+}, deps: EraseDeps = {}): Promise<EraseResult | null> {
   const { workspaceId, customerId, requestedByUserId, reason } = args;
+  const deleteObjects = deps.deleteObjects ?? deleteKeys;
   const db = getDb();
 
-  return db.begin(async (sql) => {
+  // Captured inside the transaction, consumed after it commits: the R2 object
+  // keys to delete. R2 is not transactional, so we do the (irreversible) object
+  // delete only once the DB is durably consistent — not mid-transaction where a
+  // later failure would roll the rows back to point at already-deleted files, or
+  // hold a pooled connection + row lock across network I/O.
+  let attachmentKeys: string[] = [];
+
+  const result = await db.begin(async (sql) => {
     // Lock the customer row (scoped) so a concurrent erase can't double-run.
     const [cust] = await sql<{ id: string; email: string | null; erased_at: string | null }[]>`
       select id, email, erased_at from customers
@@ -53,7 +70,7 @@ export async function eraseCustomer(args: {
     `;
     if (!cust) return null;
     if (cust.erased_at) {
-      return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0 };
+      return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0, attachmentsDeleted: 0 };
     }
     // Capture the email BEFORE nulling — needed to match un-converted inbox mail.
     const email = cust.email;
@@ -66,6 +83,7 @@ export async function eraseCustomer(args: {
     let messagesRedacted = 0;
     let ticketsAffected = 0;
     let inboxRedacted = 0;
+    let attachmentsDeleted = 0;
 
     if (ticketIds.length) {
       const msgs = await sql`
@@ -88,6 +106,24 @@ export async function eraseCustomer(args: {
         where workspace_id = ${workspaceId} and converted_ticket_id in ${sql(ticketIds)}
       `;
       inboxRedacted += inbConv.count;
+
+      // Attachments: files live in R2 keyed by storage_key; the rows link only to
+      // tickets (ON DELETE CASCADE) — but erasure KEEPS the tickets (anonymised),
+      // so nothing removes them unless we do it here. Delete the rows in-txn
+      // (atomic with the rest of the erase) and stash the keys; the R2 objects
+      // are deleted after commit (see below).
+      const atts = await sql<{ storage_key: string }[]>`
+        select storage_key from ticket_attachments
+        where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
+      `;
+      if (atts.length) {
+        attachmentKeys = atts.map((a) => a.storage_key);
+        await sql`
+          delete from ticket_attachments
+          where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
+        `;
+        attachmentsDeleted = attachmentKeys.length;
+      }
     }
 
     // Un-converted inbound mail still in the inbox, matched by sender address.
@@ -126,6 +162,36 @@ export async function eraseCustomer(args: {
       notesDeleted,
       messagesRedacted,
       inboxRedacted,
+      attachmentsDeleted,
     };
   });
+
+  // Post-commit: delete the attachment objects from R2. Done outside the txn so
+  // no DB connection/lock is held across network I/O, and only after the DB is
+  // durably erased. Best-effort: the DB (system of record) is already consistent
+  // and the rows are gone; if object deletion fails we alert for manual cleanup
+  // rather than fail an otherwise-complete erasure or resurrect the DB rows.
+  // (`result` is only reached on commit; a rolled-back txn throws above.)
+  if (result && !result.alreadyErased && attachmentKeys.length) {
+    try {
+      await deleteObjects(attachmentKeys);
+    } catch (err) {
+      console.error(
+        `[gdpr-erase] R2 object deletion failed for customer ${customerId} (workspace ${workspaceId}):`,
+        err instanceof Error ? err.message : err,
+      );
+      // Never let an alerting failure mask the (successful) erasure.
+      await sendOpsAlert({
+        signature: `gdpr-erase-r2-fail:${workspaceId}:${customerId}`,
+        severity: 'critical',
+        title: 'GDPR erasure: attachment file deletion failed',
+        detail:
+          `Customer ${customerId} (workspace ${workspaceId}) was erased in the database, but ` +
+          `${attachmentKeys.length} attachment object(s) could not be deleted from storage. ` +
+          `Manual cleanup required.\nKeys:\n` + attachmentKeys.map((k) => `  • ${k}`).join('\n'),
+      }).catch(() => {});
+    }
+  }
+
+  return result;
 }

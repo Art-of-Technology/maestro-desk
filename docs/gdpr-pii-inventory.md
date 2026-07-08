@@ -32,12 +32,23 @@ redact the personal data** and stamp `customers.erased_at`.
   + `lib/player-audit.ts`, categories not values). Still pending: append-only /
   tamper-evident hardening of `audit_events` (a follow-up).
 
-## Deferred surfaces (tracked elsewhere)
+## Attachments — `ticket_attachments` + the R2 objects
 
-- **`ticket_attachments` + the R2 objects** — inbound attachments are currently discarded
-  (`lib/postmark.ts`) and uploads aren't wired, so no attachment PII is stored today. When
-  attachments ship (`feat/secure-attachments`, gated on the owner decision), erasure must
-  also delete the stored objects + rows.
+Inbound attachments are currently discarded (`lib/postmark.ts`) and uploads aren't wired,
+so no attachment PII is stored today. The handling is nonetheless implemented so it's
+correct the day upload ships:
+
+- **Erasure** — `gdpr-erasure.ts` deletes the `ticket_attachments` rows for the customer's
+  tickets (in-transaction) and the R2 objects they point to via `storage_key` (after
+  commit, best-effort with an ops alert on failure). ✅ implemented.
+- **Retention** — the purge (`lib/retention.ts`) currently deletes only the rows (via the
+  `tickets` ON DELETE CASCADE), **not** the R2 objects. ⚠️ follow-up: gather `storage_key`s
+  before the ticket delete and delete the objects post-purge (same cleanup as erasure).
+- **DSAR export** — `gdpr-export.ts` does **not** yet include attachments. ⚠️ follow-up:
+  add the attachment list/contents so Art.15/20 export matches what erasure removes.
+
+Both follow-ups are gated on attachment upload actually shipping (no data exists until
+then), but are tracked here so they aren't missed.
 
 ## Consumers of this inventory
 

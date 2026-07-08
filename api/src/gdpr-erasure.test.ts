@@ -155,6 +155,69 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(era[0].completed_at).not.toBeNull();
   });
 
+  it('deletes attachments (rows + R2 objects) for the customer\'s tickets', async () => {
+    // Fresh customer + ticket + attachment so this is independent of the erase
+    // above. eraseCustomer is called directly with an injected R2 deleter so no
+    // R2 config/network is needed and we can assert the exact keys.
+    const { eraseCustomer } = await import('./lib/gdpr-erasure.js');
+    const [cust] = await sql<{ id: string }[]>`
+      insert into customers (workspace_id, display_id, first_name, email)
+      values (${ctx.wsId}, ${'M2-' + slug}, 'Bob', ${'bob-' + slug + '@player.test'}) returning id
+    `;
+    const [tk] = await sql<{ id: string }[]>`
+      insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key)
+      values (${ctx.wsId}, ${'TK2-' + slug}, 'S', ${cust.id}, 'open', 'normal') returning id
+    `;
+    const key = `att/${slug}/file.pdf`;
+    await sql`
+      insert into ticket_attachments (workspace_id, ticket_id, filename, storage_key, mime_type)
+      values (${ctx.wsId}, ${tk.id}, 'file.pdf', ${key}, 'application/pdf')
+    `;
+
+    const deletedKeys: string[] = [];
+    const result = await eraseCustomer(
+      { workspaceId: ctx.wsId, customerId: cust.id, requestedByUserId: admin.userId, reason: 'DSAR attach' },
+      { deleteObjects: async (keys) => { deletedKeys.push(...keys); } },
+    );
+
+    expect(result?.attachmentsDeleted).toBe(1);
+    expect(deletedKeys).toEqual([key]);                       // exact R2 key deleted
+    const rows = await sql<{ n: number }[]>`select count(*)::int as n from ticket_attachments where ticket_id = ${tk.id}`;
+    expect(rows[0].n).toBe(0);                                // row gone
+  });
+
+  it('completes the DB erase even if R2 object deletion fails (best-effort, post-commit)', async () => {
+    const { eraseCustomer } = await import('./lib/gdpr-erasure.js');
+    const [cust] = await sql<{ id: string }[]>`
+      insert into customers (workspace_id, display_id, first_name, email)
+      values (${ctx.wsId}, ${'M3-' + slug}, 'Carl', ${'carl-' + slug + '@player.test'}) returning id
+    `;
+    const [tk] = await sql<{ id: string }[]>`
+      insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key)
+      values (${ctx.wsId}, ${'TK3-' + slug}, 'S', ${cust.id}, 'open', 'normal') returning id
+    `;
+    await sql`
+      insert into ticket_attachments (workspace_id, ticket_id, filename, storage_key)
+      values (${ctx.wsId}, ${tk.id}, 'x.pdf', ${'att/' + slug + '/x.pdf'})
+    `;
+
+    // deleteObjects rejects (simulates R2 down). The erase must still resolve
+    // with the DB durably erased — the object failure is alerted, not thrown.
+    const result = await eraseCustomer(
+      { workspaceId: ctx.wsId, customerId: cust.id, requestedByUserId: admin.userId, reason: 'r2-down' },
+      { deleteObjects: async () => { throw new Error('R2 unavailable'); } },
+    );
+
+    expect(result?.erased).toBe(true);
+    expect(result?.attachmentsDeleted).toBe(1);               // rows removed in-txn
+    const [c] = await sql<any[]>`select first_name, email, erased_at from customers where id = ${cust.id}`;
+    expect(c.first_name).toBeNull();
+    expect(c.email).toBeNull();
+    expect(c.erased_at).not.toBeNull();                       // committed despite R2 failure
+    const rows = await sql<{ n: number }[]>`select count(*)::int as n from ticket_attachments where ticket_id = ${tk.id}`;
+    expect(rows[0].n).toBe(0);
+  });
+
   it('is idempotent — a second erase reports alreadyErased and adds no audit row', async () => {
     const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, { method: 'POST', body: '{}' });
     expect(res.status).toBe(200);
