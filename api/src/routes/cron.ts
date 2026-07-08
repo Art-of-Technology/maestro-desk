@@ -4,7 +4,7 @@ import { getDb } from '../lib/db.js';
 import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
 import { purgeExpiredTickets } from '../lib/retention.js';
 import { retryPendingObjectDeletions } from '../lib/gdpr-erasure.js';
-import { verifyAuditChains } from '../lib/audit-verify.js';
+import { verifyAuditChains, verifyAuditChainsFull } from '../lib/audit-verify.js';
 import { sendOpsAlert } from '../lib/alert.js';
 
 // A cron job failed to run cleanly — fire a live alert (no-op until a channel
@@ -79,17 +79,19 @@ cron.get('/retention', async (c) => {
     await alertCronFailure('retention', err);
     return c.json({ ok: false, error: 'retention purge failed' }, 500);
   }
-  // Piggyback the daily audit-chain integrity check. The Hobby plan caps the
-  // number of cron jobs, so rather than spend a slot, this compliance sweep
-  // rides the existing daily compliance cron. Best-effort: a verify failure is
-  // logged/alerted inside verifyAuditChains but must not fail the purge result.
-  // We embed only a COUNT here to keep the retention payload light; the
-  // standalone /audit-verify returns the full tampered array. The alert itself
-  // (Sentry, in verifyAuditChains) fires regardless of which caller ran it.
-  let audit: { checked: number; tampered: number } | undefined;
+  // Piggyback the daily audit-chain integrity check (Hobby plan caps cron jobs,
+  // so this compliance sweep rides the existing daily cron rather than spending a
+  // slot). Incremental by default (cost ∝ new rows); a full re-verify runs weekly
+  // (Sundays, UTC) via resetFirst to catch a historical tamper below a checkpoint
+  // — a stateless calendar gate, so a missed Sunday just delays a week. Best-
+  // effort: a verify failure is logged/alerted inside verifyAuditChains but must
+  // not fail the purge result. Only a COUNT is embedded here; the alert (Sentry +
+  // ops) fires inside verifyAuditChains regardless of caller.
+  let audit: { checked: number; tampered: number; full: boolean } | undefined;
   try {
-    const { checked, tampered } = await verifyAuditChains();
-    audit = { checked, tampered: tampered.length };
+    const full = new Date().getUTCDay() === 0;
+    const { checked, tampered } = await verifyAuditChains({ resetFirst: full });
+    audit = { checked, tampered: tampered.length, full };
   } catch (err) {
     console.error('[cron] audit-verify (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('audit-verify', err);
@@ -108,14 +110,15 @@ cron.get('/retention', async (c) => {
   return c.json({ ok: true, purgedTickets, audit, objectRetry });
 });
 
-// Audit-chain integrity check (standalone). Recomputes every workspace's
-// audit_events hash chain and reports tampered chains; the alert (Sentry + loud
-// log) fires inside verifyAuditChains. The scheduled run rides /retention above
-// (Hobby cron-count cap); this route exists for manual/ad-hoc checks — curl it
-// with the CRON_SECRET bearer — and is what the tests exercise.
+// Audit-chain integrity check (standalone). Runs the FULL, read-only verifier
+// (recomputes every workspace's chain from genesis, writes no checkpoints) so an
+// ad-hoc audit is authoritative and side-effect-free — independent of the daily
+// incremental checkpoints. The alert (Sentry + loud log) fires inside the
+// verifier. The scheduled run rides /retention above (Hobby cron-count cap);
+// this route is for manual/ad-hoc checks — curl it with the CRON_SECRET bearer.
 cron.get('/audit-verify', async (c) => {
   try {
-    const { checked, tampered } = await verifyAuditChains();
+    const { checked, tampered } = await verifyAuditChainsFull();
     // `ok` reflects audit HEALTH, not merely "the call ran": an operator or
     // monitor can treat ok:false as "tamper detected" without parsing the
     // array. A failure to RUN the check is a different signal — HTTP 500 below.
