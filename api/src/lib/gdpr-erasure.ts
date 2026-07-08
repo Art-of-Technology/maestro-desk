@@ -60,6 +60,9 @@ export async function eraseCustomer(args: {
   // later failure would roll the rows back to point at already-deleted files, or
   // hold a pooled connection + row lock across network I/O.
   let attachmentKeys: string[] = [];
+  // The gdpr_erasures row id, captured in-txn so a post-commit R2 failure can
+  // durably park the un-deleted keys on it for the retry sweep.
+  let erasureId: string | null = null;
 
   const result = await db.begin(async (sql) => {
     // Lock the customer row (scoped) so a concurrent erase can't double-run.
@@ -113,17 +116,12 @@ export async function eraseCustomer(args: {
       // (atomic with the rest of the erase) and stash the keys; the R2 objects
       // are deleted after commit (see below).
       const atts = await sql<{ storage_key: string }[]>`
-        select storage_key from ticket_attachments
+        delete from ticket_attachments
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
+        returning storage_key
       `;
-      if (atts.length) {
-        attachmentKeys = atts.map((a) => a.storage_key);
-        await sql`
-          delete from ticket_attachments
-          where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
-        `;
-        attachmentsDeleted = attachmentKeys.length;
-      }
+      attachmentKeys = atts.map((a) => a.storage_key);
+      attachmentsDeleted = attachmentKeys.length;
     }
 
     // Un-converted inbound mail still in the inbox, matched by sender address.
@@ -149,10 +147,12 @@ export async function eraseCustomer(args: {
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
 
-    await sql`
+    const [era] = await sql<{ id: string }[]>`
       insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
       values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...CUSTOMER_PII_FIELDS]}, ${reason ?? null})
+      returning id
     `;
+    erasureId = era.id;
 
     return {
       erased: true,
@@ -168,19 +168,28 @@ export async function eraseCustomer(args: {
 
   // Post-commit: delete the attachment objects from R2. Done outside the txn so
   // no DB connection/lock is held across network I/O, and only after the DB is
-  // durably erased. Best-effort: the DB (system of record) is already consistent
-  // and the rows are gone; if object deletion fails we alert for manual cleanup
-  // rather than fail an otherwise-complete erasure or resurrect the DB rows.
-  // (`result` is only reached on commit; a rolled-back txn throws above.)
+  // durably erased. If object deletion fails, the keys are PARKED on the
+  // gdpr_erasures row (pending_object_keys) so the retry sweep
+  // (retryPendingObjectDeletions, run from the retention cron) finishes the job
+  // — the DB rows are already gone, so this is the only durable record of what's
+  // left to delete. We also alert. (`result` is only reached on commit.)
   if (result && !result.alreadyErased && attachmentKeys.length) {
     try {
       await deleteObjects(attachmentKeys);
     } catch (err) {
       console.error(
-        `[gdpr-erase] R2 object deletion failed for customer ${customerId} (workspace ${workspaceId}):`,
+        `[gdpr-erase] R2 object deletion failed for customer ${customerId} (workspace ${workspaceId}) — parking for retry:`,
         err instanceof Error ? err.message : err,
       );
-      // Never let an alerting failure mask the (successful) erasure.
+      // Persist the un-deleted keys for the retry sweep. If even this fails, the
+      // alert below is the backstop; never let it mask the successful erasure.
+      try {
+        if (erasureId) {
+          await db`update gdpr_erasures set pending_object_keys = ${attachmentKeys} where id = ${erasureId}`;
+        }
+      } catch (persistErr) {
+        console.error('[gdpr-erase] failed to park pending object keys:', persistErr instanceof Error ? persistErr.message : persistErr);
+      }
       await sendOpsAlert({
         signature: `gdpr-erase-r2-fail:${workspaceId}:${customerId}`,
         severity: 'critical',
@@ -188,10 +197,45 @@ export async function eraseCustomer(args: {
         detail:
           `Customer ${customerId} (workspace ${workspaceId}) was erased in the database, but ` +
           `${attachmentKeys.length} attachment object(s) could not be deleted from storage. ` +
-          `Manual cleanup required.\nKeys:\n` + attachmentKeys.map((k) => `  • ${k}`).join('\n'),
+          `Parked for automatic retry; will also self-heal on the next retention cron.\nKeys:\n` +
+          attachmentKeys.map((k) => `  • ${k}`).join('\n'),
       }).catch(() => {});
     }
   }
 
   return result;
+}
+
+/**
+ * Retry sweep for attachment objects that failed to delete during erasure. Reads
+ * gdpr_erasures rows still carrying pending_object_keys, re-attempts the R2
+ * delete, and clears the keys on success. Idempotent and safe to run repeatedly
+ * (re-deleting an already-gone key is a 404 = success). Best-effort per row: one
+ * row's failure doesn't block the others. Runs from the retention cron.
+ */
+export async function retryPendingObjectDeletions(
+  limit = 100,
+  deps: EraseDeps = {},
+): Promise<{ swept: number; cleared: number; keysDeleted: number }> {
+  const deleteObjects = deps.deleteObjects ?? deleteKeys;
+  const sql = getDb();
+  const rows = await sql<{ id: string; pending_object_keys: string[] }[]>`
+    select id, pending_object_keys from gdpr_erasures
+    where pending_object_keys is not null and cardinality(pending_object_keys) > 0
+    order by completed_at asc
+    limit ${Math.max(1, limit)}
+  `;
+  let cleared = 0;
+  let keysDeleted = 0;
+  for (const row of rows) {
+    try {
+      await deleteObjects(row.pending_object_keys);
+      await sql`update gdpr_erasures set pending_object_keys = null where id = ${row.id}`;
+      cleared++;
+      keysDeleted += row.pending_object_keys.length;
+    } catch (err) {
+      console.warn(`[gdpr-erase] retry still failing for erasure ${row.id}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return { swept: rows.length, cleared, keysDeleted };
 }

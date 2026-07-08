@@ -216,6 +216,23 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(c.erased_at).not.toBeNull();                       // committed despite R2 failure
     const rows = await sql<{ n: number }[]>`select count(*)::int as n from ticket_attachments where ticket_id = ${tk.id}`;
     expect(rows[0].n).toBe(0);
+
+    // The un-deleted key is parked on the erasure row for the retry sweep.
+    const [era] = await sql<{ pending_object_keys: string[] }[]>`
+      select pending_object_keys from gdpr_erasures where customer_id = ${cust.id}
+    `;
+    expect(era.pending_object_keys).toEqual([`att/${slug}/x.pdf`]);
+
+    // The retry sweep, given a working deleter, clears the parked keys.
+    const { retryPendingObjectDeletions } = await import('./lib/gdpr-erasure.js');
+    const retried: string[] = [];
+    const res = await retryPendingObjectDeletions(100, { deleteObjects: async (k) => { retried.push(...k); } });
+    expect(retried).toContain(`att/${slug}/x.pdf`);
+    expect(res.cleared).toBeGreaterThanOrEqual(1);
+    const [after] = await sql<{ pending_object_keys: string[] | null }[]>`
+      select pending_object_keys from gdpr_erasures where customer_id = ${cust.id}
+    `;
+    expect(after.pending_object_keys).toBeNull();             // cleared
   });
 
   it('is idempotent — a second erase reports alreadyErased and adds no audit row', async () => {

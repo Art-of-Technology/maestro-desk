@@ -3,6 +3,7 @@ import { env } from '../lib/env.js';
 import { getDb } from '../lib/db.js';
 import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
 import { purgeExpiredTickets } from '../lib/retention.js';
+import { retryPendingObjectDeletions } from '../lib/gdpr-erasure.js';
 import { verifyAuditChains } from '../lib/audit-verify.js';
 import { sendOpsAlert } from '../lib/alert.js';
 
@@ -93,7 +94,18 @@ cron.get('/retention', async (c) => {
     console.error('[cron] audit-verify (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('audit-verify', err);
   }
-  return c.json({ ok: true, purgedTickets, audit });
+  // Piggyback the GDPR-erasure object-deletion retry sweep (finishes any R2
+  // deletes that failed at erase time). Best-effort — a failure here must not
+  // fail the purge result.
+  let objectRetry: { swept: number; cleared: number } | undefined;
+  try {
+    const { swept, cleared } = await retryPendingObjectDeletions();
+    objectRetry = { swept, cleared };
+  } catch (err) {
+    console.error('[cron] gdpr object-deletion retry (via retention) failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('gdpr-object-retry', err);
+  }
+  return c.json({ ok: true, purgedTickets, audit, objectRetry });
 });
 
 // Audit-chain integrity check (standalone). Recomputes every workspace's

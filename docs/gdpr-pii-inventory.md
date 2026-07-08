@@ -40,7 +40,9 @@ correct the day upload ships:
 
 - **Erasure** — `gdpr-erasure.ts` deletes the `ticket_attachments` rows for the customer's
   tickets (in-transaction) and the R2 objects they point to via `storage_key` (after
-  commit, best-effort with an ops alert on failure). ✅ implemented.
+  commit). A failed object delete parks the keys on `gdpr_erasures.pending_object_keys`;
+  `retryPendingObjectDeletions()` (run from the retention cron) retries until they're gone,
+  so a transient R2 outage self-heals. ✅ implemented.
 - **Retention** — the purge (`lib/retention.ts`) currently deletes only the rows (via the
   `tickets` ON DELETE CASCADE), **not** the R2 objects. ⚠️ follow-up: gather `storage_key`s
   before the ticket delete and delete the objects post-purge (same cleanup as erasure).
