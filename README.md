@@ -133,6 +133,8 @@ runs through Better Auth's `genericOAuth` (PKCE); see `api/src/lib/maestro.ts` a
 
 ## Further reading
 
+- `docs/getting-started.md` — using the product (agents, Brand Owners, platform operators).
+- `docs/backup-recovery.md` — data durability, backup posture, and the restore runbook.
 - `CLAUDE.md` — architecture deep-dive, CI gates, and conventions for contributors.
 - `PROD_SETUP.md` — production setup and cutover runbook.
 - `setup.md` — environment and local setup guide.
