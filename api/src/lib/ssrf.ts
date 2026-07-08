@@ -1,6 +1,5 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
-import { parse as legacyParseUrl } from 'node:url';
 import type { LookupAddress } from 'node:dns';
 
 // SSRF guard for server-side fetches of user-supplied URLs (outgoing webhooks).
@@ -164,9 +163,17 @@ export async function assertSafeWebhookUrl(raw: string): Promise<void> {
   if (err) throw err;
 }
 
-// Like assertSafeWebhookUrl but for Web Push endpoints, which are always https
-// at a push-service host (FCM/Mozilla/WNS) — so we additionally reject any
-// non-https scheme before applying the shared block-list. Throws on rejection.
+// Validates a Web Push endpoint. Real push endpoints are always https URLs at a
+// push-service HOSTNAME (FCM/Mozilla/WNS) — never a raw IP. We reject IP-literal
+// hosts outright, which is what makes the whole guard airtight: net.connect
+// skips the connect-time safeLookup (used by lib/push.ts's Agent) for IP
+// literals, so a literal is the one host the connect-time guard cannot
+// re-validate. Requiring a hostname guarantees every stored endpoint IS
+// re-checked at connect time, where a rebind to a private address is refused —
+// and it sidesteps WHATWG-vs-legacy-url.parse host-parsing differentials, since
+// those can only be weaponized by smuggling in a literal. Pure/synchronous (no
+// DNS): safe to re-run cheaply at send time. Throws on rejection; callers map
+// that to a 400 (subscribe) or a skip (send).
 export async function assertSafePushEndpoint(raw: string): Promise<void> {
   let url: URL;
   try {
@@ -175,22 +182,9 @@ export async function assertSafePushEndpoint(raw: string): Promise<void> {
     throw new Error('Invalid URL');
   }
   if (url.protocol !== 'https:') throw new Error('Push endpoint must be https');
-  await assertSafeWebhookUrl(raw);
-  // web-push dials the host from node's legacy url.parse(), which can extract a
-  // different host than WHATWG `new URL` for adversarial inputs (parser
-  // confusion). Hostname differentials are still caught at connect time by the
-  // https.Agent lookup, but net.connect skips that lookup for IP literals — so
-  // re-check the legacy-parsed host against the block-list when it's a literal,
-  // closing a public-WHATWG / private-legacy-literal split. A differential needs
-  // an unusual authority (backslash / whitespace / control char / userinfo `@`),
-  // which real push endpoints never contain — so only then do we consult the
-  // deprecated parser, keeping it off the normal path.
-  if (/[\\@\s\x00-\x1f]/.test(raw)) {
-    const legacyHost = (legacyParseUrl(raw).hostname ?? '').replace(/^\[(.+)\]$/, '$1');
-    if (legacyHost && net.isIP(legacyHost) !== 0 && isBlockedAddress(legacyHost)) {
-      throw new Error('URL resolves to a private or internal address');
-    }
-  }
+  const host = url.hostname.replace(/^\[(.+)\]$/, '$1');
+  if (!host) throw new Error('Push endpoint host is empty');
+  if (net.isIP(host) !== 0) throw new Error('Push endpoint host must be a domain name');
 }
 
 // ── Connect-time validation (defeats DNS rebinding) ───────────────────────────
