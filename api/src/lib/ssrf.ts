@@ -1,5 +1,6 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import type { LookupAddress } from 'node:dns';
 
 // SSRF guard for server-side fetches of user-supplied URLs (outgoing webhooks).
 //
@@ -14,11 +15,15 @@ import net from 'node:net';
 // Throws on rejection so callers can surface a 400 (write time) or record a
 // permanent delivery failure (delivery time).
 //
-// NOTE: this is a check-then-connect guard. A determined attacker controlling
-// DNS could rebind between this lookup and fetch's own resolve (TOCTOU). That
-// residual is mitigated by the caller using redirect:'manual', but fully
-// closing it requires pinning the resolved IP via a custom dispatcher.
-// TODO: pin IP to fully defeat DNS rebinding if this surface ever widens.
+// assertSafeWebhookUrl is a check-then-connect guard: on its own it leaves a
+// TOCTOU window where DNS could rebind between this lookup and fetch's own
+// resolve. That window is closed at delivery time by `safeLookup` (below),
+// which re-validates INSIDE the connection's DNS step via an undici Agent —
+// the connection can only ever dial addresses that passed the block-list.
+// assertSafeWebhookUrl stays as the write-time validator and the fast
+// permanent-failure classifier at delivery time (and as the only guard under
+// Bun local dev, where the undici dispatcher isn't used — see
+// outgoing-webhooks.ts).
 
 function isBlockedIPv4(ip: string): boolean {
   const p = ip.split('.').map(Number);
@@ -105,6 +110,26 @@ function isBlockedAddress(ip: string): boolean {
   return true; // not a recognisable IP → block
 }
 
+// Shared block-list application for a set of resolved addresses. Returns an
+// error (with a stable `code`) if the set is empty or any address is blocked,
+// else null. Single source of truth for both the write-time check
+// (assertSafeWebhookUrl) and the connect-time check (safeLookup), so the two
+// can never drift on which addresses count as blocked or on the messages.
+function addressError(records: LookupAddress[]): NodeJS.ErrnoException | null {
+  if (records.length === 0) {
+    return Object.assign(new Error('URL host does not resolve'), { code: 'ENOTFOUND' });
+  }
+  for (const { address } of records) {
+    if (isBlockedAddress(address)) {
+      return Object.assign(
+        new Error('URL resolves to a private or internal address'),
+        { code: 'EBLOCKED' },
+      );
+    }
+  }
+  return null;
+}
+
 // Validates that `raw` is an http(s) URL whose host resolves only to public
 // addresses. Throws an Error (message safe to log / return) otherwise.
 export async function assertSafeWebhookUrl(raw: string): Promise<void> {
@@ -128,16 +153,56 @@ export async function assertSafeWebhookUrl(raw: string): Promise<void> {
     return;
   }
 
-  let records: { address: string }[];
+  let records: LookupAddress[];
   try {
     records = await dns.lookup(host, { all: true });
   } catch {
     throw new Error('URL host does not resolve');
   }
-  if (records.length === 0) throw new Error('URL host does not resolve');
-  for (const { address } of records) {
-    if (isBlockedAddress(address)) {
-      throw new Error('URL resolves to a private or internal address');
-    }
-  }
+  const err = addressError(records);
+  if (err) throw err;
 }
+
+// ── Connect-time validation (defeats DNS rebinding) ───────────────────────────
+//
+// A lookup function with the node:net `options.lookup` signature, for use in an
+// undici Agent's `connect.lookup`. It resolves the hostname and rejects the
+// connection if ANY resolved address is blocked — so the socket can only ever
+// be opened to addresses that passed validation, with no gap between check and
+// connect. net.connect skips custom lookup for IP-literal hosts; those are
+// deterministic (no rebinding possible) and already validated by
+// assertSafeWebhookUrl.
+
+type LookupOpts = { all?: boolean; family?: number | string; hints?: number };
+// Matches node:net's LookupFunction callback (address is required — on error we
+// pass an empty list, which Node ignores when err is set).
+type LookupCb = (
+  err: NodeJS.ErrnoException | null,
+  address: string | LookupAddress[],
+  family?: number,
+) => void;
+type Resolver = (hostname: string, opts: { all: true; family: number; hints?: number }) => Promise<LookupAddress[]>;
+
+const defaultResolver: Resolver = (hostname, opts) => dns.lookup(hostname, opts);
+
+// Factory so tests can inject a resolver instead of hitting real DNS.
+export function makeSafeLookup(resolve: Resolver = defaultResolver) {
+  return function safeLookup(hostname: string, options: LookupOpts, callback: LookupCb): void {
+    const family = typeof options.family === 'number' ? options.family : 0;
+    // then(onFulfilled, onRejected) rather than .then().catch(): the rejection
+    // handler must cover ONLY the resolver, never a throw from `callback`
+    // itself — a .catch() after .then() would re-invoke node:net's once-only
+    // lookup completion a second time if the socket's callback threw.
+    resolve(hostname, { all: true, family, hints: options.hints }).then(
+      (records) => {
+        const err = addressError(records);
+        if (err) callback(err, []);
+        else if (options.all) callback(null, records);
+        else callback(null, records[0].address, records[0].family);
+      },
+      (err: NodeJS.ErrnoException) => callback(err, []),
+    );
+  };
+}
+
+export const safeLookup = makeSafeLookup();

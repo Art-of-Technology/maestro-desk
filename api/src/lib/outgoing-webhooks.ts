@@ -24,7 +24,49 @@
 import { createHmac } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
 import { getDb } from './db.js';
-import { assertSafeWebhookUrl } from './ssrf.js';
+import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
+
+// SSRF hardening, part 2 (audit #5): the delivery fetch dials through an undici
+// Agent whose connect-time DNS lookup re-runs the block-list on the EXACT
+// addresses about to be dialed — closing the rebinding window that a
+// check-then-connect guard alone leaves open. The npm undici package's OWN
+// fetch must be used with its Agent (Node's built-in fetch rejects dispatchers
+// from a different undici copy with UND_ERR_INVALID_ARG — verified). Under Bun
+// (local dev only — prod is Vercel's Node runtime) Bun's fetch ignores an
+// undici dispatcher entirely (verified: the custom lookup is never invoked), so
+// there is no point importing undici — dev keeps the check-then-connect
+// behavior from assertSafeWebhookUrl below. The Agent is fire-and-forget (each
+// webhook is a single POST with little reuse value), so keep-alive is disabled
+// to avoid retaining sockets across warm serverless invocations.
+//
+// Narrowed to what the delivery actually needs (an init bag + status/ok on the
+// response), so it accepts both undici.fetch and globalThis.fetch without a
+// runtime-specific RequestInit type, and lets the init object below carry the
+// non-standard `dispatcher` key with no cast.
+type WebhookFetchFn = (input: string, init: Record<string, unknown>) => Promise<{ status: number; ok: boolean }>;
+type WebhookFetcher = { fetchImpl: WebhookFetchFn; dispatcher?: object };
+// Memoize the PROMISE, not the resolved value: attemptDelivery runs under
+// Promise.all, so a value memo would let concurrent first-callers each build
+// their own Agent. `??=` guarantees exactly one import + one Agent per process.
+let fetcherPromise: Promise<WebhookFetcher> | undefined;
+function webhookFetcher(): Promise<WebhookFetcher> {
+  return (fetcherPromise ??= (async () => {
+    if (process.versions.bun) {
+      // Resolve globalThis.fetch at call time, not now — tests stub it.
+      return { fetchImpl: (input, init) => globalThis.fetch(input, init as RequestInit) };
+    }
+    const undici = await import('undici');
+    return {
+      fetchImpl: undici.fetch as unknown as WebhookFetchFn,
+      dispatcher: new undici.Agent({
+        connect: { lookup: safeLookup },
+        keepAliveTimeout: 1,
+        keepAliveMaxTimeout: 1,
+        pipelining: 0,
+      }),
+    };
+  })());
+}
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 // Outbound HTTP unchanged.
@@ -240,7 +282,8 @@ async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; se
 
   if (!blockedUrl) {
     try {
-      const res = await fetch(wh.url, {
+      const { fetchImpl, dispatcher } = await webhookFetcher();
+      const res = await fetchImpl(wh.url, {
         method:  'POST',
         headers: {
           'Content-Type':         'application/json',
@@ -253,11 +296,24 @@ async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; se
         // SSRF guard above. An unfollowed redirect records as a non-2xx failure.
         redirect: 'manual',
         signal: AbortSignal.timeout(5000),
+        // Connect-time block-list validation (see webhookFetcher above).
+        // undefined under Bun (no dispatcher support there) — harmless key.
+        dispatcher,
       });
       status = res.status;
       if (!res.ok) err = `HTTP ${res.status}`;
     } catch (e) {
-      err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+      // A connect-time SSRF block (safeLookup, on the dispatcher path) surfaces
+      // as undici's TypeError('fetch failed', { cause }); the real reason +
+      // code live on `.cause`. Treat it exactly like the write-time block: a
+      // PERMANENT failure with the informative message, not a retried transient.
+      const cause = (e as { cause?: NodeJS.ErrnoException })?.cause;
+      if (cause?.code === 'EBLOCKED') {
+        blockedUrl = true;
+        err = cause.message.slice(0, 200);
+      } else {
+        err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+      }
     }
   }
 
