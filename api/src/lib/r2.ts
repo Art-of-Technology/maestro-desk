@@ -103,7 +103,12 @@ export async function deleteKeys(keys: string[]): Promise<void> {
   const { client, endpoint, bucket } = requireR2();
   await Promise.all(
     keys.map(async (key) => {
-      const res = await client.fetch(objectUrl(endpoint, bucket, key), { method: 'DELETE' });
+      // Bounded so a single hung object can't stall the caller indefinitely
+      // (logo cleanup, and post-commit GDPR-erase attachment purge).
+      const res = await client.fetch(objectUrl(endpoint, bucket, key), {
+        method: 'DELETE',
+        signal: AbortSignal.timeout(10_000),
+      });
       // 204 on delete, 404 if already gone — both are fine.
       if (!res.ok && res.status !== 404) {
         throw new Error(`R2 DELETE ${key} failed: ${res.status}`);

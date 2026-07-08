@@ -189,6 +189,7 @@ customers.post('/:id/erase', async (c) => {
         notes_deleted: result.notesDeleted,
         messages_redacted: result.messagesRedacted,
         inbox_redacted: result.inboxRedacted,
+        attachments_deleted: result.attachmentsDeleted,
         reason,
       },
     });
