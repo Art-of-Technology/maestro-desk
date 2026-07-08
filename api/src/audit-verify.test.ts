@@ -50,12 +50,14 @@ runDbTests('audit-chain verification (DB-backed)', () => {
   const incr = (wsId: string) => sql<VerifyRow[]>`select * from audit_events_verify_incremental(${wsId})`;
   const full = (wsId: string) => sql<VerifyRow[]>`select * from audit_events_verify(${wsId})`;
 
-  // Mutate an "immutable" audit row with the append-only triggers bypassed.
-  async function tamperUpdate(wsId: string, seq: number, set: (t: any) => Promise<unknown>): Promise<void> {
+  // Run a mutation with the append-only triggers bypassed (the trigger-bypass /
+  // direct-DB threat model the verifier backstops). `set local` scopes the
+  // replica role to this transaction/connection.
+  type Sql = ReturnType<typeof import('./lib/db.js').getDb>;
+  async function tamper(mutate: (tx: Sql) => Promise<unknown>): Promise<void> {
     await sql.begin(async (tx) => {
       await tx`set local session_replication_role = replica`;
-      await set(tx);
-      void wsId; void seq;
+      await mutate(tx as unknown as Sql);
     });
   }
 
@@ -95,7 +97,7 @@ runDbTests('audit-chain verification (DB-backed)', () => {
     await addEvents(ws, 3);                                       // cp+1 .. cp+3
     const target = cp + 2;
     const [{ id: badId }] = await sql<{ id: string }[]>`select id from audit_events where workspace_id = ${ws} and seq = ${target}`;
-    await tamperUpdate(ws, target, (tx) =>
+    await tamper((tx) =>
       tx`update audit_events set metadata = ${tx.json({ tampered: true })} where id = ${badId}`);
 
     const rows = await incr(ws);
@@ -113,7 +115,7 @@ runDbTests('audit-chain verification (DB-backed)', () => {
 
     await addEvents(ws, 2);                                       // cp+1, cp+2
     const boundary = cp + 1;
-    await tamperUpdate(ws, boundary, (tx) =>
+    await tamper((tx) =>
       tx`update audit_events set prev_hash = decode('00','hex') where workspace_id = ${ws} and seq = ${boundary}`);
 
     const rows = await incr(ws);
@@ -127,8 +129,10 @@ runDbTests('audit-chain verification (DB-backed)', () => {
     await addEvents(ws, 5);
     await incr(ws);                                              // cp at head
 
-    // Alter an OLD row (below the checkpoint) without cascading forward.
-    await tamperUpdate(ws, 2, (tx) =>
+    // Alter an OLD row (below the checkpoint, not the head) without cascading
+    // forward — the head-row validation checks the checkpoint head (seq 5), so a
+    // seq-2 edit slips past incremental.
+    await tamper((tx) =>
       tx`update audit_events set metadata = ${tx.json({ hacked: true })} where workspace_id = ${ws} and seq = 2`);
 
     // Incremental only reads rows past the checkpoint → the old tamper is missed.
@@ -149,12 +153,43 @@ runDbTests('audit-chain verification (DB-backed)', () => {
   it('full verifier detects a seq gap from a deleted row', async () => {
     const ws = await provisionWs('gap');
     await addEvents(ws, 4);
-    await tamperUpdate(ws, 2, (tx) =>
+    await tamper((tx) =>
       tx`delete from audit_events where workspace_id = ${ws} and seq = 2`);
     const f = await full(ws);
     const frow = f.find((r) => r.workspace_id === ws)!;
     expect(frow.ok).toBe(false);
     expect(Number(frow.first_bad_seq)).toBe(2);
+  });
+
+  it('incremental detects tail truncation of the checkpointed head row', async () => {
+    const ws = await provisionWs('trunc');
+    await addEvents(ws, 4);
+    await incr(ws);
+    const cp = (await checkpoint(ws))!.last_seq;                  // head at cp
+
+    // Delete the checkpointed head row (tail truncation). No new rows exist, so
+    // a naive incremental ("nothing past the checkpoint") would miss it — the
+    // head-row validation catches it because we persist a high-water mark.
+    await tamper((tx) => tx`delete from audit_events where workspace_id = ${ws} and seq = ${cp}`);
+    const rows = await incr(ws);
+    const row = rows.find((r) => r.workspace_id === ws)!;
+    expect(row.ok).toBe(false);
+    expect(Number(row.first_bad_seq)).toBe(cp);
+    expect((await checkpoint(ws))?.last_seq).toBe(cp);           // not advanced
+  });
+
+  it('incremental detects in-place alteration of the checkpointed head row', async () => {
+    const ws = await provisionWs('headalt');
+    await addEvents(ws, 3);
+    await incr(ws);
+    const cp = (await checkpoint(ws))!.last_seq;
+
+    await tamper((tx) =>
+      tx`update audit_events set metadata = ${tx.json({ hacked: true })} where workspace_id = ${ws} and seq = ${cp}`);
+    const rows = await incr(ws);
+    const row = rows.find((r) => r.workspace_id === ws)!;
+    expect(row.ok).toBe(false);
+    expect(Number(row.first_bad_seq)).toBe(cp);
   });
 
   it('a clean chain verifies via the full read-only verifier with no checkpoint side-effects', async () => {

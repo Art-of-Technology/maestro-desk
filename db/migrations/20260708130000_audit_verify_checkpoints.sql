@@ -54,6 +54,8 @@ declare
   head_seq  bigint;
   head_hash bytea;
   saw_row   boolean;
+  chk       record;
+  chk_hash  bytea;
 begin
   for ws in
     select w.id as wid from workspaces w
@@ -62,12 +64,32 @@ begin
     select cp.last_seq, cp.last_row_hash into cp_seq, cp_hash
     from audit_verify_checkpoints cp where cp.workspace_id = ws.wid;
 
+    bad_seq := null; bad_id := null;
+
     if cp_seq is null then
       prev := null; exp_seq := 1;                 -- verify from genesis
     else
       prev := cp_hash; exp_seq := cp_seq + 1;     -- resume from checkpoint
+      -- Fully re-verify the checkpoint HEAD row against the trusted checkpoint
+      -- hash. The checkpoint is a persisted high-water mark, so — unlike the
+      -- original full verifier, which could not detect tail truncation without
+      -- one — we catch (a) the newest verified row(s) being deleted (head row
+      -- gone), (b) the head row's content or prev_hash altered (recompute ≠
+      -- cp_hash), and (c) a bare row_hash-column tamper (stored ≠ cp_hash). One
+      -- indexed single-row lookup + one hash.
+      select * into chk
+      from audit_events ae where ae.workspace_id = ws.wid and ae.seq = cp_seq;
+      if not found then
+        bad_seq := cp_seq; bad_id := null;                       -- checkpoint head truncated
+      else
+        chk_hash := audit_events_rowhash(chk.prev_hash, chk.id, ws.wid, chk.actor_user_id,
+                                         chk.actor_ip, chk.actor_ua, chk.action, chk.target_type,
+                                         chk.target_id, chk.metadata, chk.created_at);
+        if chk.row_hash is distinct from cp_hash or chk_hash is distinct from cp_hash then
+          bad_seq := cp_seq; bad_id := chk.id;                   -- checkpoint head altered
+        end if;
+      end if;
     end if;
-    bad_seq := null; bad_id := null;
     head_seq := cp_seq; head_hash := cp_hash; saw_row := false;
 
     for r in
