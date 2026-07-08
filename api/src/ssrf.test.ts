@@ -3,7 +3,8 @@
 // before any dns.lookup. We assert blocked ranges throw and public IPs pass.
 
 import { describe, expect, it } from 'bun:test';
-import { assertSafeWebhookUrl } from './lib/ssrf.js';
+import type { LookupAddress } from 'node:dns';
+import { assertSafeWebhookUrl, makeSafeLookup } from './lib/ssrf.js';
 
 describe('assertSafeWebhookUrl', () => {
   const blocked = [
@@ -54,4 +55,53 @@ describe('assertSafeWebhookUrl', () => {
       await expect(assertSafeWebhookUrl(url)).resolves.toBeUndefined();
     });
   }
+});
+
+// Connect-time lookup used by the outgoing-webhook undici Agent. Tested with an
+// injected resolver — no real DNS. Wrap the callback API in a promise.
+describe('makeSafeLookup', () => {
+  const resolverOf = (records: LookupAddress[]) => async () => records;
+  const run = (records: LookupAddress[], all = false) =>
+    new Promise<{ address?: string | LookupAddress[]; family?: number }>((resolve, reject) => {
+      makeSafeLookup(resolverOf(records))('webhook.example', { all }, (err, address, family) => {
+        if (err) reject(err);
+        else resolve({ address, family });
+      });
+    });
+
+  it('passes public addresses through (single-address form)', async () => {
+    await expect(run([{ address: '93.184.216.34', family: 4 }]))
+      .resolves.toEqual({ address: '93.184.216.34', family: 4 });
+  });
+
+  it('passes public addresses through (all:true form)', async () => {
+    const records = [{ address: '93.184.216.34', family: 4 }, { address: '2606:4700:4700::1111', family: 6 }];
+    await expect(run(records, true)).resolves.toEqual({ address: records, family: undefined });
+  });
+
+  const blockedRecords: [string, LookupAddress[]][] = [
+    ['loopback', [{ address: '127.0.0.1', family: 4 }]],
+    ['cloud metadata', [{ address: '169.254.169.254', family: 4 }]],
+    ['IPv6 loopback', [{ address: '::1', family: 6 }]],
+    ['rebound: public first, private second', [
+      { address: '93.184.216.34', family: 4 },
+      { address: '10.0.0.1', family: 4 },
+    ]],
+  ];
+  for (const [name, records] of blockedRecords) {
+    it(`rejects ${name}`, async () => {
+      await expect(run(records)).rejects.toThrow('private or internal');
+    });
+  }
+
+  it('rejects an empty resolution as ENOTFOUND', async () => {
+    await expect(run([])).rejects.toMatchObject({ code: 'ENOTFOUND' });
+  });
+
+  it('propagates resolver failure', async () => {
+    const failing = async () => { throw Object.assign(new Error('boom'), { code: 'ESERVFAIL' }); };
+    await expect(new Promise((resolve, reject) => {
+      makeSafeLookup(failing)('webhook.example', {}, (err, addr) => (err ? reject(err) : resolve(addr)));
+    })).rejects.toMatchObject({ code: 'ESERVFAIL' });
+  });
 });

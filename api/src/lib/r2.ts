@@ -62,7 +62,13 @@ export async function putObject(key: string, bytes: Uint8Array, contentType: str
   const res = await client.fetch(objectUrl(endpoint, bucket, key), {
     method: 'PUT',
     body: bytes,
-    headers: { 'Content-Type': contentType },
+    // Content-Disposition is stored as object metadata and echoed on every GET
+    // (audit #7): direct navigation to an asset URL downloads instead of
+    // rendering in-browser, while <img> embeds are unaffected (browsers ignore
+    // disposition for subresources). Defense-in-depth on top of the magic-byte
+    // upload allowlist. Applies to NEW uploads only — existing objects keep
+    // their stored metadata.
+    headers: { 'Content-Type': contentType, 'Content-Disposition': 'attachment' },
   });
   if (!res.ok) {
     throw new Error(`R2 PUT ${key} failed: ${res.status} ${await res.text().catch(() => '')}`.trim());
