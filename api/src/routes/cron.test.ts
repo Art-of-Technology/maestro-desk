@@ -35,7 +35,10 @@ let auditResult: {
   tampered: Array<{ workspaceId: string; firstBadSeq: number | null; firstBadId: string | null }>;
 } = { checked: 2, tampered: [] };
 mock.module('../lib/audit-verify.js', () => ({
+  // Daily/retention path (incremental; accepts a {resetFirst} option) and the
+  // standalone /audit-verify path (full, read-only) — both return the fixture.
   verifyAuditChains: async () => auditResult,
+  verifyAuditChainsFull: async () => auditResult,
 }));
 
 const { cron } = await import('./cron.js');
