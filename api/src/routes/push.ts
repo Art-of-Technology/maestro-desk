@@ -18,11 +18,16 @@ push.get('/config', requireAuthOnly, (c) =>
   c.json({ configured: isPushConfigured(), public_key: env.VAPID_PUBLIC_KEY || null }),
 );
 
-// Standard PushSubscription.toJSON() shape from the browser.
+// Standard PushSubscription.toJSON() shape from the browser. Deliberately NOT
+// .strict(): toJSON() also carries expirationTime (Chrome sends null) and the
+// spec may grow more fields — unknown keys are stripped (zod default) so a new
+// browser field can never 400 real subscribes. Nothing beyond endpoint+keys is
+// read or stored (explicit destructure + explicit insert columns below), and
+// expiry needs no handling — dead endpoints are pruned on 404/410 at send time.
 const Subscribe = z.object({
   endpoint: z.string().url().max(2048),
   keys: z.object({ p256dh: z.string().min(1).max(256), auth: z.string().min(1).max(256) }),
-}).strict();
+});
 
 // POST /subscribe — upsert this browser's subscription for the caller. Keyed on
 // the unique endpoint: re-subscribing (keys rotated, or a different user on the

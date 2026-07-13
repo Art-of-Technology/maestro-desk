@@ -78,7 +78,11 @@ async function enablePush() {
       userVisibleOnly: true,
       applicationServerKey: urlB64ToUint8Array(cfg.public_key),
     });
-    await apiPost('/api/v1/push/subscribe', sub.toJSON());
+    // Send just the fields the API reads (endpoint + keys). toJSON() also
+    // carries expirationTime; the server strips unknown fields, so this is
+    // payload hygiene, not a requirement.
+    const { endpoint, keys } = sub.toJSON();
+    await apiPost('/api/v1/push/subscribe', { endpoint, keys });
     showToast('✓ Browser notifications enabled on this device', 'success');
   } catch (err) {
     showToast(`Couldn’t enable notifications: ${err?.message || err}`, 'error', 6000);
