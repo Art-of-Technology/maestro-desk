@@ -36,7 +36,13 @@ runDbTests('web push subscriptions + delivery (DB-backed)', () => {
     ctx.userId = r.response.user.id; ctx.token = r.response.token;
   }, 30000);
 
-  beforeEach(() => { webpush.sendNotification = realSend; });
+  // Clear the user's subscriptions between tests: the delivery test counts
+  // sends across ALL of the user's rows, so a row leaked by an earlier failed
+  // test would otherwise cascade into a misleading second failure.
+  beforeEach(async () => {
+    webpush.sendNotification = realSend;
+    await sql`delete from push_subscriptions where user_id = ${ctx.userId}`;
+  });
   afterAll(async () => {
     webpush.sendNotification = realSend;
     await sql`delete from push_subscriptions where user_id = ${ctx.userId}`;
@@ -53,6 +59,20 @@ runDbTests('web push subscriptions + delivery (DB-backed)', () => {
     expect(un.status).toBe(200);
     const after = await sql`select 1 from push_subscriptions where endpoint = ${sub.endpoint}`;
     expect(after).toHaveLength(0);
+  });
+
+  it('accepts the real browser PushSubscription.toJSON() shape (expirationTime)', async () => {
+    // Chrome/Firefox/Safari include expirationTime (usually null) in toJSON();
+    // the strict schema must tolerate it or every real subscribe 400s.
+    const sub = {
+      endpoint: `https://push.example.com/${RUN}/b`,
+      expirationTime: null,
+      keys: { p256dh: 'pubkey-b', auth: 'authsecret-b' },
+    };
+    const res = await auth('/api/v1/push/subscribe', { method: 'POST', body: JSON.stringify(sub) });
+    expect(res.status).toBe(201);
+    const [row] = await sql<{ user_id: string }[]>`select user_id from push_subscriptions where endpoint = ${sub.endpoint}`;
+    expect(row.user_id).toBe(ctx.userId);
   });
 
   it('sends to live subscriptions and prunes dead (410) ones', async () => {
