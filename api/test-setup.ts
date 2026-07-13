@@ -29,6 +29,14 @@ const _vapid = webpush.generateVAPIDKeys();
 process.env.VAPID_PUBLIC_KEY  ||= _vapid.publicKey;
 process.env.VAPID_PRIVATE_KEY ||= _vapid.privateKey;
 process.env.VAPID_SUBJECT     ||= 'mailto:test@maestro.test';
+// customer-from-player-tenant.test.ts needs workerMaestroConfigured() to read
+// true so the handler reaches the brand/tenant checks it asserts (both paths
+// short-circuit before any real gateway call). It used to set this at its own
+// top level, but env.ts parses process.env once at first load, so the value
+// only won if that file happened to evaluate before anything loading env.ts —
+// an order that changed under CI when new test files landed. Same parse-once
+// reason as everything above.
+process.env.MAESTRO_API_TOKEN ||= 'mh_live_test_token_placeholder';
 // cors.test.ts pins APP_BASE_URL to a prod-like origin to tell allow from deny.
 // It mock.module's env.js to do so, but mock.module is global and index.js gets
 // module-cached, so whether that mock "wins" depends on which file loads

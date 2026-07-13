@@ -3,15 +3,13 @@
 // target (X-Workspace-Id) must resolve to the same tenant. DB-backed.
 //
 // Both asserted paths short-circuit BEFORE the Maestro app-token call (the brand
-// gate runs first), so no real gateway is needed — we only set MAESTRO_API_TOKEN
-// so workerMaestroConfigured() lets the handler reach the check.
+// gate runs first), so no real gateway is needed — MAESTRO_API_TOKEN is set in
+// test-setup.ts (the bun preload): env.ts parses process.env once at first
+// load, so setting it here at file top level loses the race whenever another
+// test file loads env.ts first (which is load-order dependent and broke in CI).
 
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-
-process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=require';
-process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
-process.env.MAESTRO_API_TOKEN ||= 'mh_live_test_token_placeholder';
 
 const runDbTests = process.env.RUN_DB_TESTS ? describe : describe.skip;
 
