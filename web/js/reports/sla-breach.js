@@ -41,7 +41,7 @@ let SB_DAYS = 30;
 // rows inside B would put cross-workspace data on screen. evaluated/stats
 // are stashed by the render so Export CSV writes exactly what's displayed
 // instead of re-evaluating at a later "now".
-const SB = { loading: false, error: null, rows: null, loadedDays: null, wsId: null, evaluated: null, stats: null };
+const SB = { loading: false, error: null, rows: null, loadedDays: null, wsId: null, evaluated: null, stats: null, truncated: false };
 
 // ─── Data ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,7 @@ async function load() {
     // this was in flight) is discarded; the re-render below re-kicks load.
     if (days === SB_DAYS && wsId === getWorkspaceId()) {
       SB.rows = res.tickets || [];
+      SB.truncated = !!res.truncated;
       SB.loadedDays = days;
       SB.wsId = wsId;
     }
@@ -308,7 +309,7 @@ export function renderSLABreach() {
   // workspace; drop it before deciding whether to fetch.
   if (SB.wsId !== null && SB.wsId !== getWorkspaceId()) {
     SB.rows = null; SB.loadedDays = null; SB.wsId = null;
-    SB.evaluated = null; SB.stats = null; SB.error = null;
+    SB.evaluated = null; SB.stats = null; SB.error = null; SB.truncated = false;
   }
   if (SB.error) {
     return shell(messageCard('Couldn’t load the report',
@@ -341,6 +342,7 @@ export function renderSLABreach() {
       <div class="kpi"><div class="kpi-n c-green">${s.attainment}%</div><div class="kpi-l">SLA attainment</div></div>
     </div>
     <div class="page-scroll">
+      ${SB.truncated ? `<div style="margin-bottom:14px;padding:8px 12px;border:1px solid rgba(251,191,36,.3);background:var(--amber-lt);border-radius:var(--r);font-size:12px;color:var(--amber)">Large range: only the newest 5,000 tickets are included — these numbers are partial. Narrow the date range for full coverage.</div>` : ''}
       <div class="report-grid" style="margin-bottom:16px">
         ${sbByDayChart(s.breached)}
         ${sbByTargetChart(s)}

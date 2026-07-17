@@ -166,10 +166,12 @@ runDbTests('SLA breach report endpoint (DB-backed)', () => {
   it('rejects invalid days values', async () => {
     expect((await report(14, userA.token, ctx.wsA)).status).toBe(400);
     expect((await report('abc', userA.token, ctx.wsA)).status).toBe(400);
-    // Missing days defaults to 30.
+    // Missing days defaults to 30; small result sets are not truncated.
     const res = await report(null, userA.token, ctx.wsA);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as any).days).toBe(30);
+    const body = (await res.json()) as any;
+    expect(body.days).toBe(30);
+    expect(body.truncated).toBe(false);
   });
 
   it('is tenant-isolated: workspace B never sees A rows, and B cannot borrow A workspace-id', async () => {

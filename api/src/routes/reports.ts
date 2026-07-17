@@ -13,6 +13,12 @@ reports.use('*', requireAuth);
 
 const ALLOWED_DAYS = new Set([7, 30, 90]);
 
+// Hard cap on the result set so a pathological workspace can't stream an
+// unbounded JSON body. Newest tickets win (the query orders created_at
+// desc); the response flags truncation so the client can say the numbers
+// are partial rather than silently under-reporting.
+const MAX_ROWS = 5000;
+
 reports.get('/sla-breaches', async (c) => {
   const days = Number(c.req.query('days') ?? 30);
   if (!ALLOWED_DAYS.has(days)) {
@@ -57,6 +63,8 @@ reports.get('/sla-breaches', async (c) => {
       and t.merged_into_id is null
       and t.created_at >= now() - (${days} * interval '1 day')
     order by t.created_at desc
+    limit ${MAX_ROWS + 1}
   `;
-  return c.json({ days, tickets: rows });
+  const truncated = rows.length > MAX_ROWS;
+  return c.json({ days, truncated, tickets: truncated ? rows.slice(0, MAX_ROWS) : rows });
 });

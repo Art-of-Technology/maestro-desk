@@ -285,13 +285,13 @@ tickets.patch('/:id', async (c) => {
   // report and the data-retention purge — before this it was never written
   // (only the demo seed set it), so both features silently no-oped on live
   // data. Kept idempotent: re-PATCHing 'resolved' on an already-resolved
-  // ticket is not a transition and leaves the original timestamp.
-  const writes: Record<string, unknown> = { ...updates };
-  if (updates.status_key !== undefined && updates.status_key !== existing.status_key) {
-    if (updates.status_key === 'resolved') writes.resolved_at = new Date();
-    else if (existing.status_key === 'resolved') writes.resolved_at = null;
-  }
-  await sql`update tickets set ${sql(writes)} where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  // ticket is not a transition and leaves the original timestamp. Uses the
+  // DB clock (now()) like the merge path, not app-server time.
+  const statusTransition = updates.status_key !== undefined && updates.status_key !== existing.status_key;
+  const resolvedAtSet = !statusTransition ? sql`` :
+    updates.status_key === 'resolved' ? sql`, resolved_at = now()` :
+    existing.status_key === 'resolved' ? sql`, resolved_at = null` : sql``;
+  await sql`update tickets set ${sql(updates)}${resolvedAtSet} where id = ${ticketId} and workspace_id = ${workspaceId}`;
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
