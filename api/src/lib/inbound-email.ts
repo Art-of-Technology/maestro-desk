@@ -357,6 +357,18 @@ async function attachReplyToTicket(args: {
   if (!replyMessage) throw new Error('Reply attach failed');
   void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
 
+  // Customer reply un-resolves the ticket so agents see it back in the open
+  // queue — the same rule the portal reply path (routes/public.ts) applies,
+  // which was always documented as mirroring this path. Clearing resolved_at
+  // with it matters now that the column is real: a reopened ticket has no
+  // resolution time (SLA breach report) and must not look purge-eligible to
+  // the data-retention cron. Guarded on 'resolved' so other statuses are
+  // untouched.
+  await sql`
+    update tickets set status_key = 'open', resolved_at = null
+    where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = 'resolved'
+  `;
+
   // Audit the threaded reply in the inbox view too, so the agent can see
   // the email arrived even if they don't immediately notice the ticket
   // updated. Same fire-and-forget treatment as the new-ticket path.

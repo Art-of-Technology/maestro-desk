@@ -217,6 +217,13 @@ mark{background:rgba(251,191,36,0.35);color:var(--ink);padding:0 2px;border-radi
 .r-tile{text-align:center;padding:14px 10px;border-radius:var(--r);border:1px solid var(--rule)}
 .r-tile-n{font-size:24px;font-weight:700;font-family:'Inter',sans-serif;letter-spacing:-.02em;line-height:1}
 .r-tile-l{font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-top:6px;font-weight:500}
+/* SLA breach report — attainment ring (conic-gradient set inline, % is dynamic) */
+.sb-ring-wrap{display:flex;align-items:center;gap:16px;margin-top:6px}
+.sb-ring{width:110px;height:110px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-ring-inner{width:82px;height:82px;border-radius:50%;background:var(--off);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.sb-ring-n{font-family:'Inter',sans-serif;font-size:17px;font-weight:700;letter-spacing:-.03em;color:var(--green);line-height:1}
+.sb-ring-l{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin-top:3px}
+.sb-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
 /* ── Agents ── */
 .agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
 .agent-card{padding:14px;border:1px solid var(--rule);border-radius:var(--r2);background:var(--off);cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:14px}

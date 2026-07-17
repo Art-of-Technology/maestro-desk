@@ -280,7 +280,18 @@ tickets.patch('/:id', async (c) => {
     if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
   }
 
-  await sql`update tickets set ${sql(updates)} where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  // resolved_at follows the status transitions: stamped on entry into
+  // 'resolved', cleared on the way out. The column powers the SLA breach
+  // report and the data-retention purge — before this it was never written
+  // (only the demo seed set it), so both features silently no-oped on live
+  // data. Kept idempotent: re-PATCHing 'resolved' on an already-resolved
+  // ticket is not a transition and leaves the original timestamp. Uses the
+  // DB clock (now()) like the merge path, not app-server time.
+  const statusTransition = updates.status_key !== undefined && updates.status_key !== existing.status_key;
+  const resolvedAtSet = !statusTransition ? sql`` :
+    updates.status_key === 'resolved' ? sql`, resolved_at = now()` :
+    existing.status_key === 'resolved' ? sql`, resolved_at = null` : sql``;
+  await sql`update tickets set ${sql(updates)}${resolvedAtSet} where id = ${ticketId} and workspace_id = ${workspaceId}`;
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
@@ -724,7 +735,8 @@ tickets.post('/:id/merge', async (c) => {
       merged_into_id      = ${primaryId},
       merged_at           = now(),
       status_before_merge = ${wasResolved ? null : source.status_key},
-      status_key          = 'resolved'
+      status_key          = 'resolved',
+      resolved_at         = coalesce(resolved_at, now())
     where id = ${sourceId} and workspace_id = ${workspaceId}
   `;
 
@@ -784,14 +796,17 @@ tickets.post('/:id/unmerge', async (c) => {
     where workspace_id = ${workspaceId} and ticket_id = ${source.merged_into_id} and merged_from_id = ${sourceId}
   `;
 
-  // 2. Restore source row.
+  // 2. Restore source row. restoredStatus is never 'resolved' (merge nulls
+  // status_before_merge for already-resolved sources), so the merge-time
+  // resolved_at stamp is always cleared with it.
   const restoredStatus = source.status_before_merge || 'open';
   await sql`
     update tickets set
       merged_into_id      = null,
       merged_at           = null,
       status_before_merge = null,
-      status_key          = ${restoredStatus}
+      status_key          = ${restoredStatus},
+      resolved_at         = null
     where id = ${sourceId} and workspace_id = ${workspaceId}
   `;
 

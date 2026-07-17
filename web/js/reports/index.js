@@ -16,7 +16,8 @@
 import { TICKETS } from '../core/data.js';
 import { REPORT_LAYOUT } from '../core/state.js';
 import { renderPage } from '../core/router.js';
-import { pageTabs } from '../core/page-tabs.js';
+import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
+import { downloadCSV } from '../core/csv.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
@@ -75,7 +76,7 @@ export function computeReportStats(tickets) {
   return { total, byStatus, byPriority, byCategory, byAgent, bySentiment, sentimentScored, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
 }
 
-function rBarRow(label, count, max, color) {
+export function rBarRow(label, count, max, color) {
   const pct = max ? (count/max)*100 : 0;
   return `<div class="r-bar-row"><div class="r-bar-lbl">${window.escHtml(label)}</div><div class="r-bar-track"><div class="r-bar-fill" style="background:${color||'var(--purple)'};width:${pct}%"></div></div><div class="r-bar-val">${count}</div></div>`;
 }
@@ -279,13 +280,7 @@ function exportReport() {
   const tickets = getReportTickets();
   const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT','Sentiment','Time logged','Time billable'];
   const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '', t.sentiment ?? '', window.fmtMinutes(ticketTotalMinutes(t)), window.fmtMinutes(ticketBillableMinutes(t))]);
-  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `tickets-${REPORT_TF}-${new Date().toISOString().slice(0,10)}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  downloadCSV(headers, rows, `tickets-${REPORT_TF}-${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 export function renderReports() {
@@ -299,7 +294,7 @@ export function renderReports() {
   return `
     <div class="page">
       <div class="topbar">
-        ${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'}],'reports')}
+        ${pageTabs(INSIGHT_TABS,'reports')}
         <select class="filter-select" data-change-action="reports.setTF">
           <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
           <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>

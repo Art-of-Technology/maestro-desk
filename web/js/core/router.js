@@ -24,6 +24,7 @@ import { renderInbox } from '../inbox/index.js';
 import { renderCustomers } from '../customers/index.js';
 import { resetPlayerLookup } from '../customers/player-lookup.js';
 import { renderReports } from '../reports/index.js';
+import { renderSLABreach } from '../reports/sla-breach.js';
 import { renderAgents } from '../agents/index.js';
 import { renderAI, initAI } from '../ai/page.js';
 import { renderKB } from '../kb/index.js';
@@ -58,7 +59,7 @@ import { stopPresence } from './presence.js';
 // (global search, quick switcher, deep links) highlights the right row. Keys
 // with their own sidebar item — or none at all, e.g. config-hub-only pages like
 // portal — need no entry; the lookup falls through to data-page or no highlight.
-const NAV_ITEM_FOR_PAGE = { inbox: 'tickets', activity: 'reports' };
+const NAV_ITEM_FOR_PAGE = { inbox: 'tickets', activity: 'reports', 'sla-breach': 'reports' };
 
 export function nav(page, el) {
   document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
@@ -109,6 +110,7 @@ export function renderPage(page) {
     'custom-fields': renderCustomFields,
     layouts:       renderLayouts,
     activity:      renderActivityLog,
+    'sla-breach':  renderSLABreach,
     portal:        renderPortal,
     search:        renderSearchResults,
     channels:      renderChannels,

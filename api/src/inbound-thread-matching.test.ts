@@ -100,6 +100,19 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     expect(rows).toHaveLength(1);   // not duplicated
   });
 
+  it('reopens a resolved ticket on an email reply and clears resolved_at', async () => {
+    await sql`update tickets set status_key = 'resolved', resolved_at = now() where id = ${ctx.realTicket}`;
+    const res = await processInboundEmail({
+      workspaceId: ctx.bucket,
+      payload: inbound({ from: ctx.realCustomerEmail, subject: 'Re: Original subject', text: 'still broken!', messageId: `<reply2-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID }),
+    });
+    expect(res.threaded).toBe(true);
+    const [t] = await sql<{ status_key: string; resolved_at: string | null }[]>`
+      select status_key, resolved_at from tickets where id = ${ctx.realTicket}`;
+    expect(t.status_key).toBe('open');
+    expect(t.resolved_at).toBeNull();
+  });
+
   it('creates a ticket in the unrouted bucket for unmatched mail (no 500)', async () => {
     const res = await processInboundEmail({
       workspaceId: ctx.bucket,
