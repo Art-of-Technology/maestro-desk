@@ -299,7 +299,7 @@ export function renderReports() {
   return `
     <div class="page">
       <div class="topbar">
-        ${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'}],'reports')}
+        ${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'},{key:'sla-breach',label:'SLA Breaches'}],'reports')}
         <select class="filter-select" data-change-action="reports.setTF">
           <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
           <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>

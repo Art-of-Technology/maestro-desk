@@ -41,6 +41,7 @@ import { push } from './routes/push.js';
 import { categories } from './routes/categories.js';
 import { pubby } from './routes/pubby.js';
 import { cron } from './routes/cron.js';
+import { reports } from './routes/reports.js';
 
 const app = new Hono();
 
@@ -151,6 +152,7 @@ app.route('/api/v1/presence', presence);
 app.route('/api/v1/push', push);
 app.route('/api/v1/pubby', pubby);
 app.route('/api/v1/cron', cron);
+app.route('/api/v1/reports', reports);
 app.route('/api/v1/webhooks', webhooks);
 app.route('/api/v1/god', god);
 app.route('/api/v1/maestro', maestro);

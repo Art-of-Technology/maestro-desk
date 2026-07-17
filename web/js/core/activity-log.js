@@ -156,7 +156,7 @@ export function renderActivityLog() {
 
   return `
     <div class="page">
-      <div class="topbar">${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'}],'activity')}</div>
+      <div class="topbar">${pageTabs([{key:'reports',label:'Reports'},{key:'activity',label:'Activity'},{key:'sla-breach',label:'SLA Breaches'}],'activity')}</div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Events</div></div>
         <div class="kpi"><div class="kpi-n c-blue">${tickets}</div><div class="kpi-l">On tickets</div></div>

@@ -191,6 +191,54 @@ export function computeTicketSLA(t) {
   return { status, policy, elapsedMin, firstRespMin, firstResponseStatus, resolutionStatus, isResolved };
 }
 
+// Timestamp-based SLA evaluator for the SLA Breach report. Unlike
+// computeTicketSLA (which works off demo HH:MM message strings and the
+// slaNowForDemo anchor), this takes absolute epoch-ms timestamps as supplied
+// by the reports API and a real `nowMs`. Elapsed time is business-hours
+// aware via businessMinutesBetween, same as the rest of the engine.
+//
+// One deliberate divergence: a ticket resolved AFTER its resolution window
+// still counts as a resolution breach here (computeTicketSLA forgives it —
+// fine for a live "is this ticket on fire" badge, wrong for a report of
+// what breached). Overrun fields are minutes past the target, only set
+// when that target breached.
+export function evaluateSLATimestamps({ createdMs, firstReplyMs, resolvedMs, nowMs, policy }) {
+  if (!policy) return null;
+
+  const frMin  = businessMinutesBetween(createdMs, firstReplyMs ?? nowMs);
+  const resMin = businessMinutesBetween(createdMs, resolvedMs ?? nowMs);
+
+  let firstResponseStatus = 'ok';
+  if (firstReplyMs == null) {
+    // Awaiting first response; the clock is still running.
+    if (frMin >= policy.firstResponseMin) firstResponseStatus = 'breach';
+    else if (frMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
+  } else {
+    if (frMin > policy.firstResponseMin) firstResponseStatus = 'breach';
+    else if (frMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
+  }
+
+  let resolutionStatus = 'ok';
+  if (resolvedMs == null) {
+    if (resMin >= policy.resolutionMin) resolutionStatus = 'breach';
+    else if (resMin >= policy.resolutionMin * SLA_WARN_FRACTION) resolutionStatus = 'warn';
+  } else if (resMin > policy.resolutionMin) {
+    resolutionStatus = 'breach';
+  }
+
+  const order = { ok: 0, warn: 1, breach: 2 };
+  const status = order[firstResponseStatus] >= order[resolutionStatus] ? firstResponseStatus : resolutionStatus;
+  return {
+    status,
+    firstResponseStatus,
+    resolutionStatus,
+    firstResponseMinutes: frMin,
+    resolutionMinutes: resMin,
+    firstResponseOverrunMin: firstResponseStatus === 'breach' ? frMin - policy.firstResponseMin : null,
+    resolutionOverrunMin: resolutionStatus === 'breach' ? resMin - policy.resolutionMin : null,
+  };
+}
+
 export function refreshTicketSLA(t) {
   const r = computeTicketSLA(t);
   t.sla = r.status;
