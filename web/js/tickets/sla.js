@@ -170,26 +170,32 @@ export function computeTicketSLA(t) {
   if (!policy) return { status: 'ok', policy: null, elapsedMin, firstRespMin, firstResponseStatus: 'ok', resolutionStatus: 'ok', isResolved, isSnoozed };
   if (isSnoozed) return { status: 'snoozed', policy, elapsedMin, firstRespMin, firstResponseStatus: 'snoozed', resolutionStatus: 'snoozed', isResolved, isSnoozed };
 
-  let firstResponseStatus = 'ok';
-  if (firstRespMin == null) {
-    // Awaiting first response; clock is running against firstResponseMin
-    if (elapsedMin >= policy.firstResponseMin) firstResponseStatus = 'breach';
-    else if (elapsedMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
-  } else {
-    if (firstRespMin > policy.firstResponseMin) firstResponseStatus = 'breach';
-    else if (firstRespMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
-  }
+  // Awaiting first response → the clock still runs against elapsed time;
+  // once replied, judge the recorded response time. Resolution breaches are
+  // forgiven once resolved (live-badge semantics; the breach report's
+  // evaluateSLATimestamps deliberately does not forgive them).
+  const firstResponseStatus = firstRespMin == null
+    ? targetStatus(elapsedMin, policy.firstResponseMin, false)
+    : targetStatus(firstRespMin, policy.firstResponseMin, true);
+  const resolutionStatus = isResolved ? 'ok' : targetStatus(elapsedMin, policy.resolutionMin, false);
 
-  let resolutionStatus = 'ok';
-  if (!isResolved) {
-    if (elapsedMin >= policy.resolutionMin) resolutionStatus = 'breach';
-    else if (elapsedMin >= policy.resolutionMin * SLA_WARN_FRACTION) resolutionStatus = 'warn';
-  }
-
-  const order = { ok: 0, warn: 1, breach: 2 };
-  const status = order[firstResponseStatus] >= order[resolutionStatus] ? firstResponseStatus : resolutionStatus;
+  const status = worstOf(firstResponseStatus, resolutionStatus);
   return { status, policy, elapsedMin, firstRespMin, firstResponseStatus, resolutionStatus, isResolved };
 }
+
+// Shared warn/breach threshold ladder for one SLA target. Both evaluators
+// (computeTicketSLA below and evaluateSLATimestamps for the breach report)
+// route through this so the subtle boundary semantics stay single-sourced:
+// while the clock is still running a target breaches AT the window (>=,
+// it can only get worse); once it stopped, exactly-on-target is met (>).
+function targetStatus(elapsedMin, targetMin, stopped) {
+  if (stopped ? elapsedMin > targetMin : elapsedMin >= targetMin) return 'breach';
+  if (elapsedMin >= targetMin * SLA_WARN_FRACTION) return 'warn';
+  return 'ok';
+}
+
+const STATUS_ORDER = { ok: 0, warn: 1, breach: 2, snoozed: 0 };
+function worstOf(a, b) { return STATUS_ORDER[a] >= STATUS_ORDER[b] ? a : b; }
 
 // Timestamp-based SLA evaluator for the SLA Breach report. Unlike
 // computeTicketSLA (which works off demo HH:MM message strings and the
@@ -202,34 +208,26 @@ export function computeTicketSLA(t) {
 // fine for a live "is this ticket on fire" badge, wrong for a report of
 // what breached). Overrun fields are minutes past the target, only set
 // when that target breached.
-export function evaluateSLATimestamps({ createdMs, firstReplyMs, resolvedMs, nowMs, policy }) {
+//
+// firstCustomerMs anchors the first-response obligation: when null (an
+// agent-initiated outbound thread) there is nothing to respond to and the
+// first-reply target is skipped. Resolving a ticket stops the first-reply
+// clock too — a thread closed without a public reply is judged on
+// created→resolved, not created→forever.
+export function evaluateSLATimestamps({ createdMs, firstCustomerMs, firstReplyMs, resolvedMs, nowMs, policy }) {
   if (!policy) return null;
 
-  const frMin  = businessMinutesBetween(createdMs, firstReplyMs ?? nowMs);
+  const frStop = firstReplyMs ?? resolvedMs;
+  const frMin  = businessMinutesBetween(createdMs, frStop ?? nowMs);
   const resMin = businessMinutesBetween(createdMs, resolvedMs ?? nowMs);
 
-  let firstResponseStatus = 'ok';
-  if (firstReplyMs == null) {
-    // Awaiting first response; the clock is still running.
-    if (frMin >= policy.firstResponseMin) firstResponseStatus = 'breach';
-    else if (frMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
-  } else {
-    if (frMin > policy.firstResponseMin) firstResponseStatus = 'breach';
-    else if (frMin >= policy.firstResponseMin * SLA_WARN_FRACTION) firstResponseStatus = 'warn';
-  }
+  const firstResponseStatus = firstCustomerMs == null
+    ? 'ok'
+    : targetStatus(frMin, policy.firstResponseMin, frStop != null);
+  const resolutionStatus = targetStatus(resMin, policy.resolutionMin, resolvedMs != null);
 
-  let resolutionStatus = 'ok';
-  if (resolvedMs == null) {
-    if (resMin >= policy.resolutionMin) resolutionStatus = 'breach';
-    else if (resMin >= policy.resolutionMin * SLA_WARN_FRACTION) resolutionStatus = 'warn';
-  } else if (resMin > policy.resolutionMin) {
-    resolutionStatus = 'breach';
-  }
-
-  const order = { ok: 0, warn: 1, breach: 2 };
-  const status = order[firstResponseStatus] >= order[resolutionStatus] ? firstResponseStatus : resolutionStatus;
   return {
-    status,
+    status: worstOf(firstResponseStatus, resolutionStatus),
     firstResponseStatus,
     resolutionStatus,
     firstResponseMinutes: frMin,

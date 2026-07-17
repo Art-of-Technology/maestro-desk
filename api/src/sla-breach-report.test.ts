@@ -55,14 +55,14 @@ runDbTests('SLA breach report endpoint (DB-backed)', () => {
     if (opts.merged) await sql`update tickets set merged_into_id = ${t.id} where id = ${t.id}`;
     return t.id;
   }
-  async function addMsg(wsId: string, ticketId: string, role: string, minutesAfter: number, deleted = false) {
+  async function addMsg(wsId: string, ticketId: string, role: string, minutesAfter: number, opts: { deleted?: boolean; mergedFrom?: string } = {}) {
     const [m] = await sql<{ id: string }[]>`
-      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, created_at)
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, created_at, merged_from_id)
       select ${wsId}, ${ticketId}, ${role}, ${role}, 'x',
-             t.created_at + (${minutesAfter} * interval '1 minute')
+             t.created_at + (${minutesAfter} * interval '1 minute'), ${opts.mergedFrom ?? null}
       from tickets t where t.id = ${ticketId}
       returning id`;
-    if (deleted) await sql`update ticket_messages set deleted_at = now() where id = ${m.id}`;
+    if (opts.deleted) await sql`update ticket_messages set deleted_at = now() where id = ${m.id}`;
   }
   async function rowsFor(token: string, wsId: string, days = 30): Promise<any[]> {
     const res = await report(days, token, wsId);
@@ -90,20 +90,22 @@ runDbTests('SLA breach report endpoint (DB-backed)', () => {
     }
   });
 
-  it('computes first_agent_reply_at as the earliest agent/ai message, ignoring notes, system, customer, and deleted rows', async () => {
+  it('computes first_agent_reply_at as the earliest agent/ai message after the first customer message, ignoring notes, system, deleted, and merge-copied rows', async () => {
     const tid = await addTicket(ctx.wsA, `SBR1-${RUN}`, { assigned: userA.userId });
-    await addMsg(ctx.wsA, tid, 'customer', 0);
+    await addMsg(ctx.wsA, tid, 'agent', 1);          // predates the customer — not a reply
+    await addMsg(ctx.wsA, tid, 'customer', 2);
     await addMsg(ctx.wsA, tid, 'note', 5);
     await addMsg(ctx.wsA, tid, 'system', 6);
-    await addMsg(ctx.wsA, tid, 'agent', 10, true);   // deleted — must not count
+    await addMsg(ctx.wsA, tid, 'agent', 10, { deleted: true });      // deleted — must not count
+    await addMsg(ctx.wsA, tid, 'agent', 20, { mergedFrom: tid });    // merge copy — must not count
     await addMsg(ctx.wsA, tid, 'ai', 42);
     await addMsg(ctx.wsA, tid, 'agent', 60);         // later than the ai reply
     const rows = await rowsFor(userA.token, ctx.wsA);
     const row = rows.find(r => r.id === tid);
     expect(row).toBeDefined();
     const created = new Date(row.created_at).getTime();
-    const firstReply = new Date(row.first_agent_reply_at).getTime();
-    expect(Math.round((firstReply - created) / 60000)).toBe(42);
+    expect(Math.round((new Date(row.first_customer_at).getTime() - created) / 60000)).toBe(2);
+    expect(Math.round((new Date(row.first_agent_reply_at).getTime() - created) / 60000)).toBe(42);
     expect(row.assignee_name).toBe('A');  // users.name joined
   });
 
@@ -114,6 +116,35 @@ runDbTests('SLA breach report endpoint (DB-backed)', () => {
     const row = rows.find(r => r.id === tid);
     expect(row.first_agent_reply_at).toBeNull();
     expect(row.assignee_name).toBeNull();
+  });
+
+  it('returns null first_customer_at and first_agent_reply_at for agent-initiated (outbound) tickets', async () => {
+    const tid = await addTicket(ctx.wsA, `SBR7-${RUN}`);
+    await addMsg(ctx.wsA, tid, 'agent', 0);          // outbound opener, no customer message
+    const rows = await rowsFor(userA.token, ctx.wsA);
+    const row = rows.find(r => r.id === tid);
+    expect(row.first_customer_at).toBeNull();
+    expect(row.first_agent_reply_at).toBeNull();     // no obligation without customer contact
+  });
+
+  it('stamps resolved_at on the resolve transition and clears it on reopen', async () => {
+    const tid = await addTicket(ctx.wsA, `SBR8-${RUN}`);
+    const patch = (body: object) => app.request(`/api/v1/tickets/${tid}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${userA.token}`, 'X-Workspace-Id': ctx.wsA, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect((await patch({ status_key: 'resolved' })).status).toBe(200);
+    let row = (await rowsFor(userA.token, ctx.wsA)).find(r => r.id === tid);
+    expect(row.resolved_at).not.toBeNull();
+    const stamped = row.resolved_at;
+    // Re-PATCHing resolved is not a transition — timestamp must not move.
+    expect((await patch({ status_key: 'resolved' })).status).toBe(200);
+    row = (await rowsFor(userA.token, ctx.wsA)).find(r => r.id === tid);
+    expect(row.resolved_at).toBe(stamped);
+    expect((await patch({ status_key: 'open' })).status).toBe(200);
+    row = (await rowsFor(userA.token, ctx.wsA)).find(r => r.id === tid);
+    expect(row.resolved_at).toBeNull();
   });
 
   it('filters by the days range', async () => {

@@ -496,7 +496,7 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
   // Customer reply un-resolves the ticket so agents see it back in the
   // open queue. Mirrors the normal inbound-email behaviour.
   if (ticket.status_key === 'resolved') {
-    await sql`update tickets set status_key = 'open' where id = ${ticket.id} and workspace_id = ${ws.id}`;
+    await sql`update tickets set status_key = 'open', resolved_at = null where id = ${ticket.id} and workspace_id = ${ws.id}`;
   }
 
   return c.json({ message }, 201);

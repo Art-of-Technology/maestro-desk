@@ -10,7 +10,9 @@
 // evaluateSLATimestamps (business-hours aware, real clock — NOT the demo
 // slaNowForDemo anchor) against the bootstrapped SLA_POLICIES, matched by
 // findMatchingSLAPolicy on raw priority/category keys. Tickets with no
-// matching active policy are excluded from every stat.
+// matching active policy are excluded from every stat. Note BUSINESS_HOURS
+// itself is still a client-side default (not workspace-synced) — a known
+// engine-wide limitation, not specific to this page.
 //
 // Live-only: demo personas never hold a JWT, so the page renders an
 // informational empty state without fetching (which is also what the CI
@@ -21,22 +23,25 @@
 // document.body.dataset.currentPage.
 
 import { nav, renderPage } from '../core/router.js';
-import { pageTabs } from '../core/page-tabs.js';
-import { apiGet, getJwt } from '../core/api-client.js';
+import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
+import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { findMatchingSLAPolicy, evaluateSLATimestamps, fmtSLAMinutes } from '../tickets/sla.js';
 import { openTicket } from '../tickets/detail.js';
+import { rBarRow } from './index.js';
+import { downloadCSV } from '../core/csv.js';
+import { showToast } from '../core/toast.js';
+import { TICKETS } from '../core/data.js';
 
 // ─── State ────────────────────────────────────────────────────────────────
 
 let SB_DAYS = 30;
-const SB = { loading: false, error: null, rows: null, loadedDays: null };
-
-const INSIGHT_TABS = [
-  { key: 'reports',    label: 'Reports' },
-  { key: 'activity',   label: 'Activity' },
-  { key: 'sla-breach', label: 'SLA Breaches' },
-];
+// wsId pins the cache to the workspace it was fetched for: the in-session
+// workspace switcher swaps workspaces without a reload, and serving A's
+// rows inside B would put cross-workspace data on screen. evaluated/stats
+// are stashed by the render so Export CSV writes exactly what's displayed
+// instead of re-evaluating at a later "now".
+const SB = { loading: false, error: null, rows: null, loadedDays: null, wsId: null, evaluated: null, stats: null };
 
 // ─── Data ─────────────────────────────────────────────────────────────────
 
@@ -44,10 +49,16 @@ async function load() {
   SB.loading = true;
   SB.error = null;
   const days = SB_DAYS;
+  const wsId = getWorkspaceId();
   try {
     const res = await apiGet(`/api/v1/reports/sla-breaches?days=${days}`);
-    SB.rows = res.tickets || [];
-    SB.loadedDays = days;
+    // A stale response (user flipped the range or switched workspace while
+    // this was in flight) is discarded; the re-render below re-kicks load.
+    if (days === SB_DAYS && wsId === getWorkspaceId()) {
+      SB.rows = res.tickets || [];
+      SB.loadedDays = days;
+      SB.wsId = wsId;
+    }
   } catch (e) {
     SB.error = e.message || 'Failed to load report';
   }
@@ -61,19 +72,22 @@ function reRender() {
   main.innerHTML = renderSLABreach();
 }
 
-// Evaluate every fetched row against its matching policy with a single "now".
-// Rows without an active matching policy are dropped — there is no window to
-// breach. Returns [{ row, policy, ev, snoozed }].
+// Evaluate every fetched row against its matching policy with a single "now",
+// quantized to the minute so businessMinutesBetween's (start,end)-keyed cache
+// can actually hit across re-renders instead of growing one dead entry per
+// row per render. Rows without an active matching policy are dropped — there
+// is no window to breach. Returns [{ row, policy, ev, snoozed }].
 function evaluateRows() {
-  const nowMs = Date.now();
+  const nowMs = Math.floor(Date.now() / 60000) * 60000;
   const out = [];
   for (const row of SB.rows) {
     const policy = findMatchingSLAPolicy({ priority: row.priority_key, category: row.category_key });
     if (!policy) continue;
     const ev = evaluateSLATimestamps({
-      createdMs:    new Date(row.created_at).getTime(),
-      firstReplyMs: row.first_agent_reply_at ? new Date(row.first_agent_reply_at).getTime() : null,
-      resolvedMs:   row.resolved_at ? new Date(row.resolved_at).getTime() : null,
+      createdMs:       new Date(row.created_at).getTime(),
+      firstCustomerMs: row.first_customer_at ? new Date(row.first_customer_at).getTime() : null,
+      firstReplyMs:    row.first_agent_reply_at ? new Date(row.first_agent_reply_at).getTime() : null,
+      resolvedMs:      row.resolved_at ? new Date(row.resolved_at).getTime() : null,
       nowMs,
       policy,
     });
@@ -85,11 +99,15 @@ function evaluateRows() {
 
 function computeStats(evaluated) {
   const breached = evaluated.filter(x => x.ev.status === 'breach');
-  // "At risk" is an act-now signal: unresolved, not snoozed, warning on
-  // either target but not yet breached. Breached snoozed tickets still count
-  // as breaches — snoozing pauses attention, not history.
+  // "At risk" is an act-now signal: unresolved, not snoozed, not yet
+  // breached, and warning on a target whose clock is STILL RUNNING — a
+  // historical first-reply that landed in the warn zone can't get worse,
+  // so it doesn't count. Breached snoozed tickets still count as breaches —
+  // snoozing pauses attention, not history.
   const atRisk = evaluated.filter(x =>
-    !x.row.resolved_at && !x.snoozed && x.ev.status === 'warn').length;
+    !x.row.resolved_at && !x.snoozed && x.ev.status !== 'breach' &&
+    (x.ev.resolutionStatus === 'warn' ||
+     (x.ev.firstResponseStatus === 'warn' && !x.row.first_agent_reply_at))).length;
   const overruns = breached.map(x => Math.max(x.ev.firstResponseOverrunMin ?? 0, x.ev.resolutionOverrunMin ?? 0));
   const avgOverrun = overruns.length ? Math.round(overruns.reduce((a, b) => a + b, 0) / overruns.length) : 0;
   const met = evaluated.length - breached.length;
@@ -101,9 +119,13 @@ function computeStats(evaluated) {
 
 // ─── Widgets ──────────────────────────────────────────────────────────────
 
-// Daily buckets for 7d/30d, weekly for 90d, right-anchored on today.
-// Breaches are bucketed by ticket creation date — a v1 simplification (the
-// true breach instant would need inverting businessMinutesBetween).
+// Daily buckets for 7d/30d, weekly for 90d. The server window is a rolling
+// now()−N days while buckets are midnight-anchored, so the daily loops run
+// one extra bucket (i = SB_DAYS..0): the oldest bucket catches breaches from
+// the partial first day that are in the data but before "midnight N−1 days
+// ago" — otherwise the chart total visibly undercounts the KPI. Breaches
+// are bucketed by ticket creation date — a v1 simplification (the true
+// breach instant would need inverting businessMinutesBetween).
 function sbByDayChart(breached) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
   const pad2 = n => String(n).padStart(2, '0');
@@ -116,7 +138,7 @@ function sbByDayChart(breached) {
       buckets.push({ label: mmDD(start), start, end });
     }
   } else {
-    for (let i = SB_DAYS - 1; i >= 0; i--) {
+    for (let i = SB_DAYS; i >= 0; i--) {
       const start = new Date(now); start.setDate(start.getDate() - i);
       const end = new Date(start); end.setDate(end.getDate() + 1);
       const label = (SB_DAYS === 7 || i % 5 === 0) ? mmDD(start) : '';
@@ -147,17 +169,11 @@ function sbByDayChart(breached) {
 
 function sbByTargetChart(s) {
   const max = Math.max(s.frBreaches, s.resBreaches, 1);
-  const bar = (label, count, color) => `
-    <div class="r-bar-row">
-      <div class="r-bar-lbl">${label}</div>
-      <div class="r-bar-track"><div class="r-bar-fill" style="background:${color};width:${(count / max) * 100}%"></div></div>
-      <div class="r-bar-val">${count}</div>
-    </div>`;
   return `
     <div class="card">
       <div class="card-title">By policy target</div>
-      ${bar('First reply', s.frBreaches, 'var(--red)')}
-      ${bar('Resolution', s.resBreaches, 'var(--purple)')}
+      ${rBarRow('First reply', s.frBreaches, max, 'var(--red)')}
+      ${rBarRow('Resolution', s.resBreaches, max, 'var(--purple)')}
       <div style="margin-top:12px;font-size:11px;color:var(--ink3)">A ticket can breach both targets.</div>
     </div>`;
 }
@@ -195,6 +211,11 @@ function breachTargetCell(x) {
   return parts.join('<br>');
 }
 
+// A breach at exactly the window has zero overrun — that's a real breach
+// with a real (zero) overrun, so show '0m' rather than fmtSLAMinutes's
+// no-value glyph '—'.
+function fmtOverrun(min) { return min > 0 ? fmtSLAMinutes(min) : '0m'; }
+
 function sbTable(s) {
   if (!s.breached.length) {
     return `
@@ -213,7 +234,7 @@ function sbTable(s) {
         <td class="bold">${window.escHtml(x.row.subject)}</td>
         <td>${window.escHtml(x.row.assignee_name || 'Unassigned')}</td>
         <td style="font-size:12px">${breachTargetCell(x)}</td>
-        <td><span class="sla-breach">${fmtSLAMinutes(overrun)}</span></td>
+        <td><span class="sla-breach">${fmtOverrun(overrun)}</span></td>
         <td><span class="tag tag-${window.escAttr(x.row.status_key)}">${window.escHtml(x.row.status_key)}</span></td>
         <td><span class="tag tag-${window.escAttr(x.row.priority_key)}">${window.escHtml(x.row.priority_key)}</span></td>
       </tr>`;
@@ -232,9 +253,12 @@ function sbTable(s) {
 
 // ─── CSV export ───────────────────────────────────────────────────────────
 
+// Exports the stats the last render computed (SB.stats), so the file always
+// matches the table on screen — re-evaluating at click time could disagree
+// with the visible numbers when a ticket crosses a threshold in between.
 function exportBreaches() {
-  if (!SB.rows) return;
-  const s = computeStats(evaluateRows());
+  const s = SB.stats;
+  if (!s) return;
   const headers = ['ID', 'Subject', 'Assignee', 'Status', 'Priority', 'Policy', 'Target breached', 'Overrun (min)', 'Created', 'Resolved', 'First agent reply'];
   const rows = s.breached.map(x => [
     x.row.display_id, x.row.subject, x.row.assignee_name || '', x.row.status_key, x.row.priority_key,
@@ -243,16 +267,20 @@ function exportBreaches() {
     Math.max(x.ev.firstResponseOverrunMin ?? 0, x.ev.resolutionOverrunMin ?? 0),
     x.row.created_at, x.row.resolved_at || '', x.row.first_agent_reply_at || '',
   ]);
-  const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = `sla-breaches-${SB_DAYS}d-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  downloadCSV(headers, rows, `sla-breaches-${SB_DAYS}d-${new Date().toISOString().slice(0, 10)}.csv`);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────
+
+function messageCard(title, bodyHtml, { wide = false } = {}) {
+  return `
+    <div class="page-scroll">
+      <div class="card" style="max-width:${wide ? 560 : 520}px;margin:40px auto;text-align:center">
+        <div class="card-title" style="margin-bottom:10px">${title}</div>
+        <div style="font-size:13px;color:var(--ink3);line-height:1.6">${bodyHtml}</div>
+      </div>
+    </div>`;
+}
 
 function shell(body, { exportable = false } = {}) {
   return `
@@ -272,57 +300,44 @@ function shell(body, { exportable = false } = {}) {
 
 export function renderSLABreach() {
   if (!getJwt()) {
-    return shell(`
-      <div class="page-scroll">
-        <div class="card" style="max-width:520px;margin:40px auto;text-align:center">
-          <div class="card-title" style="margin-bottom:10px">Live workspaces only</div>
-          <div style="font-size:13px;color:var(--ink3);line-height:1.6">
-            The SLA breach report reads reply times straight from the server, so it's
-            only available when you're signed in to a live workspace.
-          </div>
-        </div>
-      </div>`);
+    return shell(messageCard('Live workspaces only',
+      `The SLA breach report reads reply times straight from the server, so it's
+       only available when you're signed in to a live workspace.`));
+  }
+  // Workspace switched in-session → everything cached belongs to the old
+  // workspace; drop it before deciding whether to fetch.
+  if (SB.wsId !== null && SB.wsId !== getWorkspaceId()) {
+    SB.rows = null; SB.loadedDays = null; SB.wsId = null;
+    SB.evaluated = null; SB.stats = null; SB.error = null;
   }
   if (SB.error) {
-    return shell(`
-      <div class="page-scroll">
-        <div class="card" style="max-width:560px;margin:40px auto">
-          <div class="card-title">Couldn't load the report</div>
-          <div style="font-size:13px;color:var(--ink2);margin-bottom:14px">${window.escHtml(SB.error)}</div>
-          <button class="btn btn-sm" data-action="slaBreach.retry">Retry</button>
-        </div>
-      </div>`);
+    return shell(messageCard('Couldn’t load the report',
+      `${window.escHtml(SB.error)}<br><br>
+       <button class="btn btn-sm" data-action="slaBreach.retry">Retry</button>`, { wide: true }));
   }
   if (SB.rows == null || SB.loadedDays !== SB_DAYS) {
     if (!SB.loading) load();
-    return shell(`
-      <div class="page-scroll">
-        <div class="card"><div style="padding:24px;color:var(--ink3)">Loading SLA report…</div></div>
-      </div>`);
+    return shell(messageCard('Loading…', 'Crunching reply times for the selected range.'));
   }
 
   const evaluated = evaluateRows();
   const s = computeStats(evaluated);
+  SB.evaluated = evaluated;
+  SB.stats = s;
 
   if (!evaluated.length) {
     const hint = SB.rows.length
       ? `None of the ${SB.rows.length} tickets in this range match an active SLA policy.
          <span class="link" data-action="slaBreach.policies">Configure SLA policies</span>`
       : 'No tickets in this range.';
-    return shell(`
-      <div class="page-scroll">
-        <div class="card" style="max-width:560px;margin:40px auto;text-align:center">
-          <div class="card-title" style="margin-bottom:10px">Nothing to evaluate</div>
-          <div style="font-size:13px;color:var(--ink3);line-height:1.6">${hint}</div>
-        </div>
-      </div>`);
+    return shell(messageCard('Nothing to evaluate', hint, { wide: true }));
   }
 
   return shell(`
     <div class="kpi-bar">
       <div class="kpi"><div class="kpi-n c-red">${s.breached.length}</div><div class="kpi-l">Breaches</div></div>
       <div class="kpi"><div class="kpi-n c-amber">${s.atRisk}</div><div class="kpi-l">At risk right now</div></div>
-      <div class="kpi"><div class="kpi-n c-red">${s.breached.length ? fmtSLAMinutes(s.avgOverrun) : '—'}</div><div class="kpi-l">Avg overrun</div></div>
+      <div class="kpi"><div class="kpi-n c-red">${s.breached.length ? fmtOverrun(s.avgOverrun) : '—'}</div><div class="kpi-l">Avg overrun</div></div>
       <div class="kpi"><div class="kpi-n c-green">${s.attainment}%</div><div class="kpi-l">SLA attainment</div></div>
     </div>
     <div class="page-scroll">
@@ -340,14 +355,21 @@ export function renderSLABreach() {
 registerActions({
   'slaBreach.export':   () => exportBreaches(),
   'slaBreach.retry':    () => { SB.error = null; SB.rows = null; reRender(); },
-  'slaBreach.open':     (ds) => openTicket(ds.ticketId),
+  'slaBreach.open':     (ds) => {
+    // openTicket resolves against the paginated in-memory TICKETS snapshot
+    // and silently bounces to the Conversations list on a miss — and this
+    // report exists precisely because old tickets aren't in that snapshot.
+    // Only navigate when the ticket is actually loadable; otherwise say so
+    // instead of kicking the agent out of the report.
+    if (TICKETS.some(t => t.id === ds.ticketId)) openTicket(ds.ticketId);
+    else showToast(`${ds.ticketId} is outside the loaded ticket list — find it via search to open it.`, 'info');
+  },
   'slaBreach.policies': () => nav('sla'),
 });
 
 registerChangeActions({
   'slaBreach.setDays': (ds, el) => {
     SB_DAYS = Number(el.value);
-    SB.rows = null;
     renderPage('sla-breach');
   },
 });

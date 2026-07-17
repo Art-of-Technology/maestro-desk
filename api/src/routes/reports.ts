@@ -20,22 +20,37 @@ reports.get('/sla-breaches', async (c) => {
   }
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
-  // Merged tickets are excluded: their thread lives on in the merge target,
-  // so counting both would double-report the same conversation.
+  // Message rows with merged_from_id are copies stamped at merge time, not
+  // real replies — excluding them keeps a merge from fabricating a first
+  // response. The reply must also FOLLOW the first customer message: an
+  // agent-initiated (outbound) thread has no first-response obligation, so
+  // fc is null and fr stays null with it; the client skips the first-reply
+  // target for those. Merged tickets themselves are excluded: their thread
+  // lives on in the merge target, so counting both would double-report.
   const rows = await sql`
     select t.id, t.display_id, t.subject,
            t.status_key, t.priority_key, t.category_key,
-           t.assigned_user_id, u.name as assignee_name,
+           u.name as assignee_name,
            t.created_at, t.resolved_at, t.snoozed_until,
-           fr.first_agent_reply_at
+           fc.first_customer_at, fr.first_agent_reply_at
     from tickets t
     left join users u on u.id = t.assigned_user_id
+    left join lateral (
+      select min(tm.created_at) as first_customer_at
+      from ticket_messages tm
+      where tm.ticket_id = t.id
+        and tm.role = 'customer'
+        and tm.deleted_at is null
+        and tm.merged_from_id is null
+    ) fc on true
     left join lateral (
       select min(tm.created_at) as first_agent_reply_at
       from ticket_messages tm
       where tm.ticket_id = t.id
         and tm.role in ('agent', 'ai')
         and tm.deleted_at is null
+        and tm.merged_from_id is null
+        and tm.created_at >= fc.first_customer_at
     ) fr on true
     where t.workspace_id = ${workspaceId}
       and t.deleted_at is null

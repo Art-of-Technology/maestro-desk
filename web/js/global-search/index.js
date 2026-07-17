@@ -54,7 +54,6 @@ export const SEARCH_PAGES = [
   {p:'custom-fields', l:'Custom Fields'},
   {p:'layouts',   l:'Layouts'},
   {p:'activity',  l:'Activity Log'},
-  {p:'sla-breach', l:'SLA Breaches'},
   {p:'sla-breach', l:'SLA Breach Report'},
   {p:'portal',    l:'Customer Portal'},
   {p:'channels',  l:'Channels'},
