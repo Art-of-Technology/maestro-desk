@@ -19,6 +19,11 @@
 // API calls from that host. (connect-src additionally lists api.anthropic.com
 // for the direct-from-browser AI calls in js/ai/client.js.)
 (function () {
+  // Back-compat: honor the pre-rename global if a self-hosted page still
+  // sets it (documented hook from the Maestro Desk era).
+  if (!window.RESPOVIA_API_BASE && window.MAESTRO_API_BASE) {
+    window.RESPOVIA_API_BASE = window.MAESTRO_API_BASE;
+  }
   if (window.RESPOVIA_API_BASE) return;
   // The staging API also backs every PR-preview SPA (one API deploy per
   // `staging` branch push). KEEP IN SYNC with api/src/lib/env.ts's
