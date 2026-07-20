@@ -77,7 +77,7 @@ push.post('/test', requireAuthOnly, async (c) => {
   if (!isPushConfigured()) return c.json({ error: 'Push not configured' }, 503);
   const userId = c.get('userId');
   const result = await sendPushToUser(userId, {
-    title: 'Maestro Desk',
+    title: 'Respovia',
     body: 'Notifications are on — you’ll be alerted here when a customer replies.',
     url: '/',
     tag: 'push-test',

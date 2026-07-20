@@ -114,13 +114,13 @@ function resetWorkspaceBrand() {
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');
   if (wordEl) {
-    wordEl.textContent = 'Maestro Desk';
+    wordEl.textContent = 'Respovia';
     wordEl.style.backgroundImage = '';
     wordEl.style.paddingLeft     = '';
     wordEl.style.minHeight       = '';
   }
   if (subEl) subEl.textContent = 'iGaming · AI Assisted';
-  document.title = 'Maestro Desk — AI Support';
+  document.title = 'Respovia — AI Support';
   document.documentElement.style.removeProperty('--purple');
   document.documentElement.style.removeProperty('--accent');
 }

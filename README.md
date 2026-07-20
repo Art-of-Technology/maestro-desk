@@ -1,4 +1,4 @@
-# Maestro Desk
+# Respovia
 
 An AI-native, multi-brand helpdesk for the iGaming space — a Zoho Desk rival built for
 the Maestro Connect platform. Agents triage and resolve player tickets across channels
@@ -124,7 +124,7 @@ for environment setup.
 
 ## Maestro Connect integration
 
-Maestro Desk registers with Maestro Connect via `maestro.yml` (manifest v1), which
+Respovia registers with Maestro Connect via `maestro.yml` (manifest v1), which
 declares the integration's routes, data sources, and scopes. The identity model maps
 Maestro **organizations** → tenants, **brands** → workspaces (a Desk workspace *is* a
 Maestro brand), and **users** → the token-derived signed-in agent. Sign-in with Maestro

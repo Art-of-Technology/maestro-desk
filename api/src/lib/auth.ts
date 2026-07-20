@@ -94,13 +94,13 @@ export const auth = betterAuth({
       const link = `${env.APP_BASE_URL}/?reset_token=${encodeURIComponent(token)}`;
       await sendEmail({
         to: user.email,
-        subject: 'Set your Maestro Desk password',
+        subject: 'Set your Respovia password',
         textBody:
-          `You've been invited to Maestro Desk.\n\n` +
+          `You've been invited to Respovia.\n\n` +
           `Set your password using the link below (valid for 1 hour):\n${link}\n\n` +
           `If you weren't expecting this, you can ignore this email.`,
         fromEmail: env.POSTMARK_OUTBOUND_FROM,
-        fromName: 'Maestro Desk',
+        fromName: 'Respovia',
       });
     },
   },

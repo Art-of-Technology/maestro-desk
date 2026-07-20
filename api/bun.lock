@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "maestro-desk-api",
+      "name": "respovia-api",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.97.0",
         "@getpubby/sdk": "^0.2.0",

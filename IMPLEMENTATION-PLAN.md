@@ -1,4 +1,4 @@
-# Maestro Desk — Implementation Plan
+# Respovia — Implementation Plan
 
 > Companion to `REVIEW-PUNCHLIST.md`. Turns the 2026-06-19 review into a sequenced,
 > dependency-aware delivery plan. Status: **proposal for owner sign-off.**
@@ -9,9 +9,10 @@
 
 ## 1. Guiding constraints (decisions baked into the sequencing)
 
-1. **Name & domain are deferred to the very end.** The service-desk product name
-   ("Maestro Desk") is not final, so we do **not** buy the product domain yet and we do
-   **not** hard-code the product name anywhere new.
+1. **Name & domain are deferred to the very end.** *(Resolved 2026-07-20: the product
+   is now **Respovia**; respovia.com registration in progress.)* The interim product name
+   ("Maestro Desk") was not final, so we did **not** buy the product domain earlier and
+   did **not** hard-code the product name anywhere new.
 2. **Email is decoupled from the product domain.** Transactional email (invites,
    magic-links, CSAT) needs *a* verified sending domain — not the product one. We use an
    **interim domain already owned by STech** (e.g. a `weezboo.com` subdomain) for sending
@@ -161,7 +162,7 @@ slim-down). The branding workstream here is what makes the name decision cheap l
 
 | Item | Punch-list | Branch | Size |
 |---|---|---|---|
-| **Branding-configurable shell** — externalize product name, logo, email from-names, portal copy to config/env (no hard-coded "Maestro Desk") | constraint #4 | `feat/configurable-branding` | M |
+| **Branding-configurable shell** — externalize product name, logo, email from-names, portal copy to config/env (no hard-coded "Respovia") | constraint #4 | `feat/configurable-branding` | M |
 | i18n framework + extract strings (do **after** slim-down; reuses the externalization pass) | P3-i18n | `feat/i18n-foundation` + per-area extraction PRs | L |
 | Responsive pass (portal first — players are mobile; then agent app) | P3-i18n | `feat/responsive-portal`, `feat/responsive-app` | M–L |
 | Accessibility: modal focus-trap + `aria-modal`/labelledby + Esc (`core/modal.js`), `aria-live` for realtime, audit | P3 | `feat/a11y-modal-and-live` | M |

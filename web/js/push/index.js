@@ -144,7 +144,7 @@ export function settingsPushSection() {
     <div class="settings-section">
       <div class="settings-h">Browser notifications</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
-        Get a desktop notification when a customer replies to a ticket assigned to you — even when Maestro Desk isn’t the active tab. Per device: enable it on each browser you want alerts on.
+        Get a desktop notification when a customer replies to a ticket assigned to you — even when Respovia isn’t the active tab. Per device: enable it on each browser you want alerts on.
       </div>
       ${control}
     </div>`;
