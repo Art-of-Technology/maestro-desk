@@ -1,6 +1,6 @@
 # Backup & recovery
 
-The stated backup, durability, and recovery posture for Maestro Desk. This is a one-page
+The stated backup, durability, and recovery posture for Respovia. This is a one-page
 operational reference — what holds data, how it's protected, how to restore it, and the
 open items to firm up before the posture can be called guaranteed.
 
@@ -67,7 +67,7 @@ and are idempotent (already-applied files are skipped).
 
 ## Interaction with GDPR erasure & retention
 
-Maestro Desk **intentionally deletes** data: the retention cron purges resolved tickets
+Respovia **intentionally deletes** data: the retention cron purges resolved tickets
 past each brand's window, and erasure fulfils right-to-be-forgotten requests. A PITR
 restore to a point *before* such a deletion will **resurrect** that data. After any restore
 that crosses an erasure or purge, re-run the relevant erasure(s) so deleted personal data

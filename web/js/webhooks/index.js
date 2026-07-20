@@ -173,7 +173,7 @@ const WEBHOOK_TEMPLATES = [
     events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
     note:'Make custom webhooks accept arbitrary JSON. The native payload works as-is.' },
   { id:'n8n', name:'n8n — Webhook node',
-    url:'https://n8n.example.com/webhook/maestro-desk',
+    url:'https://n8n.example.com/webhook/respovia',
     events:['ticket.created','ticket.resolved','ticket.escalated','sla.breach','csat.submitted'],
     note:'n8n Webhook nodes accept arbitrary JSON and you build the downstream flow visually.' },
   { id:'jira', name:'Jira Cloud — create issue (REST)',
@@ -271,7 +271,7 @@ async function whTestFire(id) {
   // single-hook deliver helper directly. Avoids the race that would happen
   // if a real event landed while we mutated the shared WEBHOOKS array.
   const event = (h.events && h.events[0]) || 'ticket.created';
-  const samplePayload = { test: true, message: 'Test delivery from Maestro Desk webhooks', timestamp: new Date().toISOString() };
+  const samplePayload = { test: true, message: 'Test delivery from Respovia webhooks', timestamp: new Date().toISOString() };
   const body = JSON.stringify({ event, at: new Date().toISOString(), payload: samplePayload });
   await deliverWebhook(h, event, body);
   saveWebhooks();

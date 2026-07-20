@@ -56,7 +56,7 @@ const baseArgs = {
   subject: 'Re: Checkout failing',
   textBody: 'Thanks for reaching out.',
   fromEmail: 'support@maestro.test',
-  fromName: 'Maestro Desk',
+  fromName: 'Respovia',
 };
 
 function headerNames(body: Record<string, unknown>): string[] {

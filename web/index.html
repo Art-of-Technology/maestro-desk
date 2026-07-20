@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Maestro Desk — AI Support</title>
+<title>Respovia — AI Support</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="styles/pages.css"/>
 <!-- Runtime API-base selection, extracted to an external classic script so this
      page can ship a strict CSP (script-src 'self', no inline). Runs before the
-     app module below, so window.MAESTRO_API_BASE is set in time. -->
+     app module below, so window.RESPOVIA_API_BASE is set in time. -->
 <script src="js/api-base.js"></script>
 </head>
 <body>
@@ -23,7 +23,7 @@
   <div class="auth-box">
     <!-- Login panel -->
     <div id="auth-login" style="display:block">
-      <div class="auth-title" style="text-align:center">Maestro Desk</div>
+      <div class="auth-title" style="text-align:center">Respovia</div>
       <div class="auth-sub" style="text-align:center">Support that runs itself</div>
 
       <div id="login-form" style="margin-top:24px">
@@ -63,7 +63,7 @@
 
     <!-- Forgot password panel -->
     <div id="auth-forgot" style="display:none">
-      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
+      <div class="auth-logo"><div class="sb-word">Respovia</div></div>
       <div class="auth-back" data-action="auth.showPanel" data-panel="login">← Back to sign in</div>
       <div class="auth-title">Reset password</div>
       <div class="auth-sub" style="margin-bottom:18px">Enter your work email and we'll send a reset link.</div>
@@ -73,9 +73,9 @@
     </div>
     <!-- Set password panel (landing for the emailed reset/invite link) -->
     <div id="auth-set-password" style="display:none">
-      <div class="auth-logo"><div class="sb-word">Maestro Desk</div></div>
+      <div class="auth-logo"><div class="sb-word">Respovia</div></div>
       <div class="auth-title">Set your password</div>
-      <div class="auth-sub" style="margin-bottom:18px">Choose a password for your Maestro Desk account.</div>
+      <div class="auth-sub" style="margin-bottom:18px">Choose a password for your Respovia account.</div>
       <div class="form-row">
         <label class="form-label">New password</label>
         <input class="form-input" id="sp-password" type="password" placeholder="At least 12 characters" autocomplete="new-password"/>
@@ -93,7 +93,7 @@
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sb-logo">
-      <div class="sb-word">Maestro Desk</div>
+      <div class="sb-word">Respovia</div>
       <div class="sb-sub">iGaming · AI Assisted</div>
     </div>
     <div class="sb-user">

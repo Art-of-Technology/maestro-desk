@@ -36,7 +36,7 @@ export function renderProfile() {
   const avgCSAT   = csatRated.length ? csatRated.reduce((a, t) => a + t.csat, 0) / csatRated.length : 0;
 
   // Synthesised account fields (SESSION only carries role/name/initials in the demo)
-  const email = SESSION.email || (SESSION.name.toLowerCase().replace(/\s+/g, '.') + '@maestrodesk.com');
+  const email = SESSION.email || (SESSION.name.toLowerCase().replace(/\s+/g, '.') + '@respovia.com');
   const since = SESSION.since || '2024-09-01';
 
   // Recent activity = last few messages this agent posted

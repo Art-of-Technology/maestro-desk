@@ -342,7 +342,7 @@ async function aiSend() {
 
   try {
     const { text, error } = await callClaude({
-      system: `You are an AI analyst embedded in Maestro Desk, a customer-support app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
+      system: `You are an AI analyst embedded in Respovia, a customer-support app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
       messages: conv,
       maxTokens: 1024,
     });

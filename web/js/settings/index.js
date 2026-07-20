@@ -272,7 +272,7 @@ function settingsPortalCopy(ws, isAdmin) {
         <div style="font-size:11px;color:var(--ink3);margin-top:4px">Up to 1000 characters. Plain text — no markdown or HTML.</div>
       </div>
       <div class="form-row">
-        <label class="form-label">Footer <span style="color:var(--ink3);font-weight:400;font-family:'DM Mono',monospace;font-size:11px">— replaces "Powered by Maestro Desk"</span></label>
+        <label class="form-label">Footer <span style="color:var(--ink3);font-weight:400;font-family:'DM Mono',monospace;font-size:11px">— replaces "Powered by Respovia"</span></label>
         <input class="form-input" id="brand-portal-footer" type="text" maxlength="500" value="${window.escAttr(footer)}" placeholder="© Your Company 2026 · Need urgent help? Call +1 555 0100" ${isAdmin ? '' : 'disabled'}/>
       </div>
       <div style="display:flex;gap:8px;margin-top:6px">

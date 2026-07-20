@@ -1,4 +1,4 @@
-// Generic API client for the Maestro Desk backend.
+// Generic API client for the Respovia backend.
 //
 // Wraps fetch() with:
 //   - automatic Bearer-token header from sessionStorage
@@ -6,13 +6,13 @@
 //   - error normalisation (ApiError with status + body)
 //
 // API base defaults to http://localhost:3001 for local dev. In production
-// (or any other deployment), set `window.MAESTRO_API_BASE` in index.html
+// (or any other deployment), set `window.RESPOVIA_API_BASE` in index.html
 // BEFORE this module is imported, and we'll pick it up.
 //
 // Token lives in sessionStorage under JWT_KEY — survives a tab refresh,
 // gone when the tab closes. Use signOut() in auth-client to clear it.
 
-export const API_BASE          = (typeof window !== 'undefined' && window.MAESTRO_API_BASE) || 'http://localhost:3001';
+export const API_BASE          = (typeof window !== 'undefined' && window.RESPOVIA_API_BASE) || 'http://localhost:3001';
 export const JWT_KEY           = 'maestro_jwt';
 export const WORKSPACE_ID_KEY  = 'maestro_workspace_id';
 // Maestro brand context (X-Brand-Id) — the brand the agent picked after a
@@ -92,7 +92,7 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
     // something actionable. status 0 means "no HTTP response", so callers can
     // tell a connectivity failure apart from a 4xx/5xx the server returned.
     throw new ApiError(
-      `Can't reach the Maestro Desk server at ${API_BASE}. Check that the API is running and that you're online.`,
+      `Can't reach the Respovia server at ${API_BASE}. Check that the API is running and that you're online.`,
       0,
       null,
     );

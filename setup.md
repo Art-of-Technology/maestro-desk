@@ -1,4 +1,4 @@
-# Maestro Desk — Engineering Setup Overview
+# Respovia — Engineering Setup Overview
 
 > Audience: a new engineer (and the CTO). Every claim below is taken from the actual files in this repo; file paths are cited inline. Anything that could **not** be verified from the files is called out under **⚠️ Cannot verify from files**.
 >
@@ -87,7 +87,7 @@ Two independently-running pieces:
 - Tests: `api/src/index.test.ts`, run with `bun test`.
 
 **Frontend SPA** (the `web/` directory — its Vercel project's Root Directory):
-- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). An inline `<script>` at the top of `index.html` sets `window.MAESTRO_API_BASE` by hostname — the prod hosts (`desk`/`help.maestro-desk.com`) map to `https://api.maestro-desk.com`; everything else falls back to `http://localhost:3001`.
+- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). An inline `<script>` at the top of `index.html` sets `window.RESPOVIA_API_BASE` by hostname — the prod hosts (`desk`/`help.maestro-desk.com`) map to `https://api.maestro-desk.com`; everything else falls back to `http://localhost:3001`.
 - Customer portal: **`portal.html`** (self-contained, separate page).
 - Local static server: **`scripts/serve-spa.js`** (`Bun.serve` on **port 5173**, serves the `web/` frontend root so ES modules load).
 - **There is no `GET /api/v1/config` route.** (The pre-migration doc claimed one returning a Supabase URL + anon key — that no longer exists.) The SPA learns its API base from the inline script in `index.html`; Pubby's client config is served separately at `GET /api/v1/pubby/config`.

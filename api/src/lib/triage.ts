@@ -106,7 +106,7 @@ export type TriageOutput = z.infer<typeof TriageOutput>;
 
 // ─── Prompt assembly ───────────────────────────────────────────────────────
 
-const SYSTEM_INTRO = `You are the triage AI for Maestro Desk, a customer-support help desk. Your job is to read an incoming support ticket and call the record_triage tool exactly once with a complete, accurate result.
+const SYSTEM_INTRO = `You are the triage AI for Respovia, a customer-support help desk. Your job is to read an incoming support ticket and call the record_triage tool exactly once with a complete, accurate result.
 
 Rules:
 - Pick the SINGLE BEST category and priority from the lists provided. Use the exact keys, not the labels.

@@ -46,7 +46,7 @@ export async function notifyMentionedAgents(args: {
   const ticket = ticketRows[0];
   if (!ticket) return { sent: 0, skipped: targets.length };
 
-  const workspaceName = ticket.ws_name || 'Maestro Desk';
+  const workspaceName = ticket.ws_name || 'Respovia';
   const workspaceSlug = ticket.ws_slug;
   const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
   const fromName  = workspaceFrom?.fromName  || workspaceName;

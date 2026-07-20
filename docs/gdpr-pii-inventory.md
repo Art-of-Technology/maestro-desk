@@ -1,4 +1,4 @@
-# GDPR PII Inventory — Maestro Desk
+# GDPR PII Inventory — Respovia
 
 > Wave 2 of the compliance build-out (`IMPLEMENTATION-PLAN.md` Phase 4). This is the
 > **shared spec** for erasure, data-subject export, and retention — enumerate every

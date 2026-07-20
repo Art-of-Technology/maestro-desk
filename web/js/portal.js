@@ -1,9 +1,9 @@
 // Public portal driver (extracted from portal.html so the page can ship a
 // strict CSP with script-src 'self'). Self-contained: pulls workspace + KB
 // from /api/v1/public/:slug/* and posts new tickets to the same root. No
-// bundler, no SPA glue. window.MAESTRO_API_BASE is set by js/api-base.js
+// bundler, no SPA glue. window.RESPOVIA_API_BASE is set by js/api-base.js
 // (loaded before this file); the || fallback below keeps local/preview safe.
-    const API_BASE = (window.MAESTRO_API_BASE || 'http://localhost:3001');
+    const API_BASE = (window.RESPOVIA_API_BASE || 'http://localhost:3001');
     const params = new URLSearchParams(location.search);
     // SLUG is resolved at boot from one of (in priority order):
     //   1. ?ws=<slug>            — explicit query param

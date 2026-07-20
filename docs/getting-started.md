@@ -1,13 +1,13 @@
-# Getting started with Maestro Desk
+# Getting started with Respovia
 
-A practical guide to using Maestro Desk — the AI-native, multi-brand helpdesk for iGaming
+A practical guide to using Respovia — the AI-native, multi-brand helpdesk for iGaming
 brands. This is a **user & administrator** guide (how to work in the product). For local
 development and deployment, see [`README.md`](../README.md), [`setup.md`](../setup.md),
 and [`PROD_SETUP.md`](../PROD_SETUP.md).
 
 ## Who does what
 
-Maestro Desk has three roles:
+Respovia has three roles:
 
 | Role | Who | What they do |
 |---|---|---|
@@ -20,7 +20,7 @@ to several. Everything a player sees is scoped to a brand.
 
 ## First sign-in
 
-Maestro Desk is **invite-only** — you can't self-register.
+Respovia is **invite-only** — you can't self-register.
 
 1. You receive an invitation email. Open it and follow the link to set your password.
 2. Sign in at your Desk URL with your email and password.

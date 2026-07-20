@@ -127,10 +127,10 @@ export const TICKET_TEMPLATES = [
 export const CATEGORIES = [];
 
 export const CHANNELS = [
-  {id:'CH-001', name:'Support inbox',          type:'email',   address:'support@maestrodesk.com',     status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:142, signature:'— Maestro Desk Support'},
-  {id:'CH-002', name:'Billing inbox',          type:'email',   address:'billing@maestrodesk.com',     status:'active',   defaultCategory:'Billing',   defaultAgent:'Sofia Reyes',      volume30d:38,  signature:'— Maestro Desk Billing'},
-  {id:'CH-003', name:'Public help portal',     type:'webform', address:'maestrodesk.com/help/contact',status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:64,  signature:''},
-  {id:'CH-004', name:'In-app chat widget',     type:'chat',    address:'widget://embed',              status:'active',   defaultCategory:'Technical', defaultAgent:'James Webb',       volume30d:212, signature:'Hi! Maestro Desk live chat — how can we help?'},
+  {id:'CH-001', name:'Support inbox',          type:'email',   address:'support@respovia.com',        status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:142, signature:'— Respovia Support'},
+  {id:'CH-002', name:'Billing inbox',          type:'email',   address:'billing@respovia.com',        status:'active',   defaultCategory:'Billing',   defaultAgent:'Sofia Reyes',      volume30d:38,  signature:'— Respovia Billing'},
+  {id:'CH-003', name:'Public help portal',     type:'webform', address:'respovia.com/help/contact',   status:'active',   defaultCategory:'all',       defaultAgent:'',                 volume30d:64,  signature:''},
+  {id:'CH-004', name:'In-app chat widget',     type:'chat',    address:'widget://embed',              status:'active',   defaultCategory:'Technical', defaultAgent:'James Webb',       volume30d:212, signature:'Hi! Respovia live chat — how can we help?'},
   {id:'CH-005', name:'Partner API integration',type:'api',     address:'/api/v1/tickets',             status:'inactive', defaultCategory:'all',       defaultAgent:'',                 volume30d:0,   signature:''},
 ];
 

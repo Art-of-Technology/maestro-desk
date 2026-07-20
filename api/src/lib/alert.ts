@@ -78,10 +78,10 @@ async function deliverEmail(severity: AlertSeverity, title: string, body: string
     await withTimeout(
       sendEmail({
         to: env.ALERT_EMAIL_TO,
-        subject: `[maestro-desk ${severity}] ${title}`,
-        textBody: `${body}\n\n— maestro-desk ops alerts (${envName()})`,
+        subject: `[respovia ${severity}] ${title}`,
+        textBody: `${body}\n\n— respovia ops alerts (${envName()})`,
         fromEmail: env.POSTMARK_OUTBOUND_FROM,
-        fromName: 'maestro-desk alerts',
+        fromName: 'respovia alerts',
       }),
       DELIVERY_TIMEOUT_MS,
     );

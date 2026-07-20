@@ -1,4 +1,4 @@
-// Maestro Desk service worker — Web Push for offline-agent notifications.
+// Respovia service worker — Web Push for offline-agent notifications.
 // Served at /sw.js (scope '/'). It only handles push display + click; it is
 // deliberately not a caching/offline SW (the SPA isn't a PWA).
 
@@ -9,7 +9,7 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) { data = {}; }
-  const title = data.title || 'Maestro Desk';
+  const title = data.title || 'Respovia';
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || '',
     tag:  data.tag || undefined,        // same tag → newer push replaces older
