@@ -342,7 +342,7 @@ export function renderSLABreach() {
       <div class="kpi"><div class="kpi-n c-green">${s.attainment}%</div><div class="kpi-l">SLA attainment</div></div>
     </div>
     <div class="page-scroll">
-      ${SB.truncated ? `<div style="margin-bottom:14px;padding:8px 12px;border:1px solid rgba(251,191,36,.3);background:var(--amber-lt);border-radius:var(--r);font-size:12px;color:var(--amber)">Large range: only the newest 5,000 tickets are included — these numbers are partial. Narrow the date range for full coverage.</div>` : ''}
+      ${SB.truncated ? `<div style="margin-bottom:14px;padding:8px 12px;border:1px solid rgba(154,107,10,.3);background:var(--amber-lt);border-radius:var(--r);font-size:12px;color:var(--amber)">Large range: only the newest 5,000 tickets are included — these numbers are partial. Narrow the date range for full coverage.</div>` : ''}
       <div class="report-grid" style="margin-bottom:16px">
         ${sbByDayChart(s.breached)}
         ${sbByTargetChart(s)}

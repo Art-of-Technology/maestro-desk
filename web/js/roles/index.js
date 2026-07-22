@@ -107,7 +107,7 @@ function renderRoleAgentsPage(role) {
     return `<tr>
       <td>
         <div style="display:flex;align-items:center;gap:8px;cursor:pointer" data-action="roles.openAgent" data-name="${window.escAttr(a.name)}">
-          <div style="width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0;${a.active?'':'opacity:.5'}">${a.initials}</div>
+          <div style="width:26px;height:26px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:#fff;flex-shrink:0;${a.active?'':'opacity:.5'}">${a.initials}</div>
           <span style="font-weight:500;color:var(--ink)">${a.name}</span>
         </div>
       </td>
@@ -142,7 +142,7 @@ function renderRoleAgentsPage(role) {
       </div>
       <div class="page-scroll">
         <div class="card" style="display:flex;gap:18px;align-items:center;padding:20px;margin-bottom:16px">
-          <div style="width:54px;height:54px;border-radius:var(--r2);background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <div style="width:54px;height:54px;border-radius:var(--r2);background:var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
           </div>
           <div style="flex:1;min-width:0">
@@ -153,9 +153,9 @@ function renderRoleAgentsPage(role) {
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${list.length}</div><div class="r-tile-l" style="color:var(--ink3)">Members</div></div>
-          <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${activeN}</div><div class="r-tile-l" style="color:var(--green)">Active</div></div>
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${avgLoad}</div><div class="r-tile-l" style="color:var(--cyan)">Avg open load</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatScores.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Team CSAT</div></div>
+          <div class="r-tile" style="border-color:rgba(33,122,70,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${activeN}</div><div class="r-tile-l" style="color:var(--green)">Active</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${avgLoad}</div><div class="r-tile-l" style="color:var(--cyan)">Avg open load</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatScores.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Team CSAT</div></div>
         </div>
 
         ${list.length ? `
@@ -163,7 +163,7 @@ function renderRoleAgentsPage(role) {
           <div class="card-title">Workload distribution</div>
           ${memberLoad.map(m => `
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" data-action="roles.openAgent" data-name="${window.escAttr(m.a.name)}">
-              <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;${m.a.active?'':'opacity:.5'}">${m.a.initials}</div>
+              <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;${m.a.active?'':'opacity:.5'}">${m.a.initials}</div>
               <div style="font-size:12px;color:var(--ink2);width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.a.name}</div>
               <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:${m.a.active?'var(--purple)':'var(--ink4)'};height:100%;width:${(m.open/maxLoad)*100}%"></div></div>
               <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:50px;text-align:right">${m.open} / ${m.total}</div>

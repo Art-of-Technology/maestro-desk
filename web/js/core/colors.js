@@ -3,8 +3,8 @@
 // priority bars, breakdown widgets). Centralised here so every consumer
 // (tags, dashboard, reports) renders identical colors for identical keys.
 //
-// Values are CSS custom-property references defined in index.html's <style>
-// block; the var() level of indirection means a theme swap re-tints every
+// Values are CSS custom-property references defined in styles/tokens.css;
+// the var() level of indirection means a token retune re-tints every
 // chart without touching this file.
 
 export const STATUS_COLORS    = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };

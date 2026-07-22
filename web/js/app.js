@@ -3,7 +3,6 @@
 // and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
 // moved to core/router.js — imported below and re-exposed on the bridge.
 import { DASH_LAYOUT, REPORT_LAYOUT, SESSION, setDashLayout, setReportLayout, setSession } from './core/state.js';
-import { THEME, applyTheme } from './core/theme.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
 import { refreshAllSLA } from './tickets/sla.js';
 import { registerActions } from './core/event-delegation.js';
@@ -56,7 +55,6 @@ function login(role, name, initials, userId = null, canManageCustomFields = fals
   // Platform admins (God) always get the god nav — so they can switch between
   // the platform view and any workspace they've entered without signing out.
   if (isPlatformAdmin()) revealGodNav();
-  applyTheme(THEME);
   refreshAllSLA();
   checkSnoozeWakeups();
   if (!window._snoozeTimer) {

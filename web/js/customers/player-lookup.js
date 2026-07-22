@@ -151,7 +151,7 @@ function renderPlayerLookup() {
   } else if (LOOKUP_STATE === 'notfound') {
     result = `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No player found for that ${window.escHtml(KEY_LABELS[LOOKUP_BY].toLowerCase())}</div><div class="empty-line"></div></div>`;
   } else if (LOOKUP_STATE === 'error') {
-    result = `<div class="card" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt)"><div style="color:var(--red);font-size:13px">${window.escHtml(LOOKUP_ERROR)}</div></div>`;
+    result = `<div class="card" style="border-color:rgba(199,58,44,0.3);background:var(--red-lt)"><div style="color:var(--red);font-size:13px">${window.escHtml(LOOKUP_ERROR)}</div></div>`;
   } else if (LOOKUP_STATE === 'done' && PLAYER) {
     result = renderPlayerCard(PLAYER);
   } else {
@@ -228,7 +228,7 @@ function renderPlayerCard(p) {
 
   return `
     <div style="display:flex;gap:14px;align-items:center;padding:4px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:15px;flex-shrink:0">${window.escHtml((p.first || p.name || '?').charAt(0))}${window.escHtml((p.last || '').charAt(0))}</div>
+      <div style="width:52px;height:52px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:15px;flex-shrink:0">${window.escHtml((p.first || p.name || '?').charAt(0))}${window.escHtml((p.last || '').charAt(0))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:17px;font-weight:600;color:var(--ink)">${window.escHtml(p.name)}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">

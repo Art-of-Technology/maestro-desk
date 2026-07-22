@@ -6,10 +6,10 @@
 // kind: 'success' | 'warn' | 'error' | 'info' (default 'info').
 
 const COLORS = {
-  success: 'var(--green, #16a34a)',
-  warn:    'var(--amber, #d97706)',
-  error:   'var(--red, #dc2626)',
-  info:    'var(--ink2, #475569)',
+  success: 'var(--green, #217a46)',
+  warn:    'var(--amber, #9a6b0a)',
+  error:   'var(--red, #c73a2c)',
+  info:    'var(--ink2, #413d54)',
 };
 
 export function showToast(message, kind = 'info', ms = 4000, onClick = null) {
@@ -22,7 +22,7 @@ export function showToast(message, kind = 'info', ms = 4000, onClick = null) {
   }
   const el = document.createElement('div');
   el.setAttribute('role', 'status');
-  el.style.cssText = `pointer-events:auto;max-width:340px;padding:10px 14px;border-radius:10px;background:var(--bg,#fff);color:var(--ink,#0f172a);font-size:13px;line-height:1.4;box-shadow:0 8px 24px -8px rgba(0,0,0,0.4);border-left:3px solid ${COLORS[kind] || COLORS.info};opacity:0;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease`;
+  el.style.cssText = `pointer-events:auto;max-width:340px;padding:10px 14px;border-radius:16px;background:var(--off,#eff2e5);color:var(--ink,#130e30);font-size:13px;line-height:1.4;box-shadow:0 8px 24px -8px rgba(19,14,48,0.35);border-left:3px solid ${COLORS[kind] || COLORS.info};opacity:0;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease`;
   el.textContent = message;
   if (onClick) {
     el.style.cursor = 'pointer';

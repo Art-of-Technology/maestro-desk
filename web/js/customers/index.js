@@ -437,7 +437,7 @@ function showMergeCustomerModal(custId) {
   }
   const card = c => `
     <div data-mousedown-action="cust.mergeFromModal" data-source="${window.escAttr(custId)}" data-target="${window.escAttr(c.id)}" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-      <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(c.first + ' ' + c.last)}</div>
         <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(c.id)} · ${window.escHtml(c.email || '')}</div>
@@ -564,7 +564,7 @@ function renderBounceBadge(c) {
   if (state !== 'hard' && state !== 'spam') return '';
   const label = state === 'spam' ? 'SPAM' : 'BOUNCING';
   const title = `${state === 'spam' ? 'Marked as spam' : 'Email bouncing'} — ${c.emailBounceCount || 0} event${(c.emailBounceCount || 0) === 1 ? '' : 's'}`;
-  return `<span title="${window.escAttr(title)}" style="margin-left:8px;display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;color:var(--red);background:var(--red-lt);border:1px solid rgba(248,113,113,0.4);border-radius:3px;font-family:'DM Mono',monospace">${label}</span>`;
+  return `<span title="${window.escAttr(title)}" style="margin-left:8px;display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;color:var(--red);background:var(--red-lt);border:1px solid rgba(199,58,44,0.4);border-radius:3px;font-family:'DM Mono',monospace">${label}</span>`;
 }
 
 function renderCustomerDetail(custId) {
@@ -608,13 +608,13 @@ function renderCustomerDetail(custId) {
   }).join('') || '<div style="color:var(--ink3);font-size:12px;padding:8px 0">No custom fields defined. They can be added from the Custom Fields page (Senior Agent and above).</div>';
 
   const riskPanel = risks.length ? `
-    <div class="card" style="margin-bottom:16px;border-color:rgba(248,113,113,0.3);background:rgba(248,113,113,0.04)">
+    <div class="card" style="margin-bottom:16px;border-color:rgba(199,58,44,0.3);background:rgba(199,58,44,0.04)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l6 11H1L7 1z" stroke="var(--red)" stroke-width="1.4" stroke-linejoin="round"/><path d="M7 5v3M7 10v.5" stroke="var(--red)" stroke-width="1.4" stroke-linecap="round"/></svg>
         <div class="card-title" style="margin:0;color:var(--red)">Risk indicators</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${risks.map(r => `<span class="tag" style="font-size:10px;border-color:${r.level==='high'?'rgba(248,113,113,0.5)':'rgba(251,191,36,0.5)'};color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${window.escHtml(r.text)}</span>`).join('')}
+        ${risks.map(r => `<span class="tag" style="font-size:10px;border-color:${r.level==='high'?'rgba(199,58,44,0.5)':'rgba(154,107,10,0.5)'};color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${window.escHtml(r.text)}</span>`).join('')}
       </div>
     </div>` : '';
 
@@ -676,7 +676,7 @@ function renderCustomerDetail(custId) {
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -725,10 +725,10 @@ function renderCustomerDetail(custId) {
         </div>
         ${riskPanel}
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
-          <div class="r-tile" style="border-color:${c.consent?'rgba(52,211,153,0.3)':'rgba(248,113,113,0.3)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
+          <div class="r-tile" style="border-color:${c.consent?'rgba(33,122,70,0.3)':'rgba(199,58,44,0.3)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
         </div>
         ${tagsBlock}
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">

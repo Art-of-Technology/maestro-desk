@@ -270,7 +270,7 @@ export function renderSearchResults() {
   const customersHtml = sectionHtml('Customers', customers, `
     <div style="display:flex;flex-direction:column;gap:5px">
       ${customers.slice(0, 50).map(c => `<div data-action="gs.openCustomer" data-id="${window.escAttr(c.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
+        <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${(c.first||'').charAt(0)}${(c.last||'').charAt(0)}</div>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);flex-shrink:0">${c.id}</span>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(c.first + ' ' + c.last)}</span>
         <span class="vip-badge vip-${c.vip.toLowerCase()}" style="flex-shrink:0">${c.vip}</span>
@@ -281,7 +281,7 @@ export function renderSearchResults() {
   const agentsHtml = sectionHtml('Agents', agents, `
     <div style="display:flex;flex-direction:column;gap:5px">
       ${agents.slice(0, 50).map(a => `<div data-action="gs.openAgent" data-name="${window.escAttr(a.name)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
+        <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
         <span style="flex:1;font-size:12.5px;color:var(--ink);font-weight:500">${window.escHtml(a.name)}</span>
         <span class="tag tag-neutral" style="font-size:10px">${window.escHtml(a.role)}</span>
         <span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:10px">${a.active?'Active':'Off'}</span>

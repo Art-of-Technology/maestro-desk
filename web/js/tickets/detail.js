@@ -162,7 +162,7 @@ export function openTicket(id) {
       }).join('')}
     </div>` : '';
   const csatScore = cust ? TICKETS.filter(x=>x.customerId===cust.id&&x.csat).reduce((a,x)=>a+x.csat,0) / (TICKETS.filter(x=>x.customerId===cust.id&&x.csat).length||1) : 0;
-  const csatColor = csatScore >= 4 ? '#007744' : csatScore >= 3 ? '#0044cc' : '#cc2200';
+  const csatColor = csatScore >= 4 ? 'var(--green)' : csatScore >= 3 ? 'var(--blue)' : 'var(--red)';
   const csatPct = Math.round((csatScore/5)*100);
   const circumference = 2*Math.PI*18;
   const dash = (csatPct/100)*circumference;
@@ -252,7 +252,7 @@ export function openTicket(id) {
   const followerAvatars = followers.map(name => {
     const ag = AGENTS.find(a => a.name === name);
     const initials = ag ? ag.initials : (name.split(/\s+/).map(w => w[0]).join('').slice(0,2).toUpperCase());
-    return `<div title="${window.escAttr(name)}" style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;margin-left:-6px;border:2px solid var(--off)">${initials}</div>`;
+    return `<div title="${window.escAttr(name)}" style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0;margin-left:-6px;border:2px solid var(--off)">${initials}</div>`;
   }).join('');
   const followersBlock = `
     <div class="ts-section">

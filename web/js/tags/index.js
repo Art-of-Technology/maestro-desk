@@ -312,7 +312,7 @@ function renderTagDetail(tagName) {
   const topCustRows = topCustomers.length ? topCustomers.map(({ cust, count }) => {
     const max = topCustomers[0].count;
     return `<div data-action="tags.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
-      <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
+      <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
       <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${(count/max)*100}%"></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:22px;text-align:right">${count}</div>
@@ -348,7 +348,7 @@ function renderTagDetail(tagName) {
       </div>
       <div class="page-scroll">
         <div class="card" style="display:flex;gap:18px;align-items:center;padding:20px;margin-bottom:16px">
-          <div style="width:54px;height:54px;border-radius:var(--r2);background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <div style="width:54px;height:54px;border-radius:var(--r2);background:var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0">
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M3 12L11 4h8v8L11 20l-8-8z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><circle cx="15" cy="9" r="1.5" fill="#fff"/></svg>
           </div>
           <div style="flex:1;min-width:0">
@@ -361,10 +361,10 @@ function renderTagDetail(tagName) {
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-          <div class="r-tile" style="border-color:rgba(139,92,246,0.3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple)">${using.length}</div><div class="r-tile-l" style="color:var(--purple)">Tickets</div></div>
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${customerIds.size}</div><div class="r-tile-l" style="color:var(--cyan)">Customers</div></div>
+          <div class="r-tile" style="border-color:var(--rule3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple)">${using.length}</div><div class="r-tile-l" style="color:var(--purple)">Tickets</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${customerIds.size}</div><div class="r-tile-l" style="color:var(--cyan)">Customers</div></div>
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink);font-size:14px;text-transform:capitalize">${t.type === 'ai' ? 'AI-suggested' : 'Manual'}</div><div class="r-tile-l" style="color:var(--ink3)">Type</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${t.conf ? t.conf + '%' : '—'}</div><div class="r-tile-l" style="color:var(--amber)">Confidence</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${t.conf ? t.conf + '%' : '—'}</div><div class="r-tile-l" style="color:var(--amber)">Confidence</div></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
