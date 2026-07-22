@@ -329,7 +329,13 @@ ${url}
 
 This link expires in 15 minutes. If you didn't request it, you can ignore this email.`;
       // Brand with the workspace's default header/footer (no author signature).
-      const composed = await composeEmail({ workspaceId: ws.id, bodyText: textBody });
+      // The magic link stays verbatim in the text part; the HTML part renders
+      // it as the CTA button.
+      const composed = await composeEmail({
+        workspaceId: ws.id,
+        bodyText: textBody,
+        cta: { label: 'View my tickets', url },
+      });
       await sendEmail({
         to:        email,
         subject:   `Sign in to ${ws.name}`,

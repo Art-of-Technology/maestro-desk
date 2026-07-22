@@ -107,8 +107,13 @@ export async function sendCsatSurvey(args: {
   ].join('\n');
 
   // Wrap with the workspace's default brand header/footer (logo + sign-off).
-  // No author signature — this is a brand/system email.
-  const composed = await composeEmail({ workspaceId, bodyText: textBody });
+  // No author signature — this is a brand/system email. The survey link stays
+  // verbatim in the text part; the HTML part renders it as the CTA button.
+  const composed = await composeEmail({
+    workspaceId,
+    bodyText: textBody,
+    cta: { label: 'Rate your experience', url: surveyUrl },
+  });
 
   try {
     await sendEmail({
