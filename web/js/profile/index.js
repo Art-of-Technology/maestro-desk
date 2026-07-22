@@ -72,7 +72,7 @@ export function renderProfile() {
       <div class="topbar"><div class="tb-title">My profile</div></div>
       <div class="page-scroll">
         <div class="card" style="display:flex;gap:18px;align-items:center;padding:24px">
-          <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:22px;flex-shrink:0">${SESSION.initials}</div>
+          <div style="width:72px;height:72px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:22px;flex-shrink:0">${SESSION.initials}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-.02em;line-height:1.1">${SESSION.name}</div>
             <div style="font-size:13px;color:var(--ink2);margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">

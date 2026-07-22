@@ -224,7 +224,7 @@ function renderAgentDetail(name) {
   const topCustRows = d.topCustomers.length ? d.topCustomers.map(({ cust, count }) => {
     const pct = (count / d.topCustomers[0].count) * 100;
     return `<div data-action="agents.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
-      <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
+      <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
       <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:22px;text-align:right">${count}</div>
@@ -269,7 +269,7 @@ function renderAgentDetail(name) {
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(a.name)}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>

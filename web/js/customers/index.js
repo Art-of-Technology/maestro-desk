@@ -437,7 +437,7 @@ function showMergeCustomerModal(custId) {
   }
   const card = c => `
     <div data-mousedown-action="cust.mergeFromModal" data-source="${window.escAttr(custId)}" data-target="${window.escAttr(c.id)}" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-      <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
+      <div style="width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(c.first + ' ' + c.last)}</div>
         <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(c.id)} · ${window.escHtml(c.email || '')}</div>
@@ -676,7 +676,7 @@ function renderCustomerDetail(custId) {
       </div>
       <div class="page-scroll">
         <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
+          <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">

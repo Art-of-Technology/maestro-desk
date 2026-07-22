@@ -7,7 +7,7 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // logout — all still in app.js. navTo is a direct ES import.
-// refreshNotifBadge, setTheme, setAIKey/setAIModel, setAgentPreferredLang,
+// refreshNotifBadge, setAIKey/setAIModel, setAgentPreferredLang,
 // showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
 // direct ES imports.
@@ -22,7 +22,6 @@
 import { CUSTOMERS, CATEGORIES } from '../core/data.js';
 import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
-import { THEME, setTheme } from '../core/theme.js';
 import { AI_API_KEY, AI_MODEL, setAIKey, setAIModel } from '../ai/client.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
@@ -103,7 +102,7 @@ function settingsProfile() {
     <div class="settings-section">
       <div class="settings-h">Account</div>
       <div style="display:flex;gap:12px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-        <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:14px">${SESSION?.initials||'??'}</div>
+        <div style="width:48px;height:48px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:14px">${SESSION?.initials||'??'}</div>
         <div>
           <div style="font-size:15px;font-weight:600;color:var(--ink)">${SESSION?.name||'—'}</div>
           <div style="font-size:12px;color:var(--ink3)">${SESSION?.role||'—'}</div>
@@ -147,36 +146,8 @@ function updateProfileInitials(v) {
 }
 
 function settingsAppearance() {
-  const isSystem = THEME === 'system';
-  const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const isDark = THEME === 'dark' || (isSystem && sysDark);
-  const fallback = isDark ? 'dark' : 'light';
   const collapsedN = COLLAPSED_SECTIONS.size;
   return `
-    <div class="settings-section">
-      <div class="settings-h">Theme</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Light or dark palette, or follow your operating system.</div>
-      <div class="settings-row">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--ink)">Dark mode</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">Use a darker color palette across the app${isSystem?' — currently controlled by system preference':''}</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" ${isDark?'checked':''} ${isSystem?'disabled':''} data-change-action="settings.toggleDark">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div class="settings-row">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--ink)">Match system preference</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">Automatically switch when your operating system changes themes</div>
-        </div>
-        <label class="toggle">
-          <input type="checkbox" ${isSystem?'checked':''} data-change-action="settings.toggleSystem" data-fallback="${fallback}">
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    </div>
     <div class="settings-section">
       <div class="settings-h">Page chrome</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Click the small caret in the top-right of any KPI bar, filter bar, or tab bar to collapse it. Collapsed sections shrink to a one-line "▸ Show …" pill — click anywhere on the pill to expand again. Choices stick across reloads.</div>
@@ -238,10 +209,10 @@ function settingsWorkspaceBranding() {
       <div class="form-row">
         <label class="form-label">Primary color</label>
         <div style="display:flex;align-items:center;gap:10px">
-          <input class="form-input" id="brand-primary-color" type="text" value="${window.escAttr(color)}" placeholder="#8b5cf6" style="font-family:'DM Mono',monospace;max-width:140px" ${isAdmin ? '' : 'disabled'}/>
-          <input type="color" id="brand-primary-color-picker" value="${color || '#8b5cf6'}" data-input-action="settings.syncBrandColor" ${isAdmin ? '' : 'disabled'} style="width:34px;height:34px;border:1px solid var(--rule);border-radius:4px;padding:0;cursor:pointer;background:none"/>
+          <input class="form-input" id="brand-primary-color" type="text" value="${window.escAttr(color)}" placeholder="#130e30" style="font-family:'DM Mono',monospace;max-width:140px" ${isAdmin ? '' : 'disabled'}/>
+          <input type="color" id="brand-primary-color-picker" value="${color || '#130e30'}" data-input-action="settings.syncBrandColor" ${isAdmin ? '' : 'disabled'} style="width:34px;height:34px;border:1px solid var(--rule);border-radius:4px;padding:0;cursor:pointer;background:none"/>
         </div>
-        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Hex like <code style="font-family:'DM Mono',monospace">#8b5cf6</code>. Used for chips, focus rings, and the AI-draft button. Empty falls back to the default purple.</div>
+        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Hex like <code style="font-family:'DM Mono',monospace">#130e30</code>. Used for chips, focus rings, and the AI-draft button. Empty falls back to the default accent.</div>
       </div>
       <div style="display:flex;gap:8px;margin-top:6px">
         <button class="btn btn-solid btn-sm" data-action="settings.saveBranding" ${isAdmin ? '' : 'disabled'}>Save</button>
@@ -455,7 +426,7 @@ async function saveWorkspaceBranding() {
     return;
   }
   if (color && !/^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(color)) {
-    msg.textContent = 'Color must be a hex like #8b5cf6';
+    msg.textContent = 'Color must be a hex like #130e30';
     msg.style.color = 'var(--red)';
     return;
   }
@@ -1339,8 +1310,6 @@ registerActions({
 });
 
 registerChangeActions({
-  'settings.toggleDark':    (ds, el) => { setTheme(el.checked ? 'dark' : 'light'); renderPage('settings'); },
-  'settings.toggleSystem':  (ds, el) => { setTheme(el.checked ? 'system' : ds.fallback); renderPage('settings'); },
   'settings.toggleNotif':   (ds, el) => toggleNotifPref(ds.key, el.checked),
   'settings.setMentionEmail':(ds, el) => setMentionEmailPref(el.checked),
   'settings.setAiModel':    (ds, el) => setAIModel(el.value),

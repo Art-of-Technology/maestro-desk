@@ -92,7 +92,7 @@ function dashAgentLoad() {
     const pct = (a.open / max) * 100;
     return `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer" data-action="dash.openAgent" data-name="${window.escAttr(a.name)}">
-        <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
+        <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${a.initials}</div>
         <div style="font-size:12px;color:var(--ink2);width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.name}</div>
         <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--purple);height:100%;width:${pct}%"></div></div>
         <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:24px;text-align:right">${a.open}</div>
@@ -150,7 +150,7 @@ function dashToday() {
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
         <div class="r-tile" style="padding:10px;border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan);font-size:20px">${created}</div><div class="r-tile-l" style="color:var(--cyan);font-size:9px">Touched</div></div>
         <div class="r-tile" style="padding:10px;border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green);font-size:20px">${resolved}</div><div class="r-tile-l" style="color:var(--green);font-size:9px">Resolved</div></div>
-        <div class="r-tile" style="padding:10px;border-color:rgba(139,92,246,0.3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple);font-size:20px">${replies}</div><div class="r-tile-l" style="color:var(--purple);font-size:9px">Replies</div></div>
+        <div class="r-tile" style="padding:10px;border-color:var(--rule3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple);font-size:20px">${replies}</div><div class="r-tile-l" style="color:var(--purple);font-size:9px">Replies</div></div>
       </div>
       <div style="margin-top:10px;font-size:11px;color:var(--ink3);line-height:1.5">Activity in the last 24 hours.</div>
     </div>`;
@@ -235,7 +235,7 @@ function dashTopCustomers() {
   const rows = top.map(({ cust, count }) => {
     const pct = (count / max) * 100;
     return `<div data-action="dash.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
-      <div style="width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
+      <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${cust.first[0]}${cust.last[0]}</div>
       <div style="font-size:12px;color:var(--ink2);width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${cust.first} ${cust.last}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:24px;text-align:right">${count}</div>
@@ -269,7 +269,7 @@ function dashPersonal() {
         <span class="link" style="font-size:11px">Profile →</span>
       </div>
       <div style="display:flex;align-items:center;gap:12px">
-        <div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0">${SESSION.initials}</div>
+        <div style="width:38px;height:38px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;flex-shrink:0">${SESSION.initials}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${SESSION.name}</div>
           <div style="font-size:11px;color:var(--ink3)">${SESSION.role}</div>

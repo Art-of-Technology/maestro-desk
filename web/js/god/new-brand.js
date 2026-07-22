@@ -129,7 +129,7 @@ function renderForm() {
           <div class="card-title">Branding (optional)</div>
           <div class="form-row">
             <label class="form-label">Primary colour</label>
-            <input class="form-input" data-input-action="god.nb.primary_color" value="${escAttr(FORM.primary_color)}" placeholder="#0a84ff" ${disabled}/>
+            <input class="form-input" data-input-action="god.nb.primary_color" value="${escAttr(FORM.primary_color)}" placeholder="#130e30" ${disabled}/>
           </div>
           <div class="form-row">
             <label class="form-label">Sender display name</label>

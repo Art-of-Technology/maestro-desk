@@ -228,7 +228,7 @@ function renderPlayerCard(p) {
 
   return `
     <div style="display:flex;gap:14px;align-items:center;padding:4px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-      <div style="width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--purple),#22d3ee);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:15px;flex-shrink:0">${window.escHtml((p.first || p.name || '?').charAt(0))}${window.escHtml((p.last || '').charAt(0))}</div>
+      <div style="width:52px;height:52px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:15px;flex-shrink:0">${window.escHtml((p.first || p.name || '?').charAt(0))}${window.escHtml((p.last || '').charAt(0))}</div>
       <div style="flex:1;min-width:0">
         <div style="font-size:17px;font-weight:600;color:var(--ink)">${window.escHtml(p.name)}</div>
         <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
