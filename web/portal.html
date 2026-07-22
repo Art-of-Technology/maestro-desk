@@ -4,83 +4,103 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Help — loading...</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Hedvig+Letters+Serif:opsz@12..24&display=swap" rel="stylesheet"/>
   <style>
     /* Self-contained styling so the public portal can be deployed
-       independently of the SPA's CSS. Tone-matches the SPA loosely
-       but avoids importing styles/* to keep this file portable. */
+       independently of the SPA's CSS. Ditto design system (see DESIGN.md),
+       tone-matches the SPA but avoids importing styles/* to keep this
+       file portable. Light-only. --accent is the per-workspace brand
+       override target (portal.js boot()); primary CTAs stay fixed yellow. */
     :root {
-      --bg:        #fafafa;
-      --card:      #ffffff;
-      --ink:       #18181b;
-      --ink2:      #52525b;
-      --ink3:      #71717a;
-      --rule:      #e5e7eb;
-      --rule2:     #d4d4d8;
-      --accent:    #8b5cf6;
-      --accent-lt: #ede9fe;
-      --red:       #dc2626;
-      --green:     #16a34a;
-      --radius:    8px;
+      --bg:        #f9fbf2;
+      --card:      #eff2e5;
+      --ink:       #130e30;
+      --ink2:      #413d54;
+      --ink3:      #5f5c6e;
+      --rule:      rgba(19,14,48,0.08);
+      --rule2:     rgba(19,14,48,0.14);
+      --accent:    #130e30;
+      --accent-lt: rgba(19,14,48,0.06);
+      --red:       #c73a2c;
+      --red-lt:    rgba(199,58,44,0.09);
+      --green:     #217a46;
+      --green-lt:  rgba(33,122,70,0.10);
+      --cta:       #ffe228;
+      --cta-ink:   #130e30;
+      --cta-hover: #f2d500;
+      --radius:    24px;
+      --radius-sm: 16px;
+      --pill:      999px;
+      --font-sans:  'Inter', sans-serif;
+      --font-serif: 'Hedvig Letters Serif', Georgia, serif;
+      --font-mono:  'DM Mono', monospace;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; font-size: 14px; line-height: 1.6; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 1.6; }
     main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
-    .brand { font-weight: 600; font-size: 18px; color: var(--ink); }
-    .brand .sub { font-size: 12px; color: var(--ink3); font-weight: 400; margin-top: 2px; }
-    .card { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 20px; }
-    .card h2 { margin: 0 0 4px; font-size: 16px; }
+    .brand { font-family: var(--font-serif); font-weight: 400; font-size: 22px; color: var(--ink); }
+    .brand .sub { font-family: var(--font-sans); font-size: 12px; color: var(--ink3); font-weight: 400; margin-top: 2px; }
+    .card { background: var(--card); border: none; border-radius: var(--radius); padding: 24px 26px; margin-bottom: 20px; }
+    .card h2 { margin: 0 0 4px; font-family: var(--font-serif); font-weight: 400; font-size: 22px; }
     .card .desc { font-size: 13px; color: var(--ink3); margin-bottom: 16px; }
     .row { display: flex; gap: 12px; }
     .row > * { flex: 1; }
     label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; font-weight: 500; }
-    input, textarea, select { width: 100%; padding: 9px 12px; border: 1px solid var(--rule2); border-radius: var(--radius); font: inherit; color: var(--ink); background: #fff; outline: none; }
+    input, select { width: 100%; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--pill); font: inherit; color: var(--ink); background: #fff; outline: none; }
+    textarea { width: 100%; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; color: var(--ink); background: #fff; outline: none; }
     input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-lt); }
     textarea { min-height: 120px; resize: vertical; }
     .form-row { margin-bottom: 14px; }
-    button { padding: 10px 18px; border: 0; border-radius: var(--radius); background: var(--accent); color: #fff; font: inherit; font-weight: 500; cursor: pointer; }
-    button:hover { filter: brightness(.95); }
+    button { padding: 11px 22px; border: 0; border-radius: var(--pill); background: var(--cta); color: var(--cta-ink); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s; }
+    button:hover { background: var(--cta-hover); }
     button:disabled { opacity: .6; cursor: progress; }
     .err { color: var(--red); font-size: 12px; margin-top: 8px; }
-    .ok  { background: #f0fdf4; border: 1px solid var(--green); color: var(--green); padding: 10px 14px; border-radius: var(--radius); margin-top: 12px; font-size: 13px; }
+    .ok  { background: var(--green-lt); color: var(--green); padding: 10px 16px; border-radius: var(--radius-sm); margin-top: 12px; font-size: 13px; }
     .kb-list { display: flex; flex-direction: column; gap: 8px; }
-    .kb-row { display: block; padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--radius); cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
+    .kb-row { display: block; padding: 12px 16px; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
     .kb-row:hover { border-color: var(--accent); }
     .kb-title { font-weight: 500; }
     .kb-meta  { font-size: 11px; color: var(--ink3); margin-top: 2px; }
-    .kb-cat   { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-lt); padding: 2px 8px; border-radius: 4px; margin-right: 6px; }
-    .kb-body-wrap { display: none; padding: 12px 14px; border: 1px solid var(--rule); border-top: none; border-radius: 0 0 var(--radius) var(--radius); white-space: pre-wrap; font-size: 13px; }
-    .kb-row.open + .kb-body-wrap { display: block; }
+    .kb-cat   { display: inline-block; font-size: 11px; color: var(--accent); background: var(--accent-lt); padding: 2px 10px; border-radius: var(--pill); margin-right: 6px; }
+    .kb-body-wrap { display: none; padding: 12px 16px; background: #fff; border-radius: 0 0 var(--radius-sm) var(--radius-sm); white-space: pre-wrap; font-size: 13px; }
+    .kb-row.open { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+    .kb-row.open + .kb-body-wrap { display: block; border-top: 1px solid var(--rule); margin-top: -8px; }
     .empty { color: var(--ink3); font-size: 12px; font-style: italic; padding: 12px 0; }
     .search { margin-bottom: 14px; }
     footer { text-align: center; color: var(--ink3); font-size: 11px; margin-top: 32px; }
-    .ai-panel { margin-top: 12px; padding: 12px 14px; background: var(--accent-lt); border: 1px solid var(--accent); border-radius: var(--radius); display: none; }
+    .ai-panel { margin-top: 12px; padding: 14px 16px; background: var(--accent-lt); border: none; border-radius: var(--radius-sm); display: none; }
     .ai-panel.shown { display: block; }
     .ai-panel-head { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
-    .ai-sugg { display: block; background: #fff; border: 1px solid var(--rule); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 6px; cursor: pointer; text-decoration: none; color: inherit; }
+    .ai-sugg { display: block; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 6px; cursor: pointer; text-decoration: none; color: inherit; transition: border-color .12s; }
     .ai-sugg:hover { border-color: var(--accent); }
     .ai-sugg-title { font-weight: 500; font-size: 13px; }
     .ai-sugg-reason { font-size: 12px; color: var(--ink2); margin-top: 4px; }
-    .ai-sugg-conf { font-size: 10px; color: var(--ink3); font-family: 'DM Mono', monospace; margin-left: 8px; }
+    .ai-sugg-conf { font-size: 10px; color: var(--ink3); font-family: var(--font-mono); margin-left: 8px; }
     .ai-actions { margin-top: 8px; font-size: 12px; color: var(--ink2); }
-    .ai-actions button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; }
+    .ai-actions button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; font-weight: 500; }
+    .ai-actions button:hover { background: var(--accent-lt); }
     .ai-panel.thinking .ai-panel-head::after { content: ' ...'; }
     nav.tabs { display: flex; gap: 6px; margin-bottom: 20px; border-bottom: 1px solid var(--rule); }
     nav.tabs button { background: transparent; color: var(--ink2); border-radius: 0; padding: 10px 14px; border-bottom: 2px solid transparent; font-weight: 500; }
+    nav.tabs button:hover { background: transparent; color: var(--ink); }
     nav.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
     .session-pill { font-size: 12px; color: var(--ink3); display: flex; gap: 10px; align-items: center; }
-    .session-pill button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; }
-    .ticket-row { display: block; padding: 14px 16px; border: 1px solid var(--rule); border-radius: var(--radius); margin-bottom: 8px; cursor: pointer; text-decoration: none; color: inherit; }
+    .session-pill button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; font-weight: 500; }
+    .session-pill button:hover { background: var(--accent-lt); }
+    .ticket-row { display: block; padding: 14px 16px; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); margin-bottom: 8px; cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
     .ticket-row:hover { border-color: var(--accent); }
     .ticket-row-head { display: flex; gap: 10px; align-items: baseline; }
-    .ticket-row-id { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--ink3); }
+    .ticket-row-id { font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }
     .ticket-row-subj { font-weight: 500; }
-    .ticket-row-status { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--accent-lt); color: var(--accent); }
+    .ticket-row-status { font-size: 11px; padding: 2px 10px; border-radius: var(--pill); background: var(--accent-lt); color: var(--accent); }
     .thread { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
-    .msg { padding: 12px 14px; border-radius: var(--radius); }
+    .msg { padding: 12px 16px; border-radius: var(--radius-sm); }
     .msg-customer { background: var(--accent-lt); align-self: flex-end; max-width: 80%; }
-    .msg-agent, .msg-ai { background: #fff; border: 1px solid var(--rule); max-width: 80%; }
-    .msg-head { font-size: 11px; color: var(--ink3); margin-bottom: 4px; font-family: 'DM Mono', monospace; }
+    .msg-agent, .msg-ai { background: #fff; max-width: 80%; }
+    .msg-head { font-size: 11px; color: var(--ink3); margin-bottom: 4px; font-family: var(--font-mono); }
     .msg-body { white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
   </style>
 </head>

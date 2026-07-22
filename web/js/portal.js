@@ -340,9 +340,8 @@
         document.getElementById('csat-content').style.display = 'none';
         document.getElementById('csat-thanks').textContent =
           `This survey link is no longer valid (${err.message}).`;
-        document.getElementById('csat-thanks').style.background = '#fef2f2';
+        document.getElementById('csat-thanks').style.background = 'var(--red-lt)';
         document.getElementById('csat-thanks').style.color = 'var(--red)';
-        document.getElementById('csat-thanks').style.borderColor = 'var(--red)';
         document.getElementById('csat-thanks').style.display = 'block';
       }
     }
