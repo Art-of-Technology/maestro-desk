@@ -362,9 +362,9 @@ function renderTagDetail(tagName) {
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="r-tile" style="border-color:var(--rule3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple)">${using.length}</div><div class="r-tile-l" style="color:var(--purple)">Tickets</div></div>
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${customerIds.size}</div><div class="r-tile-l" style="color:var(--cyan)">Customers</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${customerIds.size}</div><div class="r-tile-l" style="color:var(--cyan)">Customers</div></div>
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink);font-size:14px;text-transform:capitalize">${t.type === 'ai' ? 'AI-suggested' : 'Manual'}</div><div class="r-tile-l" style="color:var(--ink3)">Type</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${t.conf ? t.conf + '%' : '—'}</div><div class="r-tile-l" style="color:var(--amber)">Confidence</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${t.conf ? t.conf + '%' : '—'}</div><div class="r-tile-l" style="color:var(--amber)">Confidence</div></div>
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">

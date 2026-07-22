@@ -281,9 +281,9 @@ function settingsPortalDomain(ws, isAdmin) {
         <div style="margin:14px 0;padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);font-size:12px;line-height:1.6">
           <div style="font-weight:600;color:var(--ink);margin-bottom:8px">DNS verification</div>
           <div style="color:var(--ink2);margin-bottom:10px">Add a TXT record at:</div>
-          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--bg);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;margin-bottom:6px">${window.escHtml(recordName)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--w);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;margin-bottom:6px">${window.escHtml(recordName)}</div>
           <div style="color:var(--ink2);margin-bottom:10px">with the value:</div>
-          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--bg);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;word-break:break-all">${window.escHtml(token)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;background:var(--w);padding:8px 10px;border-radius:3px;border:1px solid var(--rule);user-select:all;word-break:break-all">${window.escHtml(token)}</div>
         </div>
       ` : ''}
       <div style="display:flex;gap:8px;margin-top:6px">

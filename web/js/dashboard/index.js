@@ -64,9 +64,9 @@ function dashSLA(s) {
   const chart = DASH_LAYOUT.charts['sla'] || 'tiles';
   const tilesBody = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px">
-      <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt);padding:10px"><div class="r-tile-n" style="color:var(--green);font-size:20px">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green);font-size:10px">On track</div></div>
-      <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt);padding:10px"><div class="r-tile-n" style="color:var(--amber);font-size:20px">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber);font-size:10px">Warning</div></div>
-      <div class="r-tile" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt);padding:10px"><div class="r-tile-n" style="color:var(--red);font-size:20px">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red);font-size:10px">Breach</div></div>
+      <div class="r-tile" style="border-color:rgba(33,122,70,0.3);background:var(--green-lt);padding:10px"><div class="r-tile-n" style="color:var(--green);font-size:20px">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green);font-size:10px">On track</div></div>
+      <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt);padding:10px"><div class="r-tile-n" style="color:var(--amber);font-size:20px">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber);font-size:10px">Warning</div></div>
+      <div class="r-tile" style="border-color:rgba(199,58,44,0.3);background:var(--red-lt);padding:10px"><div class="r-tile-n" style="color:var(--red);font-size:20px">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red);font-size:10px">Breach</div></div>
     </div>`;
   const barBody = renderCategoricalChart(
     [['on track', s.slaOk], ['warning', s.slaWarn], ['breach', s.slaBreach]],
@@ -148,8 +148,8 @@ function dashToday() {
     <div class="card span-4">
       <div class="card-title">Today</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px">
-        <div class="r-tile" style="padding:10px;border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan);font-size:20px">${created}</div><div class="r-tile-l" style="color:var(--cyan);font-size:9px">Touched</div></div>
-        <div class="r-tile" style="padding:10px;border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green);font-size:20px">${resolved}</div><div class="r-tile-l" style="color:var(--green);font-size:9px">Resolved</div></div>
+        <div class="r-tile" style="padding:10px;border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan);font-size:20px">${created}</div><div class="r-tile-l" style="color:var(--cyan);font-size:9px">Touched</div></div>
+        <div class="r-tile" style="padding:10px;border-color:rgba(33,122,70,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green);font-size:20px">${resolved}</div><div class="r-tile-l" style="color:var(--green);font-size:9px">Resolved</div></div>
         <div class="r-tile" style="padding:10px;border-color:var(--rule3);background:var(--purple-lt)"><div class="r-tile-n" style="color:var(--purple);font-size:20px">${replies}</div><div class="r-tile-l" style="color:var(--purple);font-size:9px">Replies</div></div>
       </div>
       <div style="margin-top:10px;font-size:11px;color:var(--ink3);line-height:1.5">Activity in the last 24 hours.</div>

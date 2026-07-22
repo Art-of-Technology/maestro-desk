@@ -151,7 +151,7 @@ function renderPlayerLookup() {
   } else if (LOOKUP_STATE === 'notfound') {
     result = `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No player found for that ${window.escHtml(KEY_LABELS[LOOKUP_BY].toLowerCase())}</div><div class="empty-line"></div></div>`;
   } else if (LOOKUP_STATE === 'error') {
-    result = `<div class="card" style="border-color:rgba(248,113,113,0.3);background:var(--red-lt)"><div style="color:var(--red);font-size:13px">${window.escHtml(LOOKUP_ERROR)}</div></div>`;
+    result = `<div class="card" style="border-color:rgba(199,58,44,0.3);background:var(--red-lt)"><div style="color:var(--red);font-size:13px">${window.escHtml(LOOKUP_ERROR)}</div></div>`;
   } else if (LOOKUP_STATE === 'done' && PLAYER) {
     result = renderPlayerCard(PLAYER);
   } else {

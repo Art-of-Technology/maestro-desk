@@ -153,9 +153,9 @@ function renderRoleAgentsPage(role) {
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${list.length}</div><div class="r-tile-l" style="color:var(--ink3)">Members</div></div>
-          <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${activeN}</div><div class="r-tile-l" style="color:var(--green)">Active</div></div>
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${avgLoad}</div><div class="r-tile-l" style="color:var(--cyan)">Avg open load</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatScores.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Team CSAT</div></div>
+          <div class="r-tile" style="border-color:rgba(33,122,70,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${activeN}</div><div class="r-tile-l" style="color:var(--green)">Active</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${avgLoad}</div><div class="r-tile-l" style="color:var(--cyan)">Avg open load</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatScores.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Team CSAT</div></div>
         </div>
 
         ${list.length ? `

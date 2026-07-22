@@ -106,7 +106,7 @@
 select.form-input{cursor:pointer}
 textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
 /* ── Cards ── */
-.card{background:var(--off);border:none;border-radius:var(--r-card);padding:16px;transition:background .15s}
+.card{background:var(--off);border:1px solid transparent;border-radius:var(--r-card);padding:16px;transition:background .15s,border-color .15s}
 .card-title{font-family:var(--font-sans);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);margin-bottom:14px}
 /* ── Widget chrome (dashboard + reports) ── */
 .widget{position:relative}

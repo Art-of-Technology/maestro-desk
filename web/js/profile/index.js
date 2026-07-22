@@ -99,9 +99,9 @@ export function renderProfile() {
         })() : ''}
 
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px">
-          <div class="r-tile" style="border-color:rgba(34,211,238,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${open.length}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
-          <div class="r-tile" style="border-color:rgba(52,211,153,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${resolved.length}</div><div class="r-tile-l" style="color:var(--green)">Resolved</div></div>
-          <div class="r-tile" style="border-color:rgba(251,191,36,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatRated.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Avg CSAT (${csatRated.length})</div></div>
+          <div class="r-tile" style="border-color:rgba(11,114,133,0.3);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${open.length}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
+          <div class="r-tile" style="border-color:rgba(33,122,70,0.3);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${resolved.length}</div><div class="r-tile-l" style="color:var(--green)">Resolved</div></div>
+          <div class="r-tile" style="border-color:rgba(154,107,10,0.3);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${csatRated.length?avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">Avg CSAT (${csatRated.length})</div></div>
           <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${myTickets.length}</div><div class="r-tile-l" style="color:var(--ink3)">Total assigned</div></div>
         </div>
 

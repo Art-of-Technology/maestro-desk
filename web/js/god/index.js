@@ -189,7 +189,7 @@ function renderDetail() {
         <div><div class="label">Display name</div><div>${escAttr(brand.support_email_display_name || '— (falls back to brand name)')}</div></div>
         <div><div class="label">Primary colour</div><div>
           ${brand.primary_color
-            ? `<span style="display:inline-block;width:14px;height:14px;background:${escAttr(brand.primary_color)};vertical-align:middle;border-radius:3px;border:1px solid var(--line)"></span>
+            ? `<span style="display:inline-block;width:14px;height:14px;background:${escAttr(brand.primary_color)};vertical-align:middle;border-radius:3px;border:1px solid var(--rule)"></span>
                <code style="margin-left:6px">${escAttr(brand.primary_color)}</code>`
             : '— (uses Maestro default)'}
         </div></div>
