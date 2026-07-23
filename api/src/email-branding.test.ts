@@ -185,6 +185,23 @@ runDbTests('email branding (DB-backed)', () => {
     expect(composed.html!).not.toContain('text-decoration:underline');
   });
 
+  it('a CTA url containing $-sequences is not mangled by replace expansion', async () => {
+    // String.prototype.replace $-expands replacement STRINGS ($&, $$, $');
+    // composeEmail must use a replacer function so the button href survives.
+    const url = `https://portal.test/p?a=$$&b=$&x=1&token=t${RUN}`;
+    const composed = await composeEmail({
+      workspaceId: ctx.wsB,
+      bodyText: `Sign in:\n\n${url}\n\nThanks`,
+      cta: { label: 'View my tickets', url },
+    });
+    expect(composed.html).not.toBeNull();
+    // The href carries the exact (attribute-escaped) URL — $$ not collapsed,
+    // $& not expanded into the matched anchor.
+    expect(composed.html!).toContain(`href="${'https://portal.test/p?a=$$&amp;b=$&amp;x=1&amp;token=t' + RUN}"`);
+    const anchors = composed.html!.match(/<a /g) ?? [];
+    expect(anchors).toHaveLength(1);
+  });
+
   it('a CTA label is escaped and the button renders inside a branded shell', async () => {
     const url = 'https://portal.test/x';
     const composed = await composeEmail({

@@ -147,8 +147,10 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
     // anchor string must mirror textToHtml's output byte-for-byte.
     const escapedUrl = escapeHtml(cta.url);
     const linkedAnchor = `<a href="${escapedUrl}" style="color:#130e30;text-decoration:underline">${escapedUrl}</a>`;
+    // Replacer FUNCTION, not string: replacement strings $-expand ($&, $'…),
+    // and URLs may legally contain $ — a string here mangles the button href.
     bodyHtml = bodyHtml.includes(linkedAnchor)
-      ? bodyHtml.replace(linkedAnchor, ctaButton)
+      ? bodyHtml.replace(linkedAnchor, () => ctaButton)
       // Defensive: URL missing from bodyText (caller contract breach) — still
       // render the button after the body rather than dropping the CTA.
       : `${bodyHtml}<br><br>${ctaButton}`;
