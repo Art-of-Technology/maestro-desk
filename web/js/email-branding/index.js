@@ -89,9 +89,10 @@ function ebTemplateRow(t, isAdmin) {
 
 function ebPreview(tpl) {
   // Mirrors composeEmail's Ditto shell in api/src/lib/email-branding.ts —
-  // keep the two in sync or this preview lies: cream canvas, white 24px card,
-  // meadow header band with the serif header, solid #e7e5ec divider, muted
-  // grey footer.
+  // keep the two in sync or this preview lies: cream canvas, white card
+  // (16px here vs the email's 24px — the preview is a scaled-down 480px
+  // rendition), meadow header band with the serif header, solid #e7e5ec
+  // divider, muted grey footer.
   const esc = window.escHtml;
   const logo = (tpl?.show_logo !== false && EB_LOGO_URL)
     ? `<img src="${window.escAttr(EB_LOGO_URL)}" alt="" style="max-height:40px;max-width:180px;display:block" onerror="this.style.display='none'"/>`

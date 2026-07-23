@@ -143,10 +143,9 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
     const ctaButton =
       `<a href="${escapeAttr(cta.url)}" style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:13px 30px;font-weight:600;text-decoration:none">${escapeHtml(cta.label)}</a>`;
     // Swap the auto-linkified anchor for this exact URL with the pill button,
-    // so the HTML shows one styled CTA where the caller placed the link. The
-    // anchor string must mirror textToHtml's output byte-for-byte.
-    const escapedUrl = escapeHtml(cta.url);
-    const linkedAnchor = `<a href="${escapedUrl}" style="color:#130e30;text-decoration:underline">${escapedUrl}</a>`;
+    // so the HTML shows one styled CTA where the caller placed the link.
+    // Built by the same linkAnchor() textToHtml uses, so the two can't drift.
+    const linkedAnchor = linkAnchor(escapeHtml(cta.url), BODY_LINK_COLOR);
     // Replacer FUNCTION, not string: replacement strings $-expand ($&, $'…),
     // and URLs may legally contain $ — a string here mangles the button href.
     bodyHtml = bodyHtml.includes(linkedAnchor)
@@ -209,19 +208,35 @@ function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
 
+// The two link colors the shell uses — body links are ink (Ditto), footer
+// links take the footer's muted grey. A closed union rather than an open
+// string: linkColor is interpolated into a style attribute, so arbitrary
+// values have no business here.
+const BODY_LINK_COLOR = '#130e30';
+const FOOTER_LINK_COLOR = '#5f5c6e';
+type LinkColor = typeof BODY_LINK_COLOR | typeof FOOTER_LINK_COLOR;
+
+// Single source of truth for the anchor markup textToHtml emits — the CTA
+// swap in composeEmail rebuilds the anchor with this same function, so the
+// match can never drift from the linkified output. `escapedHref` must
+// already be HTML-escaped (it doubles as the visible text).
+function linkAnchor(escapedHref: string, linkColor: LinkColor): string {
+  return `<a href="${escapedHref}" style="color:${linkColor};text-decoration:underline">${escapedHref}</a>`;
+}
+
 // Turn admin/agent-authored plain text into safe HTML: escape everything,
 // linkify bare http(s) URLs (so "click this link" emails work in HTML), then
 // convert newlines to <br>. Operating on already-escaped text means the
 // injected <a> tags are the only markup that survives. Links are ink by
 // default (Ditto); the footer passes its muted grey so links match its text.
-export function textToHtml(text: string, linkColor = '#130e30'): string {
+export function textToHtml(text: string, linkColor: LinkColor = BODY_LINK_COLOR): string {
   const escaped = escapeHtml(text);
   const linked = escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
     // Trailing punctuation shouldn't be swallowed into the href.
     const m = url.match(/^(.*?)([.,;:!?)]*)$/);
     const href = m ? m[1] : url;
     const tail = m ? m[2] : '';
-    return `<a href="${href}" style="color:${linkColor};text-decoration:underline">${href}</a>${tail}`;
+    return `${linkAnchor(href, linkColor)}${tail}`;
   });
   return linked.replace(/\r?\n/g, '<br>');
 }
