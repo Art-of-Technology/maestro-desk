@@ -291,11 +291,40 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   }
 
   // Build the link the customer will click. Precedence:
-  //   1. Client-passed return_to (the portal posting from its own host)
+  //   1. Client-passed return_to (the portal posting from its own host) —
+  //      accepted ONLY when it points at a portal we know (see below)
   //   2. PORTAL_BASE_URL env var (production-configured portal)
   //   3. API request origin + /portal.html (dev fallback)
   // The magic token rides in the query string regardless.
-  const portalBase = parsed.data.return_to
+  //
+  // return_to is unauthenticated client input and the link carries a live
+  // auth token, so an arbitrary base would let an attacker who requests a
+  // link for a victim's email aim that token at their own host. Allowed
+  // origins: PORTAL_BASE_URL's origin, the workspace's verified custom
+  // portal domain (https), or localhost in local dev. Anything else is
+  // ignored and the canonical portal base is used instead.
+  const safeReturnTo = await (async (raw?: string): Promise<string | null> => {
+    if (!raw) return null;
+    let u: URL;
+    try { u = new URL(raw); } catch { return null; }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    if (env.PORTAL_BASE_URL) {
+      try {
+        if (u.origin === new URL(env.PORTAL_BASE_URL).origin) return u.href;
+      } catch { /* malformed env value — fall through to the other checks */ }
+    }
+    if (u.protocol === 'https:') {
+      const [domain] = await sql<{ portal_custom_domain: string | null }[]>`
+        select portal_custom_domain from workspaces
+        where id = ${ws.id} and portal_custom_domain_verified = true and deleted_at is null
+      `;
+      if (domain?.portal_custom_domain && u.hostname === domain.portal_custom_domain) return u.href;
+    }
+    if (isLocalDev && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) return u.href;
+    return null;
+  })(parsed.data.return_to);
+
+  const portalBase = safeReturnTo
     || (env.PORTAL_BASE_URL ? `${env.PORTAL_BASE_URL}?ws=${ws.slug}` : null)
     || `${new URL(c.req.url).origin.replace(/\/$/, '')}/portal.html?ws=${ws.slug}`;
   const base = portalBase;
@@ -329,7 +358,13 @@ ${url}
 
 This link expires in 15 minutes. If you didn't request it, you can ignore this email.`;
       // Brand with the workspace's default header/footer (no author signature).
-      const composed = await composeEmail({ workspaceId: ws.id, bodyText: textBody });
+      // The magic link stays verbatim in the text part; the HTML part renders
+      // it as the CTA button.
+      const composed = await composeEmail({
+        workspaceId: ws.id,
+        bodyText: textBody,
+        cta: { label: 'View my tickets', url },
+      });
       await sendEmail({
         to:        email,
         subject:   `Sign in to ${ws.name}`,

@@ -41,6 +41,12 @@ export interface ComposeArgs {
   // The core message, plain text — exactly what the caller would have passed
   // as textBody before branding existed.
   bodyText: string;
+  // Optional call-to-action. The URL must also appear in bodyText — it stays
+  // there verbatim for the plain-text part; in the HTML part its
+  // auto-linkified anchor is swapped for a branded pill button labeled
+  // `label`. When set, HTML is emitted even for a template-less workspace
+  // (the only relaxation of the null-html gate) so the button still renders.
+  cta?: { label: string; url: string } | null;
 }
 
 export interface ComposedEmail {
@@ -78,7 +84,7 @@ export async function getDefaultSignature(workspaceId: string, userId: string): 
 // ─── Composition ─────────────────────────────────────────────────────────────
 
 export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
-  const { workspaceId, authorUserId, bodyText } = args;
+  const { workspaceId, authorUserId, bodyText, cta } = args;
   const sql = getDb();
 
   const [[ws], template, signature] = await Promise.all([
@@ -99,7 +105,9 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   const sigText    = signature?.body_text?.trim() || null;
 
   // Nothing to add → keep the plain-text path identical to pre-branding sends.
-  if (!logoUrl && !headerText && !footerText && !sigText
+  // A CTA is the one exception: the button only exists in HTML, so a
+  // template-less workspace still gets the branded shell when one is set.
+  if (!cta && !logoUrl && !headerText && !footerText && !sigText
       && !template?.header_html && !template?.footer_html && !signature?.body_html) {
     return { text: bodyText, html: null };
   }
@@ -122,36 +130,58 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   const text = textParts.join('\n\n');
 
   // ── HTML assembly ──
+  // Ditto design system (DESIGN.md), constrained to email-client reality:
+  // solid dividers (#e7e5ec) instead of rgba (Outlook mangles alpha), Georgia
+  // as the serif stand-in for Hedvig (no webfonts in email), and the yellow
+  // CTA as an inline-styled pill anchor (Outlook renders it square — accepted).
   const headerHtml = template?.header_html?.trim() || (headerText ? textToHtml(headerText) : '');
-  const footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText) : '');
+  const footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText, '#5f5c6e') : '');
   const sigHtml    = signature?.body_html?.trim()  || (sigText ? textToHtml(sigText) : '');
-  const bodyHtml   = textToHtml(bodyText);
+  let bodyHtml     = textToHtml(bodyText);
+
+  if (cta) {
+    const ctaButton =
+      `<a href="${escapeAttr(cta.url)}" style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:13px 30px;font-weight:600;text-decoration:none">${escapeHtml(cta.label)}</a>`;
+    // Swap the auto-linkified anchor for this exact URL with the pill button,
+    // so the HTML shows one styled CTA where the caller placed the link.
+    // Built by the same linkAnchor() textToHtml uses, so the two can't drift.
+    const linkedAnchor = linkAnchor(escapeHtml(cta.url), BODY_LINK_COLOR);
+    // Replacer FUNCTION, not string: replacement strings $-expand ($&, $'…),
+    // and URLs may legally contain $ — a string here mangles the button href.
+    bodyHtml = bodyHtml.includes(linkedAnchor)
+      ? bodyHtml.replace(linkedAnchor, () => ctaButton)
+      // Defensive: URL missing from bodyText (caller contract breach) — still
+      // render the button after the body rather than dropping the CTA.
+      : `${bodyHtml}<br><br>${ctaButton}`;
+  }
 
   const logoBlock = logoUrl
     ? `<img src="${escapeAttr(logoUrl)}" alt="${escapeAttr(ws?.name ?? '')}" style="max-height:48px;max-width:220px;height:auto;border:0;display:block" />`
     : '';
 
+  // Header band: meadow surface with the brand header set in the serif at
+  // 22px — the email counterpart of the app's serif page headings.
   const headerBlock = (logoBlock || headerHtml)
-    ? `<tr><td style="padding:24px 28px 8px">${logoBlock}${headerHtml ? `<div style="margin-top:${logoBlock ? '12px' : '0'}">${headerHtml}</div>` : ''}</td></tr>`
+    ? `<tr><td style="padding:24px 32px;background:#eff2e5">${logoBlock}${headerHtml ? `<div style="margin-top:${logoBlock ? '12px' : '0'};font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#130e30">${headerHtml}</div>` : ''}</td></tr>`
     : '';
 
   const sigBlock = sigHtml
-    ? `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ececf1;color:#555">${sigHtml}</div>`
+    ? `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e7e5ec;color:#413d54">${sigHtml}</div>`
     : '';
 
   const footerBlock = footerHtml
-    ? `<tr><td style="padding:16px 28px 24px;border-top:1px solid #ececf1;color:#8a8a93;font-size:12px;line-height:1.5">${footerHtml}</td></tr>`
+    ? `<tr><td style="padding:16px 32px 24px;border-top:1px solid #e7e5ec;color:#5f5c6e;font-size:12px;line-height:1.5">${footerHtml}</td></tr>`
     : '';
 
   const html = `<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f4f4f7;-webkit-text-size-adjust:100%">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f7;padding:24px 0">
+<body style="margin:0;padding:0;background:#f9fbf2;-webkit-text-size-adjust:100%">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fbf2;padding:24px 0">
     <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:10px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:24px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
         ${headerBlock}
-        <tr><td style="padding:8px 28px 16px;color:#1a1a22;font-size:14px;line-height:1.6">${bodyHtml}${sigBlock}</td></tr>
+        <tr><td style="padding:${headerBlock ? '24px' : '32px'} 32px 24px;color:#130e30;font-size:15px;line-height:1.6">${bodyHtml}${sigBlock}</td></tr>
         ${footerBlock}
       </table>
     </td></tr>
@@ -178,18 +208,35 @@ function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
 
+// The two link colors the shell uses — body links are ink (Ditto), footer
+// links take the footer's muted grey. A closed union rather than an open
+// string: linkColor is interpolated into a style attribute, so arbitrary
+// values have no business here.
+const BODY_LINK_COLOR = '#130e30';
+const FOOTER_LINK_COLOR = '#5f5c6e';
+type LinkColor = typeof BODY_LINK_COLOR | typeof FOOTER_LINK_COLOR;
+
+// Single source of truth for the anchor markup textToHtml emits — the CTA
+// swap in composeEmail rebuilds the anchor with this same function, so the
+// match can never drift from the linkified output. `escapedHref` must
+// already be HTML-escaped (it doubles as the visible text).
+function linkAnchor(escapedHref: string, linkColor: LinkColor): string {
+  return `<a href="${escapedHref}" style="color:${linkColor};text-decoration:underline">${escapedHref}</a>`;
+}
+
 // Turn admin/agent-authored plain text into safe HTML: escape everything,
 // linkify bare http(s) URLs (so "click this link" emails work in HTML), then
 // convert newlines to <br>. Operating on already-escaped text means the
-// injected <a> tags are the only markup that survives.
-export function textToHtml(text: string): string {
+// injected <a> tags are the only markup that survives. Links are ink by
+// default (Ditto); the footer passes its muted grey so links match its text.
+export function textToHtml(text: string, linkColor: LinkColor = BODY_LINK_COLOR): string {
   const escaped = escapeHtml(text);
   const linked = escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
     // Trailing punctuation shouldn't be swallowed into the href.
     const m = url.match(/^(.*?)([.,;:!?)]*)$/);
     const href = m ? m[1] : url;
     const tail = m ? m[2] : '';
-    return `<a href="${href}" style="color:#5b5bd6;text-decoration:underline">${href}</a>${tail}`;
+    return `${linkAnchor(href, linkColor)}${tail}`;
   });
   return linked.replace(/\r?\n/g, '<br>');
 }

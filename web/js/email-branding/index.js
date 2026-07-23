@@ -88,24 +88,32 @@ function ebTemplateRow(t, isAdmin) {
 }
 
 function ebPreview(tpl) {
+  // Mirrors composeEmail's Ditto shell in api/src/lib/email-branding.ts —
+  // keep the two in sync or this preview lies: cream canvas, white card
+  // (16px here vs the email's 24px — the preview is a scaled-down 480px
+  // rendition), meadow header band with the serif header, solid #e7e5ec
+  // divider, muted grey footer.
   const esc = window.escHtml;
   const logo = (tpl?.show_logo !== false && EB_LOGO_URL)
-    ? `<img src="${window.escAttr(EB_LOGO_URL)}" alt="" style="max-height:40px;max-width:180px;display:block;margin-bottom:10px" onerror="this.style.display='none'"/>`
+    ? `<img src="${window.escAttr(EB_LOGO_URL)}" alt="" style="max-height:40px;max-width:180px;display:block" onerror="this.style.display='none'"/>`
     : '';
-  const header = tpl?.header_text ? `<div style="margin-bottom:10px;color:#1a1a22">${esc(tpl.header_text).replace(/\n/g, '<br>')}</div>` : '';
-  const footer = tpl?.footer_text ? `<div style="margin-top:16px;padding-top:10px;border-top:1px solid #ececf1;color:#8a8a93;font-size:11px">${esc(tpl.footer_text).replace(/\n/g, '<br>')}</div>` : '';
+  const header = tpl?.header_text ? `<div style="margin-top:${logo ? '10px' : '0'};font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.3;color:#130e30">${esc(tpl.header_text).replace(/\n/g, '<br>')}</div>` : '';
+  const headerBand = (logo || header)
+    ? `<div style="background:#eff2e5;padding:16px 20px">${logo}${header}</div>`
+    : '';
+  const footer = tpl?.footer_text ? `<div style="padding:12px 20px 16px;border-top:1px solid #e7e5ec;color:#5f5c6e;font-size:11px">${esc(tpl.footer_text).replace(/\n/g, '<br>')}</div>` : '';
   return `
     <div class="settings-section">
       <div class="settings-h">Preview</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">How the ${tpl ? 'default' : 'currently-unbranded'} email wraps a sample message.</div>
-      <div style="background:#f4f4f7;border-radius:8px;padding:18px">
-        <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:8px;padding:20px;font:13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1a1a22">
-          ${logo}${header}
-          <div style="color:#1a1a22">Hi there,<br><br>Thanks for getting in touch — here's a sample of the message body your customers will read.</div>
+      <div style="background:#f9fbf2;border-radius:var(--r2);padding:18px">
+        <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;font:13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#130e30">
+          ${headerBand}
+          <div style="padding:16px 20px;color:#130e30">Hi there,<br><br>Thanks for getting in touch — here's a sample of the message body your customers will read.<br><br><span style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:9px 22px;font-weight:600">Sample action</span></div>
           ${footer}
         </div>
       </div>
-      ${!tpl ? `<div style="font-size:11px;color:var(--ink3);margin-top:8px;font-family:'DM Mono',monospace">No default template set — emails currently send as plain text.</div>` : ''}
+      ${!tpl ? `<div style="font-size:11px;color:var(--ink3);margin-top:8px;font-family:'DM Mono',monospace">No default template set — emails send as plain text unless they carry an action button.</div>` : ''}
     </div>`;
 }
 

@@ -24,6 +24,11 @@ describe('email-branding text/HTML helpers', () => {
     expect(html).toContain('</a>.');
   });
 
+  it('links are ink by default and take a caller-supplied color (footer)', () => {
+    expect(textToHtml('https://acme.com')).toContain('color:#130e30');
+    expect(textToHtml('https://acme.com', '#5f5c6e')).toContain('color:#5f5c6e');
+  });
+
   it('injects no markup from user content beyond the anchors it adds', () => {
     const html = textToHtml('<script>alert(1)</script>');
     expect(html).not.toContain('<script>');
@@ -157,5 +162,58 @@ runDbTests('email branding (DB-backed)', () => {
     const composed = await composeEmail({ workspaceId: ctx.wsB, bodyText: 'Plain only' });
     expect(composed.html).toBeNull();
     expect(composed.text).toBe('Plain only');
+  });
+
+  it('a CTA forces HTML even for a template-less workspace and swaps the link for the button', async () => {
+    const url = `https://portal.test/p?ws=b&token=tok-${RUN}`;
+    const composed = await composeEmail({
+      workspaceId: ctx.wsB,
+      bodyText: `Hi,\n\nSign in below:\n\n${url}\n\nThanks`,
+      cta: { label: 'View my tickets', url },
+    });
+    // Null-html gate is relaxed only for the CTA case.
+    expect(composed.html).not.toBeNull();
+    // The raw URL stays verbatim in the text part.
+    expect(composed.text).toContain(url);
+    // The HTML shows exactly one anchor for the URL: the pill button, not the
+    // auto-linkified underline anchor.
+    const anchors = composed.html!.match(/<a /g) ?? [];
+    expect(anchors).toHaveLength(1);
+    expect(composed.html!).toContain('background:#ffe228');
+    expect(composed.html!).toContain('border-radius:999px');
+    expect(composed.html!).toContain('>View my tickets</a>');
+    expect(composed.html!).not.toContain('text-decoration:underline');
+  });
+
+  it('a CTA url containing $-sequences is not mangled by replace expansion', async () => {
+    // String.prototype.replace $-expands replacement STRINGS ($&, $$, $');
+    // composeEmail must use a replacer function so the button href survives.
+    const url = `https://portal.test/p?a=$$&b=$&x=1&token=t${RUN}`;
+    const composed = await composeEmail({
+      workspaceId: ctx.wsB,
+      bodyText: `Sign in:\n\n${url}\n\nThanks`,
+      cta: { label: 'View my tickets', url },
+    });
+    expect(composed.html).not.toBeNull();
+    // The href carries the exact (attribute-escaped) URL — $$ not collapsed,
+    // $& not expanded into the matched anchor.
+    expect(composed.html!).toContain(`href="${'https://portal.test/p?a=$$&amp;b=$&amp;x=1&amp;token=t' + RUN}"`);
+    const anchors = composed.html!.match(/<a /g) ?? [];
+    expect(anchors).toHaveLength(1);
+  });
+
+  it('a CTA label is escaped and the button renders inside a branded shell', async () => {
+    const url = 'https://portal.test/x';
+    const composed = await composeEmail({
+      workspaceId: ctx.wsA,
+      bodyText: `Click: ${url}`,
+      cta: { label: '<Rate> & "review"', url },
+    });
+    expect(composed.html).not.toBeNull();
+    expect(composed.html!).toContain('&lt;Rate&gt; &amp; &quot;review&quot;');
+    expect(composed.html!).not.toContain('<Rate>');
+    // Ditto shell markers: cream canvas, 24px card, meadow header band.
+    expect(composed.html!).toContain('background:#f9fbf2');
+    expect(composed.html!).toContain('border-radius:24px');
   });
 });
