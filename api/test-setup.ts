@@ -37,6 +37,14 @@ process.env.VAPID_SUBJECT     ||= 'mailto:test@maestro.test';
 // an order that changed under CI when new test files landed. Same parse-once
 // reason as everything above.
 process.env.MAESTRO_API_TOKEN ||= 'mh_live_test_token_placeholder';
+// Alerting must read as UNconfigured in tests: send-branded-email.test.ts
+// exercises paths that call sendOpsAlert, and a dev machine with real
+// ALERT_EMAIL_TO / SLACK_ALERT_WEBHOOK_URL exported would race alert emails
+// into the tests' Postmark fetch stubs (flaking call-count assertions) or
+// POST to a real Slack webhook from a unit test. Hard assignment, not ||= —
+// real values must NOT win here.
+process.env.ALERT_EMAIL_TO = '';
+process.env.SLACK_ALERT_WEBHOOK_URL = '';
 // cors.test.ts pins APP_BASE_URL to a prod-like origin to tell allow from deny.
 // It mock.module's env.js to do so, but mock.module is global and index.js gets
 // module-cached, so whether that mock "wins" depends on which file loads

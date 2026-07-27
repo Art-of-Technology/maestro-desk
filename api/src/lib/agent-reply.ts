@@ -12,12 +12,11 @@
 
 import { env } from './env.js';
 import {
-  sendEmail,
   isPostmarkConfigured,
   PostmarkSendError,
   replySubject,
 } from './postmark-outbound.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
 
@@ -71,23 +70,19 @@ export async function sendAgentReplyEmail(args: {
     limit 1
   `;
 
-  // Brand-owned verified domain wins; else the platform-default sender.
-  const workspaceFrom = await getOutboundFrom(workspaceId);
-  const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
-  const fromName  = workspaceFrom?.fromName  || ctx.ws_name || 'Support';
-  if (!fromEmail) return { emailed: false, reason: 'no_from' };
-
   // Header/footer + the sending agent's signature (authorUserId).
   const composed = await composeEmail({ workspaceId, authorUserId, bodyText: body });
 
   try {
-    const result = await sendEmail({
+    // Branded From (verified domain) with platform fallback + rejection
+    // safety net — see send-branded-email.ts.
+    const result = await sendBrandedEmail({
+      workspaceId,
+      fallbackFromName: ctx.ws_name || 'Support',
       to: ctx.email,
       subject: replySubject(ctx.subject),
       textBody: composed.text,
       htmlBody: composed.html,
-      fromEmail,
-      fromName,
       inReplyTo: lastMsg?.external_message_id ?? null,
       // Route the customer's reply back through the inbound webhook so it
       // attaches to this ticket rather than landing in the From mailbox.

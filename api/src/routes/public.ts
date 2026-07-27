@@ -7,8 +7,8 @@ import { nextDisplayId } from '../lib/display-id.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
-import { sendEmail, PostmarkSendError } from '../lib/postmark-outbound.js';
-import { getOutboundFrom } from '../lib/outbound-from.js';
+import { PostmarkSendError } from '../lib/postmark-outbound.js';
+import { sendBrandedEmail } from '../lib/send-branded-email.js';
 import { composeEmail } from '../lib/email-branding.js';
 import { verifyUnsubscribeToken } from '../lib/unsubscribe.js';
 import { env, isLocalDev } from '../lib/env.js';
@@ -344,36 +344,35 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
     console.log(`[portal-auth] magic link issued for customer ${customer.id} (ws ${ws.slug})`);
   }
 
-  // Best-effort email send. If POSTMARK_SERVER_TOKEN isn't set OR the
-  // workspace has no verified domain, the call throws — we log + swallow
-  // so the customer-facing response stays consistent.
+  // Best-effort email send — log + swallow failures so the customer-facing
+  // response stays consistent. From identity: brand-owned verified domain
+  // with platform fallback + rejection safety net (send-branded-email.ts) —
+  // previously this send was SKIPPED entirely for workspaces without a
+  // verified domain, which silently disabled portal sign-in email.
   try {
-    const from = await getOutboundFrom(ws.id);
-    if (from) {
-      const textBody = `Hi${customer.first_name ? ' ' + customer.first_name : ''},
+    const textBody = `Hi${customer.first_name ? ' ' + customer.first_name : ''},
 
 You requested a sign-in link for ${ws.name}. Click below to view your tickets:
 
 ${url}
 
 This link expires in 15 minutes. If you didn't request it, you can ignore this email.`;
-      // Brand with the workspace's default header/footer (no author signature).
-      // The magic link stays verbatim in the text part; the HTML part renders
-      // it as the CTA button.
-      const composed = await composeEmail({
-        workspaceId: ws.id,
-        bodyText: textBody,
-        cta: { label: 'View my tickets', url },
-      });
-      await sendEmail({
-        to:        email,
-        subject:   `Sign in to ${ws.name}`,
-        textBody:  composed.text,
-        htmlBody:  composed.html,
-        fromEmail: from.fromEmail,
-        fromName:  from.fromName,
-      });
-    }
+    // Brand with the workspace's default header/footer (no author signature).
+    // The magic link stays verbatim in the text part; the HTML part renders
+    // it as the CTA button.
+    const composed = await composeEmail({
+      workspaceId: ws.id,
+      bodyText: textBody,
+      cta: { label: 'View my tickets', url },
+    });
+    await sendBrandedEmail({
+      workspaceId: ws.id,
+      fallbackFromName: ws.name,
+      to:       email,
+      subject:  `Sign in to ${ws.name}`,
+      textBody: composed.text,
+      htmlBody: composed.html,
+    });
   } catch (err) {
     if (err instanceof PostmarkSendError) {
       console.warn('[portal-auth] postmark send failed:', err.message);

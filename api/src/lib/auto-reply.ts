@@ -6,11 +6,11 @@ import { getDb } from './db.js';
 // postmark-outbound is external HTTP.
 import {
   isPostmarkConfigured,
+  PostmarkNotConfiguredError,
   PostmarkSendError,
   replySubject,
-  sendEmail,
 } from './postmark-outbound.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────
@@ -170,19 +170,10 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
     return { posted: false, reason: 'customer_email_missing' };
   }
 
-  // 4a. Resolve per-workspace From identity. Brand-owned verified domain
-  //     wins; fall back to the platform-default env-var sender for
-  //     workspaces without a verified domain (e.g. the demo workspace).
-  //     If neither resolves, we have nothing to send from — skip.
-  const workspaceFrom = await getOutboundFrom(workspaceId);
-  const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
-  const fromName = workspaceFrom?.fromName || workspaceName;
-  if (!fromEmail) {
-    return { posted: false, reason: 'postmark_not_configured' };
-  }
-
-  // 4b. Send via Postmark. On failure, leave the draft and return — don't
-  //     create the event row, so a manual re-triage from the UI can retry.
+  // 4. Send via Postmark. From identity: brand-owned verified domain with
+  //    platform fallback + rejection safety net (send-branded-email.ts). On
+  //    failure, leave the draft and return — don't create the event row, so
+  //    a manual re-triage from the UI can retry.
   // Brand the AI reply with the workspace's default header/footer. No author
   // signature — the auto-reply is sent as the brand, not a named agent.
   const composed = await composeEmail({ workspaceId, bodyText: draftReply });
@@ -190,13 +181,13 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   let postmarkMessageId: string;
   let rfcMessageId: string;
   try {
-    const result = await sendEmail({
+    const result = await sendBrandedEmail({
+      workspaceId,
+      fallbackFromName: workspaceName,
       to: sendContext.customerEmail,
       subject: replySubject(sendContext.subject),
       textBody: composed.text,
       htmlBody: composed.html,
-      fromEmail,
-      fromName,
       inReplyTo: sendContext.lastCustomerMessageId,
       // Route customer replies back through the inbound webhook so they
       // attach to this ticket rather than landing in the From mailbox.
@@ -206,6 +197,9 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
     postmarkMessageId = result.messageId;
     rfcMessageId = result.rfcMessageId;
   } catch (err) {
+    if (err instanceof PostmarkNotConfiguredError) {
+      return { posted: false, reason: 'postmark_not_configured' };
+    }
     const detail = err instanceof PostmarkSendError
       ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
       : err instanceof Error ? err.message : String(err);
