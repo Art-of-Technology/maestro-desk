@@ -64,13 +64,29 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
     const result = await sendEmail({ ...mail, fromEmail, fromName });
     return { ...result, fromEmail, usedFallbackFrom: false };
   } catch (err) {
-    if (!isSenderSignatureError(err) || !platformFrom || fromEmail === platformFrom) throw err;
+    if (!isSenderSignatureError(err)) throw err;
 
-    // Branded From rejected. Alert (fire-and-forget — sendOpsAlert never
-    // throws and shouldn't delay the retry), then resend from the platform
-    // sender. Detail carries infra identifiers only, no recipient PII.
+    // Alerts below are awaited: sendOpsAlert never throws and is
+    // timeout-bounded, and on serverless a fire-and-forget promise can be
+    // frozen after the dedup claim lands — claiming the signature while
+    // never delivering the alert, which suppresses it for the cooldown
+    // window. Detail carries infra identifiers only, no recipient PII.
+
+    if (!platformFrom || fromEmail === platformFrom) {
+      // The PLATFORM sender itself was rejected — there is nothing to fall
+      // back to and every outbound email is failing. Alert, then propagate.
+      await sendOpsAlert({
+        signature: `platform-sender-rejected:${fromEmail}`,
+        severity: 'critical',
+        title: 'Platform email sender rejected by Postmark — all outbound email failing',
+        detail: `from=${fromEmail} postmarkCode=${err.code} http=${err.httpStatus}. Check the Postmark sender signature for this address.`,
+      });
+      throw err;
+    }
+
+    // Branded From rejected. Alert, then resend from the platform sender.
     const domain = fromEmail.split('@')[1] ?? fromEmail;
-    void sendOpsAlert({
+    await sendOpsAlert({
       signature: `email-domain-send-rejected:${workspaceId}:${domain}`,
       severity: 'critical',
       title: 'Branded sender rejected by Postmark — fell back to platform From',
