@@ -53,7 +53,7 @@ runDbTests('sendBrandedEmail (DB-backed)', () => {
     emailCalls = [];
     rejectFroms = new Set();
     rejectCode = 400;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const stub = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       const url = String(input);
       if (url.startsWith('https://api.postmarkapp.com/email')) {
         const body = JSON.parse(String(init?.body ?? '{}'));
@@ -70,8 +70,11 @@ runDbTests('sendBrandedEmail (DB-backed)', () => {
           JSON.stringify({ MessageID: 'pm-' + emailCalls.length, SubmittedAt: '2026-01-01T00:00:00Z', To: body.To, ErrorCode: 0, Message: 'OK' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      return realFetch(input as any, init);
-    }) as typeof fetch;
+      return realFetch(input, init);
+    };
+    // Bun's `typeof fetch` also carries `preconnect`; borrow the real one so
+    // the stub satisfies the type without an `any` cast.
+    globalThis.fetch = Object.assign(stub, { preconnect: realFetch.preconnect });
   });
   afterEach(async () => {
     globalThis.fetch = realFetch;
@@ -147,5 +150,18 @@ runDbTests('sendBrandedEmail (DB-backed)', () => {
     try { await sendBrandedEmail(baseArgs()); } catch (e) { threw = e; }
     expect(threw).toBeInstanceOf(PostmarkSendError);
     expect(emailCalls).toHaveLength(1);
+  });
+
+  it('rethrows (after alerting) when the fallback resend is ALSO rejected', async () => {
+    const domain = `sbe-e-${RUN}.test`;
+    await addVerifiedDomain(domain);
+    rejectFroms.add(`support@${domain}`);
+    rejectFroms.add(envMod.env.POSTMARK_OUTBOUND_FROM);
+    let threw: unknown = null;
+    try { await sendBrandedEmail(baseArgs()); } catch (e) { threw = e; }
+    expect(threw).toBeInstanceOf(PostmarkSendError);
+    // Exactly two attempts: branded, then the platform retry — no loop.
+    expect(emailCalls).toHaveLength(2);
+    expect(emailCalls[1].From).toBe(envMod.env.POSTMARK_OUTBOUND_FROM);
   });
 });

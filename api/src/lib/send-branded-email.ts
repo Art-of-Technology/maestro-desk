@@ -95,7 +95,22 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
         `Customer emails are sending from the platform address until the domain is re-verified.`,
     });
 
-    const result = await sendEmail({ ...mail, fromEmail: platformFrom, fromName });
-    return { ...result, fromEmail: platformFrom, usedFallbackFrom: true };
+    try {
+      const result = await sendEmail({ ...mail, fromEmail: platformFrom, fromName });
+      return { ...result, fromEmail: platformFrom, usedFallbackFrom: true };
+    } catch (retryErr) {
+      // The fallback resend can hit the same wall: the PLATFORM signature is
+      // broken too. That's the total-outage signal — alert it here as well,
+      // since the branch above only covers first-attempt platform sends.
+      if (isSenderSignatureError(retryErr)) {
+        await sendOpsAlert({
+          signature: `platform-sender-rejected:${platformFrom}`,
+          severity: 'critical',
+          title: 'Platform email sender rejected by Postmark — all outbound email failing',
+          detail: `from=${platformFrom} postmarkCode=${retryErr.code} http=${retryErr.httpStatus}. Check the Postmark sender signature for this address.`,
+        });
+      }
+      throw retryErr;
+    }
   }
 }
