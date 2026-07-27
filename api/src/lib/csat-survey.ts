@@ -14,8 +14,8 @@
 // break the PATCH that resolves the ticket.
 
 import { env } from './env.js';
-import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
+import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { makeUnsubscribeToken, unsubscribeUrl } from './unsubscribe.js';
 import { getDb } from './db.js';
@@ -74,13 +74,9 @@ export async function sendCsatSurvey(args: {
   // link stable if the email is sent twice for some reason.
   const token = t.csat_token || generateToken();
 
-  // Outbound identity: brand-owned verified domain if configured,
-  // else the platform default. Skipping here on no-from would mean
-  // sending from nothing, so bail cleanly.
-  const workspaceFrom = await getOutboundFrom(workspaceId);
-  const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
-  const fromName  = workspaceFrom?.fromName  || workspaceName;
-  if (!fromEmail) return { sent: false, reason: 'no_from' };
+  // Outbound identity is resolved by sendBrandedEmail below: brand-owned
+  // verified domain if configured, else the platform default, with a
+  // rejection safety net (send-branded-email.ts).
 
   // Portal base URL. Prefer the explicit arg (handy for tests),
   // then PORTAL_BASE_URL env var (production), then the dev fallback.
@@ -116,13 +112,13 @@ export async function sendCsatSurvey(args: {
   });
 
   try {
-    await sendEmail({
+    await sendBrandedEmail({
+      workspaceId,
+      fallbackFromName: workspaceName,
       to: customerEmail,
       subject,
       textBody: composed.text,
       htmlBody: composed.html,
-      fromEmail,
-      fromName,
       replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
       extraHeaders: unsubUrl
         ? [

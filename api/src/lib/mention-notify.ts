@@ -9,8 +9,8 @@
 //   - a mentioned user has no email on file
 
 import { env } from './env.js';
-import { sendEmail, isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
+import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
 
@@ -34,23 +34,19 @@ export async function notifyMentionedAgents(args: {
   const targets = mentions.filter((id) => id !== authorUserId);
   if (targets.length === 0) return { sent: 0, skipped: 0 };
 
-  const [usersRows, ticketRows, workspaceFrom] = await Promise.all([
+  const [usersRows, ticketRows] = await Promise.all([
     sql<{ id: string; name: string | null; email: string | null; mention_email_enabled: boolean | null }[]>`
       select id, name, email, mention_email_enabled from users where id = any(${targets})`,
     sql<{ display_id: string; subject: string; ws_name: string; ws_slug: string }[]>`
       select t.display_id, t.subject, w.name as ws_name, w.slug as ws_slug
       from tickets t join workspaces w on w.id = t.workspace_id
       where t.id = ${ticketId} and t.workspace_id = ${workspaceId}`,
-    getOutboundFrom(workspaceId),
   ]);
   const ticket = ticketRows[0];
   if (!ticket) return { sent: 0, skipped: targets.length };
 
   const workspaceName = ticket.ws_name || 'Respovia';
   const workspaceSlug = ticket.ws_slug;
-  const fromEmail = workspaceFrom?.fromEmail || env.POSTMARK_OUTBOUND_FROM;
-  const fromName  = workspaceFrom?.fromName  || workspaceName;
-  if (!fromEmail) return { sent: 0, skipped: targets.length };
 
   // Build the ticket-detail URL. Agents reach it via the SPA, so we
   // point at PORTAL_BASE_URL's origin + an SPA-style hash route if
@@ -93,8 +89,10 @@ export async function notifyMentionedAgents(args: {
     // signature (authorUserId) — this email comes from a named teammate.
     const composed = await composeEmail({ workspaceId, authorUserId, bodyText: textBody });
     try {
-      await sendEmail({
-        to: u.email, subject, textBody: composed.text, htmlBody: composed.html, fromEmail, fromName,
+      // Branded From with platform fallback + rejection safety net.
+      await sendBrandedEmail({
+        workspaceId, fallbackFromName: workspaceName,
+        to: u.email, subject, textBody: composed.text, htmlBody: composed.html,
         replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
       });
       sent++;
