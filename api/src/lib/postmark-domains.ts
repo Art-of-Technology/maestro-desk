@@ -97,6 +97,28 @@ export async function getDomain(id: number): Promise<PostmarkDomain> {
 }
 
 /**
+ * Find an account domain by name (case-insensitive), or null. The list
+ * endpoint returns summaries only, so a hit is re-fetched via getDomain for
+ * the full DNS record set. Used to ADOPT a domain that already exists under
+ * the account (orphan from a failed delete, or an expired/superseded claim)
+ * instead of failing pmCreateDomain("already added") forever.
+ */
+export async function findDomainByName(name: string): Promise<PostmarkDomain | null> {
+  const wanted = name.toLowerCase();
+  let offset = 0;
+  for (;;) {
+    const page = (await pmFetch(`/domains?count=500&offset=${offset}`)) as {
+      TotalCount: number;
+      Domains?: { ID: number; Name: string }[];
+    };
+    const hit = page.Domains?.find((d) => d.Name.toLowerCase() === wanted);
+    if (hit) return getDomain(hit.ID);
+    offset += page.Domains?.length ?? 0;
+    if (!page.Domains?.length || offset >= page.TotalCount) return null;
+  }
+}
+
+/**
  * Trigger DNS verification for both DKIM and Return-Path. Postmark queries
  * the brand's DNS; the returned object reflects the post-check state. Run
  * in sequence (not parallel) — both calls hit the same domain object and

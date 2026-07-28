@@ -32,6 +32,7 @@ import { showModal, closeModal } from '../core/modal.js';
 import { COLLAPSED_SECTIONS, resetAllCollapsedSections } from '../core/collapsible.js';
 import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
 import { settingsEmailBranding, settingsMySignature } from '../email-branding/index.js';
+import { settingsSenderDomain } from '../email-domain/index.js';
 import { settingsPushSection } from '../push/index.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
@@ -69,8 +70,8 @@ export function renderSettings() {
     {k:'knowledge-base', l:'Knowledge Base'},
     {k:'language',      l:'Language'},
     {k:'integrations',  l:'Integrations'},
-    // Email branding + Categories are workspace config — admins only.
-    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'categories', l:'Categories'}] : []),
+    // Email branding + Sender domain + Categories are workspace config — admins only.
+    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}, {k:'categories', l:'Categories'}] : []),
   ];
   const tabbar = tabs.map(t => `<div class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</div>`).join('');
   let panel = '';
@@ -82,6 +83,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'language')      panel = settingsLanguage();
   else if (SETTINGS_TAB === 'integrations')  panel = settingsIntegrations();
   else if (SETTINGS_TAB === 'email')         panel = settingsEmailBranding();
+  else if (SETTINGS_TAB === 'sender-domain') panel = settingsSenderDomain();
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
   return `
     <div class="page">

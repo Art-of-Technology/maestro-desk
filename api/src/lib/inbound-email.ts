@@ -98,9 +98,12 @@ export async function resolveInboundWorkspace(args: {
   const sql = getDb();
 
   if (toDomain) {
+    // verified_at gate: with self-serve domain adding, an UNVERIFIED claim
+    // must never route another brand's mail — a workspace admin could
+    // otherwise claim a competitor's domain and receive their inbound.
     const [match] = await sql<{ workspace_id: string; domain: string }[]>`
       select workspace_id, domain from workspace_email_domains
-      where domain = ${toDomain} and deleted_at is null
+      where domain = ${toDomain} and verified_at is not null and deleted_at is null
     `;
     if (match) {
       return { workspaceId: match.workspace_id, routed: true, matchedDomain: match.domain };

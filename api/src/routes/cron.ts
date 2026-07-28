@@ -5,6 +5,7 @@ import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
 import { purgeExpiredTickets } from '../lib/retention.js';
 import { retryPendingObjectDeletions } from '../lib/gdpr-erasure.js';
 import { verifyAuditChains, verifyAuditChainsFull } from '../lib/audit-verify.js';
+import { sweepEmailDomains } from '../lib/email-domains.js';
 import { sendOpsAlert } from '../lib/alert.js';
 
 // A cron job failed to run cleanly — fire a live alert (no-op until a channel
@@ -107,7 +108,18 @@ cron.get('/retention', async (c) => {
     console.error('[cron] gdpr object-deletion retry (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('gdpr-object-retry', err);
   }
-  return c.json({ ok: true, purgedTickets, audit, objectRetry });
+  // Piggyback the sender-domain sweep (same Hobby cron-cap reasoning): verify
+  // pending domains (auto-stamps owners who never revisit the settings page),
+  // drift-check verified ones (lapse => degraded + ops alert inside the
+  // sweep), and expire 30-day-old unverified claims. Best-effort.
+  let emailDomains: Awaited<ReturnType<typeof sweepEmailDomains>> | undefined;
+  try {
+    emailDomains = await sweepEmailDomains();
+  } catch (err) {
+    console.error('[cron] email-domain sweep (via retention) failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('email-domain-sweep', err);
+  }
+  return c.json({ ok: true, purgedTickets, audit, objectRetry, emailDomains });
 });
 
 // Audit-chain integrity check (standalone). Runs the FULL, read-only verifier
