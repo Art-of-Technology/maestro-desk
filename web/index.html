@@ -20,6 +20,10 @@
 
 <!-- Auth Screen -->
 <div id="auth-screen">
+  <!-- Decorative Ditto garden blobs (DESIGN.md "Hero Card") — pure CSS,
+       pointer-events:none; auth JS never touches this node. The two <i>
+       hold the bottom sun/violet blobs (an element only has two pseudos). -->
+  <div class="auth-garden" aria-hidden="true"><i class="auth-blob-sun"></i><i class="auth-blob-violet"></i></div>
   <div class="auth-box">
     <!-- Login panel -->
     <div id="auth-login" style="display:block">
