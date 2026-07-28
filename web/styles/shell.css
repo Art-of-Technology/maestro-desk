@@ -5,11 +5,13 @@
 /* Persistent garden: full-strength blobs low in the sidebar. isolation makes
    the host a stacking context so the z-index:-1 pseudos paint ABOVE its --off
    fill but under all nav content (without it they'd hide behind the fill).
-   Ink text stays AA over moss (9.9:1) and fuchsia (5.7:1); never use
-   --deco-violet here (it IS the text ink). Decoration only — see tokens.css. */
+   Contrast contract: nav labels are --ink2 — AA over moss (6:1) but NOT over
+   fuchsia (3.5:1), so the fuchsia blob stays in the left gutter (only the
+   icon column can touch it; graphics need just 3:1). Never use --deco-violet
+   here (it IS the text ink). Decoration only — see tokens.css. */
 .sidebar::before,.sidebar::after{content:'';position:absolute;z-index:-1;pointer-events:none}
 .sidebar::before{width:190px;height:160px;background:var(--deco-moss);border-radius:var(--blob-a);left:-70px;bottom:34px;transform:rotate(-12deg)}
-.sidebar::after{width:110px;height:92px;background:var(--deco-fuchsia);border-radius:var(--blob-b);left:-24px;bottom:168px;transform:rotate(16deg)}
+.sidebar::after{width:110px;height:92px;background:var(--deco-fuchsia);border-radius:var(--blob-b);left:-60px;bottom:168px;transform:rotate(16deg)}
 .sb-logo{padding:18px 18px 14px;border-bottom:1px solid var(--rule)}
 .sb-word{font-family:var(--font-sans);font-size:18px;font-weight:600;letter-spacing:-.025em;color:var(--ink)}
 .sb-sub{font-family:var(--font-sans);font-size:12px;font-weight:400;color:var(--ink3);margin-top:3px}
