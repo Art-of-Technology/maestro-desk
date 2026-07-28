@@ -337,10 +337,14 @@ export async function sweepEmailDomains(): Promise<SweepResult> {
   // Postmark-side domain is deleted too: a soft-delete alone would orphan it
   // under the platform account, and a later re-add of the same domain would
   // then fail pmCreateDomain ("already added") forever.
+  // Bounded like the check pass: each expiry is a Postmark round-trip, and
+  // the sweep runs daily — any backlog beyond the cap drains across days.
   const expireCandidates = await sql<{ id: string; workspace_id: string; domain: string }[]>`
     select id, workspace_id, domain
     from workspace_email_domains
     where deleted_at is null and verified_at is null and created_at < now() - interval '30 days'
+    order by created_at asc
+    limit 100
   `;
   for (const r of expireCandidates) {
     try {

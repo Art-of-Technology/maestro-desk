@@ -108,6 +108,18 @@ emailDomains.post('/', async (c) => {
   if (!ws) return c.json({ error: 'Workspace not found' }, 404);
   if (ws.is_unrouted_bucket) return c.json({ error: 'Cannot add domain to system workspace' }, 403);
 
+  // Anti-squatting cap: domain claims are globally unique even while
+  // unverified, so without a ceiling one workspace could stockpile pending
+  // claims and block other brands (until the 30-day expiry). Self-serve
+  // surface only — the god panel stays uncapped for platform admins.
+  const [{ pending }] = await sql<{ pending: number }[]>`
+    select count(*)::int as pending from workspace_email_domains
+    where workspace_id = ${workspaceId} and verified_at is null and deleted_at is null
+  `;
+  if (pending >= 3) {
+    return c.json({ error: 'Too many unverified domains — verify or remove one first.' }, 409);
+  }
+
   let result: Awaited<ReturnType<typeof addEmailDomain>>;
   try {
     result = await addEmailDomain(workspaceId, parsed.data.domain);
