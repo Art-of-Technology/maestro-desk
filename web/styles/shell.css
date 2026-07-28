@@ -123,11 +123,26 @@
    pointer-events:none (inherited by the blobs) keeps every panel clickable. */
 .auth-garden{position:fixed;inset:0;overflow:hidden;pointer-events:none}
 .auth-garden::before,.auth-garden::after{content:''}
-.auth-garden::before,.auth-garden::after,.auth-garden i{position:absolute;display:block}
-.auth-garden::before{width:clamp(240px,34vw,420px);height:clamp(220px,30vw,380px);background:var(--deco-moss);border-radius:var(--blob-a);left:max(-120px,calc(50% - 560px));top:6%;transform:rotate(-14deg)}
-.auth-garden::after{width:clamp(200px,28vw,340px);height:clamp(180px,24vw,300px);background:var(--deco-fuchsia);border-radius:var(--blob-b);right:max(-100px,calc(50% - 530px));top:12%;transform:rotate(11deg)}
-.auth-blob-sun{width:clamp(150px,20vw,250px);height:clamp(130px,17vw,210px);background:var(--deco-sun);border-radius:var(--blob-c);left:calc(50% - 480px);bottom:6%;transform:rotate(8deg)}
-.auth-blob-violet{width:clamp(120px,16vw,200px);height:clamp(110px,14vw,180px);background:var(--deco-violet);border-radius:var(--blob-d);right:calc(50% - 500px);bottom:12%;transform:rotate(-9deg)}
+/* Lava-lamp drift: each blob wanders slowly around its resting pose (--rot)
+   while its outline morphs between its base --shape and a partner --shape-alt.
+   One shared keyframe track, personalized per blob via custom properties and
+   staggered durations/negative delays so the four never move in sync. The
+   radius morph repaints (transform alone is compositor-cheap), so cycles stay
+   long; browsers pause the work when the tab is hidden. */
+.auth-garden::before,.auth-garden::after,.auth-garden i{position:absolute;display:block;border-radius:var(--shape);transform:rotate(var(--rot));animation:blob-drift 32s ease-in-out infinite}
+.auth-garden::before{width:clamp(240px,34vw,420px);height:clamp(220px,30vw,380px);background:var(--deco-moss);--rot:-14deg;--shape:var(--blob-a);--shape-alt:var(--blob-c);left:max(-120px,calc(50% - 560px));top:6%}
+.auth-garden::after{width:clamp(200px,28vw,340px);height:clamp(180px,24vw,300px);background:var(--deco-fuchsia);--rot:11deg;--shape:var(--blob-b);--shape-alt:var(--blob-d);right:max(-100px,calc(50% - 530px));top:12%;animation-duration:40s;animation-delay:-21s}
+/* .auth-garden prefix so the duration/delay longhands outrank the shared
+   `.auth-garden i` shorthand above (0,2,0 vs 0,1,1). */
+.auth-garden .auth-blob-sun{width:clamp(150px,20vw,250px);height:clamp(130px,17vw,210px);background:var(--deco-sun);--rot:8deg;--shape:var(--blob-c);--shape-alt:var(--blob-b);left:calc(50% - 480px);bottom:6%;animation-duration:26s;animation-delay:-7s}
+.auth-garden .auth-blob-violet{width:clamp(120px,16vw,200px);height:clamp(110px,14vw,180px);background:var(--deco-violet);--rot:-9deg;--shape:var(--blob-d);--shape-alt:var(--blob-a);right:calc(50% - 500px);bottom:12%;animation-duration:36s;animation-delay:-15s}
+@keyframes blob-drift{
+  0%,100%{transform:rotate(var(--rot)) translate(0,0);border-radius:var(--shape)}
+  25%{transform:rotate(calc(var(--rot) + 5deg)) translate(22px,-16px)}
+  50%{transform:rotate(calc(var(--rot) - 3deg)) translate(-10px,-26px);border-radius:var(--shape-alt)}
+  75%{transform:rotate(calc(var(--rot) - 7deg)) translate(-24px,12px)}
+}
+@media (prefers-reduced-motion:reduce){.auth-garden::before,.auth-garden::after,.auth-garden i{animation:none}}
 /* On narrow screens the two small bottom blobs would slide under the card —
    drop them and keep the top moss/fuchsia pair peeking in from the edges. */
 @media (max-width:900px){.auth-blob-sun,.auth-blob-violet{display:none}}
