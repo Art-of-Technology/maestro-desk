@@ -145,7 +145,7 @@
 @media (prefers-reduced-motion:reduce){.auth-garden::before,.auth-garden::after,.auth-garden i{animation:none}}
 /* On narrow screens the two small bottom blobs would slide under the card —
    drop them and keep the top moss/fuchsia pair peeking in from the edges. */
-@media (max-width:900px){.auth-blob-sun,.auth-blob-violet{display:none}}
+@media (max-width:900px){.auth-garden .auth-blob-sun,.auth-garden .auth-blob-violet{display:none}}
 /* White hero card floating over the blobs — the Ditto hero composition;
    also what guarantees text contrast regardless of blob placement. */
 .auth-box{width:400px;max-width:100%;position:relative;z-index:1;background:#fff;border-radius:var(--r-card);padding:40px 36px}
