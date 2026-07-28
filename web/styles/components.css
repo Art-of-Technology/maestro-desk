@@ -139,14 +139,18 @@ textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
 .ai-tag-chip.accepted{border-color:var(--green);background:var(--green-lt);color:var(--green)}
 /* ── Misc ── */
 .sep{height:1px;background:var(--rule);margin:12px 0}
-.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:8px;color:var(--ink3);background:var(--off);position:relative;overflow:hidden}
-/* Whisper-level Ditto garden blobs in the corners (decoration only — kept
-   ≤.12 opacity so .empty-txt stays AA on --off; corners clear of the text). */
-.empty-state::before,.empty-state::after{content:'';position:absolute;pointer-events:none}
-.empty-state::before{width:120px;height:100px;background:var(--deco-moss);opacity:.12;border-radius:var(--blob-a);left:-40px;top:-36px;transform:rotate(-12deg)}
-.empty-state::after{width:100px;height:84px;background:var(--deco-fuchsia);opacity:.10;border-radius:var(--blob-b);right:-32px;bottom:-30px;transform:rotate(14deg)}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:8px;color:var(--ink3);background:var(--off);position:relative;overflow:hidden;isolation:isolate}
+/* Full-strength Ditto garden blobs in the corners (decoration only — the
+   corners stay clear of the centered .empty-txt, which remains on --off).
+   isolation + z-index:-1 guarantees text paints above the blobs. */
+.empty-state::before,.empty-state::after{content:'';position:absolute;z-index:-1;pointer-events:none}
+.empty-state::before{width:120px;height:100px;background:var(--deco-moss);border-radius:var(--blob-a);left:-40px;top:-36px;transform:rotate(-12deg)}
+.empty-state::after{width:100px;height:84px;background:var(--deco-fuchsia);border-radius:var(--blob-b);right:-32px;bottom:-30px;transform:rotate(14deg)}
 .empty-line{width:32px;height:1px;background:var(--rule2)}
-.empty-txt{font-family:var(--font-sans);font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+/* Full ink (not the inherited --ink3): the label can meet a corner blob on
+   narrow panels, and only --ink clears AA over moss/fuchsia (9.9/5.7:1 vs
+   --ink3's 3.8:1). */
+.empty-txt{font-family:var(--font-sans);font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
 .sla-ok{color:var(--green);font-weight:500}.sla-warn{color:var(--amber);font-weight:500}.sla-breach{color:var(--red);font-weight:500}.sla-snoozed{color:var(--ink3);font-weight:500}
 .link{color:var(--blue);cursor:pointer;text-decoration:underline}
 .link:hover{color:var(--ink)}

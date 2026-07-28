@@ -1,7 +1,17 @@
 /* ── App shell ── */
 .app{display:flex;height:100vh}
 /* ── Sidebar ── */
-.sidebar{width:200px;min-width:200px;display:flex;flex-direction:column;background:var(--off);flex-shrink:0}
+.sidebar{width:200px;min-width:200px;display:flex;flex-direction:column;background:var(--off);flex-shrink:0;position:relative;overflow:hidden;isolation:isolate}
+/* Persistent garden: full-strength blobs low in the sidebar. isolation makes
+   the host a stacking context so the z-index:-1 pseudos paint ABOVE its --off
+   fill but under all nav content (without it they'd hide behind the fill).
+   Contrast contract: nav labels are --ink2 — AA over moss (6:1) but NOT over
+   fuchsia (3.5:1), so the fuchsia blob stays in the left gutter (only the
+   icon column can touch it; graphics need just 3:1). Never use --deco-violet
+   here (it IS the text ink). Decoration only — see tokens.css. */
+.sidebar::before,.sidebar::after{content:'';position:absolute;z-index:-1;pointer-events:none}
+.sidebar::before{width:190px;height:160px;background:var(--deco-moss);border-radius:var(--blob-a);left:-70px;bottom:34px;transform:rotate(-12deg)}
+.sidebar::after{width:110px;height:92px;background:var(--deco-fuchsia);border-radius:var(--blob-b);left:-60px;bottom:168px;transform:rotate(16deg)}
 .sb-logo{padding:18px 18px 14px;border-bottom:1px solid var(--rule)}
 .sb-word{font-family:var(--font-sans);font-size:18px;font-weight:600;letter-spacing:-.025em;color:var(--ink)}
 .sb-sub{font-family:var(--font-sans);font-size:12px;font-weight:400;color:var(--ink3);margin-top:3px}
@@ -108,7 +118,11 @@
 .profile-menu-item.danger:hover{background:var(--red-lt);color:var(--red)}
 .profile-menu-divider{height:1px;background:var(--rule);margin:4px 6px}
 /* ── Topbar ── */
-.topbar{height:48px;display:flex;align-items:center;padding:0 20px;gap:10px;flex-shrink:0;background:var(--off)}
+.topbar{height:48px;display:flex;align-items:center;padding:0 20px;gap:10px;flex-shrink:0;background:var(--off);position:relative;overflow:hidden;isolation:isolate}
+/* Garden lobe on every page header: sun only — ink text/ghost buttons over
+   it stay 13:1 AA anywhere it lands. isolation + z-index:-1 = above the --off
+   fill, under all content. */
+.topbar::before{content:'';position:absolute;z-index:-1;pointer-events:none;width:120px;height:96px;background:var(--deco-sun);border-radius:var(--blob-c);right:-38px;top:-46px;transform:rotate(-11deg)}
 .tb-title{font-family:var(--font-sans);font-size:16px;font-weight:700;letter-spacing:-.025em;color:var(--ink);flex:1}
 .tb-breadcrumb{font-family:var(--font-sans);font-size:14px;color:var(--ink3);flex:1;display:flex;align-items:center;gap:6px}
 .tb-breadcrumb span{cursor:pointer;color:var(--ink2)}
@@ -136,6 +150,11 @@
    `.auth-garden i` shorthand above (0,2,0 vs 0,1,1). */
 .auth-garden .auth-blob-sun{width:clamp(150px,20vw,250px);height:clamp(130px,17vw,210px);background:var(--deco-sun);--rot:8deg;--shape:var(--blob-c);--shape-alt:var(--blob-b);left:calc(50% - 480px);bottom:6%;animation-duration:26s;animation-delay:-7s}
 .auth-garden .auth-blob-violet{width:clamp(120px,16vw,200px);height:clamp(110px,14vw,180px);background:var(--deco-violet);--rot:-9deg;--shape:var(--blob-d);--shape-alt:var(--blob-a);right:calc(50% - 500px);bottom:12%;animation-duration:36s;animation-delay:-15s}
+/* Second wave: smaller scatter blobs filling out the meadow. */
+.auth-garden .auth-blob-moss2{width:clamp(90px,9vw,130px);height:clamp(76px,8vw,110px);background:var(--deco-moss);--rot:21deg;--shape:var(--blob-c);--shape-alt:var(--blob-a);right:8%;top:5%;animation-duration:29s;animation-delay:-11s}
+.auth-garden .auth-blob-sun2{width:clamp(80px,8vw,110px);height:clamp(70px,7vw,96px);background:var(--deco-sun);--rot:-16deg;--shape:var(--blob-b);--shape-alt:var(--blob-d);left:5%;top:9%;animation-duration:24s;animation-delay:-18s}
+.auth-garden .auth-blob-fuchsia2{width:clamp(110px,11vw,150px);height:clamp(90px,9vw,125px);background:var(--deco-fuchsia);--rot:14deg;--shape:var(--blob-d);--shape-alt:var(--blob-c);left:calc(50% - 350px);bottom:19%;animation-duration:34s;animation-delay:-5s}
+.auth-garden .auth-blob-violet2{width:clamp(70px,7vw,95px);height:clamp(60px,6vw,84px);background:var(--deco-violet);--rot:-24deg;--shape:var(--blob-a);--shape-alt:var(--blob-b);right:11%;top:46%;animation-duration:44s;animation-delay:-27s}
 @keyframes blob-drift{
   0%,100%{transform:rotate(var(--rot)) translate(0,0);border-radius:var(--shape)}
   25%{transform:rotate(calc(var(--rot) + 5deg)) translate(22px,-16px)}
@@ -143,9 +162,9 @@
   75%{transform:rotate(calc(var(--rot) - 7deg)) translate(-24px,12px)}
 }
 @media (prefers-reduced-motion:reduce){.auth-garden::before,.auth-garden::after,.auth-garden i{animation:none}}
-/* On narrow screens the two small bottom blobs would slide under the card —
-   drop them and keep the top moss/fuchsia pair peeking in from the edges. */
-@media (max-width:900px){.auth-garden .auth-blob-sun,.auth-garden .auth-blob-violet{display:none}}
+/* On narrow screens the center-adjacent blobs would slide under the card —
+   drop them; the corner ones (moss, fuchsia, moss2, sun2) keep peeking in. */
+@media (max-width:900px){.auth-garden .auth-blob-sun,.auth-garden .auth-blob-violet,.auth-garden .auth-blob-fuchsia2,.auth-garden .auth-blob-violet2{display:none}}
 /* White hero card floating over the blobs — the Ditto hero composition;
    also what guarantees text contrast regardless of blob placement. */
 .auth-box{width:400px;max-width:100%;position:relative;z-index:1;background:#fff;border-radius:var(--r-card);padding:40px 36px}

@@ -276,7 +276,15 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .pinned-response{padding:10px 12px;border:1px solid var(--amber);border-radius:var(--r2);background:var(--amber-lt);margin-bottom:8px}
 .pinned-label{font-family:var(--font-sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin-bottom:4px}
 /* ── Dashboard garden topbar ── */
-/* Single whisper-level violet blob on the dashboard greeting bar only —
-   never decorate .topbar globally (data-dense pages share it). */
-.topbar-garden{position:relative;overflow:hidden}
-.topbar-garden::before{content:'';position:absolute;pointer-events:none;width:180px;height:120px;background:var(--deco-violet);opacity:.06;border-radius:var(--blob-c);right:-50px;top:-40px;transform:rotate(-8deg)}
+/* Bigger composition on the greeting bar only: a full-strength moss blob
+   behind the greeting (ink-on-moss is 9.9:1 AA) alongside the global sun
+   lobe every .topbar carries. ::after because the shared .topbar rule in
+   shell.css owns ::before. */
+.topbar-garden::after{content:'';position:absolute;z-index:-1;pointer-events:none;width:220px;height:130px;background:var(--deco-moss);border-radius:var(--blob-a);left:-60px;top:-42px;transform:rotate(-10deg)}
+/* ── Config hub garden cards ── */
+/* Small full-strength blob clipped behind each card's chevron edge, colors
+   cycling by grid position. No violet (it matches the text/chevron ink). */
+.confighub-card{position:relative;overflow:hidden;isolation:isolate}
+.confighub-card::before{content:'';position:absolute;z-index:-1;pointer-events:none;width:86px;height:74px;background:var(--deco-moss);border-radius:var(--blob-b);right:-30px;top:-22px;transform:rotate(12deg)}
+.confighub-card:nth-child(3n)::before{background:var(--deco-fuchsia);border-radius:var(--blob-d);transform:rotate(-14deg)}
+.confighub-card:nth-child(3n+1)::before{background:var(--deco-sun);border-radius:var(--blob-c);transform:rotate(7deg)}
