@@ -179,10 +179,14 @@ runDbTests('email branding (DB-backed)', () => {
     // auto-linkified underline anchor.
     const anchors = composed.html!.match(/<a /g) ?? [];
     expect(anchors).toHaveLength(1);
-    expect(composed.html!).toContain('background:#ffe228');
-    expect(composed.html!).toContain('border-radius:999px');
+    // Full CTA style prefix — bare 'background:#ffe228' would also match the
+    // garden strip's yellow cell.
+    expect(composed.html!).toContain('display:inline-block;background:#ffe228;color:#130e30;border-radius:999px');
     expect(composed.html!).toContain('>View my tickets</a>');
     expect(composed.html!).not.toContain('text-decoration:underline');
+    // Garden strip: decorative 4-cell color band along the card's top edge.
+    expect(composed.html!).toContain('background:#59e25d');
+    expect(composed.html!).toContain('background:#e261e5');
   });
 
   it('a CTA url containing $-sequences is not mangled by replace expansion', async () => {

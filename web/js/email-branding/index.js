@@ -89,7 +89,8 @@ function ebTemplateRow(t, isAdmin) {
 
 function ebPreview(tpl) {
   // Mirrors composeEmail's Ditto shell in api/src/lib/email-branding.ts —
-  // keep the two in sync or this preview lies: cream canvas, white card
+  // keep the two in sync or this preview lies: garden strip (4 flat Ditto
+  // color cells) along the card's top edge, cream canvas, white card
   // (16px here vs the email's 24px — the preview is a scaled-down 480px
   // rendition), meadow header band with the serif header, solid #e7e5ec
   // divider, muted grey footer.
@@ -108,6 +109,7 @@ function ebPreview(tpl) {
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">How the ${tpl ? 'default' : 'currently-unbranded'} email wraps a sample message.</div>
       <div style="background:#f9fbf2;border-radius:var(--r2);padding:18px">
         <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;font:13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#130e30">
+          <div style="display:flex;height:5px"><span style="flex:1;background:#59e25d"></span><span style="flex:1;background:#e261e5"></span><span style="flex:1;background:#ffe228"></span><span style="flex:1;background:#130e30"></span></div>
           ${headerBand}
           <div style="padding:16px 20px;color:#130e30">Hi there,<br><br>Thanks for getting in touch — here's a sample of the message body your customers will read.<br><br><span style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:9px 22px;font-weight:600">Sample action</span></div>
           ${footer}

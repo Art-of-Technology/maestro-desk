@@ -331,7 +331,7 @@ export function renderDashboard() {
   })();
   return `
     <div class="page">
-      <div class="topbar">
+      <div class="topbar topbar-garden">
         <div class="tb-title">${greeting}${SESSION?.name?', '+SESSION.name.split(' ')[0]:''}</div>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(6,1fr)">

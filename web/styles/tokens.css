@@ -14,6 +14,10 @@ html,body{height:100%;overflow:hidden}
   --purple:#130e30;--purple-lt:rgba(19,14,48,0.06);
   --cyan:#0b7285;--cyan-lt:rgba(11,114,133,0.09);
   --cta:#ffe228;--cta-ink:#130e30;--cta-hover:#f2d500;
+  /* Garden decoration palette (DESIGN.md "Hero Card"/"Imagery") — DECORATION
+     ONLY: background blob shapes, never buttons/badges/status/icons. The
+     functional status colors above (--green, --red, …) are a separate set. */
+  --deco-moss:#59e25d;--deco-fuchsia:#e261e5;--deco-sun:#ffe228;--deco-violet:#130e30;
   --r:10px;--r2:16px;--r-card:24px;--r-pill:999px;
   --font-sans:'Inter',sans-serif;
   --font-serif:'Hedvig Letters Serif',Georgia,serif;

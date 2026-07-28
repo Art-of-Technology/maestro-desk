@@ -173,6 +173,19 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
     ? `<tr><td style="padding:16px 32px 24px;border-top:1px solid #e7e5ec;color:#5f5c6e;font-size:12px;line-height:1.5">${footerHtml}</td></tr>`
     : '';
 
+  // Ditto garden strip: 4 flat color cells as the card's top edge — the
+  // email-safe stand-in for the app's decorative blobs (Outlook drops
+  // SVG/data-URIs; plain td backgrounds render everywhere). Decoration
+  // only — these hexes must never color buttons/links/status text.
+  // Nested single-purpose table so the 4 color cells don't turn the outer
+  // (single-column) card table into a 4-column grid.
+  const gardenStrip =
+    `<tr><td style="padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>` +
+    ['#59e25d', '#e261e5', '#ffe228', '#130e30']
+      .map((c) => `<td width="25%" style="background:${c};height:6px;font-size:0;line-height:6px">&nbsp;</td>`)
+      .join('') +
+    `</tr></table></td></tr>`;
+
   const html = `<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -180,6 +193,7 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fbf2;padding:24px 0">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:24px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+        ${gardenStrip}
         ${headerBlock}
         <tr><td style="padding:${headerBlock ? '24px' : '32px'} 32px 24px;color:#130e30;font-size:15px;line-height:1.6">${bodyHtml}${sigBlock}</td></tr>
         ${footerBlock}

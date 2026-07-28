@@ -39,6 +39,14 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 1.6; }
+    /* Soft Ditto garden blobs behind the content (decoration only — fixed
+       hexes on purpose so they never follow the per-workspace --accent;
+       hex values mirror --deco-moss/--deco-fuchsia in styles/tokens.css).
+       z-index:-1 paints above the canvas fill (body bg propagates to html)
+       but below all content; pointer-events:none keeps everything clickable. */
+    body::before, body::after { content: ''; position: fixed; z-index: -1; pointer-events: none; }
+    body::before { width: 340px; height: 290px; background: #59e25d; opacity: .32; border-radius: 62% 38% 55% 45% / 48% 60% 40% 52%; left: -110px; top: -70px; transform: rotate(-14deg); }
+    body::after { width: 260px; height: 220px; background: #e261e5; opacity: .30; border-radius: 41% 59% 48% 52% / 55% 42% 58% 45%; right: -80px; top: 30px; transform: rotate(12deg); }
     main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
     .brand { font-family: var(--font-serif); font-weight: 400; font-size: 22px; color: var(--ink); }
