@@ -20,6 +20,7 @@
 import { env } from './env.js';
 import { getOutboundFrom } from './outbound-from.js';
 import { sendOpsAlert } from './alert.js';
+import { degradeDomainForSendRejection } from './email-domains.js';
 import {
   sendEmail,
   PostmarkSendError,
@@ -84,8 +85,11 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
       throw err;
     }
 
-    // Branded From rejected. Alert, then resend from the platform sender.
+    // Branded From rejected. Degrade the domain row (best-effort) so
+    // subsequent sends resolve straight to the platform sender instead of
+    // re-failing per email, alert, then resend from the platform sender.
     const domain = fromEmail.split('@')[1] ?? fromEmail;
+    await degradeDomainForSendRejection(workspaceId, domain, `send_rejected:${err.code}`);
     await sendOpsAlert({
       signature: `email-domain-send-rejected:${workspaceId}:${domain}`,
       severity: 'critical',

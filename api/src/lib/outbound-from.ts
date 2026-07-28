@@ -18,9 +18,13 @@ export async function getOutboundFrom(workspaceId: string): Promise<OutboundFrom
   `;
   if (!ws) return null;
 
+  // degraded_at filter: a domain whose Postmark verification lapsed (or whose
+  // From was rejected at send time) falls back to the platform sender until
+  // it re-verifies — see lib/email-domains.ts.
   const [domain] = await sql<{ domain: string }[]>`
     select domain from workspace_email_domains
-    where workspace_id = ${workspaceId} and verified_at is not null and deleted_at is null
+    where workspace_id = ${workspaceId} and verified_at is not null
+      and degraded_at is null and deleted_at is null
     order by created_at asc
     limit 1
   `;

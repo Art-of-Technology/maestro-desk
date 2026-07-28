@@ -95,9 +95,11 @@ export async function processBounceEvent(args: {
   // webhook must always 200 so Postmark doesn't retry-storm on a transient DB
   // failure. The route logs the { ok: false } error and acks 200.
   try {
+    // verified_at gate — same reasoning as inbound routing: an unverified
+    // self-serve claim must not attribute another brand's bounces.
     const [domainRow] = await sql<{ workspace_id: string }[]>`
       select workspace_id from workspace_email_domains
-      where domain = ${fromDomain} and deleted_at is null
+      where domain = ${fromDomain} and verified_at is not null and deleted_at is null
     `;
     if (!domainRow) return { ok: false, error: `Unknown From domain: ${fromDomain}` };
     const workspaceId = domainRow.workspace_id;
