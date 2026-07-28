@@ -395,6 +395,7 @@ god.post('/brands/:id/domains', async (c) => {
       domain_id: result.row.id,
       postmark_domain_id: result.row.postmark_domain_id ? Number(result.row.postmark_domain_id) : null,
       postmark_error: result.postmarkError,
+      superseded_claim: result.superseded,
     },
   });
 

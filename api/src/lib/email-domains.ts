@@ -17,6 +17,7 @@ import {
   getDomain as pmGetDomain,
   verifyDomain as pmVerifyDomain,
   deleteDomain as pmDeleteDomain,
+  findDomainByName as pmFindDomainByName,
   isFullyVerified,
   dnsRecommendations,
   isPostmarkAccountConfigured,
@@ -65,6 +66,19 @@ export class DomainConflictError extends Error {
   }
 }
 
+// Create at Postmark, or ADOPT the account's existing domain of that name —
+// a failed Postmark delete (removeEmailDomain is best-effort) or a legacy
+// orphan would otherwise make pmCreateDomain fail "already added" forever.
+async function createOrAdoptDomain(domain: string): Promise<PostmarkDomain> {
+  try {
+    return await pmCreateDomain(domain);
+  } catch (err) {
+    const existing = await pmFindDomainByName(domain).catch(() => null);
+    if (existing) return existing;
+    throw err;
+  }
+}
+
 export async function listEmailDomains(workspaceId: string): Promise<EmailDomainRow[]> {
   const sql = getDb();
   return sql<EmailDomainRow[]>`
@@ -80,12 +94,33 @@ export interface AddEmailDomainResult {
   row: EmailDomainRow;
   dnsSetup: DnsRecommendations | null;
   postmarkError: string | null;
+  // Set when this add reclaimed the domain from another workspace's STALE
+  // unverified claim (soft-deleted here) — callers audit it.
+  superseded: { workspaceId: string; domainId: string } | null;
 }
 
 // Insert the local row, then best-effort provision at Postmark (the local
 // row survives a Postmark outage; the check path acts as the recovery hook).
 export async function addEmailDomain(workspaceId: string, domain: string): Promise<AddEmailDomainResult> {
   const sql = getDb();
+
+  // Verified-reclaim: a claim that sat unverified for 7+ days is not the DNS
+  // owner (publishing the records takes minutes), so it must not lock the
+  // real owner out until the 30-day expiry. Fresh claims keep a protected
+  // window to finish verification, which also blocks supersede ping-pong —
+  // and only the actual DNS owner can ever verify. Verified claims are
+  // never superseded.
+  let superseded: AddEmailDomainResult['superseded'] = null;
+  const [holder] = await sql<{ id: string; workspace_id: string; stale: boolean }[]>`
+    select id, workspace_id,
+           (verified_at is null and created_at < now() - interval '7 days') as stale
+    from workspace_email_domains
+    where domain = ${domain} and deleted_at is null
+  `;
+  if (holder && holder.stale && holder.workspace_id !== workspaceId) {
+    const removed = await removeEmailDomain(holder.workspace_id, holder.id);
+    if (removed) superseded = { workspaceId: holder.workspace_id, domainId: holder.id };
+  }
 
   let row: EmailDomainRow;
   try {
@@ -105,7 +140,7 @@ export async function addEmailDomain(workspaceId: string, domain: string): Promi
   let postmarkError: string | null = null;
   if (isPostmarkAccountConfigured()) {
     try {
-      pmDomain = await pmCreateDomain(domain);
+      pmDomain = await createOrAdoptDomain(domain);
     } catch (err) {
       postmarkError = err instanceof Error ? err.message : String(err);
       console.error(`[email-domains] Postmark createDomain failed for ${domain}: ${postmarkError}`);
@@ -129,6 +164,7 @@ export async function addEmailDomain(workspaceId: string, domain: string): Promi
     row,
     dnsSetup: pmDomain ? dnsRecommendations(pmDomain) : null,
     postmarkError,
+    superseded,
   };
 }
 
@@ -172,7 +208,7 @@ export async function checkEmailDomain(
   let pmDomain: PostmarkDomain;
   if (!row.postmark_domain_id) {
     // Postmark was down (or unconfigured) at add time — recovery path.
-    pmDomain = await pmCreateDomain(row.domain);
+    pmDomain = await createOrAdoptDomain(row.domain);
     try {
       await sql`update workspace_email_domains set postmark_domain_id = ${String(pmDomain.ID)} where id = ${row.id}`;
       row.postmark_domain_id = String(pmDomain.ID);
@@ -187,13 +223,12 @@ export async function checkEmailDomain(
 
   const fullyVerified = isFullyVerified(pmDomain);
   const dnsSetup = dnsRecommendations(pmDomain);
-  const becameVerified = fullyVerified && !row.verified_at;
-  const becameDegraded = !fullyVerified && !!row.verified_at && !row.degraded_at;
   // DNS-lapse degrades auto-clear on re-verification; send_rejected degrades
-  // stick until an explicit human check (see clearSendRejected above).
-  const canClearDegrade = fullyVerified
-    && (opts.clearSendRejected || !row.degraded_reason || row.degraded_reason.startsWith('postmark_verification_lapsed'));
-  const recovered = canClearDegrade && !!row.degraded_at;
+  // stick until an explicit human check (see clearSendRejected above). The
+  // reason predicate is evaluated IN SQL against the row's current state —
+  // deciding from the pre-Postmark-round-trip read would clear a send
+  // rejection that landed while the (slow) verify call was in flight.
+  const mayClear = !!opts.clearSendRejected;
 
   // Reconcile in one statement. verified_at is stamped only on the FIRST
   // full verification; degraded_at is set when a verified domain's Postmark
@@ -204,13 +239,13 @@ export async function checkEmailDomain(
         dns_records = ${sql.json(dnsSetup as never)},
         verified_at = case when ${fullyVerified} and verified_at is null then now() else verified_at end,
         degraded_at = case
-          when ${canClearDegrade} then null
+          when ${fullyVerified} and (${mayClear} or degraded_reason is null or degraded_reason like 'postmark_verification_lapsed%') then null
           when ${fullyVerified} then degraded_at
           when verified_at is not null and degraded_at is null then now()
           else degraded_at
         end,
         degraded_reason = case
-          when ${canClearDegrade} then null
+          when ${fullyVerified} and (${mayClear} or degraded_reason is null or degraded_reason like 'postmark_verification_lapsed%') then null
           when ${fullyVerified} then degraded_reason
           when verified_at is not null and degraded_at is null then ${
             `postmark_verification_lapsed:dkim=${pmDomain.DKIMVerified}:return_path=${pmDomain.ReturnPathDomainVerified}`
@@ -226,7 +261,14 @@ export async function checkEmailDomain(
     from workspace_email_domains where id = ${row.id}
   `;
 
-  return { row: fresh ?? row, pmDomain, fullyVerified, becameVerified, becameDegraded, recovered, dnsSetup };
+  // Transition flags from the pre-read vs the post-update row, so they
+  // report what the reconcile actually DID (not what the stale read implied).
+  const post = fresh ?? row;
+  const becameVerified = !row.verified_at && !!post.verified_at;
+  const becameDegraded = !row.degraded_at && !!post.degraded_at;
+  const recovered = !!row.degraded_at && !post.degraded_at;
+
+  return { row: post, pmDomain, fullyVerified, becameVerified, becameDegraded, recovered, dnsSetup };
 }
 
 export interface RemoveEmailDomainResult {

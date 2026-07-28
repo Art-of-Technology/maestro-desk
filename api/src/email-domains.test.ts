@@ -45,6 +45,8 @@ runDbTests('email domains (DB-backed)', () => {
   let resolveInboundWorkspace: typeof import('./lib/inbound-email.js').resolveInboundWorkspace;
   let getOutboundFrom: typeof import('./lib/outbound-from.js').getOutboundFrom;
   let degradeDomainForSendRejection: typeof import('./lib/email-domains.js').degradeDomainForSendRejection;
+  let addEmailDomain: typeof import('./lib/email-domains.js').addEmailDomain;
+  let DomainConflictError: typeof import('./lib/email-domains.js').DomainConflictError;
 
   const RUN = Date.now();
   const ctx = {} as Record<string, string>;
@@ -55,15 +57,18 @@ runDbTests('email domains (DB-backed)', () => {
     sql = (await import('./lib/db.js')).getDb();
     ({ resolveInboundWorkspace } = await import('./lib/inbound-email.js'));
     ({ getOutboundFrom } = await import('./lib/outbound-from.js'));
-    ({ degradeDomainForSendRejection } = await import('./lib/email-domains.js'));
+    ({ degradeDomainForSendRejection, addEmailDomain, DomainConflictError } = await import('./lib/email-domains.js'));
 
     const [{ provision_brand: ws }] = await sql<{ provision_brand: string }[]>`
       select provision_brand(${'ed-' + RUN}, ${'ed-' + RUN}) as provision_brand`;
     ctx.ws = ws;
+    const [{ provision_brand: ws2 }] = await sql<{ provision_brand: string }[]>`
+      select provision_brand(${'ed2-' + RUN}, ${'ed2-' + RUN}) as provision_brand`;
+    ctx.ws2 = ws2;
   }, 30000);
 
   afterAll(async () => {
-    await sql`delete from workspace_email_domains where workspace_id = ${ctx.ws}`;
+    await sql`delete from workspace_email_domains where workspace_id in (${ctx.ws}, ${ctx.ws2})`;
   });
 
   it('inbound routing ignores an UNVERIFIED domain claim (anti-squatting gate)', async () => {
@@ -114,6 +119,40 @@ runDbTests('email domains (DB-backed)', () => {
     expect(second.degraded_reason).toBe('send_rejected:400');
 
     await sql`delete from workspace_email_domains where workspace_id = ${ctx.ws} and domain = ${d}`;
+  });
+
+  it('a STALE (7d+) unverified claim is superseded by another workspace\'s add', async () => {
+    const d = dom('stale');
+    const [claim] = await sql<{ id: string }[]>`
+      insert into workspace_email_domains (workspace_id, domain, created_at)
+      values (${ctx.ws}, ${d}, now() - interval '8 days') returning id`;
+
+    const result = await addEmailDomain(ctx.ws2, d);
+    expect(result.row.workspace_id).toBe(ctx.ws2);
+    expect(result.superseded).toEqual({ workspaceId: ctx.ws, domainId: claim.id });
+
+    // The squatter's claim is soft-deleted, not just shadowed.
+    const [old] = await sql<{ deleted_at: Date | null }[]>`
+      select deleted_at from workspace_email_domains where id = ${claim.id}`;
+    expect(old.deleted_at).not.toBeNull();
+
+    await sql`delete from workspace_email_domains where domain = ${d}`;
+  });
+
+  it('a FRESH unverified claim is protected (no supersede) — add conflicts', async () => {
+    const d = dom('fresh');
+    await sql`insert into workspace_email_domains (workspace_id, domain) values (${ctx.ws}, ${d})`;
+    await expect(addEmailDomain(ctx.ws2, d)).rejects.toBeInstanceOf(DomainConflictError);
+    await sql`delete from workspace_email_domains where domain = ${d}`;
+  });
+
+  it('a VERIFIED claim is never superseded, regardless of age', async () => {
+    const d = dom('owned');
+    await sql`
+      insert into workspace_email_domains (workspace_id, domain, verified_at, created_at)
+      values (${ctx.ws}, ${d}, now(), now() - interval '90 days')`;
+    await expect(addEmailDomain(ctx.ws2, d)).rejects.toBeInstanceOf(DomainConflictError);
+    await sql`delete from workspace_email_domains where domain = ${d}`;
   });
 
   it('workspace routes are mounted and require auth', async () => {

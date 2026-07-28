@@ -143,8 +143,26 @@ emailDomains.post('/', async (c) => {
       domain_id: result.row.id,
       postmark_domain_id: result.row.postmark_domain_id,
       postmark_error: result.postmarkError,
+      superseded_claim: result.superseded,
     },
   });
+
+  // A supersede soft-deletes another workspace's stale unverified claim —
+  // leave the removal in THAT workspace's audit trail too.
+  if (result.superseded) {
+    await writeAudit({
+      workspaceId: result.superseded.workspaceId,
+      actorUserId: c.get('userId'),
+      action: 'email_domain.superseded',
+      targetType: 'workspace',
+      targetId: result.superseded.workspaceId,
+      metadata: {
+        domain: result.row.domain,
+        domain_id: result.superseded.domainId,
+        reclaimed_by_workspace: workspaceId,
+      },
+    });
+  }
 
   return c.json({
     domain: publicRow(result.row),
