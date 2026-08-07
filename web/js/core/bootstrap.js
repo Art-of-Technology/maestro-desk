@@ -307,6 +307,7 @@ export async function loadWorkspaceData() {
     address:         c.address || '',
     status:          c.status,
     defaultCategory: c.default_category_key || 'all',
+    defaultPriority: c.default_priority_key || '',
     defaultAgent:    c.default_agent_name || '',
     signature:       c.signature || '',
     volume30d:       c.volume_30d || 0,

@@ -25,34 +25,61 @@ function scoreInboundMessage(args: { workspaceId: string; ticketId: string; mess
   });
 }
 
-// ─── Inbox message helper ────────────────────────────────────────────────
+// ─── Channel resolution ──────────────────────────────────────────────────
 //
-// Resolves the workspace's channel for this inbound (best match by To:
-// address, else first active email channel), then writes an
-// inbox_messages row. Skipped silently when no channel exists (e.g.
-// unrouted bucket, freshly provisioned brand with no channels seeded) —
-// inbox_messages.channel_id is NOT NULL so we can't write a placeholder.
-// Errors are logged but never thrown: the inbox row is an audit trail,
-// not load-bearing for the customer-facing ticket creation.
-async function recordInboundInInbox(args: {
-  workspaceId: string;
-  payload: PostmarkInbound;
-  ticketId: string;
-  toEmail: string | null;
-}): Promise<void> {
-  const { workspaceId, payload, ticketId, toEmail } = args;
-  const sql = getDb();
+// Resolves the workspace's channel for an inbound email: best match by To:
+// address (case-insensitive), else the oldest active email channel, else
+// null (e.g. unrouted bucket, freshly provisioned brand with no channels
+// seeded). The resolved channel always drives the inbox_messages
+// attribution (that column is NOT NULL, so the fallback is required), but
+// its ticket DEFAULTS (priority/category) are only applied when `matched`
+// is true — an address that matches no channel must not inherit the oldest
+// channel's urgency (imagine the oldest active channel being complaint@).
 
-  const channels = await sql<{ id: string; address: string | null }[]>`
-    select id, address from channels
+export interface InboundChannel {
+  id: string;
+  default_priority_key: string | null;
+  default_category_key: string | null;
+  // true = the To: address matched this channel's address; false = this is
+  // the oldest-active fallback, good for attribution only.
+  matched: boolean;
+}
+
+export async function resolveInboundChannel(
+  workspaceId: string,
+  toEmail: string | null,
+): Promise<InboundChannel | null> {
+  const sql = getDb();
+  const channels = await sql<(Omit<InboundChannel, 'matched'> & { address: string | null })[]>`
+    select id, address, default_priority_key, default_category_key from channels
     where workspace_id = ${workspaceId} and type = 'email' and status = 'active'
+      and deleted_at is null
+    order by created_at asc, id asc
   `;
-  if (channels.length === 0) return;
+  if (channels.length === 0) return null;
 
   const matched = toEmail
     ? channels.find((c) => (c.address || '').toLowerCase() === toEmail.toLowerCase())
     : null;
-  const channelId = matched?.id ?? channels[0].id;
+  return matched ? { ...matched, matched: true } : { ...channels[0], matched: false };
+}
+
+// ─── Inbox message helper ────────────────────────────────────────────────
+//
+// Writes an inbox_messages row attributed to the already-resolved channel.
+// Skipped silently when the workspace has no channel —
+// inbox_messages.channel_id is NOT NULL so we can't write a placeholder.
+// Insert errors are logged but never thrown: the inbox row is an audit
+// trail, not load-bearing for the customer-facing ticket creation.
+async function recordInboundInInbox(args: {
+  workspaceId: string;
+  payload: PostmarkInbound;
+  ticketId: string;
+  channelId: string | null;
+}): Promise<void> {
+  const { workspaceId, payload, ticketId, channelId } = args;
+  const sql = getDb();
+  if (!channelId) return;
 
   const { email, name } = parseFrom(payload);
   const body = pickBody(payload);
@@ -136,7 +163,8 @@ export interface InboundResult {
  *   0. Dedup check: if a customer message with this RFC Message-ID already
  *      exists for the workspace, return its ticket without creating anything.
  *   1. Match the sender against customers by email; create a stub if missing.
- *   2. Create a ticket with status=open, priority=normal (triage may change these).
+ *   2. Create a ticket with status=open; priority/category come from the
+ *      To:-matched channel's defaults (complaint@ -> urgent), else normal.
  *   3. Create the first ticket_messages row from the email body.
  *   4. Fire-and-forget auto-triage. The webhook returns immediately so Postmark
  *      doesn't retry — triage runs in the background and updates the ticket
@@ -265,12 +293,20 @@ export async function processInboundEmail(args: {
     }
   }
 
-  // 2. Create the ticket. Status/priority/category are best-guess defaults;
-  //    auto-triage may overwrite them.
+  // 2. Create the ticket. Priority/category come from the channel's defaults
+  //    ONLY when the To: address actually matched it — the oldest-active
+  //    fallback attributes the inbox row but must not lend its urgency to
+  //    mail sent to some unconfigured alias. These defaults stick:
+  //    auto-triage only writes SUGGESTIONS (ai_summary), it never
+  //    overwrites the ticket's actual priority/category.
+  const to = parseTo(payload);
+  const channel = await resolveInboundChannel(workspaceId, to?.email ?? null);
+  const defaults = channel?.matched ? channel : null;
   const ticketDisplayId = await nextDisplayId(sql, workspaceId, 'ticket');
   const [newTicket] = await sql<{ id: string; display_id: string }[]>`
-    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state)
-    values (${workspaceId}, ${ticketDisplayId}, ${subject}, ${customerId}, 'open', 'normal', 'ok')
+    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state)
+    values (${workspaceId}, ${ticketDisplayId}, ${subject}, ${customerId}, 'open',
+            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok')
     returning id, display_id
   `;
   if (!newTicket) throw new Error('Ticket create failed');
@@ -286,10 +322,10 @@ export async function processInboundEmail(args: {
   if (!newMessage) throw new Error('Message create failed');
   void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
-  // 3b. Audit row in the inbox view. Failures are logged but don't fail
-  //     the webhook — the customer-facing ticket has already been created.
-  const to = parseTo(payload);
-  await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, toEmail: to?.email ?? null });
+  // 3b. Audit row in the inbox view, attributed to the channel resolved
+  //     above. Failures are logged but don't fail the webhook — the
+  //     customer-facing ticket has already been created.
+  await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, channelId: channel?.id ?? null });
 
   // 4. Fire-and-forget auto-triage. We swallow errors here — they're already
   //    logged in ai_usage_log + console — because the webhook MUST return
@@ -374,9 +410,19 @@ async function attachReplyToTicket(args: {
 
   // Audit the threaded reply in the inbox view too, so the agent can see
   // the email arrived even if they don't immediately notice the ticket
-  // updated. Same fire-and-forget treatment as the new-ticket path.
+  // updated. The channel is resolved here against the TICKET's workspace
+  // (thread-attach can land in a different workspace than the webhook
+  // resolved, via the shared inbound address) and its defaults are NOT
+  // applied — a reply to complaint@ on an existing ticket doesn't escalate
+  // it. Resolution failures are swallowed: inbox auditing must never fail
+  // the webhook on this path.
   const to = parseTo(payload);
-  await recordInboundInInbox({ workspaceId, payload, ticketId, toEmail: to?.email ?? null });
+  const channel = await resolveInboundChannel(workspaceId, to?.email ?? null)
+    .catch((err) => {
+      console.warn('[inbound-email] channel resolve failed on thread-attach:', err instanceof Error ? err.message : err);
+      return null;
+    });
+  await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null });
 
   // Fire-and-forget retriage so the AI draft refreshes with the new turn.
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.
