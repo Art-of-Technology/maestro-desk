@@ -22,7 +22,7 @@ import { CH_FILTER, CURRENT_PAGE, setChFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiPost, apiPatch, apiDelete, getJwt } from '../core/api-client.js';
 
 const CH_TYPES = [
   { v:'email',   l:'Email',     icon:'<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M1.5 3.5L7 8l5.5-4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
@@ -45,11 +45,17 @@ function chTypeLabel(t) {
   return meta ? meta.l : t;
 }
 
-// Live workspaces carry the DB uuid on every row (stashed by bootstrap);
-// the demo persona has none and keeps its local-only mutations.
+// Live sessions (real JWT) persist through the API; the demo persona and
+// the CI smokes have no session and keep their local-only mutations. Keyed
+// off the session, NOT off CHANNELS rows carrying _uuid — a freshly
+// provisioned live workspace has zero channels and must still POST.
 function chApiBacked() {
-  return CHANNELS.some(c => c._uuid);
+  return !!getJwt();
 }
+
+// One channel write at a time: the modal's confirm can be double-clicked
+// while the request is in flight (two POSTs = duplicate channels).
+let chBusy = false;
 
 // API row -> UI shape; mirrors the bootstrap CHANNELS mapping.
 function chMapResponse(r) {
@@ -260,15 +266,19 @@ function chNew() {
   showModal('New channel', chFormBody(null), async () => {
     const payload = chFormPayload();
     if (!payload.name || !payload.address) return;
-    if (chApiBacked()) {
-      let resp;
-      try { resp = await apiPost('/api/v1/channels', payload); }
-      catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
-      CHANNELS.unshift(chMapResponse(resp.channel));
-    } else {
-      CHANNELS.unshift({ id: chNextId(), ...chFormLocal(payload), volume30d: 0 });
-    }
-    closeModal(); renderPage('channels');
+    if (chBusy) return;
+    chBusy = true;
+    try {
+      if (chApiBacked()) {
+        let resp;
+        try { resp = await apiPost('/api/v1/channels', payload); }
+        catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
+        CHANNELS.unshift(chMapResponse(resp.channel));
+      } else {
+        CHANNELS.unshift({ id: chNextId(), ...chFormLocal(payload), volume30d: 0 });
+      }
+      closeModal(); renderPage('channels');
+    } finally { chBusy = false; }
   }, 'Create');
 }
 
@@ -278,29 +288,37 @@ function chEdit(id) {
   showModal(`Edit ${c.id}`, chFormBody(c), async () => {
     const payload = chFormPayload();
     if (!payload.name || !payload.address) return;
-    if (c._uuid) {
-      let resp;
-      try { resp = await apiPatch(`/api/v1/channels/${c._uuid}`, payload); }
-      catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
-      Object.assign(c, chMapResponse(resp.channel));
-    } else {
-      Object.assign(c, chFormLocal(payload));
-    }
-    closeModal(); renderPage('channels');
+    if (chBusy) return;
+    chBusy = true;
+    try {
+      if (c._uuid) {
+        let resp;
+        try { resp = await apiPatch(`/api/v1/channels/${c._uuid}`, payload); }
+        catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+        Object.assign(c, chMapResponse(resp.channel));
+      } else {
+        Object.assign(c, chFormLocal(payload));
+      }
+      closeModal(); renderPage('channels');
+    } finally { chBusy = false; }
   }, 'Save');
 }
 
 function chDelete(id) {
   if (!window.isAdmin()) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
-  showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Incoming email to its address will stop matching it (new tickets fall back to the oldest active email channel's defaults). Past tickets and inbox history are kept.</div>`, async () => {
-    if (c._uuid) {
-      try { await apiDelete(`/api/v1/channels/${c._uuid}`); }
-      catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
-    }
-    const i = CHANNELS.findIndex(x => x.id === id);
-    if (i >= 0) CHANNELS.splice(i, 1);
-    closeModal(); renderPage('channels');
+  showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Incoming email to its address will stop matching it and arrive with no channel defaults. Past tickets and inbox history are kept.</div>`, async () => {
+    if (chBusy) return;
+    chBusy = true;
+    try {
+      if (c._uuid) {
+        try { await apiDelete(`/api/v1/channels/${c._uuid}`); }
+        catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+      }
+      const i = CHANNELS.findIndex(x => x.id === id);
+      if (i >= 0) CHANNELS.splice(i, 1);
+      closeModal(); renderPage('channels');
+    } finally { chBusy = false; }
   }, 'Delete');
 }
 

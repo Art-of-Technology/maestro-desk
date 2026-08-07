@@ -30,14 +30,19 @@ function scoreInboundMessage(args: { workspaceId: string; ticketId: string; mess
 // Resolves the workspace's channel for an inbound email: best match by To:
 // address (case-insensitive), else the oldest active email channel, else
 // null (e.g. unrouted bucket, freshly provisioned brand with no channels
-// seeded). The matched channel drives BOTH the inbox_messages attribution
-// and — on the ticket-create path — the new ticket's default priority and
-// category, so complaint@ can land more urgent than support@.
+// seeded). The resolved channel always drives the inbox_messages
+// attribution (that column is NOT NULL, so the fallback is required), but
+// its ticket DEFAULTS (priority/category) are only applied when `matched`
+// is true — an address that matches no channel must not inherit the oldest
+// channel's urgency (imagine the oldest active channel being complaint@).
 
 export interface InboundChannel {
   id: string;
   default_priority_key: string | null;
   default_category_key: string | null;
+  // true = the To: address matched this channel's address; false = this is
+  // the oldest-active fallback, good for attribution only.
+  matched: boolean;
 }
 
 export async function resolveInboundChannel(
@@ -45,7 +50,7 @@ export async function resolveInboundChannel(
   toEmail: string | null,
 ): Promise<InboundChannel | null> {
   const sql = getDb();
-  const channels = await sql<(InboundChannel & { address: string | null })[]>`
+  const channels = await sql<(Omit<InboundChannel, 'matched'> & { address: string | null })[]>`
     select id, address, default_priority_key, default_category_key from channels
     where workspace_id = ${workspaceId} and type = 'email' and status = 'active'
       and deleted_at is null
@@ -56,7 +61,7 @@ export async function resolveInboundChannel(
   const matched = toEmail
     ? channels.find((c) => (c.address || '').toLowerCase() === toEmail.toLowerCase())
     : null;
-  return matched ?? channels[0];
+  return matched ? { ...matched, matched: true } : { ...channels[0], matched: false };
 }
 
 // ─── Inbox message helper ────────────────────────────────────────────────
@@ -288,17 +293,20 @@ export async function processInboundEmail(args: {
     }
   }
 
-  // 2. Create the ticket. Priority/category come from the channel matched on
-  //    the To: address (its defaults), falling back to 'normal'/none. These
-  //    stick: auto-triage only writes SUGGESTIONS (ai_summary), it never
+  // 2. Create the ticket. Priority/category come from the channel's defaults
+  //    ONLY when the To: address actually matched it — the oldest-active
+  //    fallback attributes the inbox row but must not lend its urgency to
+  //    mail sent to some unconfigured alias. These defaults stick:
+  //    auto-triage only writes SUGGESTIONS (ai_summary), it never
   //    overwrites the ticket's actual priority/category.
   const to = parseTo(payload);
   const channel = await resolveInboundChannel(workspaceId, to?.email ?? null);
+  const defaults = channel?.matched ? channel : null;
   const ticketDisplayId = await nextDisplayId(sql, workspaceId, 'ticket');
   const [newTicket] = await sql<{ id: string; display_id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state)
     values (${workspaceId}, ${ticketDisplayId}, ${subject}, ${customerId}, 'open',
-            ${channel?.default_priority_key ?? 'normal'}, ${channel?.default_category_key ?? null}, 'ok')
+            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok')
     returning id, display_id
   `;
   if (!newTicket) throw new Error('Ticket create failed');

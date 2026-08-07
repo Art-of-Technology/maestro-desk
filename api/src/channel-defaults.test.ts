@@ -78,12 +78,23 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
     const [{ provision_brand: ws2 }] = await sql<{ provision_brand: string }[]>`
       select provision_brand(${'chd2-' + RUN}, ${'chd2-' + RUN}) as provision_brand`;
     ctx.wsBare = ws2;
+
+    // Workspace whose ONLY (hence oldest/fallback) email channel is an
+    // urgent-default complaints channel — the fallback-defaults footgun.
+    const [{ provision_brand: ws3 }] = await sql<{ provision_brand: string }[]>`
+      select provision_brand(${'chd3-' + RUN}, ${'chd3-' + RUN}) as provision_brand`;
+    ctx.wsComplaintFirst = ws3;
+    const [only] = await sql<{ id: string }[]>`
+      insert into channels (workspace_id, display_id, name, type, address, status, default_priority_key)
+      values (${ws3}, ${`CH-only-${RUN}`}, 'complaints-only', 'email', ${addr('only-complaint')}, 'active', 'urgent')
+      returning id`;
+    ctx.chOnlyComplaint = only.id;
   }, 30000);
 
   afterAll(async () => {
-    await sql`delete from inbox_messages where workspace_id in (${ctx.ws}, ${ctx.wsBare})`;
-    await sql`delete from ticket_messages where workspace_id in (${ctx.ws}, ${ctx.wsBare})`;
-    await sql`delete from tickets where workspace_id in (${ctx.ws}, ${ctx.wsBare})`;
+    await sql`delete from inbox_messages where workspace_id in (${ctx.ws}, ${ctx.wsBare}, ${ctx.wsComplaintFirst})`;
+    await sql`delete from ticket_messages where workspace_id in (${ctx.ws}, ${ctx.wsBare}, ${ctx.wsComplaintFirst})`;
+    await sql`delete from tickets where workspace_id in (${ctx.ws}, ${ctx.wsBare}, ${ctx.wsComplaintFirst})`;
   });
 
   it('applies the matched channel defaults: complaint@ lands urgent + categorized', async () => {
@@ -130,7 +141,25 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
     for (const to of [addr('inactive'), addr('deleted')]) {
       const ch = await resolveInboundChannel(ctx.ws, to);
       expect(ch?.id).toBe(ctx.chSupport);   // fell back — urgent channels excluded
+      expect(ch?.matched).toBe(false);      // and flagged as attribution-only
     }
+  });
+
+  it('does not apply defaults from a fallback channel on an unmatched To:', async () => {
+    // The workspace's ONLY (oldest) email channel is complaint@ with an
+    // urgent default. Mail to an unconfigured alias must still land normal —
+    // the fallback attributes the inbox row but must not lend its urgency.
+    const res = await processInboundEmail({
+      workspaceId: ctx.wsComplaintFirst,
+      payload: inbound({ from: `alias-${RUN}@cust.test`, to: addr('unconfigured'), subject: 'Alias mail', text: 'alias body', messageId: `<c6-${RUN}@cust.test>` }),
+    });
+    const [t] = await sql<{ priority_key: string; category_key: string | null }[]>`
+      select priority_key, category_key from tickets where id = ${res.ticket_id}`;
+    expect(t.priority_key).toBe('normal');   // NOT the fallback channel's urgent
+    expect(t.category_key).toBeNull();
+    const [inboxRow] = await sql<{ channel_id: string }[]>`
+      select channel_id from inbox_messages where converted_ticket_id = ${res.ticket_id}`;
+    expect(inboxRow.channel_id).toBe(ctx.chOnlyComplaint);   // attribution keeps the fallback
   });
 
   it('creates the ticket (normal, no inbox row) when the workspace has no channels', async () => {
