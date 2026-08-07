@@ -18,7 +18,7 @@
 // still in app.js.
 
 import { AGENTS, CATEGORIES, CHANNELS, TICKETS } from '../core/data.js';
-import { CH_FILTER, setChFilter } from '../core/state.js';
+import { CH_FILTER, CURRENT_PAGE, setChFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -170,7 +170,9 @@ function chToggle(id, active) {
   if (c._uuid) {
     apiPatch(`/api/v1/channels/${c._uuid}`, { status: c.status }).catch((err) => {
       c.status = prev;                     // revert the optimistic flip
-      renderPage('channels');
+      // Only re-render if the user is still looking at this page — the
+      // failure can land after they've navigated elsewhere.
+      if (CURRENT_PAGE === 'channels') renderPage('channels');
       alert(`Couldn't update: ${err?.message || err}`);
     });
   }
