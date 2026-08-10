@@ -15,12 +15,16 @@ const Env = z.object({
   // 32`). REQUIRED as of the Step 3 auth cutover: Better Auth is now the live
   // auth system, so the app must not boot without a real secret.
   BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.string().url().default('http://localhost:3001'),
+  // Trailing slashes are stripped here once so every consumer can concatenate
+  // `${env.X}/path` safely — do NOT re-strip at the call sites.
+  BETTER_AUTH_URL: z.string().url().default('http://localhost:3001')
+    .transform((v) => v.replace(/\/+$/, '')),
   // Public origin of the agent SPA (where index.html is served). Used as a
   // Better Auth trusted origin and to build the password-reset link emailed to
   // invited/reset users (`${APP_BASE_URL}/?reset_token=...`). Dev default is
   // the local static server; set to https://app.respovia.com in prod.
-  APP_BASE_URL: z.string().url().default('http://localhost:5173'),
+  APP_BASE_URL: z.string().url().default('http://localhost:5173')
+    .transform((v) => v.replace(/\/+$/, '')),
   ANTHROPIC_API_KEY: z.string().min(20),
   // Shared secret for the Postmark inbound + bounce webhooks, sent via HTTP
   // Basic Auth (the password slot) — configure the webhook URL as

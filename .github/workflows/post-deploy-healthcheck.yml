@@ -48,6 +48,14 @@ jobs:
       - name: Wait for the API + SPA to be healthy
         run: |
           set -u
+          # Fast-fail with the RIGHT diagnosis if the custom domain isn't live
+          # yet: curl exit 6 = could not resolve host, which means DNS/domain
+          # attachment is missing — a rollback would not fix anything.
+          curl -sS -m 10 -o /dev/null "$API_BASE/api/v1/health" || rc=$?
+          if [ "${rc:-0}" = "6" ]; then
+            echo "::error::${API_BASE} does not resolve — the respovia.com DNS records / Vercel domain attachment are not live. This is a DNS problem, not a bad deploy; do NOT roll back."
+            exit 1
+          fi
           echo "Giving the Vercel deploy ${INITIAL_DELAY_SECONDS}s to land before probing…"
           sleep "$INITIAL_DELAY_SECONDS"
 

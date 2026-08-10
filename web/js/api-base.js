@@ -32,12 +32,18 @@
   var STAGING_API = 'https://maestro-desk-zjkl-git-staging-jodi-1420s-projects.vercel.app';
   var h = location.hostname;
   if (/^(app\.|www\.)?respovia\.com$/.test(h)) {
-    // Production. app.respovia.com is canonical; the apex and www are mapped
-    // defensively in case a visitor lands there before the redirect is set up.
+    // Production. app.respovia.com is the ONLY fully working host: the API's
+    // CORS/trusted-origin allowlist is APP_BASE_URL alone, so on the apex/www
+    // the SPA renders but sign-in is origin-blocked. Those hosts are mapped
+    // anyway so they fail toward the real API rather than localhost, but the
+    // Vercel 308 redirect apex/www -> app is REQUIRED, not cosmetic.
     window.RESPOVIA_API_BASE = 'https://api.respovia.com';
   } else if (h === 'maestro-desk-jodi-1420s-projects.vercel.app') {
-    // Legacy interim host from before respovia.com — kept through the cutover
-    // soak so stale bookmarks still resolve an API; remove in the cleanup PR.
+    // Legacy interim host. This stays the WORKING production host until the
+    // env cutover (APP_BASE_URL/BETTER_AUTH_URL -> respovia.com); after that
+    // flip it is CORS-blocked by the API and this mapping only keeps the
+    // failure pointed at the real API instead of localhost. Remove in the
+    // post-soak cleanup PR.
     window.RESPOVIA_API_BASE = 'https://maestro-desk-zjkl.vercel.app';
   } else if (/^maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/.test(h)) {
     // STAGING (`git-staging`) and every PR-preview branch deploy → the staging

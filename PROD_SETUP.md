@@ -13,9 +13,14 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 > | Support email | `support@respovia.com` (see §5) | — |
 >
 > Notes:
-> - **Use a recognized agent-app host.** `web/js/api-base.js` maps the API base by hostname: `app.respovia.com` (plus the apex/www, defensively) and — during the cutover soak — the legacy `maestro-desk-jodi-1420s-projects.vercel.app`. Anything else (incl. the old `service-desk-six.vercel.app` alias) falls back to `localhost:3001` and login fails.
-> - The apex `respovia.com` + `www` are attached to the SPA project; set a 308 redirect → `app.respovia.com` in Vercel → Project → Settings → Domains (the SPA works on the apex either way via the defensive mapping).
-> - The legacy `*.vercel.app` mappings in `api-base.js`, the CSP `connect-src`, and `maestro.yml` are kept through the soak period and removed in a cleanup PR.
+> - **`app.respovia.com` is the only fully working agent-app host.** The API's CORS + Better Auth trusted-origin allowlist is `APP_BASE_URL` alone, so on any other host — the apex/www, the legacy `maestro-desk-jodi-1420s-projects.vercel.app` after the env cutover, the old `service-desk-six.vercel.app` alias — the SPA either renders-but-can't-sign-in (origin-blocked) or falls back to `localhost:3001` entirely. Always use `app.respovia.com`.
+> - **The apex/www 308 redirect → `app.respovia.com` is REQUIRED** (Vercel → `maestro-desk` project → Settings → Domains). Without it, visitors on `respovia.com` get a rendered SPA whose sign-in fails with opaque CORS errors. Do not "fix" that by widening the server allowlist.
+> - **Domain wiring checklist (do once, before the env cutover):**
+>   1. Vercel: `api.respovia.com` attached to `maestro-desk-zjkl`; `app.respovia.com` + apex + `www` attached to `maestro-desk` (apex/www set to redirect).
+>   2. Cloudflare DNS (**DNS-only/grey-cloud** — the proxy breaks Vercel TLS): `CNAME app → cname.vercel-dns.com`, `CNAME api → cname.vercel-dns.com`, apex/www per the records Vercel shows on the domain entries.
+>   3. Wait until all four hosts serve valid certs before flipping any env var or merging the healthcheck-host change.
+> - **Cutover ordering (breaks SSO if violated):** the Maestro OAuth `redirect_uri` is derived from `BETTER_AUTH_URL` at runtime, but the platform only accepts URIs registered in the **approved** manifest. Editing `maestro.yml` in-repo is inert — submit `maestro apps diff` → `maestro apps revise` and wait for approval **before** setting `BETTER_AUTH_URL=https://api.respovia.com`, or every "Sign in with Maestro" is rejected as an unregistered redirect URI until approval lands.
+> - The legacy `*.vercel.app` entries in `api-base.js`, the CSP `connect-src`, and `maestro.yml` keep the OLD host working until the env cutover; after the flip the old host is CORS-blocked by design (tell the team to switch bookmarks). Remove the entries in a cleanup PR after the soak.
 
 > Legend: 🤖 = Claude can do it (repo / Neon SQL via Management or psql) · 👤 = you (billing, DNS, account auth, deploy).
 
@@ -77,15 +82,17 @@ This is atomic: the API verifies Better Auth sessions and the SPA signs in via B
   - **DKIM** + **Return-Path (CNAME)** — from Postmark
   - **SPF (TXT @):** `v=spf1 a mx include:spf.mtasv.net ~all`
   - **DMARC (TXT _dmarc):** `v=DMARC1; p=none; pct=100; rua=mailto:rua@dmarc.postmarkapp.com` (monitoring; tighten after ~2 weeks)
-  - **MX ⚠ decision:** an MX → `inbound.postmarkapp.com` on the apex routes ALL `@respovia.com` mail to the ticketing webhook and forecloses ever hosting normal mailboxes (e.g. Google Workspace) on the domain. Outbound ticket replies already thread via the `POSTMARK_INBOUND_REPLY_ADDRESS` Reply-To, so only add the apex MX if `support@respovia.com` must accept *directly-addressed* mail — otherwise skip it (or use a subdomain MX later).
+  - **MX ⚠ decision — pick one, the later steps depend on it:**
+    - **(a) Apex MX → `inbound.postmarkapp.com`.** `support@respovia.com` accepts directly-addressed mail → the `workspace_email_domains` step below and the §6 "email a ticket into existence" smoke work as written. Cost: ALL `@respovia.com` mail routes to the ticketing webhook — no normal mailboxes (e.g. Google Workspace) on the apex, ever, without redoing this.
+    - **(b) No apex MX.** Mailbox options stay open; *replies* to outbound ticket email still thread fine (they ride the `POSTMARK_INBOUND_REPLY_ADDRESS` Reply-To). But directly-addressed mail to `support@respovia.com` **bounces**: skip the `workspace_email_domains` step below, skip the §6 send-an-email smoke, and take email-to-ticket intake from a subdomain (e.g. MX on `support.respovia.com`) or a forwarding rule later.
 - [ ] 👤 Verify the domain in Postmark (DKIM + Return-Path) — DNS can take minutes–hours.
 - [ ] 👤 Configure the Postmark inbound webhook with **HTTP Basic Auth** (the secret rides in the `Authorization` header, never the URL) → `https://postmark:<POSTMARK_INBOUND_SECRET>@api.respovia.com/api/v1/webhooks/postmark/inbound`. The bounce webhook uses Postmark's HTTP Basic Auth username/password fields (username `postmark`, password = the secret). The `?secret=` query form is no longer accepted.
-- [ ] 🤖 Add the support domain to `workspace_email_domains` so inbound routes to your workspace (not the unrouted bucket).
+- [ ] 🤖 *(MX option (a) only)* Add the support domain to `workspace_email_domains` so inbound routes to your workspace (not the unrouted bucket).
 
 ## 6. Smoke + pilot
 - [ ] 👤 Agent signs in at `https://app.respovia.com` with their **Better-Auth** password (set via the reset link) — confirm the workspace shell loads (not the demo persona).
 - [ ] 👤 Platform admin (`jodi@…`) signs in → the god panel is reachable; create a brand + invite an owner → owner receives the set-password email.
-- [ ] 👤 *(after §5)* Send a test email to `support@respovia.com` → confirm a ticket appears and auto-triage populates summary/draft; agent replies → customer receives it from `support@respovia.com`. Until then, you can still create tickets manually in-app to exercise the rest of the flow.
+- [ ] 👤 *(after §5; MX option (a) only — with option (b) directly-addressed mail bounces by design)* Send a test email to `support@respovia.com` → confirm a ticket appears and auto-triage populates summary/draft; agent replies → customer receives it from `support@respovia.com`. Until then, you can still create tickets manually in-app to exercise the rest of the flow.
 - [ ] 👤 Upload a workspace logo in Settings → confirm it renders from the R2 public URL.
 - [ ] 👤 Run a few real tickets through before flipping your public support address.
 - [ ] 👤 *(after §5 / domain registered)* **Cutover:** change where `support@…` mail is delivered from Zoho to Postmark; leave Zoho read-only until open tickets there close.
@@ -109,7 +116,7 @@ This is **rehearsal-only** (the chosen scope): prod's auto-deploy path and its m
 - [ ] 👤 **Neon:** create a **branch** database off prod (copy-on-write; scales to zero). Capture its pooled connection string.
 - [ ] 👤 **GitHub:** create a **`staging` Environment** (Settings → Environments); add secret `DATABASE_URL` = the Neon staging-branch URL; restrict the environment to the **`staging`** branch (mirrors how `production` gates prod in `migrate.yml`).
 - [ ] 👤 **Vercel (both projects, `maestro-desk` SPA + `maestro-desk-zjkl` API):** enable deploys for the `staging` branch and set its env vars **scoped to that branch/Preview**: `DATABASE_URL` = Neon staging branch; `APP_BASE_URL` = the staging **SPA** host (so the staging SPA's authenticated calls aren't CORS-blocked — see Notes/CORS); `BETTER_AUTH_URL` = the staging **API** host; plus `PORTAL_BASE_URL`, `BETTER_AUTH_SECRET`, `ANTHROPIC_API_KEY`, `POSTMARK_INBOUND_SECRET`, `CRON_SECRET`, and the `R2_*` group (same required set as §3).
-- [ ] 👤 **Confirm the staging hostnames.** The SPA routing scaffolds `maestro-desk-git-staging-jodi-1420s-projects.vercel.app` (SPA) → `maestro-desk-zjkl-git-staging-jodi-1420s-projects.vercel.app` (API), the standard Vercel git-branch pattern. After the first staging deploy, verify the actual URLs (Project → Deployments → `staging`) and update the two constants in `web/index.html` + `web/portal.html` if they differ (or if you assign a custom staging alias). If wrong, the staging SPA falls back to `localhost:3001` and login fails on **staging only**.
+- [ ] 👤 **Confirm the staging hostnames.** The SPA routing scaffolds `maestro-desk-git-staging-jodi-1420s-projects.vercel.app` (SPA) → `maestro-desk-zjkl-git-staging-jodi-1420s-projects.vercel.app` (API), the standard Vercel git-branch pattern. After the first staging deploy, verify the actual URLs (Project → Deployments → `staging`) and update `STAGING_API` + the preview-host regex in `web/js/api-base.js` if they differ (or if you assign a custom staging alias) — the hostname logic lives there now, not in `index.html`/`portal.html`. If wrong, the staging SPA falls back to `localhost:3001` and login fails on **staging only**.
 - [ ] 👤 **Create the long-lived `staging` branch** off `main` (after this merges, so it carries `migrate-staging.yml`): `git branch staging main && git push -u origin staging`.
 
 **Then, per change:** open a PR → merge to `staging` → staging auto-deploys + `migrate-staging.yml` runs against the Neon branch → verify `GET <staging-api>/api/v1/health/ready` is green and smoke the change → merge `staging` → `main` (prod deploys + prod migrate as today).

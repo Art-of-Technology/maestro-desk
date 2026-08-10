@@ -53,7 +53,7 @@ export async function notifyMentionedAgents(args: {
   // which is the customer portal and may live on a different host. The
   // link is best-effort — agents will likely already have the SPA open
   // and can search by display_id either way.
-  const agentBase = env.APP_BASE_URL.replace(/\/+$/, '');
+  const agentBase = env.APP_BASE_URL;
   const ticketUrl = `${agentBase}/?ws=${encodeURIComponent(workspaceSlug || '')}#ticket/${encodeURIComponent(ticket.display_id)}`;
 
   // Truncate the note body — the email is a notification, not a

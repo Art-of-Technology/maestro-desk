@@ -90,7 +90,7 @@ Two independently-running pieces:
 - Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). The classic script `js/api-base.js` (loaded before the module entry) sets `window.RESPOVIA_API_BASE` by hostname — the prod hosts (`app.respovia.com`, plus the apex/www) map to `https://api.respovia.com`; unmapped hosts fall back to `http://localhost:3001`.
 - Customer portal: **`portal.html`** (self-contained, separate page).
 - Local static server: **`scripts/serve-spa.js`** (`Bun.serve` on **port 5173**, serves the `web/` frontend root so ES modules load).
-- **There is no `GET /api/v1/config` route.** (The pre-migration doc claimed one returning a Supabase URL + anon key — that no longer exists.) The SPA learns its API base from the inline script in `index.html`; Pubby's client config is served separately at `GET /api/v1/pubby/config`.
+- **There is no `GET /api/v1/config` route.** (The pre-migration doc claimed one returning a Supabase URL + anon key — that no longer exists.) The SPA learns its API base from the classic script `web/js/api-base.js` (loaded before the module entry); Pubby's client config is served separately at `GET /api/v1/pubby/config`.
 
 ---
 
@@ -110,7 +110,7 @@ Two independently-running pieces:
 - **Scheduled jobs: Vercel Cron** — declared in **`api/vercel.json`**: `0 3 * * *` → `/api/v1/cron/webhook-retry`, and `0 4 * * *` → `/api/v1/cron/csat-reminders`. These call the cron endpoints (guarded by `CRON_SECRET`) that, in production, do the sweeping the in-process dev workers do locally.
 - **DB deploy:** apply `db/migrations/` SQL to Neon (validate on Docker PG 17 first, per `CLAUDE.md`).
 
-⚠️ **Cannot verify / flag — production cutover:** `index.html` and `portal.html` now map the prod hostnames to the Vercel API (`https://api.maestro-desk.com`), and the Fly config has been removed. The remaining (out-of-repo) steps are: point `api.maestro-desk.com` DNS at the Vercel deployment, set `BETTER_AUTH_URL=https://api.maestro-desk.com` so session tokens verify, and set `CRON_SECRET` in the Vercel env so the cron jobs run. (The cron-driven background work is already wired in code — see §4/§6 — so no code change is needed; an unset `CRON_SECRET` just means the sweeps 401 and never run.)
+⚠️ **Production cutover (2026-08-10):** `web/js/api-base.js` maps the prod hostnames (`app.respovia.com` + apex/www) to the Vercel API (`https://api.respovia.com`), and the Fly config has been removed. The out-of-repo steps are: Cloudflare DNS records for `app`/`api` (+ apex/www) → Vercel, `BETTER_AUTH_URL=https://api.respovia.com` so session tokens verify, and `CRON_SECRET` in the Vercel env so the cron jobs run — see `PROD_SETUP.md` for the full runbook and ordering. (The cron-driven background work is already wired in code — see §4/§6 — so no code change is needed; an unset `CRON_SECRET` just means the sweeps 401 and never run.)
 
 ---
 
@@ -125,7 +125,7 @@ Two independently-running pieces:
 - **Optional (default `''`/skip or platform-set):** `BETTER_AUTH_URL`, `APP_BASE_URL`, `POSTMARK_SERVER_TOKEN`, `POSTMARK_OUTBOUND_FROM`, `POSTMARK_ACCOUNT_TOKEN`, `POSTMARK_INBOUND_REPLY_ADDRESS`, `PORTAL_BASE_URL`, the `R2_*` group (Cloudflare R2 brand-asset uploads), the `PUBBY_*` group (realtime; unset → SPA falls back to polling), `CRON_SECRET` (required on Vercel, optional locally), and `PORT` (default 3001).
 - **No `SUPABASE_*` vars** are read anymore — the loader has none.
 - **Secret manager:** in production, secrets are set in **Vercel project env vars**; locally they live in `api/.env` (gitignored — only `.env.example` is committed). No HashiCorp Vault / cloud secret-manager.
-- **Frontend secrets:** none — it only needs the API base URL (set inline in `index.html`).
+- **Frontend secrets:** none — it only needs the API base URL (set by `web/js/api-base.js`).
 
 ⚠️ **Cannot verify / flag:** real secret **values** are not in the repo (correct/expected). If any older docs still mention `SUPABASE_*` / `fly secrets set`, treat those as stale — the live required set is the four vars above, set as Vercel project env vars in production.
 
