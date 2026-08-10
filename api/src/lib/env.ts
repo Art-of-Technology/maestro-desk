@@ -145,6 +145,22 @@ const Env = z.object({
 export const env = Env.parse(process.env);
 export type Env = z.infer<typeof Env>;
 
+// PRODUCTION boot guard: the localhost defaults on the public-URL vars exist
+// only for local dev. On a Vercel PRODUCTION deploy an unset var would
+// otherwise fail silently and late (CORS-blocked SPA, dead reset links,
+// broken OAuth callback) — refuse to boot instead. Preview/staging deploys
+// are exempt: they set their own values per PROD_SETUP.md §7.
+if (process.env.VERCEL_ENV === 'production') {
+  const localhostVars = (['BETTER_AUTH_URL', 'APP_BASE_URL'] as const)
+    .filter((k) => env[k].startsWith('http://localhost'));
+  if (localhostVars.length > 0) {
+    throw new Error(
+      `Production deploy with localhost default(s) for: ${localhostVars.join(', ')} — ` +
+      'set the real public URLs in the Vercel Production env (see PROD_SETUP.md §3).'
+    );
+  }
+}
+
 // Runtime environment flag (distinct from the validated config above —
 // these are ambient signals injected by the platform, not app config).
 // `VERCEL` is set on every Vercel deployment; `NODE_ENV` is the standard
