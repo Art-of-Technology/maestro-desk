@@ -58,7 +58,7 @@ export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
   // The SPA is served from a different origin than the API (e.g. :5173 → :3001
-  // in dev; desk.maestro-desk.com → the API host in prod). Trust it so sign-in
+  // in dev; app.respovia.com → the API host in prod). Trust it so sign-in
   // and password-reset accept it. BETTER_AUTH_URL (the API's own origin) is
   // also trusted so the Maestro OAuth flow can land on the API-hosted
   // oauth-complete bridge (routes/maestro.ts) as its callbackURL.

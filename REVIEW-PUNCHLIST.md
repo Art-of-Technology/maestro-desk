@@ -20,10 +20,10 @@
 ## P1 — before any external pilot
 
 ### Domain & email
-- [ ] **Register the product domain.** `PROD_SETUP.md:7-19,69-80` — running on `*.vercel.app`;
-  inbound/outbound email ticketing cannot run without MX/DKIM on a real domain. Blocks the core
-  helpdesk feature. Per-brand sender plumbing already exists (`api/src/lib/postmark-domains.ts`,
-  migration `20260530210000_*` / `workspace_email_domains`) — the root domain is the prerequisite.
+- [x] **Register the product domain.** *(Done 2026-08-10: `respovia.com` registered on
+  Cloudflare and wired to prod — `app.`/`api.respovia.com`; see `PROD_SETUP.md`.)* Per-brand
+  sender plumbing already exists (`api/src/lib/postmark-domains.ts`, migration
+  `20260530210000_*` / `workspace_email_domains`) — the root domain was the prerequisite.
 
 ### Abuse / resilience
 - [ ] **Rate-limit the public portal.** No rate limiting anywhere in the codebase (every

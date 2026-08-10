@@ -35,8 +35,8 @@ export const maestro = new Hono();
 // SPA origin we hand the session back to. APP_BASE_URL is the canonical SPA
 // origin (trusted by Better Auth); we only ever redirect to it, never to a
 // caller-supplied URL, so the token can't be exfiltrated to another origin.
-const SPA_ORIGIN = env.APP_BASE_URL.replace(/\/+$/, '');
-const OAUTH_COMPLETE_URL = `${env.BETTER_AUTH_URL.replace(/\/+$/, '')}/api/v1/maestro/oauth-complete`;
+const SPA_ORIGIN = env.APP_BASE_URL; // trailing slash already stripped in env.ts
+const OAUTH_COMPLETE_URL = `${env.BETTER_AUTH_URL}/api/v1/maestro/oauth-complete`;
 
 function ensureEnabled() {
   if (!maestroSignInEnabled) {

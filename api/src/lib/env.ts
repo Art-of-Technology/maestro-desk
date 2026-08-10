@@ -15,12 +15,16 @@ const Env = z.object({
   // 32`). REQUIRED as of the Step 3 auth cutover: Better Auth is now the live
   // auth system, so the app must not boot without a real secret.
   BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.string().url().default('http://localhost:3001'),
+  // Trailing slashes are stripped here once so every consumer can concatenate
+  // `${env.X}/path` safely — do NOT re-strip at the call sites.
+  BETTER_AUTH_URL: z.string().url().default('http://localhost:3001')
+    .transform((v) => v.replace(/\/+$/, '')),
   // Public origin of the agent SPA (where index.html is served). Used as a
   // Better Auth trusted origin and to build the password-reset link emailed to
   // invited/reset users (`${APP_BASE_URL}/?reset_token=...`). Dev default is
-  // the local static server; set to https://desk.maestro-desk.com in prod.
-  APP_BASE_URL: z.string().url().default('http://localhost:5173'),
+  // the local static server; set to https://app.respovia.com in prod.
+  APP_BASE_URL: z.string().url().default('http://localhost:5173')
+    .transform((v) => v.replace(/\/+$/, '')),
   ANTHROPIC_API_KEY: z.string().min(20),
   // Shared secret for the Postmark inbound + bounce webhooks, sent via HTTP
   // Basic Auth (the password slot) — configure the webhook URL as
@@ -92,7 +96,7 @@ const Env = z.object({
   // key is server-only. VAPID_SUBJECT is a mailto: or https: contact URL.
   VAPID_PUBLIC_KEY: z.string().default(''),
   VAPID_PRIVATE_KEY: z.string().default(''),
-  VAPID_SUBJECT: z.string().default('mailto:ops@maestro-desk.com'),
+  VAPID_SUBJECT: z.string().default('mailto:ops@respovia.com'),
   // Vercel Cron auth (Step 6). Vercel sends `Authorization: Bearer
   // ${CRON_SECRET}` when invoking the /api/v1/cron/* endpoints; they reject
   // anything else. Required on Vercel (generate with `openssl rand -base64
@@ -140,6 +144,27 @@ const Env = z.object({
 
 export const env = Env.parse(process.env);
 export type Env = z.infer<typeof Env>;
+
+// PRODUCTION boot guard: the localhost defaults on the public-URL vars exist
+// only for local dev. On a production deploy an unset var would otherwise
+// fail silently and late (CORS-blocked SPA, dead reset links, broken OAuth
+// callback) — refuse to boot instead. Covers Vercel production AND
+// self-hosted production (NODE_ENV). Vercel PREVIEW deploys are exempt on
+// purpose: PR-preview API builds don't carry these vars and must still boot
+// (staging sets its own branch-scoped values per PROD_SETUP.md §7).
+const isProductionDeploy =
+  process.env.VERCEL_ENV === 'production' ||
+  (!process.env.VERCEL && process.env.NODE_ENV === 'production');
+if (isProductionDeploy) {
+  const localhostVars = (['BETTER_AUTH_URL', 'APP_BASE_URL'] as const)
+    .filter((k) => env[k].startsWith('http://localhost'));
+  if (localhostVars.length > 0) {
+    throw new Error(
+      `Production deploy with localhost default(s) for: ${localhostVars.join(', ')} — ` +
+      'set the real public URLs in the Vercel Production env (see PROD_SETUP.md §3).'
+    );
+  }
+}
 
 // Runtime environment flag (distinct from the validated config above —
 // these are ambient signals injected by the platform, not app config).

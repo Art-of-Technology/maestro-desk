@@ -51,4 +51,4 @@ process.env.SLACK_ALERT_WEBHOOK_URL = '';
 // index.js first. Setting it in the real env here makes the CORS origin
 // deterministic regardless of file order. Keep in sync with cors.test's
 // APP_ORIGIN constant.
-process.env.APP_BASE_URL ||= 'https://desk.maestro-desk.com';
+process.env.APP_BASE_URL ||= 'https://app.respovia.com';

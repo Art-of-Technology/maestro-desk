@@ -48,14 +48,12 @@ export async function notifyMentionedAgents(args: {
   const workspaceName = ticket.ws_name || 'Respovia';
   const workspaceSlug = ticket.ws_slug;
 
-  // Build the ticket-detail URL. Agents reach it via the SPA, so we
-  // point at PORTAL_BASE_URL's origin + an SPA-style hash route if
-  // configured; otherwise the localhost dev SPA. The link is best-
-  // effort — agents will likely already have the SPA open and can
-  // search by display_id either way.
-  const agentBase = env.PORTAL_BASE_URL
-    ? new URL(env.PORTAL_BASE_URL).origin
-    : 'http://localhost:5173';
+  // Build the ticket-detail URL. Agents reach it via the SPA, so the link
+  // base is APP_BASE_URL (the agent app's origin) — NOT PORTAL_BASE_URL,
+  // which is the customer portal and may live on a different host. The
+  // link is best-effort — agents will likely already have the SPA open
+  // and can search by display_id either way.
+  const agentBase = env.APP_BASE_URL;
   const ticketUrl = `${agentBase}/?ws=${encodeURIComponent(workspaceSlug || '')}#ticket/${encodeURIComponent(ticket.display_id)}`;
 
   // Truncate the note body — the email is a notification, not a
