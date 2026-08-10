@@ -36,6 +36,11 @@ env:
   # (same underlying Vercel deployments). Remove in the post-soak cleanup PR.
   LEGACY_API_BASE: https://maestro-desk-zjkl.vercel.app
   LEGACY_SPA_BASE: https://maestro-desk-jodi-1420s-projects.vercel.app
+  # Flip to "true" at the env cutover (PROD_SETUP.md, "Cutover ordering"). Before the
+  # cutover, an unprovisioned respovia.com host downgrades to a warning +
+  # legacy-host probe; AFTER the cutover the fallback would mask a real prod
+  # DNS/TLS outage, so it becomes a hard failure instead.
+  CUTOVER_COMPLETE: "false"
   INITIAL_DELAY_SECONDS: "30"
   MAX_ATTEMPTS: "16"
   SLEEP_SECONDS: "15"
@@ -64,6 +69,10 @@ jobs:
             curl -sS -m 10 -o /dev/null "$base" || rc=$?
             case "$rc" in
               6|35|51|53|54|58|60)
+                if [ "$CUTOVER_COMPLETE" = "true" ]; then
+                  echo "::error::${base} unreachable (curl exit ${rc}: DNS/TLS) AFTER the domain cutover — this is a live DNS/TLS outage on respovia.com, not a bad deploy; check Cloudflare records + Vercel domain status. Do NOT roll back."
+                  exit 1
+                fi
                 echo "::warning::${base} not fully provisioned yet (curl exit ${rc}: DNS/TLS) — probing the legacy hosts for this run instead. Not a deploy problem; do NOT roll back."
                 domain_ok=0
                 ;;

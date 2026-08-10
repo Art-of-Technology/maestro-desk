@@ -122,7 +122,8 @@ Two independently-running pieces:
   - `BETTER_AUTH_SECRET` — session signing key, ≥32 chars (`:17`).
   - `ANTHROPIC_API_KEY` — ≥20 chars (`:24`).
   - `POSTMARK_INBOUND_SECRET` — inbound webhook secret, ≥16 chars (`:28`).
-- **Optional (default `''`/skip or platform-set):** `BETTER_AUTH_URL`, `APP_BASE_URL`, `POSTMARK_SERVER_TOKEN`, `POSTMARK_OUTBOUND_FROM`, `POSTMARK_ACCOUNT_TOKEN`, `POSTMARK_INBOUND_REPLY_ADDRESS`, `PORTAL_BASE_URL`, the `R2_*` group (Cloudflare R2 brand-asset uploads), the `PUBBY_*` group (realtime; unset → SPA falls back to polling), `CRON_SECRET` (required on Vercel, optional locally), and `PORT` (default 3001).
+- **Required in production, defaulted only for local dev:** `BETTER_AUTH_URL`, `APP_BASE_URL` — they default to localhost, but a production deploy (Vercel `VERCEL_ENV=production` or self-hosted `NODE_ENV=production`) **refuses to boot** with the localhost defaults still in place (guard in `api/src/lib/env.ts`).
+- **Optional (default `''`/skip or platform-set):** `POSTMARK_SERVER_TOKEN`, `POSTMARK_OUTBOUND_FROM`, `POSTMARK_ACCOUNT_TOKEN`, `POSTMARK_INBOUND_REPLY_ADDRESS`, `PORTAL_BASE_URL`, the `R2_*` group (Cloudflare R2 brand-asset uploads), the `PUBBY_*` group (realtime; unset → SPA falls back to polling), `CRON_SECRET` (required on Vercel, optional locally), and `PORT` (default 3001).
 - **No `SUPABASE_*` vars** are read anymore — the loader has none.
 - **Secret manager:** in production, secrets are set in **Vercel project env vars**; locally they live in `api/.env` (gitignored — only `.env.example` is committed). No HashiCorp Vault / cloud secret-manager.
 - **Frontend secrets:** none — it only needs the API base URL (set by `web/js/api-base.js`).
