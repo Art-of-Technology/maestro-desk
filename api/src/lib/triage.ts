@@ -356,8 +356,15 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   const triage = parsed.data;
 
   // 5. Validate category/priority keys exist in the workspace lookups (model
-  //    occasionally hallucinates close-but-not-exact keys).
-  if (!lookups.categories.find((c) => c.key === triage.category_key)) {
+  //    occasionally hallucinates close-but-not-exact keys). Category match is
+  //    case-insensitive — casing differs across layers — and on a match we
+  //    write the canonical workspace key back so downstream consumers see it.
+  const catMatch = lookups.categories.find(
+    (c) => String(c.key ?? '').toLowerCase() === String(triage.category_key ?? '').toLowerCase(),
+  );
+  if (catMatch) {
+    triage.category_key = catMatch.key;
+  } else {
     triage.category_key = ticketRes.current_category_key ?? lookups.categories[0]?.key ?? '';
   }
   if (!lookups.priorities.find((p) => p.key === triage.priority_key)) {

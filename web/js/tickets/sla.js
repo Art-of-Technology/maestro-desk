@@ -33,11 +33,16 @@ export function invalidateSLAClock() {
   bhInvalidateCache();
 }
 
+// Category identity is a label whose casing differs by layer (tickets carry
+// labelCase()-ed values, policies keep the raw stored label) — compare
+// case-insensitively so e.g. "Billing" still matches "billing".
+const catEq = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
 export function findMatchingSLAPolicy(t) {
   if (!t.priority) return null;
   const candidates = SLA_POLICIES.filter(p => p.status === 'active' && p.priority === t.priority);
-  // Prefer specific category match over the catch-all "all"
-  return candidates.find(p => p.category === t.category)
+  // Prefer specific category match over the catch-all "all" (kept exact — it's a sentinel, not a label)
+  return candidates.find(p => catEq(p.category, t.category))
       || candidates.find(p => p.category === 'all')
       || null;
 }
