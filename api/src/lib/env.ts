@@ -146,11 +146,16 @@ export const env = Env.parse(process.env);
 export type Env = z.infer<typeof Env>;
 
 // PRODUCTION boot guard: the localhost defaults on the public-URL vars exist
-// only for local dev. On a Vercel PRODUCTION deploy an unset var would
-// otherwise fail silently and late (CORS-blocked SPA, dead reset links,
-// broken OAuth callback) — refuse to boot instead. Preview/staging deploys
-// are exempt: they set their own values per PROD_SETUP.md §7.
-if (process.env.VERCEL_ENV === 'production') {
+// only for local dev. On a production deploy an unset var would otherwise
+// fail silently and late (CORS-blocked SPA, dead reset links, broken OAuth
+// callback) — refuse to boot instead. Covers Vercel production AND
+// self-hosted production (NODE_ENV). Vercel PREVIEW deploys are exempt on
+// purpose: PR-preview API builds don't carry these vars and must still boot
+// (staging sets its own branch-scoped values per PROD_SETUP.md §7).
+const isProductionDeploy =
+  process.env.VERCEL_ENV === 'production' ||
+  (!process.env.VERCEL && process.env.NODE_ENV === 'production');
+if (isProductionDeploy) {
   const localhostVars = (['BETTER_AUTH_URL', 'APP_BASE_URL'] as const)
     .filter((k) => env[k].startsWith('http://localhost'));
   if (localhostVars.length > 0) {

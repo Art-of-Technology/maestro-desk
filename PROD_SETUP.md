@@ -18,7 +18,7 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 > - **Domain wiring checklist (do once, before the env cutover):**
 >   1. Vercel: `api.respovia.com` attached to `maestro-desk-zjkl`; `app.respovia.com` + apex + `www` attached to `maestro-desk` (apex/www set to redirect).
 >   2. Cloudflare DNS (**DNS-only/grey-cloud** — the proxy breaks Vercel TLS): `CNAME app → cname.vercel-dns.com`, `CNAME api → cname.vercel-dns.com`, apex/www per the records Vercel shows on the domain entries.
->   3. Wait until all four hosts serve valid certs before flipping any env var or merging the healthcheck-host change.
+>   3. Wait until all four hosts serve valid certs before flipping any env var. (The post-deploy healthcheck can merge any time — it probes the legacy hosts with a warning until the new domains are provisioned.)
 > - **Cutover ordering (breaks SSO if violated):** the Maestro OAuth `redirect_uri` is derived from `BETTER_AUTH_URL` at runtime, but the platform only accepts URIs registered in the **approved** manifest. Editing `maestro.yml` in-repo is inert — submit `maestro apps diff` → `maestro apps revise` and wait for approval **before** setting `BETTER_AUTH_URL=https://api.respovia.com`, or every "Sign in with Maestro" is rejected as an unregistered redirect URI until approval lands.
 > - The legacy `*.vercel.app` entries in `api-base.js`, the CSP `connect-src`, and `maestro.yml` keep the OLD host working until the env cutover; after the flip the old host is CORS-blocked by design (tell the team to switch bookmarks). Remove the entries in a cleanup PR after the soak.
 

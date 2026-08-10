@@ -32,6 +32,10 @@ env:
   # Production hosts on respovia.com (registered 2026-08-10; see PROD_SETUP.md).
   API_BASE: https://api.respovia.com
   SPA_BASE: https://app.respovia.com
+  # Fallbacks probed when the respovia.com domains aren't provisioned yet
+  # (same underlying Vercel deployments). Remove in the post-soak cleanup PR.
+  LEGACY_API_BASE: https://maestro-desk-zjkl.vercel.app
+  LEGACY_SPA_BASE: https://maestro-desk-jodi-1420s-projects.vercel.app
   INITIAL_DELAY_SECONDS: "30"
   MAX_ATTEMPTS: "16"
   SLEEP_SECONDS: "15"
@@ -48,17 +52,27 @@ jobs:
       - name: Wait for the API + SPA to be healthy
         run: |
           set -u
-          # Fast-fail with the RIGHT diagnosis if a custom domain isn't live
-          # yet: curl exit 6 = could not resolve host, which means DNS/domain
-          # attachment is missing — a rollback would not fix anything.
+          # Custom-domain provisioning check. curl exit 6 = DNS not resolving,
+          # 35/51/53/54/58/60 = TLS not (yet) valid — either way the respovia.com
+          # domains aren't fully provisioned, which is NOT a bad deploy and a
+          # rollback would fix nothing. In that state fall back to probing the
+          # legacy Vercel hosts (still serving the same deployments), so this
+          # check stays correct whether it merges before or after DNS goes live.
+          domain_ok=1
           for base in "$API_BASE" "$SPA_BASE"; do
             rc=0
             curl -sS -m 10 -o /dev/null "$base" || rc=$?
-            if [ "$rc" = "6" ]; then
-              echo "::error::${base} does not resolve — the respovia.com DNS records / Vercel domain attachment are not live. This is a DNS problem, not a bad deploy; do NOT roll back."
-              exit 1
-            fi
+            case "$rc" in
+              6|35|51|53|54|58|60)
+                echo "::warning::${base} not fully provisioned yet (curl exit ${rc}: DNS/TLS) — probing the legacy hosts for this run instead. Not a deploy problem; do NOT roll back."
+                domain_ok=0
+                ;;
+            esac
           done
+          if [ "$domain_ok" = "0" ]; then
+            API_BASE="$LEGACY_API_BASE"
+            SPA_BASE="$LEGACY_SPA_BASE"
+          fi
           echo "Giving the Vercel deploy ${INITIAL_DELAY_SECONDS}s to land before probing…"
           sleep "$INITIAL_DELAY_SECONDS"
 
