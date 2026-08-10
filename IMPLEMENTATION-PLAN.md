@@ -9,8 +9,8 @@
 
 ## 1. Guiding constraints (decisions baked into the sequencing)
 
-1. **Name & domain are deferred to the very end.** *(Resolved 2026-07-20: the product
-   is now **Respovia**; respovia.com registration in progress.)* The interim product name
+1. **Name & domain are deferred to the very end.** *(Resolved: named **Respovia**
+   2026-07-20; **respovia.com registered 2026-08-10** and wired to prod.)* The interim product name
    ("Maestro Desk") was not final, so we did **not** buy the product domain earlier and
    did **not** hard-code the product name anywhere new.
 2. **Email is decoupled from the product domain.** Transactional email (invites,

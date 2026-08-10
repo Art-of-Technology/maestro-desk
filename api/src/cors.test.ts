@@ -22,7 +22,7 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 // the stub keeps every export (isLocalDev, isVercelPreview, …), then override.
 // Mock before importing index.ts. index.ts reads isVercelPreview at request
 // time, so setPreview() below can flip it per-test via mock.module.
-const APP_ORIGIN = 'https://desk.maestro-desk.com';
+const APP_ORIGIN = 'https://app.respovia.com';
 // A team PR-preview SPA origin: git-BRANCH deploy under the team namespace.
 const PREVIEW_ORIGIN = 'https://maestro-desk-git-feat-x-abc12-jodi-1420s-projects.vercel.app';
 const realEnvMod = await import('./lib/env.js');

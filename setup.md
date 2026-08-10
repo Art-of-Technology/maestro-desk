@@ -2,7 +2,7 @@
 
 > Audience: a new engineer (and the CTO). Every claim below is taken from the actual files in this repo; file paths are cited inline. Anything that could **not** be verified from the files is called out under **⚠️ Cannot verify from files**.
 >
-> **State:** the Supabase→Neon migration has landed in code — the API talks to Neon directly and uses Better Auth, with no Supabase SDK remaining. The **Fly.io artefacts have been removed** and the SPA/portal now point production at the Vercel API (`https://api.maestro-desk.com`). The only remaining legacy is the `supabase/` reference directory (see §9).
+> **State:** the Supabase→Neon migration has landed in code — the API talks to Neon directly and uses Better Auth, with no Supabase SDK remaining. The **Fly.io artefacts have been removed** and the SPA/portal now point production at the Vercel API (`https://api.respovia.com`). The only remaining legacy is the `supabase/` reference directory (see §9).
 
 ---
 
@@ -87,7 +87,7 @@ Two independently-running pieces:
 - Tests: `api/src/index.test.ts`, run with `bun test`.
 
 **Frontend SPA** (the `web/` directory — its Vercel project's Root Directory):
-- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). An inline `<script>` at the top of `index.html` sets `window.RESPOVIA_API_BASE` by hostname — the prod hosts (`desk`/`help.maestro-desk.com`) map to `https://api.maestro-desk.com`; everything else falls back to `http://localhost:3001`.
+- Entry: **`index.html`** → `<script type="module" src="js/app.js">` (single module entry). The classic script `js/api-base.js` (loaded before the module entry) sets `window.RESPOVIA_API_BASE` by hostname — the prod hosts (`app.respovia.com`, plus the apex/www) map to `https://api.respovia.com`; unmapped hosts fall back to `http://localhost:3001`.
 - Customer portal: **`portal.html`** (self-contained, separate page).
 - Local static server: **`scripts/serve-spa.js`** (`Bun.serve` on **port 5173**, serves the `web/` frontend root so ES modules load).
 - **There is no `GET /api/v1/config` route.** (The pre-migration doc claimed one returning a Supabase URL + anon key — that no longer exists.) The SPA learns its API base from the inline script in `index.html`; Pubby's client config is served separately at `GET /api/v1/pubby/config`.
@@ -180,7 +180,7 @@ bun test
 
 ### Summary of everything flagged as unverifiable / in-flight from files
 1. **No enforced local Bun version pin** (CI `1.3.13`; local devs unpinned; Vercel sets its own runtime).
-2. **Vercel cutover not yet live:** the code points prod at `https://api.maestro-desk.com` and Fly is retired, but going live still needs `api.maestro-desk.com` DNS → Vercel, `BETTER_AUTH_URL` set to that origin, and `CRON_SECRET` set in Vercel (the cron jobs are already wired — unset just means no sweeps run). See `PROD_SETUP.md` §3.
+2. **Vercel prod:** the code points prod at `https://api.respovia.com` and Fly is retired; DNS lives at Cloudflare (records DNS-only), `BETTER_AUTH_URL` must equal that origin, and `CRON_SECRET` must be set in Vercel (the cron jobs are already wired — unset just means no sweeps run). See `PROD_SETUP.md` §3.
 3. **`supabase/` is legacy:** `supabase/config.toml` and `supabase/migrations/` (74 files) are retained for reference only — the live migration set is `db/migrations/` (53 files) applied to Neon.
 4. **Secret values and prod connection details** are not in committed config (by design); some stale docs still mention `SUPABASE_*` / `fly secrets` — the live required set is `DATABASE_URL`, `BETTER_AUTH_SECRET`, `ANTHROPIC_API_KEY`, `POSTMARK_INBOUND_SECRET`.
 5. **Background-worker model differs by environment:** in-process workers run only via `api/src/dev.ts` locally; production relies on **Vercel Cron** (`api/vercel.json`) hitting `/api/v1/cron/*`.
@@ -189,7 +189,7 @@ bun test
 
 ## 9. Known legacy artefacts
 
-The Fly.io artefacts (`api/fly.toml`, `api/Dockerfile`, `api/.dockerignore`) have been **removed**, and `index.html` / `portal.html` now point production at the Vercel API (`https://api.maestro-desk.com`). Do not re-add Fly config — Fly is explicitly rejected by the guardrails.
+The Fly.io artefacts (`api/fly.toml`, `api/Dockerfile`, `api/.dockerignore`) have been **removed**, and `index.html` / `portal.html` now point production at the Vercel API (`https://api.respovia.com`). Do not re-add Fly config — Fly is explicitly rejected by the guardrails.
 
 One legacy directory remains, for reference only — do not build on it:
 

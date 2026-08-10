@@ -29,11 +29,9 @@ permissions:
   contents: read
 
 env:
-  # Interim Vercel hosts — maestro-desk.com is not yet registered (PROD_SETUP.md).
-  # Swap to https://api.maestro-desk.com / https://desk.maestro-desk.com once the
-  # custom domain is live; nothing else here changes.
-  API_BASE: https://maestro-desk-zjkl.vercel.app
-  SPA_BASE: https://maestro-desk-jodi-1420s-projects.vercel.app
+  # Production hosts on respovia.com (registered 2026-08-10; see PROD_SETUP.md).
+  API_BASE: https://api.respovia.com
+  SPA_BASE: https://app.respovia.com
   INITIAL_DELAY_SECONDS: "30"
   MAX_ATTEMPTS: "16"
   SLEEP_SECONDS: "15"

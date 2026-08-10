@@ -19,7 +19,7 @@ const Env = z.object({
   // Public origin of the agent SPA (where index.html is served). Used as a
   // Better Auth trusted origin and to build the password-reset link emailed to
   // invited/reset users (`${APP_BASE_URL}/?reset_token=...`). Dev default is
-  // the local static server; set to https://desk.maestro-desk.com in prod.
+  // the local static server; set to https://app.respovia.com in prod.
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   ANTHROPIC_API_KEY: z.string().min(20),
   // Shared secret for the Postmark inbound + bounce webhooks, sent via HTTP
@@ -92,7 +92,7 @@ const Env = z.object({
   // key is server-only. VAPID_SUBJECT is a mailto: or https: contact URL.
   VAPID_PUBLIC_KEY: z.string().default(''),
   VAPID_PRIVATE_KEY: z.string().default(''),
-  VAPID_SUBJECT: z.string().default('mailto:ops@maestro-desk.com'),
+  VAPID_SUBJECT: z.string().default('mailto:ops@respovia.com'),
   // Vercel Cron auth (Step 6). Vercel sends `Authorization: Bearer
   // ${CRON_SECRET}` when invoking the /api/v1/cron/* endpoints; they reject
   // anything else. Required on Vercel (generate with `openssl rand -base64

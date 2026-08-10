@@ -31,10 +31,13 @@
   // hosts this branch captures, or previews get CORS-blocked.
   var STAGING_API = 'https://maestro-desk-zjkl-git-staging-jodi-1420s-projects.vercel.app';
   var h = location.hostname;
-  if (/^(desk|help)\.maestro-desk\.com$/.test(h)) {
-    window.RESPOVIA_API_BASE = 'https://api.maestro-desk.com';
+  if (/^(app\.|www\.)?respovia\.com$/.test(h)) {
+    // Production. app.respovia.com is canonical; the apex and www are mapped
+    // defensively in case a visitor lands there before the redirect is set up.
+    window.RESPOVIA_API_BASE = 'https://api.respovia.com';
   } else if (h === 'maestro-desk-jodi-1420s-projects.vercel.app') {
-    // Interim live testing on Vercel's *.vercel.app URL (no custom domain yet).
+    // Legacy interim host from before respovia.com — kept through the cutover
+    // soak so stale bookmarks still resolve an API; remove in the cleanup PR.
     window.RESPOVIA_API_BASE = 'https://maestro-desk-zjkl.vercel.app';
   } else if (/^maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/.test(h)) {
     // STAGING (`git-staging`) and every PR-preview branch deploy → the staging

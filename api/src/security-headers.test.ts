@@ -10,7 +10,7 @@ process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
-const APP_ORIGIN = 'https://desk.maestro-desk.com';
+const APP_ORIGIN = 'https://app.respovia.com';
 // Spread the whole real module so every export (isLocalDev, isVercelPreview,
 // PREVIEW_SPA_ORIGIN_RE, …) survives the mock — index.js imports several, and a
 // partial stub would silently make them undefined.

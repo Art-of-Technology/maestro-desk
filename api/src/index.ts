@@ -47,7 +47,7 @@ import { reports } from './routes/reports.js';
 const app = new Hono();
 
 // Browser origins allowed to call the AUTHENTICATED agent API + /api/auth/*.
-// The agent SPA is served from APP_BASE_URL (https://desk.maestro-desk.com in
+// The agent SPA is served from APP_BASE_URL (https://app.respovia.com in
 // prod, http://localhost:5173 in dev). On PREVIEW deployments only (staging —
 // see isVercelPreview), PR-preview SPA origins under this team's *.vercel.app
 // namespace are also allowed, so features are verifiable from the preview link
