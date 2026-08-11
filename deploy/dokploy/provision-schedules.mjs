@@ -44,6 +44,12 @@ async function api(path, init) {
 }
 
 const existing = await api(`schedule.list?id=${encodeURIComponent(APP_ID)}&scheduleType=application`, { method: 'GET' });
+// Fail loudly on an unexpected response shape: silently treating it as "no
+// schedules" would CREATE duplicates next to the ones we failed to see.
+if (!Array.isArray(existing)) {
+  console.error(`schedule.list returned a non-array — refusing to upsert against unknown state:\n${JSON.stringify(existing).slice(0, 500)}`);
+  process.exit(1);
+}
 for (const want of SCHEDULES) {
   const base = {
     ...want,
