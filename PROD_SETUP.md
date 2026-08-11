@@ -2,23 +2,23 @@
 
 Standing up Respovia for **internal use** (your team replaces Zoho Desk). Clean-slate: new tickets start here; old Zoho tickets stay in Zoho until they close out. No data migration.
 
-Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · **Better Auth** (sign-in/sessions, owns its tables in Neon) · **Cloudflare R2** (brand-asset uploads) · **Vercel** (SPA static files **and** the Hono API as serverless functions; see §3) · **Postmark** (email).
+Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · **Better Auth** (sign-in/sessions, owns its tables in Neon) · **Cloudflare R2** (brand-asset uploads) · **Dokploy** (company server — SPA nginx container + the Hono API as an always-on Bun container; see §3; Vercel is the legacy interim host until the cutover completes) · **Postmark** (email).
 
-> **URLs (2026-08-10).** The product domain is **`respovia.com`** (registered 2026-08-10, Cloudflare Registrar; DNS at Cloudflare, records DNS-only/grey-cloud because Vercel terminates TLS). Production hosts:
+> **URLs (2026-08-11).** The product domain is **`respovia.com`** (registered 2026-08-10, Cloudflare Registrar; DNS at Cloudflare, records DNS-only/grey-cloud — TLS terminates at the company server's Traefik, via Dokploy). Production hosts:
 > | Role | Production URL | Legacy interim URL (pre-cutover) |
 > |---|---|---|
-> | API (`maestro-desk-zjkl`) | `https://api.respovia.com` | `https://maestro-desk-zjkl.vercel.app` |
-> | Agent app (`maestro-desk` SPA) | `https://app.respovia.com` | `https://maestro-desk-jodi-1420s-projects.vercel.app` |
+> | API (Dokploy `respovia-api`) | `https://api.respovia.com` | `https://maestro-desk-zjkl.vercel.app` |
+> | Agent app (Dokploy `respovia-web`) | `https://app.respovia.com` | `https://maestro-desk-jodi-1420s-projects.vercel.app` |
 > | Portal | `https://app.respovia.com/portal.html` | `…vercel.app/portal.html` |
 > | Support email | `support@respovia.com` (see §5) | — |
 >
 > Notes:
 > - **`app.respovia.com` is the only fully working agent-app host.** The API's CORS + Better Auth trusted-origin allowlist is `APP_BASE_URL` alone, so on any other host — the apex/www, the legacy `maestro-desk-jodi-1420s-projects.vercel.app` after the env cutover, the old `service-desk-six.vercel.app` alias — the SPA either renders-but-can't-sign-in (origin-blocked) or falls back to `localhost:3001` entirely. Always use `app.respovia.com`.
-> - **The apex/www 308 redirect → `app.respovia.com` is REQUIRED** (Vercel → `maestro-desk` project → Settings → Domains). Without it, visitors on `respovia.com` get a rendered SPA whose sign-in fails with opaque CORS errors. Do not "fix" that by widening the server allowlist.
+> - **The apex/www redirect → `app.respovia.com` is REQUIRED.** Without it, visitors on `respovia.com` get a rendered SPA whose sign-in fails with opaque CORS errors. Do not "fix" that by widening the server allowlist. (On Dokploy: a Traefik redirectregex middleware on the web app, or simply don't attach apex/www and let them NXDOMAIN until wanted.)
 > - **Domain wiring checklist (do once, before the env cutover):**
->   1. Vercel: `api.respovia.com` attached to `maestro-desk-zjkl`; `app.respovia.com` + apex + `www` attached to `maestro-desk` (apex/www set to redirect).
->   2. Cloudflare DNS (**DNS-only/grey-cloud** — the proxy breaks Vercel TLS): `CNAME app → cname.vercel-dns.com`, `CNAME api → cname.vercel-dns.com`, apex/www per the records Vercel shows on the domain entries.
->   3. Wait until all four hosts serve valid certs before flipping any env var. (The post-deploy healthcheck can merge any time — it probes the legacy hosts with a warning until the new domains are provisioned.)
+>   1. Dokploy: domain `api.respovia.com` → `respovia-api` (container port 3001), `app.respovia.com` → `respovia-web` (port 80), both HTTPS with Let's Encrypt.
+>   2. Cloudflare DNS (**DNS-only/grey-cloud** — Traefik must answer the ACME HTTP-01 challenge and serve its own certs): `A app → 194.72.43.234`, `A api → 194.72.43.234` (+ apex/www the same, if attached).
+>   3. Wait until the hosts serve valid certs before flipping any env var. (The post-deploy healthcheck can merge any time — it probes the legacy hosts with a warning until the new domains are provisioned.)
 > - **Cutover ordering (breaks SSO if violated):** the Maestro OAuth `redirect_uri` is derived from `BETTER_AUTH_URL` at runtime, but the platform only accepts URIs registered in the **approved** manifest. Editing `maestro.yml` in-repo is inert — submit `maestro apps diff` → `maestro apps revise` and wait for approval **before** setting `BETTER_AUTH_URL=https://api.respovia.com`, or every "Sign in with Maestro" is rejected as an unregistered redirect URI until approval lands.
 > - **At the env cutover, also flip `CUTOVER_COMPLETE: "true"`** in `.github/workflows/post-deploy-healthcheck.yml` — that turns an unreachable respovia.com host from a warn-and-probe-legacy condition into the hard failure it then actually is.
 > - The legacy `*.vercel.app` entries in `api-base.js`, the CSP `connect-src`, and `maestro.yml` keep the OLD host working until the env cutover; after the flip the old host is CORS-blocked by design (tell the team to switch bookmarks). Remove the entries in a cleanup PR after the soak.
@@ -42,9 +42,13 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 - [ ] 🤖 Do **not** load the demo seed (TK-001 etc.) into prod.
 
 ## 3. Hosting — API + SPA
-> **Decided (Step 6).** The API runs on **Vercel** (Hono via the Vercel adapter) at **`https://api.respovia.com`** — the SPA/portal point prod there (via `web/js/api-base.js`), and the Fly config (`fly.toml`, `Dockerfile`, `.dockerignore`) has been removed from the repo. Do **not** add new Fly config. Two things to get right on the Vercel deploy:
-> - **Background work is already serverless-ready (no code change needed).** The in-process workers (`startWebhookWorker`/`startCsatReminderWorker`) run **only** in local dev (`src/dev.ts`, never imported on Vercel). On Vercel, webhook first-attempts fire inline via `waitUntil`, and the retry sweep + daily CSAT reminders run as **Vercel Cron** jobs (`vercel.json` → `/api/v1/cron/*`, handled by `routes/cron.ts`); both sweeps claim work with `FOR UPDATE SKIP LOCKED` / a conditional `UPDATE`, so concurrent or duplicate invocations are safe. **The only gate: set `CRON_SECRET` in the Vercel env** — without it the cron endpoints 401 and nothing sweeps (the API logs a warning at boot). Retries currently sweep once daily (Hobby-plan cadence); raise the `vercel.json` frequency on Pro if you want the backoff schedule honored.
+> **Decided (2026-08-11, supersedes the Vercel decision below).** Production moves to the **company server via Dokploy** (`https://paas.weez.boo`, LAN/VPN-only panel; server public IP `194.72.43.234`). Two Dokploy applications built from this repo's `main`:
+> - **`respovia-api`** — Dockerfile build, **Docker Context Path = `api`**. Runs `bun src/server.ts` (always-on Bun server + in-process webhook worker; `src/index.ts` stays the Vercel serverless export, `src/dev.ts` stays local dev). Container port 3001. Env: everything §4 lists **plus `NODE_ENV=production`** (arms the env.ts boot guard) **and `TRUST_PROXY=1`** (rate-limit keys on the Traefik-appended right-most `X-Forwarded-For` entry; without it, per-IP limits key on a client-spoofable header).
+> - **`respovia-web`** — Dockerfile build, **Docker Context Path = `web`**. nginx serving the static tree; the security headers from `web/vercel.json` are mirrored in `web/nginx.conf` — **change both together** while the Vercel host still exists.
+> - **Scheduled jobs:** no Vercel Cron here — Dokploy schedules invoke the same endpoints: `GET /api/v1/cron/webhook-retry` daily 03:00 and `GET /api/v1/cron/retention` daily 04:00, with `Authorization: Bearer ${CRON_SECRET}`. Webhook FIRST attempts don't need cron at all (the in-process worker polls every ~5s; the `waitUntil` inline flush is Vercel-only, gated on `process.env.VERCEL`). Duplicate/overlapping invocations stay safe (`FOR UPDATE SKIP LOCKED`).
 > - `BETTER_AUTH_URL` must equal the API's **public** origin so session tokens sign/verify correctly.
+>
+> **Legacy (Vercel — still serving the interim URLs until the cutover soak completes):** the API ran as serverless functions (Hono Vercel adapter) with webhook first-attempts via `waitUntil` and the sweeps as Vercel Cron (`api/vercel.json`); `CRON_SECRET` gates those endpoints there too. Do **not** add new Fly config (Fly was retired earlier).
 
 Prod secrets to set on the API host (no `SUPABASE_*`):
 ```sh

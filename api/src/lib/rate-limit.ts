@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { ipAddress } from '@vercel/functions';
 import { getDb } from './db.js';
+import { env } from './env.js';
 
 // Postgres-backed fixed-window rate limiting for the public portal (see
 // migration 20260619150000). Used like the authz helpers: returns a shaped 429
@@ -10,18 +11,22 @@ import { getDb } from './db.js';
 //   if (limited) return limited;
 
 // Trusted client IP. On Vercel, ipAddress() reads the platform's trusted
-// client-IP header, which a client CANNOT spoof — unlike the left-most entry
-// of a self-supplied X-Forwarded-For, which an attacker can rotate to dodge a
-// per-IP limit. We prefer it, then fall back to raw headers for local dev /
-// non-Vercel, then a shared 'unknown' bucket so unattributable requests are
-// still collectively capped (fail-closed on identity).
+// client-IP header (x-real-ip, set by Vercel's edge), which a client CANNOT
+// spoof. Self-hosted behind our own reverse proxy (TRUST_PROXY=1 —
+// Dokploy/Traefik), the proxy APPENDS the real TCP peer address to
+// X-Forwarded-For, so the RIGHT-most entry is ours to trust; the left-most is
+// client-supplied and an attacker can rotate it to dodge a per-IP limit.
+// Local dev (neither) keeps the left-most-XFF fallback, and anything
+// unattributable shares one 'unknown' bucket so those requests are still
+// collectively capped (fail-closed on identity).
 export function clientIp(c: Context): string {
   const trusted = ipAddress(c.req.raw);
-  if (trusted) return trusted;
+  if (trusted && !env.TRUST_PROXY) return trusted;
   const xff = c.req.header('x-forwarded-for');
   if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
+    const parts = xff.split(',').map((p) => p.trim()).filter(Boolean);
+    const pick = env.TRUST_PROXY ? parts[parts.length - 1] : parts[0];
+    if (pick) return pick;
   }
   return c.req.header('x-real-ip')?.trim() || 'unknown';
 }

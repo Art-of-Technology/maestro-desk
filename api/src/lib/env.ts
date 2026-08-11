@@ -140,6 +140,12 @@ const Env = z.object({
   ALERT_EMAIL_TO: z.string().default(''),
   SLACK_ALERT_WEBHOOK_URL: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3001),
+  // Self-hosted deploys only (Dokploy/Traefik): set to '1' when the API sits
+  // behind OUR OWN reverse proxy, which appends the real TCP peer address as
+  // the RIGHT-most X-Forwarded-For entry. lib/rate-limit.ts then keys per-IP
+  // limits on that entry instead of the left-most (client-supplied, spoofable)
+  // one. Leave unset on Vercel (ipAddress() covers it) and in local dev.
+  TRUST_PROXY: z.string().default('').transform((v) => v === '1'),
 });
 
 export const env = Env.parse(process.env);

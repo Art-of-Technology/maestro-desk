@@ -1,0 +1,14 @@
+# Keep the image to runtime files only. Tests/fixtures run in CI, never in the
+# container; .env must never be baked into an image (env comes from Dokploy).
+node_modules
+.env
+*.log
+dev.out.log
+dev.err.log
+src/**/*.test.ts
+test-fixtures
+test-setup.ts
+scripts
+vercel.json
+Dockerfile
+.dockerignore
