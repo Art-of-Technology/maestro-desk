@@ -70,3 +70,19 @@ describe('evaluateAutoReply RG gate', () => {
     expect(evaluateAutoReply(triage('account', 90), enabled).eligible).toBe(true);
   });
 });
+
+describe('evaluateAutoReply category allowlist casing', () => {
+  it('matches the allowlist case-insensitively (labelCase()-ed triage key vs raw config key)', () => {
+    expect(evaluateAutoReply(triage('Account', 90), enabled).eligible).toBe(true);
+    expect(evaluateAutoReply(triage('GENERAL', 90), enabled).eligible).toBe(true);
+  });
+
+  it('matches when the config key is the cased one', () => {
+    const cased: WorkspaceAutoReplyConfig = { min_confidence: 85, categories: ['Account'], name: 'Acme' };
+    expect(evaluateAutoReply(triage('account', 90), cased).eligible).toBe(true);
+  });
+
+  it('still rejects categories not on the allowlist in any casing', () => {
+    expect(evaluateAutoReply(triage('Billing', 90), enabled).reason).toBe('category_not_allowed');
+  });
+});

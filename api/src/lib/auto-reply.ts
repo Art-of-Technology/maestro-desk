@@ -21,6 +21,12 @@ export interface WorkspaceAutoReplyConfig {
   name: string;                      // workspace name, used as sign-off in the reply
 }
 
+// Category keys are labels whose casing can differ across layers (the SPA
+// labelCase()-es ticket categories; workspace config keeps raw stored keys) —
+// compare them case-insensitively.
+const catEq = (a: unknown, b: unknown): boolean =>
+  String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
 // ─── Responsible-gambling safety gate ─────────────────────────────────────
 //
 // Duty of care: never send an automated, canned reply to a customer who is
@@ -94,7 +100,9 @@ export function evaluateAutoReply(
   if (config.min_confidence === null || config.categories.length === 0) {
     return { eligible: false, reason: 'workspace_disabled' };
   }
-  if (!config.categories.includes(triage.category_key)) {
+  // Case-insensitive: category keys are labels whose casing can differ across
+  // layers (SPA labelCase() vs raw stored keys).
+  if (!config.categories.some((c) => catEq(c, triage.category_key))) {
     return { eligible: false, reason: 'category_not_allowed' };
   }
   if (rgConcern) {

@@ -79,11 +79,15 @@ function arNextId() {
   return `AR-${String(max + 1).padStart(3, '0')}`;
 }
 
+// Category casing differs by layer (tickets are labelCase()-ed, rule
+// conditions keep the raw stored label) — compare case-insensitively.
+const catEq = (a, b) => String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
 function arRuleMatches(rule, t) {
   if (rule.status !== 'active') return false;
   const c = rule.conditions || {};
   if (c.priority && c.priority !== 'all' && c.priority !== t.priority) return false;
-  if (c.category && c.category !== 'all' && c.category !== t.category) return false;
+  if (c.category && c.category !== 'all' && !catEq(c.category, t.category)) return false;
   if (c.vip && c.vip !== 'all') {
     const cust = CUSTOMERS.find(x => x.id === t.customerId);
     if (!cust || cust.vip !== c.vip) return false;

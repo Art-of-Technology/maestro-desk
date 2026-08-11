@@ -44,11 +44,18 @@ function isOOO(member: { ooo_from: string | null; ooo_to: string | null }): bool
 }
 
 // ─── Condition matching ──────────────────────────────────────────────────
+//
+// Category keys are labels whose casing can differ across layers (the SPA
+// labelCase()-es ticket categories; rule conditions keep the raw stored
+// value) — compare them case-insensitively. The 'all' sentinel stays exact.
+const catEq = (a: unknown, b: unknown): boolean =>
+  String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
+
 function ruleMatches(rule: Rule, ticket: any, customerVip: string | null): boolean {
   const c = rule.conditions || {};
-  if (c.priority && c.priority !== 'all' && c.priority !== ticket.priority_key) return false;
-  if (c.category && c.category !== 'all' && c.category !== ticket.category_key) return false;
-  if (c.vip      && c.vip      !== 'all' && c.vip      !== customerVip)         return false;
+  if (c.priority && c.priority !== 'all' && c.priority !== ticket.priority_key)  return false;
+  if (c.category && c.category !== 'all' && !catEq(c.category, ticket.category_key)) return false;
+  if (c.vip      && c.vip      !== 'all' && c.vip      !== customerVip)          return false;
   return true;
 }
 
