@@ -1,0 +1,5 @@
+# vercel.json is the Vercel-hosting header config — the nginx image re-declares
+# those headers in nginx.conf and must not serve the file itself.
+vercel.json
+Dockerfile
+.dockerignore

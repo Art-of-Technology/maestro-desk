@@ -32,10 +32,14 @@ import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
 // check-then-connect guard alone leaves open. The npm undici package's OWN
 // fetch must be used with its Agent (Node's built-in fetch rejects dispatchers
 // from a different undici copy with UND_ERR_INVALID_ARG — verified). Under Bun
-// (local dev only — prod is Vercel's Node runtime) Bun's fetch ignores an
-// undici dispatcher entirely (verified: the custom lookup is never invoked), so
-// there is no point importing undici — dev keeps the check-then-connect
-// behavior from assertSafeWebhookUrl below. The Agent is fire-and-forget (each
+// Bun's fetch ignores an undici dispatcher entirely (verified: the custom
+// lookup is never invoked; a custom `lookup` on a node:https Agent is equally
+// ignored), so there is no point importing undici — the Bun branch keeps only
+// the check-then-connect behavior from assertSafeWebhookUrl below. THAT IS WHY
+// EVERY PRODUCTION RUNTIME MUST BE NODE: Vercel's serverless functions are,
+// and the self-hosted container (api/Dockerfile) deliberately runs
+// src/server.ts under Node, not Bun. Bun = local dev + bun test only; running
+// production on Bun would silently drop the rebind guard. The Agent is fire-and-forget (each
 // webhook is a single POST with little reuse value), so keep-alive is disabled
 // to avoid retaining sockets across warm serverless invocations.
 //
@@ -182,16 +186,24 @@ export async function dispatchTicketEvent(args: {
   // Deliver immediately. On Vercel there's no always-on worker, so flush the
   // just-enqueued rows in the background via waitUntil — the first attempt
   // fires now without blocking the mutation response, and the daily cron is
-  // only the retry sweep. Locally (Bun) the in-process worker (src/dev.ts)
-  // picks them up within ~5s, so we skip the inline flush there. waitUntil
-  // must run inside a request context (always true here — dispatchTicketEvent
-  // is called from route handlers), hence the VERCEL guard.
+  // only the retry sweep. waitUntil must run inside a request context (always
+  // true here — dispatchTicketEvent is called from route handlers), hence the
+  // VERCEL guard. On always-on runtimes (self-hosted Node server, local dev
+  // Bun) the process outlives the request, so a plain fire-and-forget flush
+  // gives the same sub-second first attempt — which is what lets the polling
+  // worker run at a slow retry-only cadence (src/server.ts) instead of a
+  // Neon-pinning 5s. Skipped under bun test: tests stub fetch and drive
+  // processPendingDeliveries() explicitly; a background flush would race them.
   if (process.env.VERCEL) {
     waitUntil(
       processPendingDeliveries().then(
         () => {},
         (err) => console.error('[outgoing-webhooks] inline flush failed:', err instanceof Error ? err.message : err),
       ),
+    );
+  } else if (process.env.NODE_ENV !== 'test') {
+    processPendingDeliveries().catch(
+      (err) => console.error('[outgoing-webhooks] inline flush failed:', err instanceof Error ? err.message : err),
     );
   }
   return subscribed.length;
@@ -365,22 +377,23 @@ async function markExhausted(id: string, status: number | null, error: string) {
 
 // ─── Worker lifecycle ────────────────────────────────────────────────────
 //
-// Single setInterval tick driving processPendingDeliveries. Started
-// from api/src/index.ts once after server boot. The interval is
-// deliberately short (5s) so first-attempt latency stays sub-tick;
-// retries are scheduled minutes/hours apart, so the tick just polls
-// to find rows whose backoff elapsed.
+// Single setInterval tick driving processPendingDeliveries. First attempts
+// fire inline at dispatch (above), so the poll only needs to catch RETRIES
+// (backoff ≥60s) — and crash-recovery leftovers. The 5s default suits local
+// dev (fast feedback, unbilled DB); the self-hosted production entry
+// (src/server.ts) passes a 10-minute interval so an idle Neon endpoint can
+// autosuspend instead of being polled awake ~17k times a day.
 
 const POLL_INTERVAL_MS = 5000;
 let workerTimer: ReturnType<typeof setInterval> | null = null;
 
-export function startWebhookWorker(): void {
+export function startWebhookWorker(intervalMs: number = POLL_INTERVAL_MS): void {
   if (workerTimer) return;
   workerTimer = setInterval(() => {
     processPendingDeliveries().catch((err) => {
       console.error('[webhook-worker] tick failed:', err);
     });
-  }, POLL_INTERVAL_MS);
+  }, intervalMs);
 }
 
 export function stopWebhookWorker(): void {

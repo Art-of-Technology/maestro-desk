@@ -1,6 +1,9 @@
 import type { Context } from 'hono';
 import { ipAddress } from '@vercel/functions';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { getDb } from './db.js';
+import { env } from './env.js';
+import { isBlockedAddress } from './ssrf.js';
 
 // Postgres-backed fixed-window rate limiting for the public portal (see
 // migration 20260619150000). Used like the authz helpers: returns a shaped 429
@@ -9,13 +12,44 @@ import { getDb } from './db.js';
 //   const limited = await enforceRateLimit(c, { name: 'tickets', max: 10, windowSeconds: 600 });
 //   if (limited) return limited;
 
-// Trusted client IP. On Vercel, ipAddress() reads the platform's trusted
-// client-IP header, which a client CANNOT spoof — unlike the left-most entry
-// of a self-supplied X-Forwarded-For, which an attacker can rotate to dodge a
-// per-IP limit. We prefer it, then fall back to raw headers for local dev /
-// non-Vercel, then a shared 'unknown' bucket so unattributable requests are
+// Trusted client IP — the sole key for every per-IP limit bucket (auth
+// brute-force caps included), so it must not be attacker-mintable.
+//
+// TRUST_PROXY=1 (self-hosted, Dokploy/Traefik): Traefik APPENDS the real TCP
+// peer to X-Forwarded-For, so the RIGHT-most entry is the one our own edge
+// wrote — but only for connections that actually came THROUGH Traefik. We
+// check the raw TCP peer (getConnInfo): a private/internal peer is the overlay
+// network (Traefik), so believe its appended entry; a public peer reached the
+// container directly (published port), so key on that real address instead —
+// a fake XFF then buys the attacker nothing. x-real-ip is deliberately ignored
+// in this mode (Traefik doesn't set it; a client can). Sibling containers on
+// the overlay could still forge XFF, but anything on that network is already
+// inside the trust boundary (it can reach the DB creds directly).
+//
+// Otherwise (Vercel / local dev): ipAddress() reads Vercel's edge-set header,
+// which a client cannot spoof; dev falls back to left-most XFF / x-real-ip.
+// Anything unattributable shares one 'unknown' bucket so those requests are
 // still collectively capped (fail-closed on identity).
-export function clientIp(c: Context): string {
+//
+// trustProxy is injectable for tests — env is parsed once at module load.
+export function clientIp(c: Context, trustProxy: boolean = env.TRUST_PROXY): string {
+  if (trustProxy) {
+    let conn = '';
+    try {
+      conn = getConnInfo(c).remote.address ?? '';
+    } catch {
+      // Not running under @hono/node-server (bun test drives app.request()
+      // without a socket) — fall through to the shared 'unknown' bucket.
+    }
+    if (conn && !isBlockedAddress(conn)) return conn;
+    const xff = c.req.header('x-forwarded-for');
+    if (xff) {
+      const parts = xff.split(',').map((p) => p.trim()).filter(Boolean);
+      const last = parts[parts.length - 1];
+      if (last) return last;
+    }
+    return conn || 'unknown';
+  }
   const trusted = ipAddress(c.req.raw);
   if (trusted) return trusted;
   const xff = c.req.header('x-forwarded-for');
