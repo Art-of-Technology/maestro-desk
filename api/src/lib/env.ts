@@ -145,7 +145,9 @@ const Env = z.object({
   // the RIGHT-most X-Forwarded-For entry. lib/rate-limit.ts then keys per-IP
   // limits on that entry instead of the left-most (client-supplied, spoofable)
   // one. Leave unset on Vercel (ipAddress() covers it) and in local dev.
-  TRUST_PROXY: z.string().default('').transform((v) => v === '1'),
+  // Strict enum on purpose: TRUST_PROXY=true/yes/on must fail the boot rather
+  // than silently parse as "off" and quietly revert to the spoofable path.
+  TRUST_PROXY: z.enum(['', '0', '1']).default('').transform((v) => v === '1'),
 });
 
 export const env = Env.parse(process.env);

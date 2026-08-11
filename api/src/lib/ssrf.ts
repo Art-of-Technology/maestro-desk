@@ -103,7 +103,10 @@ function isBlockedIPv6(ip: string): boolean {
   return false;
 }
 
-function isBlockedAddress(ip: string): boolean {
+// Exported for lib/rate-limit.ts: under TRUST_PROXY it doubles as the
+// "did this connection arrive from our private overlay network (i.e. through
+// Traefik) rather than straight off the internet" predicate.
+export function isBlockedAddress(ip: string): boolean {
   const kind = net.isIP(ip);
   if (kind === 4) return isBlockedIPv4(ip);
   if (kind === 6) return isBlockedIPv6(ip);

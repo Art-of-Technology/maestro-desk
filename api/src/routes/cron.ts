@@ -1,24 +1,7 @@
 import { Hono } from 'hono';
 import { env } from '../lib/env.js';
-import { getDb } from '../lib/db.js';
-import { processPendingDeliveries } from '../lib/outgoing-webhooks.js';
-import { purgeExpiredTickets } from '../lib/retention.js';
-import { retryPendingObjectDeletions } from '../lib/gdpr-erasure.js';
-import { verifyAuditChains, verifyAuditChainsFull } from '../lib/audit-verify.js';
-import { sweepEmailDomains } from '../lib/email-domains.js';
-import { sendOpsAlert } from '../lib/alert.js';
-
-// A cron job failed to run cleanly — fire a live alert (no-op until a channel
-// is configured) so a silently-broken scheduled task surfaces. Signature is per
-// job, so one alert per job per cooldown.
-async function alertCronFailure(job: string, err: unknown): Promise<void> {
-  await sendOpsAlert({
-    signature: `cron:${job}:fail`,
-    severity: 'critical',
-    title: `Cron job "${job}" failed`,
-    detail: `The scheduled "${job}" job threw: ${err instanceof Error ? err.message : String(err)}`,
-  });
-}
+import { verifyAuditChainsFull } from '../lib/audit-verify.js';
+import { alertCronFailure, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -36,7 +19,7 @@ export const cron = new Hono();
 if (process.env.VERCEL && !env.CRON_SECRET) {
   console.warn(
     '[cron] CRON_SECRET is not set on Vercel — all /api/v1/cron/* requests will 401 and the ' +
-      'scheduled webhook-retry job will NOT run. Set CRON_SECRET in the project env.',
+      'scheduled jobs (webhook-retry, retention) will NOT run. Set CRON_SECRET in the project env.',
   );
 }
 
@@ -50,76 +33,26 @@ cron.use('*', async (c, next) => {
   await next();
 });
 
+// The job bodies live in lib/cron-jobs.ts, shared with the self-hosted CLI
+// runner (src/cron-run.ts) — logging + ops alerts fire inside the job; these
+// handlers only translate the outcome to HTTP.
 cron.get('/webhook-retry', async (c) => {
-  let processed: number;
   try {
-    ({ processed } = await processPendingDeliveries());
-  } catch (err) {
-    console.error('[cron] webhook-retry failed:', err instanceof Error ? err.message : err);
-    await alertCronFailure('webhook-retry', err);
+    return c.json({ ok: true, ...(await runWebhookRetryJob()) });
+  } catch {
     return c.json({ ok: false, error: 'webhook-retry failed' }, 500);
   }
-  // Piggyback the daily housekeeping prunes (drop long-expired rate-limit
-  // buckets and stale ops-alert dedup signatures). Best-effort.
-  try { await getDb()`select prune_rate_limits()`; }
-  catch (err) { console.warn('[cron] prune_rate_limits failed:', err instanceof Error ? err.message : err); }
-  try { await getDb()`select prune_ops_alerts()`; }
-  catch (err) { console.warn('[cron] prune_ops_alerts failed:', err instanceof Error ? err.message : err); }
-  return c.json({ ok: true, processed });
 });
 
-// Data-retention purge — deletes resolved tickets (and cascaded children) past
-// each workspace's retention window. Idempotent: a re-run just deletes whatever
-// is now expired. Safe to run daily.
+// Data-retention purge + piggybacked compliance sweeps (audit-chain verify,
+// GDPR object-deletion retry, sender-domain sweep) — composition and the
+// reasoning comments live in lib/cron-jobs.ts runRetentionJob.
 cron.get('/retention', async (c) => {
-  let purgedTickets: number;
   try {
-    ({ purgedTickets } = await purgeExpiredTickets());
-  } catch (err) {
-    console.error('[cron] retention purge failed:', err instanceof Error ? err.message : err);
-    await alertCronFailure('retention', err);
+    return c.json({ ok: true, ...(await runRetentionJob()) });
+  } catch {
     return c.json({ ok: false, error: 'retention purge failed' }, 500);
   }
-  // Piggyback the daily audit-chain integrity check (Hobby plan caps cron jobs,
-  // so this compliance sweep rides the existing daily cron rather than spending a
-  // slot). Incremental by default (cost ∝ new rows); a full re-verify runs weekly
-  // (Sundays, UTC) via resetFirst to catch a historical tamper below a checkpoint
-  // — a stateless calendar gate, so a missed Sunday just delays a week. Best-
-  // effort: a verify failure is logged/alerted inside verifyAuditChains but must
-  // not fail the purge result. Only a COUNT is embedded here; the alert (Sentry +
-  // ops) fires inside verifyAuditChains regardless of caller.
-  let audit: { checked: number; tampered: number; full: boolean } | undefined;
-  try {
-    const full = new Date().getUTCDay() === 0;
-    const { checked, tampered } = await verifyAuditChains({ resetFirst: full });
-    audit = { checked, tampered: tampered.length, full };
-  } catch (err) {
-    console.error('[cron] audit-verify (via retention) failed:', err instanceof Error ? err.message : err);
-    await alertCronFailure('audit-verify', err);
-  }
-  // Piggyback the GDPR-erasure object-deletion retry sweep (finishes any R2
-  // deletes that failed at erase time). Best-effort — a failure here must not
-  // fail the purge result.
-  let objectRetry: { swept: number; cleared: number } | undefined;
-  try {
-    const { swept, cleared } = await retryPendingObjectDeletions();
-    objectRetry = { swept, cleared };
-  } catch (err) {
-    console.error('[cron] gdpr object-deletion retry (via retention) failed:', err instanceof Error ? err.message : err);
-    await alertCronFailure('gdpr-object-retry', err);
-  }
-  // Piggyback the sender-domain sweep (same Hobby cron-cap reasoning): verify
-  // pending domains (auto-stamps owners who never revisit the settings page),
-  // drift-check verified ones (lapse => degraded + ops alert inside the
-  // sweep), and expire 30-day-old unverified claims. Best-effort.
-  let emailDomains: Awaited<ReturnType<typeof sweepEmailDomains>> | undefined;
-  try {
-    emailDomains = await sweepEmailDomains();
-  } catch (err) {
-    console.error('[cron] email-domain sweep (via retention) failed:', err instanceof Error ? err.message : err);
-    await alertCronFailure('email-domain-sweep', err);
-  }
-  return c.json({ ok: true, purgedTickets, audit, objectRetry, emailDomains });
 });
 
 // Audit-chain integrity check (standalone). Runs the FULL, read-only verifier

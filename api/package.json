@@ -14,6 +14,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.0",
     "@getpubby/sdk": "^0.2.0",
+    "@hono/node-server": "^2.1.0",
     "@sentry/node": "^10.59.0",
     "@vercel/functions": "^3.6.3",
     "aws4fetch": "^1.0.20",
@@ -21,6 +22,7 @@
     "hono": "^4.12.27",
     "pg": "^8.21.0",
     "postgres": "^3.4.5",
+    "tsx": "^4.23.12",
     "undici": "^8.7.0",
     "web-push": "^3.6.7",
     "zod": "^3.23.0"

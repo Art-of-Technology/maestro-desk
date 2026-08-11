@@ -49,6 +49,12 @@ jobs:
       - name: Import-completeness audit
         run: bun scripts/import-audit.mjs
 
+      # The SPA's security headers exist twice while both hosts do (Vercel
+      # hosting config + the self-hosted nginx image) — hand-editing one file
+      # would silently CSP-block the other host in production.
+      - name: Header sync — vercel.json vs nginx.conf
+        run: bun scripts/header-sync-check.mjs
+
       - name: Route smoke — every route renders
         run: |
           bun build scripts/route-smoke-entry.js > scripts/route-entry.bundled.js
