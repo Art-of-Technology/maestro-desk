@@ -14,6 +14,13 @@
 // one page load (logout → sign back in), so the script injection is guarded
 // but Tagline.init re-runs per login to identify the current user.
 //
+// Environments: window.RESPOVIA_ENV maps deployments to Tagline environment
+// codes ('production' | 'staging' | 'dev'). Only codes registered in the
+// Tagline app sync successfully — currently just 'production' (verified
+// 2026-08-12; unregistered codes get {error:{code:'unknown_environment'}},
+// a harmless 404 thanks to the fail-silent contract). Registering 'staging'
+// in Tagline later lights up preview/staging popups with no code change.
+//
 // Like core/realtime.js and push/index.js, this layer is strictly optional:
 // every path is fail-silent so an unreachable CDN or a blocked request can
 // never break the app. The appKey below is a public identifier (safe in
