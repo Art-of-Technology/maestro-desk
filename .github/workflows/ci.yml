@@ -113,7 +113,19 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Apply migrations to the test database
+      - name: Set up Node 22 (production runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Fresh apply under Node+tsx — the exact command the production container
+      # runs at boot (api/Dockerfile CMD). Keeps the prod migration path
+      # exercised in CI, not just the Bun path.
+      - name: Apply migrations to the test database (Node — production boot path)
+        run: node --import tsx scripts/migrate.ts
+
+      # Idempotent re-run under Bun — the CI/staging path; must be a no-op.
+      - name: Migrations re-run is a no-op (Bun)
         run: bun run migrate
 
       - name: Tests (hermetic + DB-backed isolation suite)

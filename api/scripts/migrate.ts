@@ -1,16 +1,19 @@
-// Neon migration runner (migration to Neon — Step 1).
+// Migration runner.
 //
 // Applies every *.sql file in db/migrations/ (repo root), in filename order,
 // exactly once. Each file runs inside a transaction; a record is written to
 // the schema_migrations table so re-runs skip already-applied files.
 //
-// Usage (from api/):  bun run migrate
-// Requires DATABASE_URL in api/.env (Bun auto-loads it).
+// Runs under BOTH runtimes on purpose (no Bun-only APIs):
+//  - Bun:  `bun run migrate` from api/ (local dev, CI, staging workflow)
+//  - Node: `node --import tsx scripts/migrate.ts` — production runs this at
+//    container boot on Dokploy, before the server starts (the deploy fails
+//    visibly if a migration fails; the previous image keeps serving).
 //
 // Self-contained on purpose: it reads DATABASE_URL straight from the
 // environment and opens its own connection, so it does NOT pull in the full
-// env schema (no need for Supabase/Anthropic vars just to run migrations).
-import { readdirSync } from 'node:fs';
+// env schema (no need for Anthropic/Postmark vars just to run migrations).
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
 
@@ -20,25 +23,61 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-// api/scripts/ -> repo root -> db/migrations
-const migrationsDir = join(import.meta.dir, '..', '..', 'db', 'migrations');
+// api/scripts/ -> repo root -> db/migrations. The production image mirrors
+// this layout (/app/api/scripts + /app/db/migrations) so the same path math
+// works in the repo and in the container. import.meta.dirname works on both
+// Node >=20.11 and Bun (import.meta.dir is Bun-only).
+const migrationsDir = join(import.meta.dirname, '..', '..', 'db', 'migrations');
 
-// Neon's URL carries sslmode=require; a local/CI Postgres has no TLS, so honour
-// an explicit sslmode=disable and skip it there (used when applying migrations
-// to the test database in CI).
+// A TLS-carrying URL (sslmode=require) needs ssl; a local/CI/Dokploy-internal
+// Postgres has no TLS, so honour an explicit sslmode=disable and skip it there.
 const sql = postgres(DATABASE_URL, {
   ssl: DATABASE_URL.includes('sslmode=disable') ? false : 'require',
   max: 1,
   prepare: false,
+  // This runs on every container boot; without this, `create table if not
+  // exists schema_migrations` dumps a NOTICE object into the deploy log each
+  // time. Other notices (e.g. from the migration files themselves) stay
+  // visible — they can carry real signal. Errors are unaffected either way.
+  onnotice: (n) => {
+    if (!/already exists, skipping/.test(n.message ?? '')) console.log(`NOTICE: ${n.message}`);
+  },
 });
 
+// App-wide advisory lock so two concurrently booting containers (e.g. a
+// rolling deploy) can't double-apply a file. TRANSACTION-scoped
+// (pg_advisory_xact_lock) on purpose: a session-level pg_advisory_lock is
+// unsafe through a transaction-mode pooler (PgBouncer / Neon's -pooler
+// endpoint, which this runner still targets until the Dokploy DB cutover
+// completes and for staging) — the lock sticks to whichever backend the
+// pooler picked and outlives the client, so a later boot can block forever.
+// An xact lock lives and dies with its transaction on one backend, which is
+// pooler-safe; it is taken inside each file's transaction below.
+const MIGRATE_LOCK_KEY = 727_573_707;
+
+// Bounded wait for the advisory lock: if another migrator hangs while holding
+// it, fail this boot loudly (deploy turns red, previous image keeps serving)
+// instead of blocking inside the container CMD forever. `set local` scopes the
+// timeout to the surrounding transaction only — the migration statements that
+// follow keep the server default.
+async function takeLock(tx: { unsafe: (q: string) => Promise<unknown> }) {
+  await tx.unsafe(`set local lock_timeout = '120s'`);
+  await tx.unsafe(`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`);
+}
+
 async function main() {
-  await sql`
-    create table if not exists schema_migrations (
-      filename   text primary key,
-      applied_at timestamptz not null default now()
-    )
-  `;
+  // Bootstrap under the same lock: `if not exists` alone is not fully
+  // race-proof — two connections creating the table simultaneously can still
+  // collide in the catalog and one of them errors, crashing that boot.
+  await sql.begin(async (tx) => {
+    await takeLock(tx);
+    await tx`
+      create table if not exists schema_migrations (
+        filename   text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `;
+  });
 
   const applied = new Set(
     (await sql`select filename from schema_migrations`).map((r) => r.filename as string),
@@ -60,20 +99,33 @@ async function main() {
   }
 
   console.log(`Applying ${pending.length} migration(s)…`);
+  let appliedNow = 0;
   for (const file of pending) {
-    const content = await Bun.file(join(migrationsDir, file)).text();
+    const content = readFileSync(join(migrationsDir, file), 'utf8');
     try {
-      await sql.begin(async (tx) => {
+      const did = await sql.begin(async (tx) => {
+        await takeLock(tx);
+        // Re-check under the lock: a concurrent migrator may have applied this
+        // file after we computed `pending`. Skipping here (instead of hitting
+        // the schema_migrations PK) keeps a racing boot from failing.
+        const seen = await tx`select 1 from schema_migrations where filename = ${file}`;
+        if (seen.length > 0) return false;
         await tx.unsafe(content);
         await tx`insert into schema_migrations (filename) values (${file})`;
+        return true;
       });
-      console.log(`  ✓ ${file}`);
+      if (did) {
+        appliedNow++;
+        console.log(`  ✓ ${file}`);
+      } else {
+        console.log(`  ↷ ${file} (applied by a concurrent migrator)`);
+      }
     } catch (err) {
       console.error(`  ✗ ${file} failed — rolled back. Nothing after this was applied.`);
       throw err;
     }
   }
-  console.log(`✓ Done — applied ${pending.length} migration(s).`);
+  console.log(`✓ Done — applied ${appliedNow} migration(s).`);
 }
 
 // Always close the pool, on success or failure, so the process exits cleanly

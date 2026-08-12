@@ -47,11 +47,11 @@ bun scripts/import-audit.mjs                               # 5. import-completen
 - **Adding a state/data global:** export it; add a `setX` setter only if it's *reassigned* anywhere (in-place mutation needs none); every consuming module must import it.
 - Bundling regex/script tip: `git ls-files web/js` (not a `**` pathspec); use `String.raw` for regex in scripts (template literals eat `\w`/`\b`); files are CRLF — make literal-replacement scripts EOL-aware.
 
-## Database (Neon)
+## Database (self-hosted Postgres)
 
-The database is **Neon Postgres**, accessed directly via `postgres.js` (`getDb()` in `api/src/lib/db.js`) — no ORM. Supabase has been fully retired; ignore any lingering Supabase references in old code comments.
+Production is a **dedicated postgres:17 container in Dokploy** (`respovia-db`, migrated off Neon 2026-08; Neon remains only for staging and as the soak-window rollback copy), accessed directly via `postgres.js` (`getDb()` in `api/src/lib/db.js`) — no ORM. The prod `DATABASE_URL` uses the internal Docker hostname and **must carry `sslmode=disable`** (the container has no TLS; `db.ts`/`migrate.ts` string-match that marker). Supabase has been fully retired; ignore any lingering Supabase references in old code comments.
 
-- **Migrations are raw SQL** in `db/migrations/` (repo root), applied in filename order. Add changes as a **new timestamped file** (`YYYYMMDDHHMMSS_description.sql`) — never edit an already-applied one. `api/scripts/migrate.ts` (`bun run migrate`) tracks applied files in `schema_migrations` so re-runs skip them; the deploy-time GitHub Action runs it on push to `main`.
+- **Migrations are raw SQL** in `db/migrations/` (repo root), applied in filename order. Add changes as a **new timestamped file** (`YYYYMMDDHHMMSS_description.sql`) — never edit an already-applied one. `api/scripts/migrate.ts` (`bun run migrate`; Node-compatible on purpose) tracks applied files in `schema_migrations` so re-runs skip them. **Prod applies migrations at API-container boot** (Dockerfile CMD, advisory-locked) — the push-to-main migrate workflow is legacy (GitHub runners can't reach the LAN-only DB); staging still uses `migrate-staging.yml`.
 - **Authorization is API middleware, not RLS.** There is no row-level security anymore: every route filters by `workspace_id` and uses `requireAuth` / `requireWorkspaceAdmin` (`api/src/lib/authz.ts`). A new route that touches workspace-scoped tables **must** include the `where workspace_id = …` predicate — there is no database backstop.
 - **`citext`** backs `users.email` / `customers.email`; keep it in `public` (a `search_path` lacking it silently degrades comparisons to case-sensitive).
 - **Validate new migrations on Docker PG 17** (`docker run postgres:17` + per-file `psql` apply) before pushing.

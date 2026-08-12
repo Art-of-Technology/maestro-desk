@@ -1,31 +1,22 @@
-name: Migrate (Neon)
+name: Migrate (legacy — prod runs migrations at boot)
 
-# Applies pending Neon migrations to PRODUCTION on every push to main.
+# LEGACY / manual-only. Production moved to a dedicated Postgres inside
+# Dokploy on the company server, which GitHub-hosted runners CANNOT reach
+# (LAN-only, behind a Cloudflare Tunnel that only exposes HTTP). Prod
+# migrations now run at API-container boot on Dokploy: api/Dockerfile's CMD
+# executes api/scripts/migrate.ts (advisory-locked, idempotent) before
+# starting the server, so schema and code deploy as one unit.
 #
-# Why this exists: the SPA + API auto-deploy to Vercel on push, but the SQL in
-# db/migrations/ was applied to prod by hand. That gap once left prod "a
-# migration behind" and 500'd brand-select until someone applied it manually
-# (see project notes). This makes the prod schema catch up automatically.
+# This workflow is kept ONLY for the edge case of migrating a reachable
+# database via the `production` environment secret (e.g. the retired Neon
+# instance during the rollback-soak window). Running it against the Dokploy
+# DB will fail with a connection timeout — that is expected.
 #
-# Safety:
-#  - The runner (api/scripts/migrate.ts) is idempotent — it records applied
-#    files in schema_migrations and skips them, so re-runs are no-ops.
-#  - Each file runs in its own transaction; a failure rolls back and stops.
-#  - This targets the PROD DB only (the DATABASE_URL repo secret). Preview/dev
-#    DBs are never touched here.
-#  - No strict ordering vs Vercel's deploy (they run in parallel); fine for the
-#    repo's additive (`add column if not exists`) migration style.
+# Staging still migrates via CI (migrate-staging.yml — staging remains on Neon).
 
 on:
-  push:
-    branches: [main]
-    # Only run when something migration-related changed — frontend/API-only
-    # pushes don't need a DB pass. (The migrate run itself is still idempotent.)
-    paths:
-      - 'db/migrations/**'
-      - 'api/scripts/migrate.ts'
-      - '.github/workflows/migrate.yml'
-  # Allow manual runs from the Actions tab (e.g. to re-apply after fixing a secret).
+  # Manual runs only — the push-to-main trigger was removed with the Dokploy
+  # DB cutover (a push-triggered run could never reach the prod DB again).
   workflow_dispatch:
 
 # Never run two migration passes at once, and never cancel one mid-flight.
