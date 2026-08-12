@@ -53,12 +53,18 @@ const sql = postgres(DATABASE_URL, {
 const MIGRATE_LOCK_KEY = 727_573_707;
 
 async function main() {
-  await sql`
-    create table if not exists schema_migrations (
-      filename   text primary key,
-      applied_at timestamptz not null default now()
-    )
-  `;
+  // Bootstrap under the same lock: `if not exists` alone is not fully
+  // race-proof — two connections creating the table simultaneously can still
+  // collide in the catalog and one of them errors, crashing that boot.
+  await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`;
+    await tx`
+      create table if not exists schema_migrations (
+        filename   text primary key,
+        applied_at timestamptz not null default now()
+      )
+    `;
+  });
 
   const applied = new Set(
     (await sql`select filename from schema_migrations`).map((r) => r.filename as string),
