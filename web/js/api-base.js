@@ -15,10 +15,12 @@
 // domain may set the global before this runs — the guard below won't clobber it.
 //
 // KEEP IN SYNC: every API host mapped below must also appear in the connect-src
-// of web/vercel.json's Content-Security-Policy, or the browser CSP will block
-// API calls from that host. (connect-src additionally lists api.anthropic.com
-// for the direct-from-browser AI calls in js/ai/client.js, and
-// tagline.cipiti.ai for the Tagline What's-New SDK in js/tagline-sdk/.)
+// of the Content-Security-Policy in BOTH web/vercel.json and web/nginx.conf
+// (byte-identical duplicates; scripts/header-sync-check.mjs gates drift), or
+// the browser CSP will block API calls from that host. (connect-src
+// additionally lists api.anthropic.com for the direct-from-browser AI calls
+// in js/ai/client.js, and tagline.cipiti.ai for the Tagline What's-New SDK
+// in js/tagline-sdk/.)
 //
 // The same hostname branches also set window.RESPOVIA_ENV
 // ('production' | 'staging' | 'dev') — the single client-side environment

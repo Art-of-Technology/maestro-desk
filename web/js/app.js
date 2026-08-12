@@ -34,7 +34,7 @@ import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
-import { initTaglineSdk } from './tagline-sdk/index.js';
+import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 
 function login(role, name, initials, userId = null, canManageCustomFields = false) {
   setSession({ role, name, initials, userId, canManageCustomFields });
@@ -133,6 +133,9 @@ function logout() {
   stopListSync();
   // Tear down the Pubby realtime socket (no-op if it never connected).
   stopRealtime();
+  // Stop identifying the signed-out user to Tagline (What's-New announcements)
+  // for the rest of this page load.
+  resetTaglineSdk();
   setSession(null);
   resetWorkspaceBrand();
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
