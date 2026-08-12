@@ -1,5 +1,7 @@
 // Public portal driver (extracted from portal.html so the page can ship a
-// strict CSP with script-src 'self'). Self-contained: pulls workspace + KB
+// strict CSP with no inline script; the site-wide script-src also carries a
+// path-scoped allowance for the agent SPA's Tagline SDK, which this portal
+// never loads). Self-contained: pulls workspace + KB
 // from /api/v1/public/:slug/* and posts new tickets to the same root. No
 // bundler, no SPA glue. window.RESPOVIA_API_BASE is set by js/api-base.js
 // (loaded before this file); the || fallback below keeps local/preview safe.

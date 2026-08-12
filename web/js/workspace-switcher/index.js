@@ -26,6 +26,7 @@ import { stopPresence } from '../core/presence.js';
 import { renderPage } from '../core/router.js';
 import { registerActions } from '../core/event-delegation.js';
 import { SESSION, setSession } from '../core/state.js';
+import { initTaglineSdk } from '../tagline-sdk/index.js';
 
 let _memberships = [];   // cached from /whoami; refreshed each time the popover opens
 let _switching   = false;
@@ -210,6 +211,9 @@ async function switchWorkspace(m) {
   });
   startListSync();
   startRealtime();
+  // Re-identify to Tagline so announcement targeting (workspace_id, role)
+  // tracks the workspace we just entered — this path never re-runs login().
+  initTaglineSdk(SESSION?.userId);
   _switching = false;
   renderPage('dashboard');
 }

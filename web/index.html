@@ -12,8 +12,9 @@
 <link rel="stylesheet" href="styles/components.css"/>
 <link rel="stylesheet" href="styles/pages.css"/>
 <!-- Runtime API-base selection, extracted to an external classic script so this
-     page can ship a strict CSP (script-src 'self', no inline). Runs before the
-     app module below, so window.RESPOVIA_API_BASE is set in time. -->
+     page can ship a strict CSP (no inline script; script-src is 'self' plus the
+     path-scoped Tagline SDK, injected post-login by js/tagline-sdk/). Runs
+     before the app module below, so window.RESPOVIA_API_BASE is set in time. -->
 <script src="js/api-base.js"></script>
 </head>
 <body>
