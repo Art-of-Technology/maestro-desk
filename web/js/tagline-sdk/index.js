@@ -97,15 +97,14 @@ function identify(userId) {
   } catch { /* fail-silent by contract */ }
 }
 
-// Called from renderPage() so a newly published announcement can appear
+// Called from renderPage(page) so a newly published announcement can appear
 // mid-session, not only at sign-in. Gated three ways: no-op until a real
 // login identified someone (and again after logout), immediate on an actual
 // page change, and rate-limited on same-page repaints (see SAME_PAGE_CHECK_MS
 // — some renderPage callers fire per keystroke).
-export function taglineCheck() {
+export function taglineCheck(page) {
   try {
     if (!identified || !window.Tagline?.check) return;
-    const page = document.body.dataset.currentPage || null;
     const now = Date.now();
     if (page === lastCheckPage && now - lastCheckAt < SAME_PAGE_CHECK_MS) return;
     lastCheckPage = page;

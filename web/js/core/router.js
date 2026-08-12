@@ -129,7 +129,7 @@ export function renderPage(page) {
   if (page === 'tickets') initTicketsPage();
   applyCollapsibleHeaders();
   updateNavBadges();
-  taglineCheck();
+  taglineCheck(page);
 }
 
 // ─── Page-render hooks (updateNavBadges) ────────────────────────────────────
