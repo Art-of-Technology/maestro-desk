@@ -60,7 +60,11 @@ export function initTaglineSdk(userId) {
   // CDN unreachable or blocked: announcements simply don't show. Un-latch the
   // guard so the next login / workspace switch retries instead of staying
   // silently dead for the whole page lifetime after one transient failure.
-  s.onerror = () => { scriptRequested = false; s.remove(); };
+  s.onerror = () => {
+    console.warn('[tagline-sdk] SDK script failed to load — will retry on next login/workspace switch');
+    scriptRequested = false;
+    s.remove();
+  };
   document.head.appendChild(s);
 }
 
@@ -71,6 +75,10 @@ export function initTaglineSdk(userId) {
 export function resetTaglineSdk() {
   pendingUserId = null;
   identified = false;
+  // Drop the rate-limit bookkeeping too: whoever signs in next must not
+  // inherit the previous session's same-page check floor.
+  lastCheckPage = null;
+  lastCheckAt = 0;
 }
 
 function identify(userId) {
@@ -94,7 +102,19 @@ function identify(userId) {
       user: { id: userId, properties },
     });
     identified = true;
-  } catch { /* fail-silent by contract */ }
+    // A fresh identity resets the check rate-limit: the next taglineCheck
+    // fires immediately regardless of which page the previous identity last
+    // checked from. (Sign-in announcements don't depend on that check at
+    // all — the SDK's init() above performs its own sync and can render an
+    // announcement right away; taglineCheck only covers mid-session
+    // navigation after that.)
+    lastCheckPage = null;
+    lastCheckAt = 0;
+  } catch (err) {
+    // Fail-silent for the app, but not invisible to a debugger: a vendor
+    // API change would otherwise die in this catch with no trace.
+    console.warn('[tagline-sdk] init failed', err);
+  }
 }
 
 // Called from renderPage(page) so a newly published announcement can appear
@@ -110,5 +130,7 @@ export function taglineCheck(page) {
     lastCheckPage = page;
     lastCheckAt = now;
     window.Tagline.check();
-  } catch { /* fail-silent by contract */ }
+  } catch (err) {
+    console.warn('[tagline-sdk] check failed', err);
+  }
 }
