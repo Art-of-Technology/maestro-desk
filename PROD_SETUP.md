@@ -114,7 +114,7 @@ feature branch ──▶ staging   (Vercel staging deploy + migrate-staging.yml 
                    main       (prod auto-deploy; prod migrations apply at API-container boot on Dokploy)
 ```
 
-This is **rehearsal-only** (the chosen scope): prod's auto-deploy path and its migrate-vs-deploy ordering are unchanged — staging just gives migrations a place to bake first.
+This is **rehearsal-only** (the chosen scope): staging gives migrations a place to bake before they reach prod, where they apply at API-container boot (strictly ordered with the deploy — the server only starts after the migration pass succeeds).
 
 **In-repo (this PR):** `.github/workflows/migrate-staging.yml` (applies migrations to the staging DB on push to `staging`, gated by the `staging` Environment) and the staging branches in `web/index.html` / `web/portal.html` API-base routing.
 

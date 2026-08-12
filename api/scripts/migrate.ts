@@ -37,8 +37,11 @@ const sql = postgres(DATABASE_URL, {
   prepare: false,
   // This runs on every container boot; without this, `create table if not
   // exists schema_migrations` dumps a NOTICE object into the deploy log each
-  // time. Errors are unaffected.
-  onnotice: () => {},
+  // time. Other notices (e.g. from the migration files themselves) stay
+  // visible — they can carry real signal. Errors are unaffected either way.
+  onnotice: (n) => {
+    if (!/already exists, skipping/.test(n.message ?? '')) console.log(`NOTICE: ${n.message}`);
+  },
 });
 
 // App-wide advisory lock so two concurrently booting containers (e.g. a
@@ -52,12 +55,22 @@ const sql = postgres(DATABASE_URL, {
 // pooler-safe; it is taken inside each file's transaction below.
 const MIGRATE_LOCK_KEY = 727_573_707;
 
+// Bounded wait for the advisory lock: if another migrator hangs while holding
+// it, fail this boot loudly (deploy turns red, previous image keeps serving)
+// instead of blocking inside the container CMD forever. `set local` scopes the
+// timeout to the surrounding transaction only — the migration statements that
+// follow keep the server default.
+async function takeLock(tx: { unsafe: (q: string) => Promise<unknown> }) {
+  await tx.unsafe(`set local lock_timeout = '120s'`);
+  await tx.unsafe(`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`);
+}
+
 async function main() {
   // Bootstrap under the same lock: `if not exists` alone is not fully
   // race-proof — two connections creating the table simultaneously can still
   // collide in the catalog and one of them errors, crashing that boot.
   await sql.begin(async (tx) => {
-    await tx`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`;
+    await takeLock(tx);
     await tx`
       create table if not exists schema_migrations (
         filename   text primary key,
@@ -91,7 +104,7 @@ async function main() {
     const content = readFileSync(join(migrationsDir, file), 'utf8');
     try {
       const did = await sql.begin(async (tx) => {
-        await tx`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`;
+        await takeLock(tx);
         // Re-check under the lock: a concurrent migrator may have applied this
         // file after we computed `pending`. Skipping here (instead of hitting
         // the schema_migrations PK) keeps a racing boot from failing.
