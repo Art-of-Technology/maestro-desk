@@ -42,12 +42,17 @@ const sql = postgres(DATABASE_URL, {
 });
 
 // App-wide advisory lock so two concurrently booting containers (e.g. a
-// rolling deploy) can't interleave migrations. Session-scoped: released
-// automatically when this connection closes, even on crash.
+// rolling deploy) can't double-apply a file. TRANSACTION-scoped
+// (pg_advisory_xact_lock) on purpose: a session-level pg_advisory_lock is
+// unsafe through a transaction-mode pooler (PgBouncer / Neon's -pooler
+// endpoint, which this runner still targets until the Dokploy DB cutover
+// completes and for staging) — the lock sticks to whichever backend the
+// pooler picked and outlives the client, so a later boot can block forever.
+// An xact lock lives and dies with its transaction on one backend, which is
+// pooler-safe; it is taken inside each file's transaction below.
 const MIGRATE_LOCK_KEY = 727_573_707;
 
 async function main() {
-  await sql`select pg_advisory_lock(${MIGRATE_LOCK_KEY})`;
   await sql`
     create table if not exists schema_migrations (
       filename   text primary key,
@@ -75,20 +80,33 @@ async function main() {
   }
 
   console.log(`Applying ${pending.length} migration(s)…`);
+  let appliedNow = 0;
   for (const file of pending) {
     const content = readFileSync(join(migrationsDir, file), 'utf8');
     try {
-      await sql.begin(async (tx) => {
+      const did = await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(${MIGRATE_LOCK_KEY})`;
+        // Re-check under the lock: a concurrent migrator may have applied this
+        // file after we computed `pending`. Skipping here (instead of hitting
+        // the schema_migrations PK) keeps a racing boot from failing.
+        const seen = await tx`select 1 from schema_migrations where filename = ${file}`;
+        if (seen.length > 0) return false;
         await tx.unsafe(content);
         await tx`insert into schema_migrations (filename) values (${file})`;
+        return true;
       });
-      console.log(`  ✓ ${file}`);
+      if (did) {
+        appliedNow++;
+        console.log(`  ✓ ${file}`);
+      } else {
+        console.log(`  ↷ ${file} (applied by a concurrent migrator)`);
+      }
     } catch (err) {
       console.error(`  ✗ ${file} failed — rolled back. Nothing after this was applied.`);
       throw err;
     }
   }
-  console.log(`✓ Done — applied ${pending.length} migration(s).`);
+  console.log(`✓ Done — applied ${appliedNow} migration(s).`);
 }
 
 // Always close the pool, on success or failure, so the process exits cleanly
