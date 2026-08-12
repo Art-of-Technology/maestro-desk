@@ -52,6 +52,7 @@ import { renderProfile } from '../profile/index.js';
 import { renderGod } from '../god/index.js';
 import { applyCollapsibleHeaders } from './collapsible.js';
 import { stopPresence } from './presence.js';
+import { taglineCheck } from '../tagline-sdk/index.js';
 
 // Merged sidebar destinations own extra page keys through their header tabs
 // (Conversations = tickets|inbox, Insights = reports|activity). Map those tab
@@ -128,6 +129,7 @@ export function renderPage(page) {
   if (page === 'tickets') initTicketsPage();
   applyCollapsibleHeaders();
   updateNavBadges();
+  taglineCheck();
 }
 
 // ─── Page-render hooks (updateNavBadges) ────────────────────────────────────

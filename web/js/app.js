@@ -34,6 +34,7 @@ import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
+import { initTaglineSdk } from './tagline-sdk/index.js';
 
 function login(role, name, initials, userId = null, canManageCustomFields = false) {
   setSession({ role, name, initials, userId, canManageCustomFields });
@@ -68,7 +69,7 @@ function login(role, name, initials, userId = null, canManageCustomFields = fals
   // Real-auth users (userId != null) get the always-on list-sync poll so
   // TICKETS / nav badges / inbox stay live. Demo personas skip — they
   // have no API to talk to and TICKETS comes from data.js seeds.
-  if (userId) { startListSync(); startRealtime(); }
+  if (userId) { startListSync(); startRealtime(); initTaglineSdk(userId); }
   // Enable the in-session workspace switcher for real-auth agents who belong
   // to more than one workspace (fire-and-forget; resolves its own trigger).
   if (userId && !isPlatformAdmin()) initWorkspaceSwitcher(userId);

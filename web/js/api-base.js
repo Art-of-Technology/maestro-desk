@@ -17,7 +17,13 @@
 // KEEP IN SYNC: every API host mapped below must also appear in the connect-src
 // of web/vercel.json's Content-Security-Policy, or the browser CSP will block
 // API calls from that host. (connect-src additionally lists api.anthropic.com
-// for the direct-from-browser AI calls in js/ai/client.js.)
+// for the direct-from-browser AI calls in js/ai/client.js, and
+// tagline.cipiti.ai for the Tagline What's-New SDK in js/tagline-sdk/.)
+//
+// The same hostname branches also set window.RESPOVIA_ENV
+// ('production' | 'staging' | 'dev') — the single client-side environment
+// discriminator, currently consumed by js/tagline-sdk/index.js so each
+// deployment reports its own environment code to Tagline.
 (function () {
   // Back-compat: honor the pre-rename global if a self-hosted page still
   // sets it (documented hook from the Maestro Desk era).
@@ -38,6 +44,7 @@
     // anyway so they fail toward the real API rather than localhost, but the
     // Vercel 308 redirect apex/www -> app is REQUIRED, not cosmetic.
     window.RESPOVIA_API_BASE = 'https://api.respovia.com';
+    window.RESPOVIA_ENV = 'production';
   } else if (h === 'maestro-desk-jodi-1420s-projects.vercel.app') {
     // Legacy interim host. This stays the WORKING production host until the
     // env cutover (APP_BASE_URL/BETTER_AUTH_URL -> respovia.com); after that
@@ -45,6 +52,7 @@
     // failure pointed at the real API instead of localhost. Remove in the
     // post-soak cleanup PR.
     window.RESPOVIA_API_BASE = 'https://maestro-desk-zjkl.vercel.app';
+    window.RESPOVIA_ENV = 'production';
   } else if (/^maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/.test(h)) {
     // STAGING (`git-staging`) and every PR-preview branch deploy → the staging
     // API + staging DB, never prod. The `git-` marker is REQUIRED and `git-main`
@@ -54,5 +62,10 @@
     // API runs the `staging` branch, so PRs that change API code still need
     // local verification; SPA-only PRs are fully verifiable on the preview link.
     window.RESPOVIA_API_BASE = STAGING_API;
+    window.RESPOVIA_ENV = 'staging';
+  } else {
+    // localhost dev / unknown hosts (the API base is left unset above so the
+    // consumers' localhost:3001 fallback applies).
+    window.RESPOVIA_ENV = 'dev';
   }
 })();
