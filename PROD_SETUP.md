@@ -2,7 +2,7 @@
 
 Standing up Respovia for **internal use** (your team replaces Zoho Desk). Clean-slate: new tickets start here; old Zoho tickets stay in Zoho until they close out. No data migration.
 
-Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · **Better Auth** (sign-in/sessions, owns its tables in Neon) · **Cloudflare R2** (brand-asset uploads) · **Dokploy** (company server — SPA nginx container + the Hono API as an always-on Bun container; see §3; Vercel is the legacy interim host until the cutover completes) · **Postmark** (email).
+Stack (post Supabase→Neon→self-hosted migrations): **Dokploy Postgres** (`respovia-db`, postgres:17 container on the company server — source of truth since the 2026-08 cutover; Neon is retired for prod, kept only as the rollback copy during the soak and for staging) · **Better Auth** (sign-in/sessions, owns its tables in the same database) · **Cloudflare R2** (brand-asset uploads + nightly DB dumps in a separate private bucket) · **Dokploy** (company server — SPA nginx container + the Hono API as an always-on Node container; see §3) · **Postmark** (email).
 
 > **URLs (2026-08-11).** The product domain is **`respovia.com`** (registered 2026-08-10, Cloudflare Registrar; DNS at Cloudflare, records DNS-only/grey-cloud — TLS terminates at the company server's Traefik, via Dokploy). Production hosts:
 > | Role | Production URL | Legacy interim URL (pre-cutover) |
@@ -31,10 +31,11 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 **Migration complete (code):** all data access, file storage (R2), and auth (Better Auth) are off Supabase and merged to `main`. The auth flip was verified end-to-end on Neon dev (API smoke + browser login).
 **Not yet live:** prod env/secrets, the coordinated API+SPA deploy, and re-inviting users — the steps below.
 
-## 1. Database — Neon (source of truth)
-- [ ] 👤/🤖 Confirm the **prod** Neon project/branch exists and you hold its pooled connection string (`postgresql://…@…neon.tech/…?sslmode=require`). This is `DATABASE_URL`.
-- [ ] 🤖 Apply migrations to prod: `cd api && DATABASE_URL=<prod> bun run migrate` (transactional, tracked in `schema_migrations`; re-running is idempotent). Confirms the full schema incl. the Better Auth tables (`session`/`account`/`verification`).
-- [ ] 🤖 Smoke a raw read against prod (`select count(*) from workspaces`).
+## 1. Database — dedicated Dokploy Postgres (source of truth)
+> **Cutover 2026-08:** prod data moved from Neon into the Dokploy service **`respovia-db`** (postgres:17, project `respovia`) via `pg_dump -Fc`/`pg_restore` with row-count + `audit_events_verify()` verification. The API reaches it over the internal Docker network: `DATABASE_URL=postgresql://respovia:…@<respovia-db appName>:5432/respovia?sslmode=disable` (**`sslmode=disable` is required** — the container has no TLS, and `db.ts`/`migrate.ts` only skip TLS on that exact marker; the network never leaves the host). The DB has **no public/WAN exposure**; a temporary LAN-only external port is attached in Dokploy just for migrations/maintenance and removed after.
+- [ ] 🤖 Migrations apply **at API-container boot** (Dockerfile CMD runs `api/scripts/migrate.ts` under Node before the server starts; advisory-locked, transactional, tracked in `schema_migrations`, idempotent). There is no reachable-from-CI migration path anymore — `.github/workflows/migrate.yml` is legacy/manual-only.
+- [ ] 🤖 Smoke a raw read against prod (`select count(*) from workspaces`) from a LAN machine, or via `GET /api/v1/health/ready`.
+- [ ] 👤 Backups: nightly `pg_dump` via Dokploy's backup scheduler to the private R2 bucket — see `docs/backup-recovery.md` (RPO ≤ 24 h; run a restore drill).
 
 ## 2. Bootstrap your real workspace (clean-slate, not the demo seed)
 - [ ] 🤖 Create your workspace via `select provision_brand(<name>, <slug>, …)` — seeds roles + permissions + status/priority/category lookups + business hours. Returns the new workspace id.
@@ -43,7 +44,7 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 
 ## 3. Hosting — API + SPA
 > **Decided (2026-08-11, supersedes the Vercel decision below).** Production moves to the **company server via Dokploy** (`https://paas.weez.boo`, LAN/VPN-only panel; server public IP `194.72.43.234`). Two Dokploy applications built from this repo's `main`:
-> - **`respovia-api`** — Dockerfile build, **Docker Context Path = `api`**. The container runs `src/server.ts` **under Node (via tsx), NOT Bun** — Bun's fetch ignores undici dispatchers and node:https custom lookups, which would silently drop the connect-time SSRF/DNS-rebind guard on webhook deliveries (PR #412); Vercel prod is Node too, so runtime parity holds. `src/index.ts` stays the Vercel serverless export, `src/dev.ts` stays local dev (Bun). Container port 3001. Env: everything §4 lists **plus `TRUST_PROXY=1`** (rate-limit keys on the Traefik-appended right-most `X-Forwarded-For` entry, guarded by a TCP-peer-is-private check; the strict parser rejects any value other than ''/0/1 at boot). `NODE_ENV=production` is baked into the image (arms the env.ts boot guard).
+> - **`respovia-api`** — Dockerfile build, **Docker Context Path = `.` (repo root), Dockerfile = `api/Dockerfile`** (root context so `db/migrations/` ships in the image for the boot-time migration pass; the root `.dockerignore` keeps the context lean — note `api/.dockerignore` does NOT apply to root-context builds). The container runs `src/server.ts` **under Node (via tsx), NOT Bun** — Bun's fetch ignores undici dispatchers and node:https custom lookups, which would silently drop the connect-time SSRF/DNS-rebind guard on webhook deliveries (PR #412); Vercel prod is Node too, so runtime parity holds. `src/index.ts` stays the Vercel serverless export, `src/dev.ts` stays local dev (Bun). Container port 3001. Env: everything §4 lists **plus `TRUST_PROXY=1`** (rate-limit keys on the Traefik-appended right-most `X-Forwarded-For` entry, guarded by a TCP-peer-is-private check; the strict parser rejects any value other than ''/0/1 at boot). `NODE_ENV=production` is baked into the image (arms the env.ts boot guard).
 > - **`respovia-web`** — Dockerfile build, **Docker Context Path = `web`**. nginx serving the static tree; the security headers from `web/vercel.json` are mirrored in `web/nginx.conf`, and CI (`scripts/header-sync-check.mjs`, guards job) fails if the two files drift.
 > - **Scheduled jobs:** no Vercel Cron here — Dokploy schedules exec `node --import tsx src/cron-run.ts <webhook-retry|retention>` INSIDE the API container (daily 03:00 / 04:00; no CRON_SECRET or HTTP involved, so a long retention sweep can't be cut off by a request timeout). **The schedule set is versioned in `deploy/dokploy/provision-schedules.mjs`** — edit that file and re-run it (idempotent upsert) rather than hand-editing the panel; if the application is ever recreated, re-run it too. Webhook FIRST attempts don't ride cron at all: they flush inline at dispatch, and the in-process worker polls at a slow retry-only cadence (10 min) so idle Neon can autosuspend. Duplicate/overlapping invocations stay safe (`FOR UPDATE SKIP LOCKED`). Job failures fire ops alerts (`alertCronFailure`); a schedule that silently stops FIRING is only caught by the provision script / panel check — accepted risk for now. **During the soak, Vercel Cron keeps firing the HTTP endpoints on the legacy host too** — the sweeps double-run by design and stay safe (`FOR UPDATE SKIP LOCKED` / idempotent purges); the duplication ends when the Vercel projects are retired.
 > - `BETTER_AUTH_URL` must equal the API's **public** origin so session tokens sign/verify correctly.
@@ -52,7 +53,7 @@ Stack (post Supabase→Neon migration): **Neon** (Postgres, source of truth) · 
 
 Prod secrets to set on the API host (no `SUPABASE_*`):
 ```sh
-DATABASE_URL=postgresql://…@…neon.tech/…?sslmode=require
+DATABASE_URL=postgresql://respovia:…@<respovia-db appName>:5432/respovia?sslmode=disable   # internal Docker network; sslmode=disable REQUIRED (see §1)
 BETTER_AUTH_SECRET=<openssl rand -base64 32>      # REQUIRED — app won't boot without it
 BETTER_AUTH_URL=https://api.respovia.com   # the API's own public origin
 APP_BASE_URL=https://app.respovia.com      # SPA origin: trusted origin + reset-link base
@@ -67,12 +68,12 @@ R2_ACCOUNT_ID=…  R2_ACCESS_KEY_ID=…  R2_SECRET_ACCESS_KEY=…
 R2_BUCKET=brand-assets  R2_PUBLIC_BASE_URL=https://<pub-…r2.dev or custom domain>
 ```
 - [ ] 👤 **R2 asset-domain headers (audit #7, config half):** new uploads store `Content-Disposition: attachment` (set by the API at PUT time), but `X-Content-Type-Options: nosniff` can't be stored as S3 object metadata — add it at the serving layer. On a custom asset domain: Cloudflare → Rules → Transform Rules → Modify Response Header → add `X-Content-Type-Options: nosniff` for the asset hostname. (Not possible on a bare `pub-….r2.dev` URL — becomes available once the domain is registered and the bucket gets a custom domain.)
-- [ ] 👤 Deploy the API; verify `GET /api/v1/health` = 200 and `GET /api/v1/health/ready/neon` proves Neon connectivity.
+- [ ] 👤 Deploy the API; verify `GET /api/v1/health` = 200 and `GET /api/v1/health/ready` proves DB connectivity (`/ready/neon` is a legacy alias).
 - [ ] 👤 **Vercel (SPA):** deploy the static frontend (the **`web/`** directory — `index.html`, `portal.html`, `js/`, `styles/`; the SPA project's **Root Directory must be `web`**, so it builds as pure static with zero functions and never picks up `api/`). The agent app serves at `https://app.respovia.com`. The SPA picks its API base by hostname (`web/js/api-base.js`) — see the URL notes at the top for which hosts are recognized; every other host falls back to `localhost:3001`. There is **no** `/api/v1/config` fetch anymore.
 
 ### Post-deploy verification & rollback
-- **Automatic health-check.** Every push to `main` runs `.github/workflows/post-deploy-healthcheck.yml`, which polls the live API (`/api/v1/health` + `/api/v1/health/ready`) and SPA root and **fails the Actions run if the deployment is down or Neon is unreachable**. (Limitation: the health routes carry no git-SHA, so it proves the API is up + DB-reachable after the push, not that this exact commit is live.) Watch the **Actions** tab after a deploy; a red "Post-deploy health-check" means the site is unhealthy.
-- **Rollback (manual).** Vercel keeps every deployment immutable. To roll back: open the Vercel project → **Deployments** → pick the last-known-good build → **Promote to Production** (or `vercel rollback <deployment-url>` / `vercel promote <deployment-url>`). Do this for **both** projects (`maestro-desk` SPA and `maestro-desk-zjkl` API) if both shipped the bad commit. Note: a rollback reverts **code only** — Neon migrations applied by `migrate.yml` are not undone (they are additive by convention), so a code rollback against a newer schema is safe; a schema that needs reverting requires a new forward migration.
+- **Automatic health-check.** Every push to `main` runs `.github/workflows/post-deploy-healthcheck.yml`, which polls the live API (`/api/v1/health` + `/api/v1/health/ready`) and SPA root and **fails the Actions run if the deployment is down or the database is unreachable**. (Limitation: the health routes carry no git-SHA, so it proves the API is up + DB-reachable after the push, not that this exact commit is live.) Watch the **Actions** tab after a deploy; a red "Post-deploy health-check" means the site is unhealthy.
+- **Rollback (manual).** Vercel keeps every deployment immutable. To roll back: open the Vercel project → **Deployments** → pick the last-known-good build → **Promote to Production** (or `vercel rollback <deployment-url>` / `vercel promote <deployment-url>`). Do this for **both** projects (`maestro-desk` SPA and `maestro-desk-zjkl` API) if both shipped the bad commit. Note: a rollback reverts **code only** — Neon migrations applied by `migrate.yml` are not undone (they are additive by convention), so a code rollback against a newer schema is safe (migrations are additive by convention and a rolled-back image simply doesn't contain newer migration files); a schema that needs reverting requires a new forward migration.
 
 ## 4. Auth cutover (the flip goes live here)
 This is atomic: the API verifies Better Auth sessions and the SPA signs in via Better Auth — **deploy them together**.
@@ -110,7 +111,7 @@ A rehearsal environment so a bad or **non-additive** migration (one already ship
 feature branch ──▶ staging   (Vercel staging deploy + migrate-staging.yml → Neon staging-branch DB)
                      │  verify green (health on the staging API host)
                      ▼
-                   main       (prod auto-deploy + migrate.yml → prod, exactly as today)
+                   main       (prod auto-deploy; prod migrations apply at API-container boot on Dokploy)
 ```
 
 This is **rehearsal-only** (the chosen scope): prod's auto-deploy path and its migrate-vs-deploy ordering are unchanged — staging just gives migrations a place to bake first.

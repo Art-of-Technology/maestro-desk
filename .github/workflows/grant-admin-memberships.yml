@@ -1,5 +1,12 @@
-name: Grant platform-admin memberships (Neon)
+name: Grant platform-admin memberships (Neon — UNREACHABLE post-Dokploy-cutover)
 
+# ⚠ LEGACY: production moved to a Postgres inside Dokploy on the company
+# server, which GitHub-hosted runners cannot reach (LAN-only). Until the
+# `production` environment DATABASE_URL secret is retired, this workflow can
+# only write to the old Neon copy (rollback soak) — do NOT run it expecting
+# to affect the live DB. Run api/scripts/grant-admin-memberships.ts from a
+# LAN machine instead.
+#
 # Materializes an explicit Admin workspace_members row for a platform admin on
 # every brand (workspace). A god already has admin *capability* everywhere via
 # requireWorkspaceAdmin; this makes it a first-class membership too.

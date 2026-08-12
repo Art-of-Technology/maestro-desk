@@ -1,5 +1,11 @@
-name: Prod inspect (Neon)
+name: Prod inspect (Neon — UNREACHABLE post-Dokploy-cutover)
 
+# ⚠ LEGACY: production moved to a Postgres inside Dokploy on the company
+# server, which GitHub-hosted runners cannot reach (LAN-only). Until the
+# `production` environment DATABASE_URL secret is retired, this workflow can
+# only inspect the old Neon copy (rollback soak). For the live DB, run the
+# equivalent SELECTs from a LAN machine instead.
+#
 # Read-only inspector for the PRODUCTION Neon DB. Prints a summary of
 # workspaces, platform admins, and whether a given admin email exists +
 # whether it has a password credential. Runs ONLY SELECTs — it never writes.

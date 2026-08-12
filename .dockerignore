@@ -1,0 +1,25 @@
+# Root-context .dockerignore for api/Dockerfile (Docker Context Path = repo
+# root — needed so db/migrations/ can be COPY'd into the API image). NOTE:
+# api/.dockerignore does NOT apply to root-context builds (Docker only reads
+# the context root's .dockerignore), so everything it guarded is re-guarded
+# here. web/Dockerfile keeps its own web/ context and is unaffected.
+.git
+.github
+web
+docs
+migration
+scripts
+node_modules
+**/node_modules
+**/.env
+**/.env.*
+**/*.log
+api/src/**/*.test.ts
+api/test-fixtures
+api/test-setup.ts
+api/vercel.json
+**/Dockerfile
+**/.dockerignore
+*.md
+**/*.md
+deploy
