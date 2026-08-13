@@ -52,24 +52,38 @@ jobs:
         run: |
           set -u
           # DNS/TLS sanity check. curl exit 6 = DNS not resolving,
-          # 35/51/53/54/58/60 = TLS not valid — since the 2026-08-11 cutover
-          # respovia.com IS production, so either one is a live DNS/TLS outage
-          # (Cloudflare records / the Cloudflare Tunnel), not a bad deploy, and
-          # a rollback would fix nothing. Fail loud immediately.
+          # 35/51/53/54/58/60 = TLS not valid. The hosts are PROXIED Cloudflare
+          # records, so DNS/TLS terminate at the Cloudflare edge and these
+          # errors mean the Cloudflare records themselves are broken (deleted
+          # zone, un-proxied host with no origin cert) — never a bad deploy,
+          # and a rollback would fix nothing. (A DOWN TUNNEL does not trip
+          # this: the edge still answers and returns HTTP 530 — handled in the
+          # probe loop below.) Retry a few times so one transient runner
+          # hiccup doesn't hard-fail the run.
           for base in "$API_BASE" "$SPA_BASE"; do
-            rc=0
-            curl -sS -m 10 -o /dev/null "$base" || rc=$?
-            case "$rc" in
-              6|35|51|53|54|58|60)
-                echo "::error::${base} unreachable (curl exit ${rc}: DNS/TLS) — live DNS/TLS outage on respovia.com; check the Cloudflare DNS records + the 'respovia' Cloudflare Tunnel + the cloudflared Dokploy app. Do NOT roll back the app deploy."
-                exit 1
-                ;;
-            esac
+            tries=0
+            while :; do
+              rc=0
+              curl -sS -m 10 -o /dev/null "$base" || rc=$?
+              case "$rc" in
+                6|35|51|53|54|58|60)
+                  tries=$((tries + 1))
+                  if [ "$tries" -ge 3 ]; then
+                    echo "::error::${base} unreachable (curl exit ${rc}: DNS/TLS, ${tries} attempts) — the Cloudflare DNS records for respovia.com are broken; check the zone + the proxied CNAMEs to the tunnel. Not a bad deploy: do NOT roll back."
+                    exit 1
+                  fi
+                  echo "::warning::${base} DNS/TLS error (curl exit ${rc}), attempt ${tries}/3 — retrying in 10s…"
+                  sleep 10
+                  ;;
+                *) break ;;
+              esac
+            done
           done
           echo "Giving the deploy ${INITIAL_DELAY_SECONDS}s to land before probing…"
           sleep "$INITIAL_DELAY_SECONDS"
 
           attempt=1
+          edge_err=""
           while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
             echo "── attempt ${attempt}/${MAX_ATTEMPTS} ──"
             ok=1
@@ -94,6 +108,17 @@ jobs:
               echo "  readiness WAIT (http ${ready_code}: ${ready_body})"; ok=0
             fi
 
+            # Cloudflare edge errors 520-526/530 mean the edge answered but
+            # could NOT reach the origin — i.e. the 'respovia' tunnel /
+            # cloudflared / container path is down. That is an ingress outage,
+            # not a bad build, so remember it to steer the final error message
+            # away from a pointless rollback.
+            for code in "$live_code" "$ready_code"; do
+              case "$code" in
+                52[0-6]|530) edge_err="$code" ;;
+              esac
+            done
+
             if [ "$ok" = "1" ]; then
               # SPA root — soft check: nginx behind the tunnel should always 200,
               # but the API is the hard gate; warn on a non-200, don't fail the job.
@@ -111,6 +136,11 @@ jobs:
             sleep "$SLEEP_SECONDS"
           done
 
+          if [ -n "$edge_err" ]; then
+            echo "::error::Cloudflare edge error ${edge_err} while probing — the edge cannot reach the origin. This is an INGRESS outage (the 'respovia' Cloudflare Tunnel / the cloudflared Dokploy app / the container network), not a bad build: fix the tunnel, do NOT roll back."
+            echo "API: ${API_BASE}  SPA: ${SPA_BASE}"
+            exit 1
+          fi
           echo "::error::Deployment did not become healthy within ~$((MAX_ATTEMPTS * SLEEP_SECONDS))s of probing."
           echo "API: ${API_BASE}  SPA: ${SPA_BASE}"
           echo "Rollback: redeploy the previous build of the affected app in the Dokploy panel (paas.weez.boo, LAN/VPN). See PROD_SETUP.md → Rollback."
