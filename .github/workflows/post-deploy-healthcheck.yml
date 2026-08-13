@@ -83,10 +83,14 @@ jobs:
           sleep "$INITIAL_DELAY_SECONDS"
 
           attempt=1
-          edge_err=""
           while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
             echo "── attempt ${attempt}/${MAX_ATTEMPTS} ──"
             ok=1
+            # Reset per attempt: the final message must reflect the LAST state,
+            # not a transient 530 from early in the window (e.g. a container
+            # swap) that would otherwise mask a genuinely bad build behind an
+            # "ingress outage — do NOT roll back" verdict.
+            edge_err=""
 
             # Liveness: GET /api/v1/health -> 200 {"ok":true,...}
             live=$(curl -sS -m 10 -w '\n%{http_code}' "$API_BASE/api/v1/health" || true)
