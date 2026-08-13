@@ -8,11 +8,13 @@
 # `export -p`) and source the snapshot in the cron job; job output is
 # redirected to PID 1's stdout so backups show up in `docker logs`.
 set -eu
+# The env snapshot holds DB + bucket credentials — owner-only from birth
+# (umask, not an after-the-fact chmod).
+umask 077
 
 : "${SCHEDULE:=0 2 * * *}"
 
 export -p > /etc/backup.env
-chmod 600 /etc/backup.env
 
 echo "$SCHEDULE . /etc/backup.env; /usr/local/bin/backup.sh >> /proc/1/fd/1 2>&1" | crontab -
 echo "[backup-sidecar] schedule registered: $SCHEDULE"

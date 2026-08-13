@@ -10,6 +10,9 @@
 # The dump goes to a temp file first so the upload only happens when pg_dump
 # exited 0 — a failed dump can never push a truncated artifact.
 set -eu
+# The dump contains all production data — keep every file this script
+# creates owner-only.
+umask 077
 
 : "${S3_PREFIX:=nightly}"
 : "${KEEP_COUNT:=14}"
@@ -20,12 +23,16 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 TMP=/tmp/backup-$STAMP.dump
 KEY="s3://$S3_BUCKET/$S3_PREFIX/respovia-$STAMP.dump"
 
+# Never leave a (possibly partial) dump behind, whatever the exit path — a
+# failed run would otherwise accumulate plaintext data in /tmp until the
+# next redeploy.
+trap 'rm -f "$TMP"' EXIT
+
 echo "[backup] dumping $POSTGRES_DATABASE from $POSTGRES_HOST"
 pg_dump -Fc -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DATABASE" > "$TMP"
 
 echo "[backup] uploading $(wc -c < "$TMP") bytes to $KEY"
 aws --endpoint-url "$S3_ENDPOINT" s3 cp "$TMP" "$KEY" --only-show-errors
-rm -f "$TMP"
 
 # Prune: keep the newest $KEEP_COUNT dumps (keys embed a sortable UTC stamp).
 # awk buffers the sorted list and prints all but the last KEEP_COUNT —
@@ -36,7 +43,10 @@ aws --endpoint-url "$S3_ENDPOINT" s3 ls "s3://$S3_BUCKET/$S3_PREFIX/" \
   | while read -r f; do
       [ -n "$f" ] || continue
       echo "[backup] pruning $f"
-      aws --endpoint-url "$S3_ENDPOINT" s3 rm "s3://$S3_BUCKET/$S3_PREFIX/$f" --only-show-errors
+      # A prune failure must not fail the backup (the new dump is already
+      # uploaded) — but it must be loud, or the bucket grows unbounded.
+      aws --endpoint-url "$S3_ENDPOINT" s3 rm "s3://$S3_BUCKET/$S3_PREFIX/$f" --only-show-errors \
+        || echo "[backup] WARNING: prune of $f FAILED — old dumps are accumulating"
     done
 
 echo "[backup] done: $KEY"
