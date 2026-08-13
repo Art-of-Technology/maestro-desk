@@ -11,7 +11,7 @@ open items to firm up before the posture can be called guaranteed.
 
 | Store | Holds | Backed up by |
 |---|---|---|
-| **Dokploy Postgres** (`respovia-db`, postgres:17 on the company server) | All application data — tickets, messages, customers, workspaces, audit log, and Better Auth's own tables (auth lives in the same database). | Nightly `pg_dump` via Dokploy's backup scheduler → private Cloudflare R2 bucket. |
+| **Dokploy Postgres** (`respovia-db`, postgres:17 on the company server) | All application data — tickets, messages, customers, workspaces, audit log, and Better Auth's own tables (auth lives in the same database). | Nightly `pg_dump` via the `respovia-db-backup` sidecar app (`deploy/backup/`) → private Cloudflare R2 bucket. |
 | **Cloudflare R2** | Uploaded brand assets (logos), file attachments, **and the database dumps** (separate, private bucket). | R2 object durability. |
 | **Dokploy apps** (respovia-api / respovia-web) | Nothing durable. The frontend and API are **stateless** and rebuilt from source on every deploy. | Not applicable — recover by redeploying. |
 | **GitHub** (`Art-of-Technology/maestro-desk`) | Source of truth for code **and** the database schema (`db/migrations/`). | Git history + GitHub. |
@@ -22,10 +22,17 @@ tier is recovered by redeploying from GitHub.
 
 ## Backup mechanisms
 
-- **Database.** Dokploy's built-in database backup runs a scheduled `pg_dump` of
-  `respovia-db` and uploads it to a **dedicated private R2 bucket** (S3-compatible
-  destination configured in Dokploy). Recovery point = the last nightly dump, so **RPO is
-  up to 24 h** — a real step down from Neon's PITR; see the open actions.
+- **Database.** The **`respovia-db-backup` sidecar application** (image built from
+  `deploy/backup/` — postgres:17 client + aws-cli + crond) runs `pg_dump -Fc` of
+  `respovia-db` over the internal Docker network every night at 02:00 UTC (before the
+  03:00/04:00 app crons, so dumps predate the retention purge) and uploads it to a
+  **dedicated private R2 bucket** (`respovia-db-backups`, prefix `nightly/`), pruning to
+  the newest 14. It also takes a backup on every deploy of the sidecar
+  (`RUN_ON_STARTUP=true`). Config/credentials live only in the sidecar's Dokploy env
+  (bucket-scoped R2 token — the app's asset-upload keys can't touch this bucket, and vice
+  versa). Note: Dokploy's *native* backup feature isn't used — S3 destinations are
+  owner/admin-only on the shared company panel. Recovery point = the last nightly dump,
+  so **RPO is up to 24 h** — a real step down from Neon's PITR; see the open actions.
 - **File storage (R2).** Objects are stored with Cloudflare's high object durability.
   Object **versioning is not assumed to be on [action]** — enable bucket versioning (or a
   lifecycle/replication policy) so an overwritten or deleted asset can be recovered, not
@@ -44,8 +51,8 @@ tier is recovered by redeploying from GitHub.
 ## Restore runbook
 
 **Database — restore from a nightly dump (data loss, corruption, or a bad migration):**
-1. Fetch the chosen dump from the private R2 backups bucket (Dokploy → the `respovia-db`
-   service → Backups lists them; or the R2 console).
+1. Fetch the chosen dump from the private R2 backups bucket (R2 console →
+   `respovia-db-backups/nightly/`, or `aws s3 ls` with the sidecar's credentials).
 2. Restore into a scratch database first and verify the expected data:
    `pg_restore --no-owner --no-privileges -d <scratch-url> <dump>`.
 3. Stop `respovia-api` in Dokploy, restore into the production database (drop/recreate or
