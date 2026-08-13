@@ -47,14 +47,6 @@
     // Vercel 308 redirect apex/www -> app is REQUIRED, not cosmetic.
     window.RESPOVIA_API_BASE = 'https://api.respovia.com';
     window.RESPOVIA_ENV = 'production';
-  } else if (h === 'maestro-desk-jodi-1420s-projects.vercel.app') {
-    // Legacy interim host. This stays the WORKING production host until the
-    // env cutover (APP_BASE_URL/BETTER_AUTH_URL -> respovia.com); after that
-    // flip it is CORS-blocked by the API and this mapping only keeps the
-    // failure pointed at the real API instead of localhost. Remove in the
-    // post-soak cleanup PR.
-    window.RESPOVIA_API_BASE = 'https://maestro-desk-zjkl.vercel.app';
-    window.RESPOVIA_ENV = 'production';
   } else if (/^maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/.test(h)) {
     // STAGING (`git-staging`) and every PR-preview branch deploy → the staging
     // API + staging DB, never prod. The `git-` marker is REQUIRED and `git-main`

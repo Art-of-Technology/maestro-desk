@@ -21,9 +21,6 @@ oauth:
   # DRAFT/PENDING localhost auto-bypass.
   redirectUris:
     - https://api.respovia.com/api/auth/oauth2/callback/maestro
-    # Legacy interim Vercel API host — kept through the respovia.com cutover
-    # soak; remove in the cleanup revision.
-    - https://maestro-desk-zjkl.vercel.app/api/auth/oauth2/callback/maestro
     - http://localhost:3001/api/auth/oauth2/callback/maestro
     - http://localhost:3000/callback
   scopes:
