@@ -27,16 +27,21 @@ import { env } from './env.js';
 
 const ENDPOINT = 'https://api.postmarkapp.com';
 
-// Postmark Domain object shape — subset of fields we care about. The full
-// response also includes DKIMPendingHost/TextValue, etc. for key-rotation
-// flows; we ignore those for v1.
+// Postmark Domain object shape — subset of fields we care about. DKIM lives
+// in TWO field pairs: the Pending pair holds the record awaiting publication
+// (a brand-new domain, or a rotation's replacement key) and the non-Pending
+// pair holds the currently verified key. A new domain has ONLY the Pending
+// pair populated until its first successful verification, so the record we
+// tell brands to publish must prefer Pending when present.
 export interface PostmarkDomain {
   ID: number;
   Name: string;
   // DKIM
   DKIMVerified: boolean;
-  DKIMHost: string;          // e.g. "20231115._domainkey"
+  DKIMHost: string;          // e.g. "20231115._domainkey" — verified key (empty until first verification)
   DKIMTextValue: string;     // the long TXT record value
+  DKIMPendingHost: string;   // key awaiting publication (empty when none pending)
+  DKIMPendingTextValue: string;
   // Return-Path
   ReturnPathDomain: string;        // e.g. "pm-bounces.acme.com"
   ReturnPathDomainVerified: boolean;
@@ -180,8 +185,11 @@ export function dnsRecommendations(d: PostmarkDomain): DnsRecommendations {
   return {
     dkim: {
       type: 'TXT',
-      host: d.DKIMHost,
-      value: d.DKIMTextValue,
+      // Pending first: for a new domain the Pending pair is the ONLY populated
+      // one (the non-Pending pair stays empty until first verification), and
+      // during a rotation the pending key is the record that needs publishing.
+      host: d.DKIMPendingHost || d.DKIMHost,
+      value: d.DKIMPendingTextValue || d.DKIMTextValue,
       priority: 'required',
       why: 'Cryptographically signs outbound mail so receivers can verify it came from your domain. Missing DKIM is the biggest single junk-folder trigger.',
     },
