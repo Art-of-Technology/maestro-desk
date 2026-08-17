@@ -26,7 +26,6 @@ import {
   DomainSchema,
   DomainConflictError,
   deriveStatus,
-  needsSnapshotHeal,
   listEmailDomains,
   addEmailDomain,
   checkEmailDomain,
@@ -53,17 +52,14 @@ function publicRow(d: EmailDomainRow) {
   };
 }
 
-// GET /api/v1/email-domains — domains + current sender identity. Normally
-// pure DB (dns_setup comes from the snapshot column, safe for the page's
-// poll-free initial render); the one exception is a stored snapshot with a
-// blank DKIM record, which is re-fetched from Postmark read-only (getDomain,
-// not a verify round — no rate-limit cost) and re-persisted. Self-limiting:
-// after one successful heal the snapshot is complete and the path goes back
-// to pure DB, and needsSnapshotHeal's cooldown bounds the
-// still-blank-at-Postmark case. Best-effort — a Postmark outage serves the
-// stale snapshot. NOTE: the heal reuses checkEmailDomain, so this GET can
-// reconcile verified_at/degraded_at as a side effect — the same read-only
-// reconcile the daily cron drift pass performs, just triggered earlier.
+// GET /api/v1/email-domains — domains + current sender identity. Pure DB
+// (dns_setup comes from the snapshot column): safe for the page's poll-free
+// initial render. A stale snapshot (e.g. a blank pre-fix DKIM record) is NOT
+// healed here — reads never call Postmark or write state. It renders as a
+// "not issued yet" hint and heals through the existing check flow: the
+// page's 45s poll (which round-robins every non-verified domain), the
+// "Check now" button, or the daily cron sweep — all of which re-snapshot
+// dns_records via checkEmailDomain.
 emailDomains.get('/', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
@@ -73,19 +69,6 @@ emailDomains.get('/', async (c) => {
     listEmailDomains(workspaceId),
     getOutboundFrom(workspaceId),
   ]);
-
-  if (isPostmarkAccountConfigured()) {
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (!needsSnapshotHeal(row)) continue;
-      try {
-        const healed = await checkEmailDomain(workspaceId, row.id, { readOnly: true });
-        if (healed) rows[i] = healed.row;
-      } catch (err) {
-        console.error(`[email-domains] snapshot heal failed for ${row.domain}:`, err instanceof Error ? err.message : err);
-      }
-    }
-  }
 
   const platformFrom = env.POSTMARK_OUTBOUND_FROM || null;
   const senderIdentity = workspaceFrom

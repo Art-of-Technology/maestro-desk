@@ -24,6 +24,7 @@ let ED_ADD_ERROR = null;
 let ED_ROW_PENDING = {};  // domainId -> true while a check/remove is in flight
 let ED_ROW_MSG = {};      // domainId -> transient per-row status line
 let ED_POLL_TIMER = null;
+let ED_POLL_IDX = 0;      // round-robin cursor over non-verified domains
 let ED_WS = null;         // workspace the cache belongs to (in-session switcher)
 
 const POLL_MS = 45000;
@@ -60,8 +61,13 @@ function edStopPoll() {
 
 async function edPollTick() {
   if (SETTINGS_TAB !== 'sender-domain' || !document.getElementById('ed-panel')) { edStopPoll(); return; }
-  const target = (ED_DATA?.domains || []).find((d) => d.status !== 'verified');
-  if (!target) { edStopPoll(); return; }
+  // Round-robin, one check per tick: with several non-verified domains, a
+  // fixed .find() would keep re-checking the first one and leave the rest
+  // (and any stale dns_records snapshot they carry) unhealed until a manual
+  // "Check now". One call per tick stays inside the check rate limit.
+  const pending = (ED_DATA?.domains || []).filter((d) => d.status !== 'verified');
+  if (!pending.length) { edStopPoll(); return; }
+  const target = pending[ED_POLL_IDX++ % pending.length];
   try {
     const res = await apiPost(`/api/v1/email-domains/${target.id}/check`, {});
     edApplyCheck(target, res);
@@ -94,6 +100,7 @@ export function settingsSenderDomain() {
     ED_DATA = null; ED_LOADED = false;
     ED_ADD_INPUT = ''; ED_ADD_ERROR = null; ED_ADD_PENDING = false;
     ED_ROW_PENDING = {}; ED_ROW_MSG = {};
+    ED_POLL_IDX = 0;
     edStopPoll();
   }
   if (!ED_LOADED) { ED_LOADED = true; edLoad(); }

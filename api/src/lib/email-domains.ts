@@ -58,27 +58,6 @@ export function deriveStatus(row: Pick<EmailDomainRow, 'verified_at' | 'degraded
   return 'verified';
 }
 
-// A snapshot written before the pending-DKIM fix (or from a degraded Postmark
-// payload) can hold an unusable DKIM record — empty host/value. The list
-// handler re-snapshots such rows once, instead of serving the blank record
-// until a poll tick or manual check happens to hit them. The cooldown bounds
-// the case where Postmark ITSELF keeps returning an empty pair (key not
-// minted yet): checkEmailDomain stamps last_checked_at on every reconcile,
-// so a recently re-fetched-and-still-blank row is skipped rather than
-// re-firing a Postmark call on every page load, forever.
-export const SNAPSHOT_HEAL_COOLDOWN_MS = 5 * 60 * 1000;
-
-export function needsSnapshotHeal(
-  row: Pick<EmailDomainRow, 'postmark_domain_id' | 'dns_records' | 'last_checked_at'>,
-  now: number = Date.now(),
-): boolean {
-  if (!row.postmark_domain_id) return false; // no Postmark identity — "Check now" recovery path owns this
-  const dkim = row.dns_records?.dkim;
-  if (!dkim || (dkim.host && dkim.value)) return false; // null snapshot = same recovery path; complete = pure DB
-  const checkedAt = row.last_checked_at ? new Date(row.last_checked_at).getTime() : 0;
-  return now - checkedAt >= SNAPSHOT_HEAL_COOLDOWN_MS;
-}
-
 // Thrown on a duplicate domain (partial unique on (domain) where deleted_at
 // is null — GLOBAL across workspaces, since inbound routing keys on it).
 export class DomainConflictError extends Error {
