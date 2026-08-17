@@ -24,13 +24,27 @@ import { routeAfterAuth, enterWorkspaceMembership } from './agent-login.js';
 // Brands cached between auto-detect and a picker click.
 let _brands = null;
 
+// Messages for the #maestro_error=<code> codes the API redirects back with
+// (routes/maestro.ts). Unknown codes get a generic fallback at the lookup site.
+const MAESTRO_ERROR_MESSAGES = {
+  unavailable: 'Maestro sign-in is temporarily unavailable — please try again in a few minutes, or sign in with your email and password.',
+  signin_failed: 'Maestro sign-in was cancelled or failed. Please try again.',
+};
+
 function showError(msg) {
   const errEl = document.getElementById('login-error');
-  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+  if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; errEl.classList?.add('auth-error'); }
   const formEl = document.getElementById('login-form');
   const brandEl = document.getElementById('maestro-brand-picker');
   if (formEl) formEl.style.display = 'block';
   if (brandEl) brandEl.style.display = 'none';
+  // Every Maestro failure lands back on the login form; re-reveal the button
+  // directly rather than via initMaestroButton() — reaching any of these
+  // errors proves Maestro is configured here, and the /status round trip can
+  // itself fail during the same outage. (app.js skips its own
+  // initMaestroButton() call once handleMaestroRedirect returns true.)
+  const signinEl = document.getElementById('maestro-signin');
+  if (signinEl) signinEl.style.display = 'block';
 }
 
 function setBusy(msg) {
@@ -78,8 +92,11 @@ export async function handleMaestroRedirect() {
 
   const err = params.get('maestro_error');
   if (err) {
-    showError(err === 'signin_failed'
-      ? 'Maestro sign-in was cancelled or failed. Please try again.'
+    // Object.hasOwn guard: err comes from the URL, so a crafted code like
+    // "constructor" must fall through to the generic message, not a prototype
+    // member.
+    showError(Object.hasOwn(MAESTRO_ERROR_MESSAGES, err)
+      ? MAESTRO_ERROR_MESSAGES[err]
       : 'Could not complete Maestro sign-in. Please try again.');
     return true;
   }

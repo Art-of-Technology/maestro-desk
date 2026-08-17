@@ -1,8 +1,10 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth, maestroSignInEnabled, MAESTRO_PROVIDER_ID } from '../lib/auth.js';
 import { requireAuthOnly } from '../middleware/auth.js';
 import { env } from '../lib/env.js';
+import { captureException } from '../lib/instrument.js';
+import { sendOpsAlert } from '../lib/alert.js';
 import {
   getUserAccessToken,
   listUserOrganizations,
@@ -37,6 +39,32 @@ export const maestro = new Hono();
 // caller-supplied URL, so the token can't be exfiltrated to another origin.
 const SPA_ORIGIN = env.APP_BASE_URL; // trailing slash already stripped in env.ts
 const OAUTH_COMPLETE_URL = `${env.BETTER_AUTH_URL}/api/v1/maestro/oauth-complete`;
+const OAUTH_ERROR_URL = `${env.BETTER_AUTH_URL}/api/v1/maestro/oauth-error`;
+
+// The sign-in flow is top-level browser navigation, so an error status renders
+// as a raw error page (Cloudflare replaces an origin 502 with its own "Host
+// Error" screen — seen during the mert.md platform outages). Failures land the
+// user back on the login screen instead, while keeping app.onError's
+// observability (Sentry + the deduped ops alert). The redirect target is the
+// fixed SPA_ORIGIN constant, never caller input.
+function reportAndRedirect(c: Context, err: unknown, code: 'unavailable' | 'signin_failed') {
+  // Reporting is best-effort and must neither delay nor lose the redirect: the
+  // alert write is fire-and-forget (persistent Node process — no serverless
+  // freeze to outrun, unlike app.onError's await) and any reporting failure is
+  // swallowed so it can't escape to app.onError as a raw 500.
+  try {
+    captureException(err, { path: c.req.path, method: c.req.method });
+    console.error(`${c.req.path} failed:`, err);
+    const name = err instanceof Error ? err.constructor.name : 'Error';
+    void sendOpsAlert({
+      signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
+      severity: 'critical',
+      title: `Maestro sign-in failure: ${name} at ${c.req.method} ${c.req.path}`,
+      detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
+    }).catch(() => {});
+  } catch { /* never trade the user's redirect for telemetry */ }
+  return c.redirect(`${SPA_ORIGIN}/#maestro_error=${code}`);
+}
 
 function ensureEnabled() {
   if (!maestroSignInEnabled) {
@@ -56,42 +84,73 @@ maestro.get('/status', (c) => c.json({ enabled: maestroSignInEnabled }));
 // is stored first-party on the API origin — the callback on the same origin can
 // then read it. A cross-origin fetch would drop that cookie and break PKCE.
 maestro.get('/login', async (c) => {
-  ensureEnabled();
-  const baResp = await auth.api.signInWithOAuth2({
-    body: { providerId: MAESTRO_PROVIDER_ID, callbackURL: OAUTH_COMPLETE_URL },
-    asResponse: true,
-  });
-  const data = (await baResp.clone().json().catch(() => null)) as { url?: string } | null;
-  if (!data?.url) {
-    throw new HTTPException(502, { message: 'Maestro did not return an authorization URL.' });
+  try {
+    ensureEnabled();
+    const baResp = await auth.api.signInWithOAuth2({
+      body: {
+        providerId: MAESTRO_PROVIDER_ID,
+        callbackURL: OAUTH_COMPLETE_URL,
+        errorCallbackURL: OAUTH_ERROR_URL,
+      },
+      asResponse: true,
+    });
+    const data = (await baResp.json().catch(() => null)) as { url?: string } | null;
+    if (!data?.url) {
+      // Better Auth answers with a 400 Response (not a throw) when OIDC
+      // discovery comes back empty — the signature of a Maestro platform outage.
+      throw new Error(`Maestro did not return an authorization URL (upstream status ${baResp.status}).`);
+    }
+    // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
+    // browser stores it before following the redirect to auth.mert.md.
+    const headers = new Headers({ Location: data.url });
+    for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
+      headers.append('set-cookie', cookie);
+    }
+    return new Response(null, { status: 302, headers });
+  } catch (err) {
+    // Deliberate HTTP errors keep their status — ensureEnabled's 503 means a
+    // permanent server misconfiguration, not "try again in a few minutes".
+    if (err instanceof HTTPException) throw err;
+    return reportAndRedirect(c, err, 'unavailable');
   }
-  // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
-  // browser stores it before following the redirect to auth.mert.md.
-  const headers = new Headers({ Location: data.url });
-  for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
-    headers.append('set-cookie', cookie);
-  }
-  return new Response(null, { status: 302, headers });
+});
+
+// Better Auth sends the browser here (with ?error=…) when the OAuth dance
+// fails mid-flight — e.g. Maestro dies between authorize and token exchange,
+// or the agent cancels consent. User cancels land here too, so this logs
+// without alerting.
+maestro.get('/oauth-error', (c) => {
+  // Caller-controlled query param: strip CR/LF and cap length so a crafted
+  // ?error= can't inject fake log lines.
+  const reason = String(c.req.query('error') ?? 'unknown').replace(/[\r\n]/g, ' ').slice(0, 200);
+  console.warn('maestro/oauth-error:', reason);
+  return c.redirect(`${SPA_ORIGIN}/#maestro_error=signin_failed`);
 });
 
 // ─── Callback bridge: first-party session cookie → SPA bearer token ──────────
 maestro.get('/oauth-complete', async (c) => {
-  // Confirm the OAuth dance actually established a session on this origin.
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session?.user) {
-    return c.redirect(`${SPA_ORIGIN}/#maestro_error=signin_failed`);
+  try {
+    // Confirm the OAuth dance actually established a session on this origin.
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session?.user) {
+      return c.redirect(`${SPA_ORIGIN}/#maestro_error=signin_failed`);
+    }
+    // The bearer token the SPA needs IS the signed session-cookie value (that's
+    // exactly what Better Auth's bearer plugin accepts). Pull it from the Cookie
+    // header by suffix so we're agnostic to the cookie prefix (`__Secure-` in
+    // prod, bare in dev).
+    const token = readSessionCookie(c.req.header('cookie'));
+    if (!token) {
+      return c.redirect(`${SPA_ORIGIN}/#maestro_error=no_session`);
+    }
+    // Fragment, not query: the token never hits a server log or Referer header.
+    // The SPA reads location.hash, stashes the bearer, and clears the hash.
+    return c.redirect(`${SPA_ORIGIN}/#maestro_session=${encodeURIComponent(token)}`);
+  } catch (err) {
+    // Same top-level-navigation concern as /login: a getSession failure (e.g.
+    // a DB blip) must not surface as a raw error page mid sign-in.
+    return reportAndRedirect(c, err, 'signin_failed');
   }
-  // The bearer token the SPA needs IS the signed session-cookie value (that's
-  // exactly what Better Auth's bearer plugin accepts). Pull it from the Cookie
-  // header by suffix so we're agnostic to the cookie prefix (`__Secure-` in
-  // prod, bare in dev).
-  const token = readSessionCookie(c.req.header('cookie'));
-  if (!token) {
-    return c.redirect(`${SPA_ORIGIN}/#maestro_error=no_session`);
-  }
-  // Fragment, not query: the token never hits a server log or Referer header.
-  // The SPA reads location.hash, stashes the bearer, and clears the hash.
-  return c.redirect(`${SPA_ORIGIN}/#maestro_session=${encodeURIComponent(token)}`);
 });
 
 function readSessionCookie(cookieHeader: string | undefined): string | null {
