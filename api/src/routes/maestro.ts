@@ -120,7 +120,10 @@ maestro.get('/login', async (c) => {
 // or the agent cancels consent. User cancels land here too, so this logs
 // without alerting.
 maestro.get('/oauth-error', (c) => {
-  console.warn('maestro/oauth-error:', c.req.query('error') ?? 'unknown');
+  // Caller-controlled query param: strip CR/LF and cap length so a crafted
+  // ?error= can't inject fake log lines.
+  const reason = String(c.req.query('error') ?? 'unknown').replace(/[\r\n]/g, ' ').slice(0, 200);
+  console.warn('maestro/oauth-error:', reason);
   return c.redirect(`${SPA_ORIGIN}/#maestro_error=signin_failed`);
 });
 
