@@ -26,6 +26,7 @@ import {
   DomainSchema,
   DomainConflictError,
   deriveStatus,
+  needsSnapshotHeal,
   listEmailDomains,
   addEmailDomain,
   checkEmailDomain,
@@ -52,22 +53,17 @@ function publicRow(d: EmailDomainRow) {
   };
 }
 
-// A snapshot written before the pending-DKIM fix (or from a degraded Postmark
-// payload) can hold an unusable DKIM record — empty host/value. Detect those
-// so the list handler can re-snapshot them once instead of serving the blank
-// record until a poll tick or manual check happens to hit that row.
-function hasBlankDkim(d: EmailDomainRow): boolean {
-  const dkim = (d.dns_records as { dkim?: { host?: string; value?: string } } | null)?.dkim;
-  return !!dkim && (!dkim.host || !dkim.value);
-}
-
 // GET /api/v1/email-domains — domains + current sender identity. Normally
 // pure DB (dns_setup comes from the snapshot column, safe for the page's
 // poll-free initial render); the one exception is a stored snapshot with a
 // blank DKIM record, which is re-fetched from Postmark read-only (getDomain,
 // not a verify round — no rate-limit cost) and re-persisted. Self-limiting:
 // after one successful heal the snapshot is complete and the path goes back
-// to pure DB. Best-effort — a Postmark outage serves the stale snapshot.
+// to pure DB, and needsSnapshotHeal's cooldown bounds the
+// still-blank-at-Postmark case. Best-effort — a Postmark outage serves the
+// stale snapshot. NOTE: the heal reuses checkEmailDomain, so this GET can
+// reconcile verified_at/degraded_at as a side effect — the same read-only
+// reconcile the daily cron drift pass performs, just triggered earlier.
 emailDomains.get('/', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
@@ -81,7 +77,7 @@ emailDomains.get('/', async (c) => {
   if (isPostmarkAccountConfigured()) {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (!row.postmark_domain_id || !hasBlankDkim(row)) continue;
+      if (!needsSnapshotHeal(row)) continue;
       try {
         const healed = await checkEmailDomain(workspaceId, row.id, { readOnly: true });
         if (healed) rows[i] = healed.row;

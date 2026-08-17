@@ -12,7 +12,7 @@ process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
-const { deriveStatus, DomainSchema } = await import('./lib/email-domains.js');
+const { deriveStatus, DomainSchema, needsSnapshotHeal, SNAPSHOT_HEAL_COOLDOWN_MS } = await import('./lib/email-domains.js');
 
 describe('deriveStatus', () => {
   it('maps verified_at/degraded_at to pending | verified | degraded', () => {
@@ -22,6 +22,40 @@ describe('deriveStatus', () => {
     expect(deriveStatus({ verified_at: null, degraded_at: '2026-01-01' })).toBe('pending');
     expect(deriveStatus({ verified_at: '2026-01-01', degraded_at: null })).toBe('verified');
     expect(deriveStatus({ verified_at: '2026-01-01', degraded_at: '2026-01-02' })).toBe('degraded');
+  });
+});
+
+describe('needsSnapshotHeal', () => {
+  const NOW = Date.parse('2026-08-17T12:00:00Z');
+  const dns = (host: string, value: string): import('./lib/postmark-domains.js').DnsRecommendations => ({
+    dkim: { type: 'TXT', host, value, priority: 'required', why: '' },
+    return_path: { type: 'CNAME', host: 'pm-bounces.x.com', value: 'pm.mtasv.net', priority: 'required', why: '' },
+    spf: { type: 'TXT', host: 'x.com', value: 'v=spf1', priority: 'recommended', why: '' },
+    dmarc: { type: 'TXT', host: '_dmarc.x.com', value: 'v=DMARC1', priority: 'recommended', why: '' },
+  });
+  const base = { postmark_domain_id: '42', dns_records: dns('', ''), last_checked_at: null };
+
+  it('heals a blank-DKIM snapshot that was never (or long ago) checked', () => {
+    expect(needsSnapshotHeal(base, NOW)).toBe(true);
+    const stale = new Date(NOW - SNAPSHOT_HEAL_COOLDOWN_MS - 1).toISOString();
+    expect(needsSnapshotHeal({ ...base, last_checked_at: stale }, NOW)).toBe(true);
+  });
+
+  it('cooldown: a recently checked still-blank row is skipped (no per-GET Postmark call)', () => {
+    const recent = new Date(NOW - SNAPSHOT_HEAL_COOLDOWN_MS + 1000).toISOString();
+    expect(needsSnapshotHeal({ ...base, last_checked_at: recent }, NOW)).toBe(false);
+  });
+
+  it('half-blank DKIM (host without value) still heals', () => {
+    expect(needsSnapshotHeal({ ...base, dns_records: dns('sel._domainkey', '') }, NOW)).toBe(true);
+  });
+
+  it('complete snapshot, null snapshot, or no Postmark identity → pure DB, no heal', () => {
+    expect(needsSnapshotHeal({ ...base, dns_records: dns('sel._domainkey', 'k=rsa; p=KEY') }, NOW)).toBe(false);
+    // null dns_records / null postmark_domain_id are the "Check now" recovery
+    // path's territory — the read path must not take them over.
+    expect(needsSnapshotHeal({ ...base, dns_records: null }, NOW)).toBe(false);
+    expect(needsSnapshotHeal({ ...base, postmark_domain_id: null }, NOW)).toBe(false);
   });
 });
 
