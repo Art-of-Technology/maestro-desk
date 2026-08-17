@@ -47,16 +47,22 @@ const OAUTH_ERROR_URL = `${env.BETTER_AUTH_URL}/api/v1/maestro/oauth-error`;
 // user back on the login screen instead, while keeping app.onError's
 // observability (Sentry + the deduped ops alert). The redirect target is the
 // fixed SPA_ORIGIN constant, never caller input.
-async function reportAndRedirect(c: Context, err: unknown, code: 'unavailable' | 'signin_failed') {
-  captureException(err, { path: c.req.path, method: c.req.method });
-  console.error(`${c.req.path} failed:`, err);
-  const name = err instanceof Error ? err.constructor.name : 'Error';
-  await sendOpsAlert({
-    signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
-    severity: 'critical',
-    title: `Maestro sign-in failure: ${name} at ${c.req.method} ${c.req.path}`,
-    detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
-  });
+function reportAndRedirect(c: Context, err: unknown, code: 'unavailable' | 'signin_failed') {
+  // Reporting is best-effort and must neither delay nor lose the redirect: the
+  // alert write is fire-and-forget (persistent Node process — no serverless
+  // freeze to outrun, unlike app.onError's await) and any reporting failure is
+  // swallowed so it can't escape to app.onError as a raw 500.
+  try {
+    captureException(err, { path: c.req.path, method: c.req.method });
+    console.error(`${c.req.path} failed:`, err);
+    const name = err instanceof Error ? err.constructor.name : 'Error';
+    void sendOpsAlert({
+      signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
+      severity: 'critical',
+      title: `Maestro sign-in failure: ${name} at ${c.req.method} ${c.req.path}`,
+      detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
+    }).catch(() => {});
+  } catch { /* never trade the user's redirect for telemetry */ }
   return c.redirect(`${SPA_ORIGIN}/#maestro_error=${code}`);
 }
 
