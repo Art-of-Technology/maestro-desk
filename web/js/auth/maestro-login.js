@@ -78,9 +78,15 @@ export async function handleMaestroRedirect() {
 
   const err = params.get('maestro_error');
   if (err) {
-    showError(err === 'signin_failed'
-      ? 'Maestro sign-in was cancelled or failed. Please try again.'
-      : 'Could not complete Maestro sign-in. Please try again.');
+    showError(err === 'unavailable'
+      ? 'Maestro sign-in is temporarily unavailable — please try again in a few minutes, or sign in with your email and password.'
+      : err === 'signin_failed'
+        ? 'Maestro sign-in was cancelled or failed. Please try again.'
+        : 'Could not complete Maestro sign-in. Please try again.');
+    // app.js early-returns once we've handled a redirect, so its own
+    // initMaestroButton() call never runs — reveal the button here or the
+    // user has no way to retry Maestro sign-in.
+    void initMaestroButton();
     return true;
   }
 

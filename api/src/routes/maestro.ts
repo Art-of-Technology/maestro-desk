@@ -56,22 +56,34 @@ maestro.get('/status', (c) => c.json({ enabled: maestroSignInEnabled }));
 // is stored first-party on the API origin — the callback on the same origin can
 // then read it. A cross-origin fetch would drop that cookie and break PKCE.
 maestro.get('/login', async (c) => {
-  ensureEnabled();
-  const baResp = await auth.api.signInWithOAuth2({
-    body: { providerId: MAESTRO_PROVIDER_ID, callbackURL: OAUTH_COMPLETE_URL },
-    asResponse: true,
-  });
-  const data = (await baResp.clone().json().catch(() => null)) as { url?: string } | null;
-  if (!data?.url) {
-    throw new HTTPException(502, { message: 'Maestro did not return an authorization URL.' });
+  try {
+    ensureEnabled();
+    const baResp = await auth.api.signInWithOAuth2({
+      body: { providerId: MAESTRO_PROVIDER_ID, callbackURL: OAUTH_COMPLETE_URL },
+      asResponse: true,
+    });
+    const data = (await baResp.clone().json().catch(() => null)) as { url?: string } | null;
+    if (!data?.url) {
+      // Better Auth answers with a 400 Response (not a throw) when OIDC
+      // discovery comes back empty — the signature of a Maestro platform outage.
+      throw new Error(`Maestro did not return an authorization URL (upstream status ${baResp.status}).`);
+    }
+    // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
+    // browser stores it before following the redirect to auth.mert.md.
+    const headers = new Headers({ Location: data.url });
+    for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
+      headers.append('set-cookie', cookie);
+    }
+    return new Response(null, { status: 302, headers });
+  } catch (err) {
+    // This handler serves a top-level browser navigation, so an error status
+    // renders as a raw error page — and Cloudflare replaces an origin 502 with
+    // its own alarming "Host Error" screen (seen during the mert.md outages).
+    // Land the user back on the login screen with a friendly message instead;
+    // the redirect target is the fixed SPA_ORIGIN constant, never caller input.
+    console.error('maestro/login failed:', err);
+    return c.redirect(`${SPA_ORIGIN}/#maestro_error=unavailable`);
   }
-  // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
-  // browser stores it before following the redirect to auth.mert.md.
-  const headers = new Headers({ Location: data.url });
-  for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
-    headers.append('set-cookie', cookie);
-  }
-  return new Response(null, { status: 302, headers });
 });
 
 // ─── Callback bridge: first-party session cookie → SPA bearer token ──────────
