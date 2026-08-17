@@ -27,16 +27,22 @@ import { env } from './env.js';
 
 const ENDPOINT = 'https://api.postmarkapp.com';
 
-// Postmark Domain object shape — subset of fields we care about. The full
-// response also includes DKIMPendingHost/TextValue, etc. for key-rotation
-// flows; we ignore those for v1.
+// Postmark Domain object shape — subset of fields we care about. DKIM lives
+// in TWO field pairs: the Pending pair holds the record awaiting publication
+// (a brand-new domain, or a rotation's replacement key) and the non-Pending
+// pair holds the currently verified key. A new domain has ONLY the Pending
+// pair populated until its first successful verification, so while DKIM is
+// unverified the record we tell brands to publish comes from the Pending
+// pair (see dnsRecommendations for the exact selection rule).
 export interface PostmarkDomain {
   ID: number;
   Name: string;
   // DKIM
   DKIMVerified: boolean;
-  DKIMHost: string;          // e.g. "20231115._domainkey"
+  DKIMHost: string;          // e.g. "20231115._domainkey" — verified key (empty until first verification)
   DKIMTextValue: string;     // the long TXT record value
+  DKIMPendingHost: string;   // key awaiting publication (empty when none pending)
+  DKIMPendingTextValue: string;
   // Return-Path
   ReturnPathDomain: string;        // e.g. "pm-bounces.acme.com"
   ReturnPathDomainVerified: boolean;
@@ -177,11 +183,20 @@ export interface DnsRecommendations {
 }
 
 export function dnsRecommendations(d: PostmarkDomain): DnsRecommendations {
+  // DKIM pair selection must be atomic (host and value from the SAME pair —
+  // a pending selector paired with the verified key's value looks well-formed
+  // but can never verify; Postmark payloads are unvalidated casts, so a
+  // half-populated pair is possible) and applies only while DKIM is
+  // unverified: a new domain carries its record ONLY in the pending pair,
+  // but on an already-verified domain the UI hides the DNS table entirely,
+  // so swapping the snapshot to a rotation's pending key would rewrite
+  // stored state that no surface renders. Rotation display is future work.
+  const usePendingDkim = !d.DKIMVerified && !!(d.DKIMPendingHost && d.DKIMPendingTextValue);
   return {
     dkim: {
       type: 'TXT',
-      host: d.DKIMHost,
-      value: d.DKIMTextValue,
+      host: usePendingDkim ? d.DKIMPendingHost : d.DKIMHost,
+      value: usePendingDkim ? d.DKIMPendingTextValue : d.DKIMTextValue,
       priority: 'required',
       why: 'Cryptographically signs outbound mail so receivers can verify it came from your domain. Missing DKIM is the biggest single junk-folder trigger.',
     },

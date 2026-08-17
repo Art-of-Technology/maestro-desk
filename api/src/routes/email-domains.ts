@@ -54,7 +54,12 @@ function publicRow(d: EmailDomainRow) {
 
 // GET /api/v1/email-domains — domains + current sender identity. Pure DB
 // (dns_setup comes from the snapshot column): safe for the page's poll-free
-// initial render.
+// initial render. A stale snapshot (e.g. a blank pre-fix DKIM record) is NOT
+// healed here — reads never call Postmark or write state. It renders as a
+// "not issued yet" hint and heals through the existing check flow: the
+// page's 45s poll (which round-robins every non-verified domain), the
+// "Check now" button, or the daily cron sweep — all of which re-snapshot
+// dns_records via checkEmailDomain.
 emailDomains.get('/', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
