@@ -31,8 +31,9 @@ const ENDPOINT = 'https://api.postmarkapp.com';
 // in TWO field pairs: the Pending pair holds the record awaiting publication
 // (a brand-new domain, or a rotation's replacement key) and the non-Pending
 // pair holds the currently verified key. A new domain has ONLY the Pending
-// pair populated until its first successful verification, so the record we
-// tell brands to publish must prefer Pending when present.
+// pair populated until its first successful verification, so while DKIM is
+// unverified the record we tell brands to publish comes from the Pending
+// pair (see dnsRecommendations for the exact selection rule).
 export interface PostmarkDomain {
   ID: number;
   Name: string;
@@ -182,14 +183,20 @@ export interface DnsRecommendations {
 }
 
 export function dnsRecommendations(d: PostmarkDomain): DnsRecommendations {
+  // DKIM pair selection must be atomic (host and value from the SAME pair —
+  // a pending selector paired with the verified key's value looks well-formed
+  // but can never verify; Postmark payloads are unvalidated casts, so a
+  // half-populated pair is possible) and applies only while DKIM is
+  // unverified: a new domain carries its record ONLY in the pending pair,
+  // but on an already-verified domain the UI hides the DNS table entirely,
+  // so swapping the snapshot to a rotation's pending key would rewrite
+  // stored state that no surface renders. Rotation display is future work.
+  const usePendingDkim = !d.DKIMVerified && !!(d.DKIMPendingHost && d.DKIMPendingTextValue);
   return {
     dkim: {
       type: 'TXT',
-      // Pending first: for a new domain the Pending pair is the ONLY populated
-      // one (the non-Pending pair stays empty until first verification), and
-      // during a rotation the pending key is the record that needs publishing.
-      host: d.DKIMPendingHost || d.DKIMHost,
-      value: d.DKIMPendingTextValue || d.DKIMTextValue,
+      host: usePendingDkim ? d.DKIMPendingHost : d.DKIMHost,
+      value: usePendingDkim ? d.DKIMPendingTextValue : d.DKIMTextValue,
       priority: 'required',
       why: 'Cryptographically signs outbound mail so receivers can verify it came from your domain. Missing DKIM is the biggest single junk-folder trigger.',
     },

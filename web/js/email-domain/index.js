@@ -228,6 +228,17 @@ function edDnsRow(d, key, label) {
   const rec = d.dns_setup?.[key];
   if (!rec) return '';
   const priColor = rec.priority === 'required' ? 'var(--red)' : 'var(--amber)';
+  // A record can arrive with empty host/value (snapshot taken while Postmark
+  // hadn't issued it, or a degraded payload). Blank cells with Copy buttons
+  // that copy nothing read as broken — say what's happening instead.
+  if (!rec.host || !rec.value) {
+    return `
+    <tr>
+      <td>${esc(rec.type)} <span style="color:var(--ink3);font-size:10px">(${esc(label)})</span><br><span style="color:${priColor};font-size:10px">${esc(rec.priority)}</span></td>
+      <td colspan="2" style="color:var(--ink3)">Not issued yet — “Check now” refreshes this record.</td>
+      <td></td>
+    </tr>`;
+  }
   // Copy buttons read the value from module state via data-record/-field —
   // DKIM values are long and attribute-escaping them is fragile.
   const copyBtn = (field) =>
