@@ -425,9 +425,9 @@ export async function loadWorkspaceData() {
 
   // ─── ROLES ─────────────────────────────────────────────────────────────
   // ROLES is the set of role names. Core authorization is the binary is_admin
-  // flag (server-enforced); the one finer capability is can_manage_custom_fields
-  // ("Senior Agent and above"). Both per-role lookups live in module-scope maps
-  // keyed by name so the roles module can address/mutate rows.
+  // flag (server-enforced); the finer capabilities (can_manage_custom_fields,
+  // can_delete) ride alongside it in ONE module-scope record map keyed by
+  // role name (_rolesByName below) so the roles module can address/mutate rows.
   _rolesByName = {};
   for (const r of rolesRaw) {
     _rolesByName[r.name] = {

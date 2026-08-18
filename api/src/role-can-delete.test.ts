@@ -82,6 +82,40 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     expect(rows.find((r) => r.name === 'Admin')!.is_admin).toBe(true);
   });
 
+  it('capability grants are implicit for admins and fully revoked on demotion (no materialised leak)', async () => {
+    // Seeded Admin: raw columns false (20260818120100 clears historical
+    // materialisation; provisioning seeds false), yet whoami shapes true.
+    const [adminRow] = await sql<{ can_manage_custom_fields: boolean; can_delete: boolean }[]>`
+      select can_manage_custom_fields, can_delete from roles
+      where workspace_id = ${ctx.ws} and name = 'Admin'
+    `;
+    expect(adminRow.can_manage_custom_fields).toBe(false);
+    expect(adminRow.can_delete).toBe(false);
+
+    // Demotion: an admin role losing is_admin must lose BOTH capabilities
+    // with it — the exact retention leak the materialised backfill carried.
+    const mk = await as(admin.token, ctx.ws, '/api/v1/roles', {
+      method: 'POST', body: JSON.stringify({ name: `Demotable-${RUN}`, is_admin: true }),
+    });
+    const { role: demotable } = await mk.json() as any;
+    await sql`update workspace_members set role_id = ${demotable.id} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
+
+    const before = await as(agent.token, ctx.ws, '/api/v1/whoami');
+    const mb = (await before.json() as any).memberships.find((m: any) => m.workspace_id === ctx.ws);
+    expect(mb.can_manage_custom_fields).toBe(true);
+    expect(mb.can_delete).toBe(true);
+
+    await as(admin.token, ctx.ws, `/api/v1/roles/${demotable.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_admin: false }),
+    });
+    const after = await as(agent.token, ctx.ws, '/api/v1/whoami');
+    const ma = (await after.json() as any).memberships.find((m: any) => m.workspace_id === ctx.ws);
+    expect(ma.can_manage_custom_fields).toBe(false);
+    expect(ma.can_delete).toBe(false);
+
+    await sql`update workspace_members set role_id = ${ctx.plainRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
+  });
+
   it('GET /roles returns the flag; POST /roles accepts it (admin only)', async () => {
     const list = await as(admin.token, ctx.ws, '/api/v1/roles');
     const { roles } = await list.json() as any;

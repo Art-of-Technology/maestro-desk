@@ -26,16 +26,10 @@
 alter table roles
   add column if not exists can_delete boolean not null default false;
 
--- Retro-fit the implicit-grant rule onto can_manage_custom_fields too: admin
--- roles were historically seeded/backfilled with a materialised true
--- (20260619130000), which carried the same demotion leak — a role demoted
--- from is_admin kept managing custom fields. Every read path ORs is_admin
--- (whoami.ts, authz.ts, the SPA role map), so clearing the materialised
--- value changes nothing for admins and closes the leak. Explicit non-admin
--- grants (e.g. the seeded Senior Agent) are untouched.
-update roles
-  set can_manage_custom_fields = false
-  where is_admin = true and can_manage_custom_fields = true;
+-- (The companion data migration 20260818120100 retro-fits the same
+-- implicit-grant rule onto can_manage_custom_fields for EXISTING rows;
+-- it is deliberately a separate, fully-disclosed file — this one only
+-- introduces can_delete and the seeding refactor.)
 
 -- ─── 2. Extract role seeding out of provision_brand ─────────────────────────
 -- provision_brand has now been recreated wholesale five times just to touch
