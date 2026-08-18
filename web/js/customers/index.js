@@ -493,6 +493,7 @@ function closeCustomerProfile()  { setCustomerSelected(null); renderPage('custom
 // the source if the primary's value was empty. Each affected ticket is tagged
 // with `preMergeCustomerId` so unmergeCustomer can reliably restore them.
 function showMergeCustomerModal(custId) {
+  if (!window.canDeleteRecords()) return;
   const src = CUSTOMERS.find(x => x.id === custId);
   if (!src) return;
   if (src.mergedInto) { alert(`Already merged into ${src.mergedInto}.`); return; }
@@ -514,18 +515,89 @@ function showMergeCustomerModal(custId) {
       <span class="vip-badge vip-${(c.vip || '').toLowerCase()}">${window.escHtml(c.vip || '')}</span>
     </div>`;
   showModal('Merge customer into…', `
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">${window.escHtml(src.first + ' ' + src.last)} (${window.escHtml(src.id)}) will be marked as a duplicate of the primary you choose. All of this customer's tickets reassign to the primary, internal notes copy over, and any blank profile fields on the primary fill in from this record.</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Pick the surviving profile. You'll see both profiles side by side and confirm before anything merges.</div>
     <div style="max-height:380px;overflow-y:auto">${candidates.map(card).join('')}</div>
   `, null, null);
 }
 
-function mergeCustomers(srcId, primaryId) {
+// Side-by-side confirmation between picking a survivor and actually merging —
+// the spec's safety gate (the old picker merged on a single mousedown).
+// Cancel closes outright; re-opening the picker is one click on ↩ Merge
+// (one-modal-at-a-time constraint, same trade-off as the saved-search flow).
+function showMergeConfirm(srcId, primaryId) {
+  if (!window.canDeleteRecords()) return;
+  const src = CUSTOMERS.find(x => x.id === srcId);
+  const primary = CUSTOMERS.find(x => x.id === primaryId);
+  if (!src || !primary) return;
+  const esc = window.escHtml;
+  const tCount = TICKETS.filter(t => t.customerId === srcId).length;
+  const nCount = (src.notes || []).length;
+  const card = (c, label, color) => `
+    <div style="flex:1;min-width:0;border:1px solid var(--rule);border-radius:var(--r);padding:12px;background:var(--off2)">
+      <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${color};margin-bottom:8px">${label}</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <div style="width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${esc((c.first[0]||'') + (c.last[0]||''))}</div>
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.first + ' ' + c.last)}</div>
+          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${esc(c.id)}</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--ink2);line-height:1.7">
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.email || '—')}</div>
+        <div>${esc(c.vip || '—')} · KYC ${esc(c.kyc || '—')}</div>
+        <div>${TICKETS.filter(t => t.customerId === c.id).length} tickets · ${(c.notes || []).length} notes</div>
+        <div>Since ${esc(c.since || '—')}</div>
+      </div>
+    </div>`;
+  showDangerConfirm({
+    title: 'Merge profiles',
+    bodyHtml: `
+      <div style="display:flex;gap:10px;align-items:stretch;margin-bottom:12px">
+        ${card(src, 'Duplicate — merges away', 'var(--red)')}
+        <div style="align-self:center;color:var(--ink3);font-size:16px;flex-shrink:0">→</div>
+        ${card(primary, 'Survivor', 'var(--green)')}
+      </div>
+      <div style="font-size:12px;color:var(--ink2);line-height:1.6">All ${tCount} ticket${tCount===1?'':'s'} and ${nCount} note${nCount===1?'':'s'} move to the survivor, blank survivor details fill in from the duplicate, and the duplicate is hidden as merged. The survivor keeps its own email address. Reversible with Un-merge.</div>`,
+    confirmLabel: 'Merge profiles',
+    onConfirm: () => { closeModal(); mergeCustomers(srcId, primaryId); },
+  });
+}
+
+async function mergeCustomers(srcId, primaryId) {
+  if (!window.canDeleteRecords()) return;
   if (srcId === primaryId) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   const primary = CUSTOMERS.find(x => x.id === primaryId);
   if (!src || !primary || src.mergedInto) return;
   if (primary.mergedInto) {
     alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
+    return;
+  }
+  // API-backed workspace: the server owns the merge (transactional — tickets
+  // move keeping their original emails/timestamps, notes move, auto note,
+  // journalled backfill, audit row); we then apply its response locally so no
+  // reload is needed. Demo personas keep the legacy in-memory body below.
+  if (src._uuid && primary._uuid) {
+    let res;
+    try { res = await apiPost(`/api/v1/customers/${src._uuid}/merge`, { into_id: primary._uuid }); }
+    catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
+    const moved = new Set(res.tickets_moved_ids || []);
+    TICKETS.forEach(t => {
+      if (t._uuid && moved.has(t._uuid)) { t.preMergeCustomerId = srcId; t.customerId = primaryId; }
+    });
+    primary.notes = (res.notes || []).map(n => ({
+      ...mapCustomerNote(n),
+      mergedFromCustomerId: n.merged_from_customer_id === src._uuid ? srcId : undefined,
+    }));
+    src.notes = [];
+    const colMap = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
+    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[colMap[col] || col] = val; });
+    src.mergedInto = primaryId;
+    src.mergedAt = String(res.source?.merged_at || '').slice(0, 10);
+    primary.mergedFrom = primary.mergedFrom || [];
+    if (!primary.mergedFrom.includes(srcId)) primary.mergedFrom.push(srcId);
+    setCustomerSelected(primaryId);
+    renderPage('customers');
     return;
   }
   // Reassign tickets, stamping each with the original customerId so un-merge
@@ -573,11 +645,37 @@ function mergeCustomers(srcId, primaryId) {
   renderPage('customers');
 }
 
-function unmergeCustomer(srcId) {
+async function unmergeCustomer(srcId) {
+  if (!window.canDeleteRecords()) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
   const primary = CUSTOMERS.find(x => x.id === primaryId);
+  // API-backed workspace: the server reverses the merge (stamped tickets and
+  // notes come back, journalled backfills revert only where the survivor
+  // hasn't edited them, audit row); apply the response locally.
+  if (src._uuid) {
+    let res;
+    try { res = await apiPost(`/api/v1/customers/${src._uuid}/unmerge`); }
+    catch (err) { alert(`Couldn't un-merge: ${err?.message || err}`); return; }
+    const restored = new Set(res.tickets_restored_ids || []);
+    TICKETS.forEach(t => {
+      if (t._uuid && restored.has(t._uuid)) { t.customerId = srcId; delete t.preMergeCustomerId; }
+    });
+    if (primary && primary.notes) {
+      const back = primary.notes.filter(n => n.mergedFromCustomerId === srcId);
+      primary.notes = primary.notes.filter(n => n.mergedFromCustomerId !== srcId);
+      src.notes = back.map(n => ({ ...n, mergedFromCustomerId: undefined }));
+    }
+    const colMap = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
+    (res.fields_reverted || []).forEach(col => { if (primary) primary[colMap[col] || col] = ''; });
+    if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
+    delete src.mergedInto;
+    delete src.mergedAt;
+    setCustomerSelected(srcId);
+    renderPage('customers');
+    return;
+  }
   // Walk tickets and put them back on the source.
   TICKETS.forEach(t => {
     if (t.preMergeCustomerId === srcId && t.customerId === primaryId) {
@@ -762,7 +860,7 @@ function renderCustomerDetail(custId) {
           <span style="color:var(--ink2)">→</span>
           <span class="link" data-action="cust.selectAndRender" data-cust-id="${window.escAttr(c.mergedInto)}" style="color:var(--purple);font-weight:500">${window.escHtml(c.mergedInto)}</span>
           <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${window.escHtml(c.mergedAt || '—')}</span>
-          ${admin ? `<button class="btn btn-sm" style="margin-left:auto" data-action="cust.unmerge" data-cust-id="${window.escAttr(c.id)}">Un-merge</button>` : ''}
+          ${window.canDeleteRecords() ? `<button class="btn btn-sm" style="margin-left:auto" data-action="cust.unmerge" data-cust-id="${window.escAttr(c.id)}">Un-merge</button>` : ''}
         </div>` : ''}
         ${(c.mergedFrom || []).length ? `<div class="card" style="margin-bottom:16px">
           <div class="card-title">Merged duplicates (${c.mergedFrom.length})</div>
@@ -781,7 +879,7 @@ function renderCustomerDetail(custId) {
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${c.bo ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
-          ${admin && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
+          ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
         ${riskPanel}
@@ -871,8 +969,9 @@ registerInputActions({
 });
 
 registerMousedownActions({
-  // Pick a primary in the merge modal: close it, then merge.
-  'cust.mergeFromModal': (ds) => { closeModal(); mergeCustomers(ds.source, ds.target); },
+  // Pick a survivor in the merge picker: close it, then show the
+  // side-by-side confirmation (the merge itself runs from its Confirm).
+  'cust.mergeFromModal': (ds) => { closeModal(); showMergeConfirm(ds.source, ds.target); },
 });
 
 // ─── Column drag-and-drop dispatcher ─────────────────────────────────────────
