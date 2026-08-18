@@ -199,7 +199,9 @@ function renderRoleAgentsPage(role) {
 }
 
 function renameRolePrompt(oldName) {
-  if (!window.isAdmin() || oldName === 'Admin') return;
+  // Admin roles are protected by their real is_admin flag, not just the
+  // literal seed name — a second admin role must be equally untouchable.
+  if (!window.isAdmin() || oldName === 'Admin' || getRoleIsAdmin(oldName)) return;
   showModal('Rename role', `
     <div class="form-row">
       <label class="form-label">New name</label>
@@ -323,7 +325,8 @@ async function toggleRoleFlag(role, val, { get, set, patchKey }) {
 }
 
 function deleteRolePrompt(role) {
-  if (!window.isAdmin() || role === 'Admin') return;
+  // Same is_admin-keyed protection as renameRolePrompt / the render lock.
+  if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
   const inUse = AGENTS.filter(a => a.role === role).length;
   if (inUse > 0) {
     showModal('Cannot delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6"><strong style="color:var(--ink)">${inUse}</strong> agent${inUse===1?' is':'s are'} still assigned to <strong style="color:var(--ink)">${role}</strong>. Reassign them to another role first.</div>`, null, null);

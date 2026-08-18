@@ -38,8 +38,13 @@ import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 
 // Demo personas call login(role, name, initials); real-auth boot paths pass
 // the identity/capability extras in `opts` (an options object rather than a
-// growing positional tail).
-function login(role, name, initials, opts = {}) {
+// growing positional tail). login is a window-bridge API, so the legacy
+// positional shape — login(role, name, initials, userId, canManageCF) —
+// is still accepted: a non-object 4th arg is treated as the userId.
+function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = false, legacyCanDelete = false) {
+  const opts = (optsOrUserId !== null && typeof optsOrUserId === 'object')
+    ? optsOrUserId
+    : { userId: optsOrUserId, canManageCustomFields: legacyCanManageCF, canDelete: legacyCanDelete };
   const { userId = null, canManageCustomFields = false, canDelete = false } = opts;
   setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
   document.getElementById('auth-screen').style.display = 'none';

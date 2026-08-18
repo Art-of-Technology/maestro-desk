@@ -48,11 +48,16 @@ export async function requireWorkspaceAdmin(c: Context): Promise<Response | null
 // One membership query serves every boolean capability column on `roles`
 // so the shared predicate (active membership join, implicit-admin OR, the
 // platform-admin escape hatch) lives exactly once. The flag name is an
-// identifier interpolation, so it MUST come from this closed union — never
-// widen it to a plain string.
-type RoleCapability = 'can_manage_custom_fields' | 'can_delete';
+// identifier interpolation, so it MUST come from this closed allowlist —
+// never widen it to a plain string. The runtime check backs the TS type up
+// for any JS caller the compiler never saw.
+const ROLE_CAPABILITIES = ['can_manage_custom_fields', 'can_delete'] as const;
+type RoleCapability = (typeof ROLE_CAPABILITIES)[number];
 
 async function memberHasCapability(c: Context, flag: RoleCapability): Promise<boolean> {
+  if (!ROLE_CAPABILITIES.includes(flag)) {
+    throw new Error(`Unknown role capability: ${String(flag)}`);
+  }
   const sql = getDb();
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
