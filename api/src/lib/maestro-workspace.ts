@@ -17,6 +17,10 @@ export interface BrandWorkspace {
   workspace_primary_color: string | null;
   role_name: string | null;
   is_admin: boolean;
+  // Shaped like whoami: admins implicitly carry both capabilities, so the
+  // SPA can read these directly into SESSION at Maestro sign-in.
+  can_manage_custom_fields: boolean;
+  can_delete: boolean;
   active: boolean;
   suspended: boolean;
 }
@@ -80,8 +84,8 @@ export async function resolveBrandWorkspace(
 
   // Read back the member's effective role + active flag (their existing values if
   // they predated this sign-in, else the ones we just inserted).
-  const [member] = await sql<{ role_name: string | null; is_admin: boolean | null; active: boolean }[]>`
-    select r.name as role_name, r.is_admin, wm.active
+  const [member] = await sql<{ role_name: string | null; is_admin: boolean | null; can_manage_custom_fields: boolean | null; can_delete: boolean | null; active: boolean }[]>`
+    select r.name as role_name, r.is_admin, r.can_manage_custom_fields, r.can_delete, wm.active
     from workspace_members wm
     left join roles r on r.id = wm.role_id
     where wm.workspace_id = ${ws.id} and wm.user_id = ${userId}
@@ -95,6 +99,11 @@ export async function resolveBrandWorkspace(
     workspace_primary_color: ws.primary_color,
     role_name: member?.role_name ?? null,
     is_admin: Boolean(member?.is_admin),
+    // Same implicit-admin shaping as whoami — the Maestro sign-in path feeds
+    // the same bootShell() that consumes whoami memberships, so the two must
+    // agree or capabilities silently drop on "Continue with Maestro".
+    can_manage_custom_fields: Boolean(member?.is_admin) || Boolean(member?.can_manage_custom_fields),
+    can_delete: Boolean(member?.is_admin) || Boolean(member?.can_delete),
     active: Boolean(member?.active),
     suspended: Boolean(ws.suspended_at),
   };

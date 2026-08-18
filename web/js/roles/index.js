@@ -24,7 +24,7 @@ import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
-import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleCanManageCF, setRoleCanManageCF } from '../core/bootstrap.js';
+import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleIsAdmin, getRoleCanManageCF, setRoleCanManageCF, getRoleCanDelete, setRoleCanDelete } from '../core/bootstrap.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 function rolesApiBacked() {
@@ -37,20 +37,26 @@ export function renderRoles() {
   const admin = window.isAdmin();
   const rows = ROLES.map(r => {
     const count = AGENTS.filter(a => a.role === r).length;
-    // Admins always manage custom fields (locked on); other roles carry the
-    // can_manage_custom_fields flag, which admins can toggle here.
-    const isAdminRole = r === 'Admin';
-    const cf = isAdminRole || getRoleCanManageCF(r);
-    const cfCell = admin
+    // Admin roles get every capability implicitly (locked on). Keyed off the
+    // role's actual is_admin flag — NOT just the literal name — so a second
+    // admin role created with another name locks correctly too. The name
+    // check keeps demo personas working (no API → empty role map).
+    const isAdminRole = r === 'Admin' || getRoleIsAdmin(r);
+    // One capability column cell: "always" for admin roles, an admin-editable
+    // toggle otherwise, a plain check/dash for read-only viewers.
+    const capCell = (on, action, lockTitle) => admin
       ? `<td style="text-align:center">${isAdminRole
-          ? '<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="Admins always manage custom fields">always</span>'
-          : `<label class="toggle"><input type="checkbox" ${cf?'checked':''} data-change-action="roles.toggleCustomFields" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
-      : `<td style="text-align:center;color:${cf?'var(--green)':'var(--ink4)'};font-weight:500">${cf?'✓':'—'}</td>`;
+          ? `<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="${lockTitle}">always</span>`
+          : `<label class="toggle"><input type="checkbox" ${on?'checked':''} data-change-action="${action}" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
+      : `<td style="text-align:center;color:${on?'var(--green)':'var(--ink4)'};font-weight:500">${on?'✓':'—'}</td>`;
+    const cfCell  = capCell(isAdminRole || getRoleCanManageCF(r), 'roles.toggleCustomFields', 'Admins always manage custom fields');
+    const delCell = capCell(isAdminRole || getRoleCanDelete(r),   'roles.toggleCanDelete',    'Admins can always delete and merge');
     const actions = admin ? `<td style="text-align:right;white-space:nowrap">${isAdminRole ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
       <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
       <td style="text-align:center"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${count}</span></td>
       ${cfCell}
+      ${delCell}
       ${actions}
     </tr>`;
   }).join('');
@@ -65,12 +71,13 @@ export function renderRoles() {
       <div class="page-scroll">
         <div class="card">
           <div class="card-title">Roles</div>
-          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin. "Manage custom fields" lets a role create and remove custom-field definitions (all agents can fill in values regardless).</div>
+          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin. "Manage custom fields" lets a role create and remove custom-field definitions (all agents can fill in values regardless). "Delete &amp; merge" lets a role delete tickets, customers and notes, and merge customer profiles (anyone can always delete a blank ticket started in error).</div>
           <table class="tbl">
             <thead><tr>
               <th style="text-align:left">Role</th>
               <th style="text-align:center">Agents</th>
               <th style="text-align:center">Manage custom fields</th>
+              <th style="text-align:center">Delete &amp; merge</th>
               ${admin?'<th></th>':''}
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -192,7 +199,9 @@ function renderRoleAgentsPage(role) {
 }
 
 function renameRolePrompt(oldName) {
-  if (!window.isAdmin() || oldName === 'Admin') return;
+  // Admin roles are protected by their real is_admin flag, not just the
+  // literal seed name — a second admin role must be equally untouchable.
+  if (!window.isAdmin() || oldName === 'Admin' || getRoleIsAdmin(oldName)) return;
   showModal('Rename role', `
     <div class="form-row">
       <label class="form-label">New name</label>
@@ -296,17 +305,19 @@ function addRolePrompt() {
   }, 'Create');
 }
 
-// Toggle a role's custom-field-management capability. Admin-only; the Admin
-// role itself is locked on (admins always manage). Optimistic with rollback.
-async function toggleRoleCustomFields(role, val) {
-  if (!window.isAdmin() || role === 'Admin') return;
-  const prev = getRoleCanManageCF(role);
-  setRoleCanManageCF(role, val);
+// Toggle one capability flag on a role. Admin-only; admin roles are locked on
+// (the grant is implicit via is_admin). Optimistic with rollback — one shared
+// contract for every capability column so the rollback/alert flow can't drift
+// between them.
+async function toggleRoleFlag(role, val, { get, set, patchKey }) {
+  if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
+  const prev = get(role);
+  set(role, val);
   const uuid = getRoleUuid(role);
   if (uuid) {
-    try { await apiPatch(`/api/v1/roles/${uuid}`, { can_manage_custom_fields: val }); }
+    try { await apiPatch(`/api/v1/roles/${uuid}`, { [patchKey]: val }); }
     catch (err) {
-      setRoleCanManageCF(role, prev);
+      set(role, prev);
       alert(`Couldn't update: ${err?.message || err}`);
       renderPage('roles');
     }
@@ -314,7 +325,8 @@ async function toggleRoleCustomFields(role, val) {
 }
 
 function deleteRolePrompt(role) {
-  if (!window.isAdmin() || role === 'Admin') return;
+  // Same is_admin-keyed protection as renameRolePrompt / the render lock.
+  if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
   const inUse = AGENTS.filter(a => a.role === role).length;
   if (inUse > 0) {
     showModal('Cannot delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6"><strong style="color:var(--ink)">${inUse}</strong> agent${inUse===1?' is':'s are'} still assigned to <strong style="color:var(--ink)">${role}</strong>. Reassign them to another role first.</div>`, null, null);
@@ -346,6 +358,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'roles.toggleCustomFields':  (ds, el) => toggleRoleCustomFields(ds.role, el.checked),
+  'roles.toggleCustomFields':  (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanManageCF, set: setRoleCanManageCF, patchKey: 'can_manage_custom_fields' }),
+  'roles.toggleCanDelete':     (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanDelete,   set: setRoleCanDelete,   patchKey: 'can_delete' }),
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });

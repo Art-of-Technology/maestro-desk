@@ -425,14 +425,19 @@ export async function loadWorkspaceData() {
 
   // ─── ROLES ─────────────────────────────────────────────────────────────
   // ROLES is the set of role names. Core authorization is the binary is_admin
-  // flag (server-enforced); the one finer capability is can_manage_custom_fields
-  // ("Senior Agent and above"). Both per-role lookups live in module-scope maps
-  // keyed by name so the roles module can address/mutate rows.
-  _roleUuidByName = {};
-  _roleCanManageCFByName = {};
+  // flag (server-enforced); the finer capabilities (can_manage_custom_fields,
+  // can_delete) ride alongside it in ONE module-scope record map keyed by
+  // role name (_rolesByName below) so the roles module can address/mutate rows.
+  _rolesByName = {};
   for (const r of rolesRaw) {
-    _roleUuidByName[r.name] = r.id;
-    _roleCanManageCFByName[r.name] = Boolean(r.is_admin) || Boolean(r.can_manage_custom_fields);
+    _rolesByName[r.name] = {
+      id:          r.id,
+      isAdmin:     Boolean(r.is_admin),
+      // Capabilities are shaped with the implicit-admin OR (like whoami) so
+      // the Roles page renders effective rights, not raw column values.
+      canManageCF: Boolean(r.is_admin) || Boolean(r.can_manage_custom_fields),
+      canDelete:   Boolean(r.is_admin) || Boolean(r.can_delete),
+    };
   }
   replaceInPlace(ROLES, rolesRaw.map((r) => r.name));
 
@@ -460,30 +465,29 @@ export async function loadWorkspaceData() {
   replaceInPlace(CATEGORIES, (catsRes.categories || []));
 }
 
-// Role-name → UUID lookup populated by loadWorkspaceData; consumed by
-// roles/index.js when issuing PATCH/DELETE against /api/v1/roles. Kept
-// in module scope (with a getter export) so the roles module doesn't
-// need to learn about a sibling global.
-let _roleUuidByName = {};
-export function getRoleUuid(name) { return _roleUuidByName[name] || null; }
-export function setRoleUuid(name, uuid) { _roleUuidByName[name] = uuid; }
-export function clearRoleUuid(name) { delete _roleUuidByName[name]; delete _roleCanManageCFByName[name]; }
+// Role-name → {id, isAdmin, canManageCF, canDelete} lookup populated by
+// loadWorkspaceData; consumed by roles/index.js for PATCH/DELETE against
+// /api/v1/roles and for rendering/toggling capabilities without a refetch.
+// ONE record per role (matching the userByUuid/customerByUuid idiom) so
+// clear/rename can't leave a capability strand behind. The exported
+// accessors below are the module's public surface — callers never touch
+// the map directly.
+let _rolesByName = {};
+function roleEntry(name) { return (_rolesByName[name] ||= { id: null, isAdmin: false, canManageCF: false, canDelete: false }); }
+export function getRoleUuid(name) { return _rolesByName[name]?.id || null; }
+export function setRoleUuid(name, uuid) { roleEntry(name).id = uuid; }
+export function clearRoleUuid(name) { delete _rolesByName[name]; }
 export function renameRoleUuid(oldName, newName) {
-  if (_roleUuidByName[oldName]) {
-    _roleUuidByName[newName] = _roleUuidByName[oldName];
-    delete _roleUuidByName[oldName];
-  }
-  if (oldName in _roleCanManageCFByName) {
-    _roleCanManageCFByName[newName] = _roleCanManageCFByName[oldName];
-    delete _roleCanManageCFByName[oldName];
+  if (_rolesByName[oldName]) {
+    _rolesByName[newName] = _rolesByName[oldName];
+    delete _rolesByName[oldName];
   }
 }
-
-// Per-role can_manage_custom_fields, keyed by role name. Mirrors the uuid map
-// above so the roles UI can render + toggle the capability without a refetch.
-let _roleCanManageCFByName = {};
-export function getRoleCanManageCF(name) { return Boolean(_roleCanManageCFByName[name]); }
-export function setRoleCanManageCF(name, val) { _roleCanManageCFByName[name] = Boolean(val); }
+export function getRoleIsAdmin(name) { return Boolean(_rolesByName[name]?.isAdmin); }
+export function getRoleCanManageCF(name) { return Boolean(_rolesByName[name]?.canManageCF); }
+export function setRoleCanManageCF(name, val) { roleEntry(name).canManageCF = Boolean(val); }
+export function getRoleCanDelete(name) { return Boolean(_rolesByName[name]?.canDelete); }
+export function setRoleCanDelete(name, val) { roleEntry(name).canDelete = Boolean(val); }
 
 // Server → client: turn agent_user_id / team_user_ids back into names.
 function assignmentServerToClient(srv, userByUuid) {

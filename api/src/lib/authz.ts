@@ -44,31 +44,66 @@ export async function requireWorkspaceAdmin(c: Context): Promise<Response | null
   return c.json({ error: 'Admin permission required' }, 403);
 }
 
+// ─── Per-role capabilities ────────────────────────────────────────────────
+// One membership query serves every boolean capability column on `roles`
+// so the shared predicate (active membership join, implicit-admin OR, the
+// platform-admin escape hatch) lives exactly once. The flag name is an
+// identifier interpolation, so it MUST come from this closed allowlist —
+// never widen it to a plain string. The runtime check backs the TS type up
+// for any JS caller the compiler never saw.
+const ROLE_CAPABILITIES = ['can_manage_custom_fields', 'can_delete'] as const;
+type RoleCapability = (typeof ROLE_CAPABILITIES)[number];
+
+async function memberHasCapability(c: Context, flag: RoleCapability): Promise<boolean> {
+  if (!ROLE_CAPABILITIES.includes(flag)) {
+    throw new Error(`Unknown role capability: ${String(flag)}`);
+  }
+  const sql = getDb();
+  const userId = c.get('userId');
+  const workspaceId = c.get('workspaceId');
+
+  const [row] = await sql<{ granted: boolean; platform_admin: boolean }[]>`
+    select
+      coalesce((
+        select bool_or(coalesce(r.is_admin, false) or coalesce(r.${sql(flag)}, false))
+        from workspace_members wm
+        join roles r on r.id = wm.role_id
+        where wm.user_id = ${userId}
+          and wm.workspace_id = ${workspaceId}
+          and wm.active = true
+      ), false) as granted,
+      coalesce((
+        select u.is_platform_admin from users u where u.id = ${userId}
+      ), false) as platform_admin
+  `;
+
+  return Boolean(row?.granted || row?.platform_admin);
+}
+
 // Allows the request only if the caller may manage custom-field DEFINITIONS
 // (create / edit / delete fields) in the active workspace: a workspace admin,
 // a platform admin, OR a member whose role carries can_manage_custom_fields
 // ("Senior Agent and above"). Filling in / editing field VALUES is open to any
 // member and is NOT gated by this helper.
 export async function requireCustomFieldManager(c: Context): Promise<Response | null> {
-  const sql = getDb();
-  const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
-
-  const [row] = await sql<{ can_manage: boolean; platform_admin: boolean }[]>`
-    select
-      coalesce((
-        select bool_or(coalesce(r.is_admin, false) or coalesce(r.can_manage_custom_fields, false))
-        from workspace_members wm
-        join roles r on r.id = wm.role_id
-        where wm.user_id = ${userId}
-          and wm.workspace_id = ${workspaceId}
-          and wm.active = true
-      ), false) as can_manage,
-      coalesce((
-        select u.is_platform_admin from users u where u.id = ${userId}
-      ), false) as platform_admin
-  `;
-
-  if (row?.can_manage || row?.platform_admin) return null;
+  if (await memberHasCapability(c, 'can_manage_custom_fields')) return null;
   return c.json({ error: 'You do not have permission to manage custom fields' }, 403);
+}
+
+// True when the caller may delete records (tickets, customers, notes) or
+// merge customer profiles in the active workspace: a workspace admin, a
+// platform admin, OR a member whose role carries can_delete. Exposed as a
+// boolean (not just a Response) because the ticket delete route needs a
+// non-Response branch — any member may delete a BLANK ticket regardless of
+// this flag. Enforcement call sites arrive with the delete/merge routes in
+// the follow-up PRs of this stack.
+export async function hasDeletePermission(c: Context): Promise<boolean> {
+  return memberHasCapability(c, 'can_delete');
+}
+
+// Response-shaped wrapper over hasDeletePermission, matching the style of
+// the other require* helpers for routes with no exception path.
+export async function requireDeletePermission(c: Context): Promise<Response | null> {
+  if (await hasDeletePermission(c)) return null;
+  return c.json({ error: 'You do not have permission to delete records' }, 403);
 }

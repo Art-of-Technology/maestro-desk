@@ -18,6 +18,7 @@ const RoleBody = z.object({
   name:                     z.string().min(1).max(100),
   is_admin:                 z.boolean().optional(),
   can_manage_custom_fields: z.boolean().optional(),
+  can_delete:               z.boolean().optional(),
 });
 
 // ─── GET / — list workspace roles ────────────────────────────────────────
@@ -26,7 +27,7 @@ roles.get('/', async (c) => {
   const workspaceId = c.get('workspaceId');
 
   const rows = await sql`
-    select id, name, is_admin, can_manage_custom_fields
+    select id, name, is_admin, can_manage_custom_fields, can_delete
     from roles
     where workspace_id = ${workspaceId}
     order by name asc
@@ -47,11 +48,17 @@ roles.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const input = parsed.data;
 
+  // Normalisation invariant: admin roles never carry materialised capability
+  // flags — the grant is implicit (every read path ORs is_admin), and a
+  // materialised true would silently survive a later is_admin demotion.
+  const isAdmin = input.is_admin ?? false;
   try {
     const [role] = await sql`
-      insert into roles (workspace_id, name, is_admin, can_manage_custom_fields)
-      values (${workspaceId}, ${input.name}, ${input.is_admin ?? false}, ${input.can_manage_custom_fields ?? false})
-      returning id, name, is_admin, can_manage_custom_fields
+      insert into roles (workspace_id, name, is_admin, can_manage_custom_fields, can_delete)
+      values (${workspaceId}, ${input.name}, ${isAdmin},
+              ${isAdmin ? false : (input.can_manage_custom_fields ?? false)},
+              ${isAdmin ? false : (input.can_delete ?? false)})
+      returning id, name, is_admin, can_manage_custom_fields, can_delete
     `;
     return c.json({ role }, 201);
   } catch (err) {
@@ -65,6 +72,7 @@ const PatchRole = z.object({
   name:                     z.string().min(1).max(100).optional(),
   is_admin:                 z.boolean().optional(),
   can_manage_custom_fields: z.boolean().optional(),
+  can_delete:               z.boolean().optional(),
 }).strict();
 
 roles.patch('/:id', async (c) => {
@@ -87,14 +95,26 @@ roles.patch('/:id', async (c) => {
   if (parsed.data.name !== undefined)                     updates.name                     = parsed.data.name;
   if (parsed.data.is_admin !== undefined)                 updates.is_admin                 = parsed.data.is_admin;
   if (parsed.data.can_manage_custom_fields !== undefined) updates.can_manage_custom_fields = parsed.data.can_manage_custom_fields;
+  if (parsed.data.can_delete !== undefined)               updates.can_delete               = parsed.data.can_delete;
 
   try {
-    const [role] = await sql`
+    let [role] = await sql`
       update roles set ${sql(updates)}
       where id = ${id} and workspace_id = ${workspaceId}
-      returning id, name, is_admin, can_manage_custom_fields
+      returning id, name, is_admin, can_manage_custom_fields, can_delete
     `;
     if (!role) return c.json({ error: 'Role not found' }, 404);
+    // Same normalisation invariant as POST: if the row ends up (or already
+    // is) admin, clear any materialised capability flags — whether this PATCH
+    // set is_admin=true on a flagged role, or tried to flag an admin role.
+    // Without this, demoting the role later would retain the stale grant.
+    if (role.is_admin && (role.can_manage_custom_fields || role.can_delete)) {
+      [role] = await sql`
+        update roles set can_manage_custom_fields = false, can_delete = false
+        where id = ${id} and workspace_id = ${workspaceId}
+        returning id, name, is_admin, can_manage_custom_fields, can_delete
+      `;
+    }
     return c.json({ role });
   } catch (err) {
     if ((err as any)?.code === '23505') return c.json({ error: 'Role name already exists' }, 409);

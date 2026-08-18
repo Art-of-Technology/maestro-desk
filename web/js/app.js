@@ -36,8 +36,17 @@ import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 
-function login(role, name, initials, userId = null, canManageCustomFields = false) {
-  setSession({ role, name, initials, userId, canManageCustomFields });
+// Demo personas call login(role, name, initials); real-auth boot paths pass
+// the identity/capability extras in `opts` (an options object rather than a
+// growing positional tail). login is a window-bridge API, so the legacy
+// positional shape — login(role, name, initials, userId, canManageCF) —
+// is still accepted: a non-object 4th arg is treated as the userId.
+function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = false, legacyCanDelete = false) {
+  const opts = (optsOrUserId !== null && typeof optsOrUserId === 'object')
+    ? optsOrUserId
+    : { userId: optsOrUserId, canManageCustomFields: legacyCanManageCF, canDelete: legacyCanDelete };
+  const { userId = null, canManageCustomFields = false, canDelete = false } = opts;
+  setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('sb-av').textContent = initials;
@@ -216,6 +225,12 @@ function isAdmin() { return SESSION?.role === 'Admin' || SESSION?.role === 'Plat
 // Gates create/remove of custom-field DEFINITIONS; editing field values is
 // open to all agents and is not gated by this.
 function canManageCustomFields() { return isAdmin() || SESSION?.canManageCustomFields === true; }
+// Gates every delete surface (tickets, customers, notes) and customer-profile
+// merge. Admins always qualify; other roles qualify when their can_delete
+// flag is set (carried in SESSION from whoami). The one exception — any
+// member may delete a BLANK ticket — is applied at the call sites, and the
+// server re-verifies both the flag and the exception.
+function canDeleteRecords() { return isAdmin() || SESSION?.canDelete === true; }
 // HTML-attribute escaper. Was a JS-string escaper (\' only) which gave NO
 // breakout protection in the double-quoted attributes it's used in — now a
 // true HTML escaper. The app has no inline on*= handlers relying on the old
@@ -234,14 +249,15 @@ function escAttr(s) { return escHtml(s); }
 //   • login/logout — bootstrap, still in app.js; reached by window.logout from
 //     several modules and by the static index.html shell.
 //   • applyWorkspaceBrand/resetWorkspaceBrand — white-label hooks.
-//   • fmtMinutes/escHtml/escAttr/isAdmin — app-wide utilities used from many
-//     module-rendered HTML strings.
+//   • fmtMinutes/escHtml/escAttr/isAdmin/canManageCustomFields/
+//     canDeleteRecords — app-wide utilities used from many module-rendered
+//     HTML strings.
 //   • setSettingsTab — notifications reaches it via window to dodge the
 //     settings↔notifications import cycle.
 Object.assign(
   window,
   { login, logout, applyWorkspaceBrand, resetWorkspaceBrand,
-    fmtMinutes, escHtml, escAttr, isAdmin, canManageCustomFields,
+    fmtMinutes, escHtml, escAttr, isAdmin, canManageCustomFields, canDeleteRecords,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
 );
