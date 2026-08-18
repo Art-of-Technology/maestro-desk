@@ -240,8 +240,9 @@ function escAttr(s) { return escHtml(s); }
 //   • login/logout — bootstrap, still in app.js; reached by window.logout from
 //     several modules and by the static index.html shell.
 //   • applyWorkspaceBrand/resetWorkspaceBrand — white-label hooks.
-//   • fmtMinutes/escHtml/escAttr/isAdmin — app-wide utilities used from many
-//     module-rendered HTML strings.
+//   • fmtMinutes/escHtml/escAttr/isAdmin/canManageCustomFields/
+//     canDeleteRecords — app-wide utilities used from many module-rendered
+//     HTML strings.
 //   • setSettingsTab — notifications reaches it via window to dodge the
 //     settings↔notifications import cycle.
 Object.assign(

@@ -24,7 +24,7 @@ import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
-import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleCanManageCF, setRoleCanManageCF, getRoleCanDelete, setRoleCanDelete } from '../core/bootstrap.js';
+import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleIsAdmin, getRoleCanManageCF, setRoleCanManageCF, getRoleCanDelete, setRoleCanDelete } from '../core/bootstrap.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 function rolesApiBacked() {
@@ -37,23 +37,20 @@ export function renderRoles() {
   const admin = window.isAdmin();
   const rows = ROLES.map(r => {
     const count = AGENTS.filter(a => a.role === r).length;
-    // Admins always manage custom fields (locked on); other roles carry the
-    // can_manage_custom_fields flag, which admins can toggle here.
-    const isAdminRole = r === 'Admin';
-    const cf = isAdminRole || getRoleCanManageCF(r);
-    const cfCell = admin
+    // Admin roles get every capability implicitly (locked on). Keyed off the
+    // role's actual is_admin flag — NOT just the literal name — so a second
+    // admin role created with another name locks correctly too. The name
+    // check keeps demo personas working (no API → empty role map).
+    const isAdminRole = r === 'Admin' || getRoleIsAdmin(r);
+    // One capability column cell: "always" for admin roles, an admin-editable
+    // toggle otherwise, a plain check/dash for read-only viewers.
+    const capCell = (on, action, lockTitle) => admin
       ? `<td style="text-align:center">${isAdminRole
-          ? '<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="Admins always manage custom fields">always</span>'
-          : `<label class="toggle"><input type="checkbox" ${cf?'checked':''} data-change-action="roles.toggleCustomFields" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
-      : `<td style="text-align:center;color:${cf?'var(--green)':'var(--ink4)'};font-weight:500">${cf?'✓':'—'}</td>`;
-    // Delete & merge capability — same pattern: locked on for Admin, an admin-
-    // editable toggle for every other role.
-    const del = isAdminRole || getRoleCanDelete(r);
-    const delCell = admin
-      ? `<td style="text-align:center">${isAdminRole
-          ? '<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="Admins can always delete and merge">always</span>'
-          : `<label class="toggle"><input type="checkbox" ${del?'checked':''} data-change-action="roles.toggleCanDelete" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
-      : `<td style="text-align:center;color:${del?'var(--green)':'var(--ink4)'};font-weight:500">${del?'✓':'—'}</td>`;
+          ? `<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="${lockTitle}">always</span>`
+          : `<label class="toggle"><input type="checkbox" ${on?'checked':''} data-change-action="${action}" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
+      : `<td style="text-align:center;color:${on?'var(--green)':'var(--ink4)'};font-weight:500">${on?'✓':'—'}</td>`;
+    const cfCell  = capCell(isAdminRole || getRoleCanManageCF(r), 'roles.toggleCustomFields', 'Admins always manage custom fields');
+    const delCell = capCell(isAdminRole || getRoleCanDelete(r),   'roles.toggleCanDelete',    'Admins can always delete and merge');
     const actions = admin ? `<td style="text-align:right;white-space:nowrap">${isAdminRole ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
       <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
@@ -306,36 +303,19 @@ function addRolePrompt() {
   }, 'Create');
 }
 
-// Toggle a role's custom-field-management capability. Admin-only; the Admin
-// role itself is locked on (admins always manage). Optimistic with rollback.
-async function toggleRoleCustomFields(role, val) {
-  if (!window.isAdmin() || role === 'Admin') return;
-  const prev = getRoleCanManageCF(role);
-  setRoleCanManageCF(role, val);
+// Toggle one capability flag on a role. Admin-only; admin roles are locked on
+// (the grant is implicit via is_admin). Optimistic with rollback — one shared
+// contract for every capability column so the rollback/alert flow can't drift
+// between them.
+async function toggleRoleFlag(role, val, { get, set, patchKey }) {
+  if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
+  const prev = get(role);
+  set(role, val);
   const uuid = getRoleUuid(role);
   if (uuid) {
-    try { await apiPatch(`/api/v1/roles/${uuid}`, { can_manage_custom_fields: val }); }
+    try { await apiPatch(`/api/v1/roles/${uuid}`, { [patchKey]: val }); }
     catch (err) {
-      setRoleCanManageCF(role, prev);
-      alert(`Couldn't update: ${err?.message || err}`);
-      renderPage('roles');
-    }
-  }
-}
-
-// Toggle a role's delete-and-merge capability. Same contract as
-// toggleRoleCustomFields: admin-only, Admin role locked on, optimistic
-// with rollback. Takes effect for an agent on their next sign-in /
-// workspace switch (whoami carries the flag into SESSION).
-async function toggleRoleCanDelete(role, val) {
-  if (!window.isAdmin() || role === 'Admin') return;
-  const prev = getRoleCanDelete(role);
-  setRoleCanDelete(role, val);
-  const uuid = getRoleUuid(role);
-  if (uuid) {
-    try { await apiPatch(`/api/v1/roles/${uuid}`, { can_delete: val }); }
-    catch (err) {
-      setRoleCanDelete(role, prev);
+      set(role, prev);
       alert(`Couldn't update: ${err?.message || err}`);
       renderPage('roles');
     }
@@ -375,7 +355,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'roles.toggleCustomFields':  (ds, el) => toggleRoleCustomFields(ds.role, el.checked),
-  'roles.toggleCanDelete':     (ds, el) => toggleRoleCanDelete(ds.role, el.checked),
+  'roles.toggleCustomFields':  (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanManageCF, set: setRoleCanManageCF, patchKey: 'can_manage_custom_fields' }),
+  'roles.toggleCanDelete':     (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanDelete,   set: setRoleCanDelete,   patchKey: 'can_delete' }),
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });

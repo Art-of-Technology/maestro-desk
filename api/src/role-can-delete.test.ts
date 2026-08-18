@@ -1,6 +1,7 @@
 // roles.can_delete — the second enforced per-role capability (Phase 2 of the
-// Aug-2026 update programme). Covers: provisioning seeds, roles CRUD carrying
-// the flag, admin-gated PATCH, and whoami's implicit-admin shaping.
+// Aug-2026 update programme). Covers: provisioning seeds (implicit admin
+// grant — raw column false everywhere), roles CRUD carrying the flag,
+// admin-gated PATCH, and whoami's implicit-admin shaping.
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
@@ -49,22 +50,36 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     const [adminRole] = await sql<{ id: string }[]>`select id from roles where workspace_id = ${ws} and is_admin = true limit 1`;
     const [plainRole] = await sql<{ id: string }[]>`select id from roles where workspace_id = ${ws} and name = 'Read Only' limit 1`;
     ctx.plainRoleId = plainRole.id;
+    // The flagged role every test can rely on — seeded here (not inside an
+    // it() block) so a filtered or failing sibling test can't cascade.
+    const [cleaner] = await sql<{ id: string }[]>`
+      insert into roles (workspace_id, name, is_admin, can_delete)
+      values (${ws}, ${'Cleaner-' + RUN}, false, true)
+      returning id
+    `;
+    ctx.cleanerRoleId = cleaner.id;
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${ws}, ${admin.userId}, ${adminRole.id}, true)`;
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${ws}, ${agent.userId}, ${plainRole.id}, true)`;
   }, 30000);
 
   afterAll(async () => {
-    await sql`delete from workspace_members where workspace_id = ${ctx.ws}`;
+    // Workspace delete cascades members + roles (matches sibling suites);
+    // then drop the two signed-up users.
+    await sql`delete from workspaces where id = ${ctx.ws}`;
+    await sql`delete from users where id in (${admin.userId}, ${agent.userId})`;
   }, 15000);
 
-  it('provision_brand seeds can_delete: Admin true, everyone else false', async () => {
-    const rows = await sql<{ name: string; can_delete: boolean }[]>`
-      select name, can_delete from roles where workspace_id = ${ctx.ws} order by name
+  it('provision_brand seeds raw can_delete = false everywhere (admin grant is implicit)', async () => {
+    const rows = await sql<{ name: string; is_admin: boolean; can_delete: boolean }[]>`
+      select name, is_admin, can_delete from roles
+      where workspace_id = ${ctx.ws} and name in ('Admin','Senior Agent','Read Only')
+      order by name
     `;
-    const byName = Object.fromEntries(rows.map((r) => [r.name, r.can_delete]));
-    expect(byName['Admin']).toBe(true);
-    expect(byName['Senior Agent']).toBe(false);
-    expect(byName['Read Only']).toBe(false);
+    expect(rows).toHaveLength(3);
+    // No role carries a materialised grant — admins get it via is_admin at
+    // read time, so demoting an admin role can't leak a stale can_delete.
+    expect(rows.every((r) => r.can_delete === false)).toBe(true);
+    expect(rows.find((r) => r.name === 'Admin')!.is_admin).toBe(true);
   });
 
   it('GET /roles returns the flag; POST /roles accepts it (admin only)', async () => {
@@ -78,13 +93,12 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     expect(denied.status).toBe(403);
 
     const ok = await as(admin.token, ctx.ws, '/api/v1/roles', {
-      method: 'POST', body: JSON.stringify({ name: `Cleaner-${RUN}`, can_delete: true }),
+      method: 'POST', body: JSON.stringify({ name: `Janitor-${RUN}`, can_delete: true }),
     });
     expect(ok.status).toBe(201);
     const { role } = await ok.json() as any;
     expect(role.can_delete).toBe(true);
     expect(role.is_admin).toBe(false);
-    ctx.cleanerRoleId = role.id;
   });
 
   it('PATCH /roles/:id toggles can_delete (admin only)', async () => {
@@ -115,11 +129,14 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     expect(gm1.can_delete).toBe(false);
 
     // Move the agent onto the flagged role — whoami now carries true without
-    // the role being admin.
+    // the role being admin. (cleanerRoleId is seeded in beforeAll, so this
+    // test stands alone under --test-name-pattern.)
     await sql`update workspace_members set role_id = ${ctx.cleanerRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
     const g2 = await as(agent.token, ctx.ws, '/api/v1/whoami');
     const gm2 = (await g2.json() as any).memberships.find((m: any) => m.workspace_id === ctx.ws);
     expect(gm2.can_delete).toBe(true);
     expect(gm2.is_admin).toBe(false);
+    // Restore for any later suite ordering.
+    await sql`update workspace_members set role_id = ${ctx.plainRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
   });
 });

@@ -68,7 +68,8 @@ whoami.get('/', async (c) => {
     // "senior" roles. The frontend gates the manage-fields UI on this.
     can_manage_custom_fields: Boolean(m.is_admin) || Boolean(m.can_manage_custom_fields),
     // Admins implicitly delete/merge; the flag grants it to non-admin roles.
-    // The frontend gates every delete surface and customer merge on this.
+    // The frontend gates delete surfaces and customer merge on this (wired
+    // up by the delete/merge PRs that follow this plumbing in the stack).
     can_delete:               Boolean(m.is_admin) || Boolean(m.can_delete),
   }));
 

@@ -16,7 +16,7 @@ The codebase finished migrating off two pieces of implicit global coupling. The 
 
 - **Routing lives in `web/js/core/router.js`** — `nav`, `renderPage`, `updateNavBadges`, and the page registry. Every caller imports them directly; **they are not on the window bridge.** `app.js` is bootstrap-only (login/logout, workspace brand, layout hydration, startup, the bridge).
 
-- **The window bridge is minimal.** `app.js` re-exposes only app-wide utilities — `login`, `logout`, `applyWorkspaceBrand`, `resetWorkspaceBrand`, `fmtMinutes`, `escHtml`, `escAttr`, `isAdmin`, `setSettingsTab`. **No feature-module namespaces.** (`escHtml`/`escAttr`/`isAdmin`/`fmtMinutes` are app.js-local and can't be imported, so module code reaches them by bare name through the bridge until a `core/dom.js` extraction.)
+- **The window bridge is minimal.** `app.js` re-exposes only app-wide utilities — `login`, `logout`, `applyWorkspaceBrand`, `resetWorkspaceBrand`, `fmtMinutes`, `escHtml`, `escAttr`, `isAdmin`, `canManageCustomFields`, `canDeleteRecords`, `setSettingsTab`. **No feature-module namespaces.** (The utility functions are app.js-local and can't be imported, so module code reaches them by bare name through the bridge until a `core/dom.js` extraction.)
 
 - **Shared state is import-based.** `web/js/core/state.js` (UI state) and `web/js/core/data.js` (seed/live data) export every binding. Importers read them **live** (an imported binding reflects the latest value). Because an imported binding can't be reassigned by the importer:
   - **Mutable scalars** are written through a per-name setter — `setX(v)` (46 in state.js; `setPermissions` is the only one in data.js).
