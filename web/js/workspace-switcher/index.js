@@ -223,7 +223,7 @@ async function switchWorkspace(m) {
 // initials, and userId carry over unchanged.
 function applyIdentity(m) {
   const role = m.role_name || (m.is_admin ? 'Admin' : 'Senior Agent');
-  setSession({ ...SESSION, role, canManageCustomFields: m.can_manage_custom_fields === true });
+  setSession({ ...SESSION, role, canManageCustomFields: m.can_manage_custom_fields === true, canDelete: m.can_delete === true });
   setText('sb-urole', role);
   setText('pf-role-lg', role);
   const navRoles = document.getElementById('nav-roles');

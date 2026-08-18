@@ -36,8 +36,8 @@ import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 
-function login(role, name, initials, userId = null, canManageCustomFields = false) {
-  setSession({ role, name, initials, userId, canManageCustomFields });
+function login(role, name, initials, userId = null, canManageCustomFields = false, canDelete = false) {
+  setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('sb-av').textContent = initials;
@@ -216,6 +216,12 @@ function isAdmin() { return SESSION?.role === 'Admin' || SESSION?.role === 'Plat
 // Gates create/remove of custom-field DEFINITIONS; editing field values is
 // open to all agents and is not gated by this.
 function canManageCustomFields() { return isAdmin() || SESSION?.canManageCustomFields === true; }
+// Gates every delete surface (tickets, customers, notes) and customer-profile
+// merge. Admins always qualify; other roles qualify when their can_delete
+// flag is set (carried in SESSION from whoami). The one exception — any
+// member may delete a BLANK ticket — is applied at the call sites, and the
+// server re-verifies both the flag and the exception.
+function canDeleteRecords() { return isAdmin() || SESSION?.canDelete === true; }
 // HTML-attribute escaper. Was a JS-string escaper (\' only) which gave NO
 // breakout protection in the double-quoted attributes it's used in — now a
 // true HTML escaper. The app has no inline on*= handlers relying on the old
@@ -241,7 +247,7 @@ function escAttr(s) { return escHtml(s); }
 Object.assign(
   window,
   { login, logout, applyWorkspaceBrand, resetWorkspaceBrand,
-    fmtMinutes, escHtml, escAttr, isAdmin, canManageCustomFields,
+    fmtMinutes, escHtml, escAttr, isAdmin, canManageCustomFields, canDeleteRecords,
     // notifications reaches this via window to avoid a settings↔notifications cycle
     setSettingsTab },
 );

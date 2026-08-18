@@ -430,9 +430,11 @@ export async function loadWorkspaceData() {
   // keyed by name so the roles module can address/mutate rows.
   _roleUuidByName = {};
   _roleCanManageCFByName = {};
+  _roleCanDeleteByName = {};
   for (const r of rolesRaw) {
     _roleUuidByName[r.name] = r.id;
     _roleCanManageCFByName[r.name] = Boolean(r.is_admin) || Boolean(r.can_manage_custom_fields);
+    _roleCanDeleteByName[r.name] = Boolean(r.is_admin) || Boolean(r.can_delete);
   }
   replaceInPlace(ROLES, rolesRaw.map((r) => r.name));
 
@@ -467,7 +469,7 @@ export async function loadWorkspaceData() {
 let _roleUuidByName = {};
 export function getRoleUuid(name) { return _roleUuidByName[name] || null; }
 export function setRoleUuid(name, uuid) { _roleUuidByName[name] = uuid; }
-export function clearRoleUuid(name) { delete _roleUuidByName[name]; delete _roleCanManageCFByName[name]; }
+export function clearRoleUuid(name) { delete _roleUuidByName[name]; delete _roleCanManageCFByName[name]; delete _roleCanDeleteByName[name]; }
 export function renameRoleUuid(oldName, newName) {
   if (_roleUuidByName[oldName]) {
     _roleUuidByName[newName] = _roleUuidByName[oldName];
@@ -477,6 +479,10 @@ export function renameRoleUuid(oldName, newName) {
     _roleCanManageCFByName[newName] = _roleCanManageCFByName[oldName];
     delete _roleCanManageCFByName[oldName];
   }
+  if (oldName in _roleCanDeleteByName) {
+    _roleCanDeleteByName[newName] = _roleCanDeleteByName[oldName];
+    delete _roleCanDeleteByName[oldName];
+  }
 }
 
 // Per-role can_manage_custom_fields, keyed by role name. Mirrors the uuid map
@@ -484,6 +490,12 @@ export function renameRoleUuid(oldName, newName) {
 let _roleCanManageCFByName = {};
 export function getRoleCanManageCF(name) { return Boolean(_roleCanManageCFByName[name]); }
 export function setRoleCanManageCF(name, val) { _roleCanManageCFByName[name] = Boolean(val); }
+
+// Per-role can_delete (delete tickets/customers/notes + merge customer
+// profiles), keyed by role name. Same shape as the custom-fields map.
+let _roleCanDeleteByName = {};
+export function getRoleCanDelete(name) { return Boolean(_roleCanDeleteByName[name]); }
+export function setRoleCanDelete(name, val) { _roleCanDeleteByName[name] = Boolean(val); }
 
 // Server → client: turn agent_user_id / team_user_ids back into names.
 function assignmentServerToClient(srv, userByUuid) {

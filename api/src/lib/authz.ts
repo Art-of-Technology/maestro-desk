@@ -72,3 +72,39 @@ export async function requireCustomFieldManager(c: Context): Promise<Response | 
   if (row?.can_manage || row?.platform_admin) return null;
   return c.json({ error: 'You do not have permission to manage custom fields' }, 403);
 }
+
+// True when the caller may delete records (tickets, customers, notes) or
+// merge customer profiles in the active workspace: a workspace admin, a
+// platform admin, OR a member whose role carries can_delete. Exposed as a
+// boolean (not just a Response) because the ticket delete route needs a
+// non-Response branch — any member may delete a BLANK ticket regardless of
+// this flag.
+export async function hasDeletePermission(c: Context): Promise<boolean> {
+  const sql = getDb();
+  const userId = c.get('userId');
+  const workspaceId = c.get('workspaceId');
+
+  const [row] = await sql<{ can_delete: boolean; platform_admin: boolean }[]>`
+    select
+      coalesce((
+        select bool_or(coalesce(r.is_admin, false) or coalesce(r.can_delete, false))
+        from workspace_members wm
+        join roles r on r.id = wm.role_id
+        where wm.user_id = ${userId}
+          and wm.workspace_id = ${workspaceId}
+          and wm.active = true
+      ), false) as can_delete,
+      coalesce((
+        select u.is_platform_admin from users u where u.id = ${userId}
+      ), false) as platform_admin
+  `;
+
+  return Boolean(row?.can_delete || row?.platform_admin);
+}
+
+// Response-shaped wrapper over hasDeletePermission, matching the style of
+// the other require* helpers for routes with no exception path.
+export async function requireDeletePermission(c: Context): Promise<Response | null> {
+  if (await hasDeletePermission(c)) return null;
+  return c.json({ error: 'You do not have permission to delete records' }, 403);
+}

@@ -37,9 +37,11 @@ whoami.get('/', async (c) => {
     logo_url: string | null; primary_color: string | null; suspended_at: string | null;
     maestro_brand_id: string | null;
     role_name: string | null; is_admin: boolean | null; can_manage_custom_fields: boolean | null;
+    can_delete: boolean | null;
   }[]>`
     select wm.role_id, w.id as ws_id, w.name as ws_name, w.slug, w.logo_url, w.primary_color,
-           w.suspended_at, w.maestro_brand_id, r.name as role_name, r.is_admin, r.can_manage_custom_fields
+           w.suspended_at, w.maestro_brand_id, r.name as role_name, r.is_admin, r.can_manage_custom_fields,
+           r.can_delete
     from workspace_members wm
     join workspaces w on w.id = wm.workspace_id
     left join roles r on r.id = wm.role_id
@@ -65,6 +67,9 @@ whoami.get('/', async (c) => {
     // Admins implicitly manage custom fields; the flag covers non-admin
     // "senior" roles. The frontend gates the manage-fields UI on this.
     can_manage_custom_fields: Boolean(m.is_admin) || Boolean(m.can_manage_custom_fields),
+    // Admins implicitly delete/merge; the flag grants it to non-admin roles.
+    // The frontend gates every delete surface and customer merge on this.
+    can_delete:               Boolean(m.is_admin) || Boolean(m.can_delete),
   }));
 
   return c.json({ user, memberships: shaped });

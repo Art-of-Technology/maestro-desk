@@ -24,7 +24,7 @@ import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
-import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleCanManageCF, setRoleCanManageCF } from '../core/bootstrap.js';
+import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleCanManageCF, setRoleCanManageCF, getRoleCanDelete, setRoleCanDelete } from '../core/bootstrap.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 function rolesApiBacked() {
@@ -46,11 +46,20 @@ export function renderRoles() {
           ? '<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="Admins always manage custom fields">always</span>'
           : `<label class="toggle"><input type="checkbox" ${cf?'checked':''} data-change-action="roles.toggleCustomFields" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
       : `<td style="text-align:center;color:${cf?'var(--green)':'var(--ink4)'};font-weight:500">${cf?'✓':'—'}</td>`;
+    // Delete & merge capability — same pattern: locked on for Admin, an admin-
+    // editable toggle for every other role.
+    const del = isAdminRole || getRoleCanDelete(r);
+    const delCell = admin
+      ? `<td style="text-align:center">${isAdminRole
+          ? '<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="Admins can always delete and merge">always</span>'
+          : `<label class="toggle"><input type="checkbox" ${del?'checked':''} data-change-action="roles.toggleCanDelete" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
+      : `<td style="text-align:center;color:${del?'var(--green)':'var(--ink4)'};font-weight:500">${del?'✓':'—'}</td>`;
     const actions = admin ? `<td style="text-align:right;white-space:nowrap">${isAdminRole ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
       <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
       <td style="text-align:center"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${count}</span></td>
       ${cfCell}
+      ${delCell}
       ${actions}
     </tr>`;
   }).join('');
@@ -65,12 +74,13 @@ export function renderRoles() {
       <div class="page-scroll">
         <div class="card">
           <div class="card-title">Roles</div>
-          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin. "Manage custom fields" lets a role create and remove custom-field definitions (all agents can fill in values regardless).</div>
+          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin. "Manage custom fields" lets a role create and remove custom-field definitions (all agents can fill in values regardless). "Delete &amp; merge" lets a role delete tickets, customers and notes, and merge customer profiles (anyone can always delete a blank ticket started in error).</div>
           <table class="tbl">
             <thead><tr>
               <th style="text-align:left">Role</th>
               <th style="text-align:center">Agents</th>
               <th style="text-align:center">Manage custom fields</th>
+              <th style="text-align:center">Delete &amp; merge</th>
               ${admin?'<th></th>':''}
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -313,6 +323,25 @@ async function toggleRoleCustomFields(role, val) {
   }
 }
 
+// Toggle a role's delete-and-merge capability. Same contract as
+// toggleRoleCustomFields: admin-only, Admin role locked on, optimistic
+// with rollback. Takes effect for an agent on their next sign-in /
+// workspace switch (whoami carries the flag into SESSION).
+async function toggleRoleCanDelete(role, val) {
+  if (!window.isAdmin() || role === 'Admin') return;
+  const prev = getRoleCanDelete(role);
+  setRoleCanDelete(role, val);
+  const uuid = getRoleUuid(role);
+  if (uuid) {
+    try { await apiPatch(`/api/v1/roles/${uuid}`, { can_delete: val }); }
+    catch (err) {
+      setRoleCanDelete(role, prev);
+      alert(`Couldn't update: ${err?.message || err}`);
+      renderPage('roles');
+    }
+  }
+}
+
 function deleteRolePrompt(role) {
   if (!window.isAdmin() || role === 'Admin') return;
   const inUse = AGENTS.filter(a => a.role === role).length;
@@ -347,5 +376,6 @@ registerActions({
 
 registerChangeActions({
   'roles.toggleCustomFields':  (ds, el) => toggleRoleCustomFields(ds.role, el.checked),
+  'roles.toggleCanDelete':     (ds, el) => toggleRoleCanDelete(ds.role, el.checked),
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });
