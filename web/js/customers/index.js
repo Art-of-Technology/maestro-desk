@@ -710,14 +710,6 @@ function renderCustomerDetail(custId) {
           }).join('')}
         </div>` : ''}
         <div class="cust-quickactions">
-          <a href="mailto:${window.escAttr(c.email)}" class="btn btn-sm">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2.5" width="10" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 3l4.5 3.5L10.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Email
-          </a>
-          <a href="tel:${window.escAttr(c.mobile.replace(/\s/g,''))}" class="btn btn-sm">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 1.5h2l1 2.5L3.5 5a8 8 0 0 0 3.5 3.5L8.5 7l2.5 1V11a1 1 0 0 1-1 1A9 9 0 0 1 1 2.5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
-            Call
-          </a>
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${c.bo ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
           ${admin && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}

@@ -21,6 +21,11 @@
 /* Carets are injected after each .kpi-bar / .filter-bar / .tab-bar by
    applyCollapsibleHeaders(); per-section state lives in localStorage so the
    layout sticks across reloads and page changes. */
+/* Bars whose content can reach the right edge reserve space for the caret so
+   it never overlaps them (filter-bar's right-aligned "N of M" counter,
+   tab-bar's rightmost tab). NOT .kpi-bar — it's a grid of 1fr columns with
+   nothing right-aligned, and the padding would just shrink every column. */
+.filter-bar[data-sec-id]:not(.sec-collapsed),.tab-bar[data-sec-id]:not(.sec-collapsed){padding-right:80px}
 .sec-caret{position:absolute;top:8px;right:10px;background:var(--off2);border:1px solid var(--rule);cursor:pointer;color:var(--ink2);font-size:11px;font-weight:500;padding:4px 11px;border-radius:var(--r-pill);line-height:1;z-index:2;font-family:var(--font-sans);display:inline-flex;align-items:center;gap:4px;transition:all .12s;letter-spacing:.02em;opacity:.8}
 .sec-caret:hover{color:var(--purple);border-color:var(--purple);background:var(--purple-lt);opacity:1}
 .sec-collapsed{padding:8px 18px!important;min-height:0!important;cursor:pointer;display:flex!important;align-items:center;gap:8px;grid-template-columns:none!important;flex-wrap:nowrap;background:var(--off2)!important;border-bottom:1px dashed var(--rule)!important}

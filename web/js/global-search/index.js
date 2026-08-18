@@ -33,7 +33,6 @@ import {
 
 export const SEARCH_PAGES = [
   {p:'dashboard', l:'Dashboard'},
-  {p:'tickets',   l:'Conversations'},
   {p:'tickets',   l:'Tickets'},
   {p:'inbox',     l:'Inbox'},
   {p:'customers', l:'Customers'},

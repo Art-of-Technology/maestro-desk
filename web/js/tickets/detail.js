@@ -1047,7 +1047,7 @@ export function showNewTicketModal(templateId) {
   const activeCats = CATEGORIES.filter(c => c.is_active).map(c => c.label);
   const cats = activeCats.length
     ? activeCats
-    : [...new Set([...TICKETS.map(t=>t.category), ...TICKET_TEMPLATES.map(t=>t.category)])];
+    : [...new Set([...TICKETS.map(t=>t.category), ...TICKET_TEMPLATES.map(t=>t.category)])].filter(Boolean);
   const tpl = templateId ? TICKET_TEMPLATES.find(t => t.id === templateId) : null;
   const esc = s => String(s||'').replace(/"/g,'&quot;');
   const tplOptions = TICKET_TEMPLATES.map(t => `<option value="${window.escAttr(t.id)}" ${tpl?.id===t.id?'selected':''}>${window.escHtml(t.name)}</option>`).join('');
@@ -1058,7 +1058,10 @@ export function showNewTicketModal(templateId) {
     : '';
   const categoryRow = visible('category')
     ? `<div class="form-row"><label class="form-label">Category${req('category')}</label>
-        <select class="form-input" id="nt-cat">${cats.map(c=>`<option ${tpl?.category===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}</select>
+        <select class="form-input" id="nt-cat">
+          <option value="" disabled hidden ${tpl?.category && cats.includes(tpl.category) ? '' : 'selected'}>Select a category…</option>
+          ${cats.map(c=>`<option ${tpl?.category===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
+        </select>
       </div>`
     : '';
   const priorityRow = visible('priority')
@@ -1103,8 +1106,11 @@ export function showNewTicketModal(templateId) {
     if (visible('message') && isFieldRequired('ticket', 'message') && !msg) {
       alert('First message is required.'); return;
     }
-    if (visible('category') && isFieldRequired('ticket', 'category') && !document.getElementById('nt-cat')?.value) {
-      alert('Category is required.'); return;
+    // Category is compulsory (also locked required in FIELD_LAYOUTS) —
+    // agents must actively pick an accurate one. A workspace with no
+    // categories at all has nothing to pick, so don't dead-end it.
+    if (visible('category') && cats.length && !document.getElementById('nt-cat')?.value) {
+      alert('Please select a category.'); return;
     }
     if (visible('priority') && isFieldRequired('ticket', 'priority') && !document.getElementById('nt-pri')?.value) {
       alert('Priority is required.'); return;
@@ -1122,7 +1128,9 @@ export function showNewTicketModal(templateId) {
       id:newId, subject:subj, customerId:custId,
       status:'open',
       priority: document.getElementById('nt-pri')?.value || 'normal',
-      category: document.getElementById('nt-cat')?.value || 'Technical',
+      // Falls through only when the workspace has no categories (the guard
+      // above never lets an empty pick past otherwise).
+      category: document.getElementById('nt-cat')?.value || cats[0] || 'General',
       agent:agentPick === '__auto__' ? '' : agentPick,
       created:new Date().toISOString().slice(0,10), updated:'just now',
       sla:'ok', tags:[], aiTags:[], csat:null,
@@ -1144,12 +1152,17 @@ function ntApplyTemplate(id) {
   if (!t) {
     if (subj) subj.value = '';
     if (msg) msg.value = '';
+    // Back to the placeholder — a category set by a previously-picked
+    // template must not silently ride along on a blank ticket.
+    if (cat) cat.value = '';
     return;
   }
   if (subj) subj.value = t.subject || '';
   if (msg) msg.value = t.body || '';
-  if (cat && t.category) {
-    [...cat.options].forEach(o => { if (o.value === t.category) cat.value = t.category; });
+  if (cat) {
+    // The template's category if it's a real option; otherwise reset to the
+    // placeholder so validation forces an active pick (no stale carryover).
+    cat.value = (t.category && [...cat.options].some(o => o.value === t.category)) ? t.category : '';
   }
   if (pri && t.priority) pri.value = t.priority;
 }
