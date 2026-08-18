@@ -89,7 +89,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
   }, 15000);
 
   it('merges: tickets move stamped, messages untouched, notes move, auto note, backfill (never email), journal + audit', async () => {
-    const src = await mkCustomer('src', { mobile: '+4477001', vip_tier: 'Gold' });
+    const src = await mkCustomer('src', { mobile: '+4477001', vip_tier: 'Gold', since: '2020-03-15' });
     const pri = await mkCustomer('pri', { mobile: null, vip_tier: null });
     ctx.src = src; ctx.pri = pri;
 
@@ -110,6 +110,9 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(body.backfilled_fields.mobile).toBe('+4477001');
     expect(body.backfilled_fields.vip_tier).toBe('Gold');
     expect(body.backfilled_fields.email).toBeUndefined();
+    // DATE column rides as plain YYYY-MM-DD (since::text), never a TZ-shifted
+    // ISO timestamp — the journal's unmerge equality depends on it.
+    expect(body.backfilled_fields.since).toBe('2020-03-15');
 
     // Ticket moved with the stamp; its message rows untouched.
     const [t1row] = await sql<{ customer_id: string; pre_merge_customer_id: string }[]>`
@@ -136,6 +139,10 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     const autoNote = notes.find((n) => n.text.startsWith('Merged M-src'));
     expect(autoNote!.customer_id).toBe(pri);
     expect(autoNote!.merged_from_customer_id).toBeNull();
+    // The auto note identifies the source by display id ONLY — no name or
+    // email — so a later GDPR erasure leaves no PII stranded on the survivor.
+    expect(autoNote!.text).not.toContain('@cust.test');
+    expect(autoNote!.text).not.toContain('C src');
 
     // Source stamped; survivor keeps its OWN email; journal + audit rows exist.
     const [srcRow] = await sql<{ merged_into_customer_id: string; email: string }[]>`
@@ -179,6 +186,71 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     const blocked = await as(admin.token, ctx.ws, `/api/v1/customers/${kidPri}`, { method: 'DELETE' });
     expect(blocked.status).toBe(409);
     expect(((await blocked.json()) as any).code).toBe('has_merged_children');
+  });
+
+  it('merging a survivor with live merged children is refused (stamps would be destroyed)', async () => {
+    // Self-contained chain: X merges into Y, then Y (now a survivor holding
+    // X's stamps) must refuse to merge into Z.
+    const x = await mkCustomer('chain-x');
+    const y = await mkCustomer('chain-y');
+    const z = await mkCustomer('chain-z');
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${x}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: y }),
+    })).status).toBe(200);
+    const blocked = await as(admin.token, ctx.ws, `/api/v1/customers/${y}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: z }),
+    });
+    expect(blocked.status).toBe(409);
+    expect(((await blocked.json()) as any).code).toBe('has_merged_children');
+  });
+
+  it('merge response excludes soft-deleted survivor notes', async () => {
+    const a = await mkCustomer('sdn-a');
+    const b = await mkCustomer('sdn-b');
+    // A soft-deleted note on the survivor must not resurface via the merge
+    // response (the SPA replaces the survivor's notes wholesale with it).
+    const [note] = await sql<{ id: string }[]>`
+      insert into customer_notes (workspace_id, customer_id, author_user_id, text, deleted_at)
+      values (${ctx.ws}, ${b}, ${admin.userId}, 'soft-deleted survivor note', now())
+      returning id
+    `;
+    const res = await as(admin.token, ctx.ws, `/api/v1/customers/${a}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: b }),
+    });
+    expect(res.status).toBe(200);
+    const { notes } = await res.json() as any;
+    expect(notes.some((n: any) => n.id === note.id)).toBe(false);
+  });
+
+  it('erasing a merged-away source unmerges first, so redaction reaches its history', async () => {
+    const src = await mkCustomer('erase-src');
+    const pri = await mkCustomer('erase-pri');
+    const t = await mkTicket(src, 'erase-me subject');
+    await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+              values (${ctx.ws}, ${t}, 'customer', 'Cust', 'their message')`;
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${src}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: pri }),
+    })).status).toBe(200);
+
+    const erased = await as(admin.token, ctx.ws, `/api/v1/customers/${src}/erase`, {
+      method: 'POST', body: JSON.stringify({ reason: 'Art. 17 request' }),
+    });
+    expect(erased.status).toBe(200);
+
+    // The ticket came BACK to the source pre-erasure, so the redaction hit it.
+    const [tRow] = await sql<{ customer_id: string; subject: string }[]>`
+      select customer_id, subject from tickets where id = ${t}
+    `;
+    expect(tRow.customer_id).toBe(src);
+    expect(tRow.subject).not.toBe('erase-me subject');
+    // Source is unmerged + erased; the survivor is untouched.
+    const [srcRow] = await sql<{ merged_into_customer_id: string | null; erased_at: string | null }[]>`
+      select merged_into_customer_id, erased_at from customers where id = ${src}
+    `;
+    expect(srcRow.merged_into_customer_id).toBeNull();
+    expect(srcRow.erased_at).not.toBeNull();
+    const [priRow] = await sql<{ erased_at: string | null }[]>`select erased_at from customers where id = ${pri}`;
+    expect(priRow.erased_at).toBeNull();
   });
 
   it('a non-admin role with can_delete may merge and unmerge', async () => {

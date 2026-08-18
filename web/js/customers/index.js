@@ -520,6 +520,10 @@ function showMergeCustomerModal(custId) {
   `, null, null);
 }
 
+// Server column names → client view-model keys, for applying merge/unmerge
+// responses locally (the rest of the backfill columns share their names).
+const MERGE_COL_MAP = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
+
 // Side-by-side confirmation between picking a survivor and actually merging —
 // the spec's safety gate (the old picker merged on a single mousedown).
 // Cancel closes outright; re-opening the picker is one click on ↩ Merge
@@ -530,8 +534,10 @@ function showMergeConfirm(srcId, primaryId) {
   const primary = CUSTOMERS.find(x => x.id === primaryId);
   if (!src || !primary) return;
   const esc = window.escHtml;
-  const tCount = TICKETS.filter(t => t.customerId === srcId).length;
   const nCount = (src.notes || []).length;
+  // TICKETS holds only the loaded pages, so per-profile ticket counts here
+  // are "of the loaded set" — the copy below deliberately avoids claiming an
+  // exact total (the server moves ALL of them regardless).
   const card = (c, label, color) => `
     <div style="flex:1;min-width:0;border:1px solid var(--rule);border-radius:var(--r);padding:12px;background:var(--off2)">
       <div style="font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${color};margin-bottom:8px">${label}</div>
@@ -545,7 +551,7 @@ function showMergeConfirm(srcId, primaryId) {
       <div style="font-size:11px;color:var(--ink2);line-height:1.7">
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.email || '—')}</div>
         <div>${esc(c.vip || '—')} · KYC ${esc(c.kyc || '—')}</div>
-        <div>${TICKETS.filter(t => t.customerId === c.id).length} tickets · ${(c.notes || []).length} notes</div>
+        <div>${TICKETS.filter(t => t.customerId === c.id).length} loaded ticket${TICKETS.filter(t => t.customerId === c.id).length === 1 ? '' : 's'} · ${(c.notes || []).length} notes</div>
         <div>Since ${esc(c.since || '—')}</div>
       </div>
     </div>`;
@@ -557,7 +563,7 @@ function showMergeConfirm(srcId, primaryId) {
         <div style="align-self:center;color:var(--ink3);font-size:16px;flex-shrink:0">→</div>
         ${card(primary, 'Survivor', 'var(--green)')}
       </div>
-      <div style="font-size:12px;color:var(--ink2);line-height:1.6">All ${tCount} ticket${tCount===1?'':'s'} and ${nCount} note${nCount===1?'':'s'} move to the survivor, blank survivor details fill in from the duplicate, and the duplicate is hidden as merged. The survivor keeps its own email address. Reversible with Un-merge.</div>`,
+      <div style="font-size:12px;color:var(--ink2);line-height:1.6">Every ticket this duplicate has ever had and its ${nCount} note${nCount===1?'':'s'} move to the survivor, blank survivor details fill in from the duplicate, and the duplicate is hidden as merged. The survivor keeps its own email address. Reversible with Un-merge.</div>`,
     confirmLabel: 'Merge profiles',
     onConfirm: () => { closeModal(); mergeCustomers(srcId, primaryId); },
   });
@@ -585,13 +591,17 @@ async function mergeCustomers(srcId, primaryId) {
     TICKETS.forEach(t => {
       if (t._uuid && moved.has(t._uuid)) { t.preMergeCustomerId = srcId; t.customerId = primaryId; }
     });
+    // Resolve merged_from stamps for EVERY note via the uuid map, not just
+    // this merge's source — replacing primary.notes wholesale must not wipe
+    // the stamps of children merged in earlier (their local unmerge would
+    // otherwise strand their notes on the survivor until a reload).
+    const custByUuid = Object.fromEntries(CUSTOMERS.map(x => [x._uuid, x]));
     primary.notes = (res.notes || []).map(n => ({
       ...mapCustomerNote(n),
-      mergedFromCustomerId: n.merged_from_customer_id === src._uuid ? srcId : undefined,
+      mergedFromCustomerId: n.merged_from_customer_id ? (custByUuid[n.merged_from_customer_id]?.id) : undefined,
     }));
     src.notes = [];
-    const colMap = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
-    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[colMap[col] || col] = val; });
+    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[MERGE_COL_MAP[col] || col] = val; });
     src.mergedInto = primaryId;
     src.mergedAt = String(res.source?.merged_at || '').slice(0, 10);
     primary.mergedFrom = primary.mergedFrom || [];
@@ -667,8 +677,7 @@ async function unmergeCustomer(srcId) {
       primary.notes = primary.notes.filter(n => n.mergedFromCustomerId !== srcId);
       src.notes = back.map(n => ({ ...n, mergedFromCustomerId: undefined }));
     }
-    const colMap = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
-    (res.fields_reverted || []).forEach(col => { if (primary) primary[colMap[col] || col] = ''; });
+    (res.fields_reverted || []).forEach(col => { if (primary) primary[MERGE_COL_MAP[col] || col] = ''; });
     if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
     delete src.mergedInto;
     delete src.mergedAt;
@@ -745,7 +754,6 @@ function renderCustomerDetail(custId) {
   // makes sense for surfaces that have a composer (ticket detail).
   if (c._uuid && SESSION?.userId) startPresence('customer', c._uuid);
   const s = getCustomerStats(custId);
-  const admin = window.isAdmin();
   const activity = getCustomerActivity(custId);
   const tagsList = getCustomerCommonTags(custId);
   const risks = getCustomerRisk(c);

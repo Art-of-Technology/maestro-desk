@@ -249,13 +249,18 @@ export async function processInboundEmail(args: {
   // 1. Match-or-create the customer.
   let customerId: string;
   let isNewCustomer = false;
-  const [existingCustomer] = await sql<{ id: string }[]>`
-    select id from customers
+  const [existingCustomer] = await sql<{ id: string; merged_into_customer_id: string | null }[]>`
+    select id, merged_into_customer_id from customers
     where workspace_id = ${workspaceId} and email = ${email} and deleted_at is null
   `;
 
   if (existingCustomer) {
-    customerId = existingCustomer.id;
+    // A merged-away duplicate deliberately keeps its email address (the merge
+    // never copies it to the survivor) — but NEW contact belongs on the
+    // survivor, or ticket history re-fragments right after the merge that
+    // consolidated it. Single hop is enough: a profile with merged children
+    // can't itself be merged away (409 in the merge route).
+    customerId = existingCustomer.merged_into_customer_id || existingCustomer.id;
   } else {
     // Stub customer — name parsed from From header if present, no other PII.
     // Agents can fill in mobile/brand/VIP-tier later via the UI.
