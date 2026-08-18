@@ -98,23 +98,28 @@ roles.patch('/:id', async (c) => {
   if (parsed.data.can_delete !== undefined)               updates.can_delete               = parsed.data.can_delete;
 
   try {
-    let [role] = await sql`
-      update roles set ${sql(updates)}
-      where id = ${id} and workspace_id = ${workspaceId}
-      returning id, name, is_admin, can_manage_custom_fields, can_delete
-    `;
-    if (!role) return c.json({ error: 'Role not found' }, 404);
     // Same normalisation invariant as POST: if the row ends up (or already
     // is) admin, clear any materialised capability flags — whether this PATCH
     // set is_admin=true on a flagged role, or tried to flag an admin role.
     // Without this, demoting the role later would retain the stale grant.
-    if (role.is_admin && (role.can_manage_custom_fields || role.can_delete)) {
-      [role] = await sql`
-        update roles set can_manage_custom_fields = false, can_delete = false
+    // One transaction so a crash between the two UPDATEs can't leave an
+    // admin row carrying materialised flags.
+    const role = await sql.begin(async (tx) => {
+      let [row] = await tx`
+        update roles set ${tx(updates)}
         where id = ${id} and workspace_id = ${workspaceId}
         returning id, name, is_admin, can_manage_custom_fields, can_delete
       `;
-    }
+      if (row && row.is_admin && (row.can_manage_custom_fields || row.can_delete)) {
+        [row] = await tx`
+          update roles set can_manage_custom_fields = false, can_delete = false
+          where id = ${id} and workspace_id = ${workspaceId}
+          returning id, name, is_admin, can_manage_custom_fields, can_delete
+        `;
+      }
+      return row ?? null;
+    });
+    if (!role) return c.json({ error: 'Role not found' }, 404);
     return c.json({ role });
   } catch (err) {
     if ((err as any)?.code === '23505') return c.json({ error: 'Role name already exists' }, 409);

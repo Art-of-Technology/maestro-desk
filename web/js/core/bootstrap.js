@@ -171,8 +171,20 @@ function mapTicket(t, customerByUuid, userByUuid) {
   };
 }
 
+// Server customer_note row → the {id, author, ts, text} shape the customers
+// module renders. Exported so the note-create path can map its 201 response
+// exactly like bootstrap's initial load.
+export function mapCustomerNote(n) {
+  return {
+    id:     n.id,
+    author: n.author_name || 'Unknown',
+    ts:     new Date(n.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+    text:   n.text,
+  };
+}
+
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
@@ -191,6 +203,13 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/roles'),
     apiGet('/api/v1/custom-values?entity_type=customer'),
     apiGet('/api/v1/categories'),
+    // Notes are a nice-to-have sidebar payload — never let them take the
+    // whole all-or-nothing bootstrap down (e.g. web deployed ahead of api,
+    // where the old API 404s this endpoint and every login would fail).
+    apiGet('/api/v1/customers/notes').catch((err) => {
+      console.warn('[bootstrap] customer notes load failed:', err?.message || err);
+      return { notes: [] };
+    }),
   ]);
 
   const customersRaw = customersRes.customers || [];
@@ -207,6 +226,7 @@ export async function loadWorkspaceData() {
   const arRaw        = arRes.assign_rules     || [];
   const rolesRaw     = rolesRes.roles         || [];
   const cvRaw        = cvRes.custom_values    || [];
+  const custNotesRaw = custNotesRes.notes     || [];
 
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
@@ -220,6 +240,12 @@ export async function loadWorkspaceData() {
   for (const v of cvRaw) {
     if (!customByEntity[v.entity_id]) customByEntity[v.entity_id] = {};
     customByEntity[v.entity_id][v.field_key] = v.value;
+  }
+  // Group persisted internal notes by customer (newest-first from the API).
+  // The customers module renders {id, author, ts, text} note objects.
+  const notesByCustomer = {};
+  for (const n of custNotesRaw) {
+    (notesByCustomer[n.customer_id] ||= []).push(mapCustomerNote(n));
   }
   const mappedCustomers = customersRaw.map((c) => ({
     _uuid:        c.id,           // DB UUID — used by PUT /custom-values/customers/:uuid
@@ -237,6 +263,7 @@ export async function loadWorkspaceData() {
     since:        c.since || '',
     bo:           c.backoffice_url || '',
     custom:       customByEntity[c.id] || {},
+    notes:        notesByCustomer[c.id] || [],
     emailBounceState: c.email_bounce_state || 'none',
     emailBounceCount: c.email_bounce_count || 0,
     emailLastBounce:  c.email_last_bounce_at || null,

@@ -10,6 +10,8 @@ import { sendCsatSurvey } from '../lib/csat-survey.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { publishTicketChanged } from '../lib/pubby.js';
+import { hasDeletePermission } from '../lib/authz.js';
+import { writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). All direct queries use
@@ -814,6 +816,84 @@ tickets.post('/:id/unmerge', async (c) => {
     source: { id: sourceId, status_key: restoredStatus },
     primary: { id: source.merged_into_id },
   });
+});
+
+// ─── DELETE /:id — soft-delete a ticket ──────────────────────────────────
+//
+// Permission: the caller's role carries can_delete (or is admin / platform
+// admin) — OR the ticket is BLANK, which any member may bin. Blank = no
+// non-deleted message with a real role ('customer','agent','ai','note');
+// 'system' rows are merge/audit bookkeeping and don't count. A ticket
+// started in error therefore stays deletable by whoever opened it (unsent
+// compose drafts live in localStorage and never reach the server, so they
+// can't make a ticket non-blank).
+//
+// SOFT delete, same reasoning as channels.ts: a hard delete would cascade
+// ticket_messages and destroy the correspondence trail. Every list/sync/
+// detail query already filters deleted_at, /tickets/sync ships {id,
+// updated_at, deleted_at} tombstones (this UPDATE fires set_updated_at, so
+// the tombstone crosses the sync cursor), and the router-level non-GET hook
+// publishes ticket.changed — other tabs drop the row within one poll.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+tickets.delete('/:id', async (c) => {
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const ticketId = c.req.param('id');
+  // A non-uuid here (e.g. the display id "T-1024" pasted into a curl) must
+  // 404 like any other miss — unguarded it would raise Postgres 22P02 and
+  // surface as a 500 + ops alert.
+  if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
+
+  const [t] = await sql<{ id: string; display_id: string; subject: string; customer_id: string }[]>`
+    select id, display_id, subject, customer_id
+    from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!t) return c.json({ error: 'Ticket not found' }, 404);
+
+  // Blank is computed even for permitted callers — it rides into the audit
+  // metadata so the trail records which rule allowed the delete.
+  const [{ blank }] = await sql<{ blank: boolean }[]>`
+    select not exists (
+      select 1 from ticket_messages
+      where workspace_id = ${workspaceId} and ticket_id = ${ticketId}
+        and deleted_at is null
+        and role in ('customer','agent','ai','note')
+    ) as blank
+  `;
+  if (!blank && !(await hasDeletePermission(c))) {
+    return c.json({ error: 'You do not have permission to delete tickets' }, 403);
+  }
+
+  // A merge primary with live duplicates can't be deleted: the duplicates'
+  // unmerge would strip messages from (and point at) a hidden ticket.
+  // Deleting a merged SOURCE is allowed — its messages already live on the
+  // primary; it just forfeits its unmerge (the unmerge route filters
+  // deleted_at is null).
+  const [child] = await sql`
+    select 1 from tickets
+    where workspace_id = ${workspaceId} and merged_into_id = ${ticketId} and deleted_at is null
+    limit 1
+  `;
+  if (child) {
+    return c.json({ error: 'This ticket has merged duplicates — unmerge them first', code: 'has_merged_children' }, 409);
+  }
+
+  await sql`
+    update tickets set deleted_at = now()
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+
+  await writeAudit({
+    workspaceId,
+    actorUserId: c.get('userId'),
+    action: 'ticket.deleted',
+    targetType: 'ticket',
+    targetId: t.id,
+    metadata: { display_id: t.display_id, subject: t.subject, customer_id: t.customer_id, blank },
+  });
+  return new Response(null, { status: 204 });
 });
 
 // ─── POST /:id/time — log a time entry ───────────────────────────────────

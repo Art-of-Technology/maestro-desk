@@ -15,7 +15,7 @@
 // (core/event-delegation.js); the modal box itself carries the data-action=""
 // absorber so a click inside the dialog doesn't bubble to the backdrop's close.
 
-import { registerActions } from './event-delegation.js';
+import { registerActions, registerInputActions } from './event-delegation.js';
 
 let _onConfirm = null;
 
@@ -45,7 +45,41 @@ export function showModal(title, body, onConfirm, confirmLabel='Save', isLarge=f
 
 export function closeModal() {
   _onConfirm = null;
+  _dangerExpected = null;
   document.getElementById('modal-container').innerHTML = '';
+}
+
+// ─── Danger confirmation ─────────────────────────────────────────────────────
+// showModal dressed for destructive actions: red confirm button and an
+// optional type-to-confirm input (the god-panel suspend recipe, lifted here
+// so every delete/merge surface shares one implementation). Contract is
+// showModal's — `bodyHtml` is caller-built HTML (escape your own
+// interpolations) and `onConfirm` owns closeModal(). Only one modal exists
+// at a time, so opening this from inside another modal replaces it.
+let _dangerExpected = null;
+
+export function showDangerConfirm({ title, bodyHtml, confirmLabel = 'Delete', typeToConfirm = null, onConfirm }) {
+  _dangerExpected = typeToConfirm ? String(typeToConfirm) : null;
+  const inputRow = _dangerExpected ? `
+    <div style="font-size:12px;color:var(--ink2);margin:14px 0 6px">Type <code>${window.escHtml(_dangerExpected)}</code> to confirm:</div>
+    <input class="form-input" id="danger-confirm-input" data-input-action="modal.dangerInput"
+           placeholder="${window.escAttr(_dangerExpected)}" autocomplete="off" autocapitalize="off"
+           spellcheck="false" style="width:100%"/>` : '';
+  showModal(title, `${bodyHtml}${inputRow}`, () => {
+    if (_dangerExpected) {
+      const el = document.getElementById('danger-confirm-input');
+      // Re-validate inside the callback — the disabled button is cosmetic.
+      if (!el || el.value.trim() !== _dangerExpected) return;
+    }
+    onConfirm();
+  }, confirmLabel);
+  const btn = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  if (btn) {
+    btn.classList.remove('btn-solid');
+    btn.classList.add('btn-danger');
+    if (_dangerExpected) btn.disabled = true;
+  }
+  if (_dangerExpected) document.getElementById('danger-confirm-input')?.focus();
 }
 
 registerActions({
@@ -54,4 +88,11 @@ registerActions({
   // callback owns dismissal (most call closeModal() on success), and a
   // validation-failure early-return leaves the modal open for a retry.
   'modal.confirm': () => { if (_onConfirm) _onConfirm(); },
+});
+
+registerInputActions({
+  'modal.dangerInput': (ds, el) => {
+    const btn = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    if (btn) btn.disabled = el.value.trim() !== _dangerExpected;
+  },
 });

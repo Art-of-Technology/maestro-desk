@@ -10,7 +10,7 @@
 // all still in app.js. navTo is a direct ES import.
 
 import { AGENTS, CANNED_RESPONSES, CATEGORIES, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
-import { COMPOSE_TAB, CURRENT_TICKET, SESSION, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
+import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
@@ -41,7 +41,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { loadDraft, saveDraft, clearDraft } from './drafts.js';
+import { loadDraft, saveDraft, clearDraft, clearAllDrafts } from './drafts.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
@@ -53,7 +53,7 @@ import {
   KB_INTEGRATION, KB_TICKET_CACHE,
   refreshTicketKbSuggestions,
 } from '../kb-integration/index.js';
-import { showModal, closeModal } from '../core/modal.js';
+import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
 import { runAssignmentRulesOnTicket, isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
@@ -632,6 +632,12 @@ export function openTicket(id) {
               </div>`).join('')}
           </div>`:''}
           ${activityBlock}
+          ${(window.canDeleteRecords() || isTicketBlank(t)) ? `
+          <div class="ts-section">
+            <div class="ts-heading">Danger zone</div>
+            <button class="btn btn-sm btn-danger" style="width:100%;justify-content:center" data-action="td.deleteTicket" data-ticket-id="${window.escAttr(id)}">Delete ticket</button>
+            ${!window.canDeleteRecords() ? `<div style="font-size:10.5px;color:var(--ink3);margin-top:6px;line-height:1.4">Deletable because this ticket has no messages or notes yet.</div>` : ''}
+          </div>` : ''}
         </div>
       </div>
     </div>`;
@@ -643,6 +649,51 @@ export function openTicket(id) {
 }
 
 function setComposeTab(tab, id) { setComposeTabValue(tab); openTicket(id); }
+
+// A ticket is BLANK when it holds no real messages — nothing from the
+// customer, no sent agent/ai reply, no internal note; 'system' rows are
+// merge/audit bookkeeping. Anyone may delete a blank ticket (one started in
+// error — an unsent compose draft lives only in localStorage, so it can't
+// make a ticket non-blank). For API tickets the thread must actually be
+// loaded before we trust msgs (list rows carry msgs:[] until then); the
+// server re-verifies with the same rule regardless.
+function isTicketBlank(t) {
+  if (t._uuid && !t._detailLoaded) return false;
+  // KEEP IN SYNC with the server rule in api/src/routes/tickets.ts
+  // DELETE /:id — blank ⇔ no message whose role is one of these four.
+  const REAL_ROLES = ['customer', 'agent', 'ai', 'note'];
+  return (t.msgs || []).every(m => !REAL_ROLES.includes(m.r));
+}
+
+function deleteTicketPrompt(id) {
+  const t = TICKETS.find(x => x.id === id);
+  if (!t) return;
+  const blank = isTicketBlank(t);
+  if (!window.canDeleteRecords() && !blank) return;
+  showDangerConfirm({
+    title: `Delete ${id}`,
+    bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(id)} · ${window.escHtml(t.subject || '')}</strong>${blank ? '' : ' and its full conversation history'}? This cannot be undone.</div>`,
+    confirmLabel: 'Delete ticket',
+    onConfirm: async () => {
+      // Close before the await — a modal left open during the round-trip
+      // fires a second DELETE on a double-click (spurious 404 alert).
+      closeModal();
+      if (t._uuid) {
+        try { await apiDelete(`/api/v1/tickets/${t._uuid}`); }
+        catch (err) { showToast(`Couldn't delete: ${err?.message || err}`, 'error', 6000); return; }
+      }
+      clearAllDrafts(id);
+      const i = TICKETS.findIndex(x => x.id === id);
+      if (i >= 0) TICKETS.splice(i, 1);
+      // Drop it from any bulk selection too, or the list's bulk bar keeps
+      // counting a ghost row.
+      TICKET_SELECTED_IDS.delete(id);
+      setCurrentTicket(null);
+      updateNavBadges();
+      renderPage('tickets');
+    },
+  });
+}
 
 function getTicketTimes(t) {
   const msgs = t.msgs || [];
@@ -1182,6 +1233,7 @@ registerActions({
   'td.unsnooze':       (ds) => unsnoozeTicket(ds.ticketId),
   'td.snooze':         (ds) => showSnoozeModal(ds.ticketId),
   'td.unmerge':        (ds) => unmergeTicket(ds.ticketId),
+  'td.deleteTicket':   (ds) => deleteTicketPrompt(ds.ticketId),
   'td.openTicket':     (ds) => openTicket(ds.ticketId),
   // AI tags
   'td.acceptAITag':    (ds) => acceptAITag(ds.ticketId, ds.tag),

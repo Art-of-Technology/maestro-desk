@@ -5,7 +5,7 @@ import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -114,6 +114,180 @@ customers.get('/', async (c) => {
     order by display_id asc
   `;
   return c.json({ customers: rows });
+});
+
+// ─── Customer notes ─────────────────────────────────────────────────────────
+// First real persistence for customer_notes (until Phase 2 the SPA kept notes
+// in memory and they vanished on refresh). List + create are member-level —
+// any agent shares context; delete is gated by the can_delete capability.
+
+// GET /notes — every note in the workspace in one call (the SPA groups them
+// by customer at bootstrap; no per-customer N+1). Bounded: newest-first with
+// a hard cap so a note-heavy workspace can't balloon the bootstrap payload —
+// beyond the cap the oldest notes simply don't ship (per-customer paging is
+// Phase-4 profile-overhaul territory). Backed by the composite
+// (workspace_id, created_at desc) index (20260818130000).
+const NOTES_LIST_CAP = 2000;
+
+customers.get('/notes', async (c) => {
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+
+  // Join customers so notes of soft-deleted (or erased) profiles never ship
+  // to the client — DELETE /:id below also hard-deletes them, but this keeps
+  // any legacy stragglers from leaking free-text PII forever.
+  const rows = await sql`
+    select n.id, n.customer_id, n.author_user_id, u.name as author_name,
+           n.text, n.created_at
+    from customer_notes n
+    join customers cu on cu.id = n.customer_id and cu.deleted_at is null
+    left join users u on u.id = n.author_user_id
+    where n.workspace_id = ${workspaceId} and n.deleted_at is null
+    order by n.created_at desc
+    limit ${NOTES_LIST_CAP}
+  `;
+  return c.json({ notes: rows, capped: rows.length === NOTES_LIST_CAP });
+});
+
+const NoteBody = z.object({ text: z.string().trim().min(1).max(4000) });
+
+// POST /:id/notes — add an internal note to a customer. Author is the caller
+// (stamped from the session, never trusted from the client).
+customers.post('/:id/notes', async (c) => {
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const raw = await c.req.json().catch(() => null);
+  const parsed = NoteBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+
+  const [cust] = await sql`
+    select 1 from customers
+    where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!cust) return c.json({ error: 'Customer not found' }, 404);
+
+  const [note] = await sql`
+    insert into customer_notes (workspace_id, customer_id, author_user_id, text)
+    values (${workspaceId}, ${customerId}, ${userId}, ${parsed.data.text})
+    returning id, customer_id, author_user_id, text, created_at
+  `;
+  const [u] = await sql<{ name: string | null }[]>`select name from users where id = ${userId}`;
+  return c.json({ note: { ...note, author_name: u?.name ?? null } }, 201);
+});
+
+// DELETE /:id/notes/:noteId — SOFT delete, matching the codebase convention
+// (the row stays for recoverability; the audit row is the visible trail).
+// The two deliberate hard-delete paths for notes live elsewhere: GDPR
+// erasure, and the profile-delete purge in DELETE /:id below.
+customers.delete('/:id/notes/:noteId', async (c) => {
+  const denied = await requireDeletePermission(c);
+  if (denied) return denied;
+
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  const noteId = c.req.param('noteId');
+  if (!UUID_RE.test(customerId) || !UUID_RE.test(noteId)) return c.json({ error: 'Note not found' }, 404);
+
+  const [row] = await sql<{ id: string; author_user_id: string | null; text: string; created_at: string }[]>`
+    update customer_notes set deleted_at = now()
+    where id = ${noteId} and workspace_id = ${workspaceId} and customer_id = ${customerId} and deleted_at is null
+    returning id, author_user_id, text, created_at
+  `;
+  if (!row) return c.json({ error: 'Note not found' }, 404);
+
+  await writeAudit({
+    workspaceId,
+    actorUserId: c.get('userId'),
+    action: 'customer_note.deleted',
+    targetType: 'customer_note',
+    targetId: row.id,
+    metadata: {
+      customer_id: customerId,
+      author_user_id: row.author_user_id,
+      created_at: row.created_at,
+      text_preview: String(row.text || '').slice(0, 120),
+    },
+  });
+  return new Response(null, { status: 204 });
+});
+
+// ─── DELETE /:id — soft-delete a customer profile ───────────────────────────
+// Gated by the can_delete capability. Refused while the customer has any
+// live ticket history — merge into another profile (or GDPR-erase) instead,
+// so tickets can never lose their customer by accident. Soft delete: tickets
+// and gdpr_erasures reference customers with no ON DELETE, and the partial
+// unique index on (workspace_id, email) where deleted_at is null frees the
+// address for reuse automatically.
+customers.delete('/:id', async (c) => {
+  const denied = await requireDeletePermission(c);
+  if (denied) return denied;
+
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const [cust] = await sql<{ id: string; display_id: string; email: string | null; first_name: string | null; last_name: string | null }[]>`
+    select id, display_id, email, first_name, last_name
+    from customers
+    where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (!cust) return c.json({ error: 'Customer not found' }, 404);
+
+  const [t] = await sql`
+    select 1 from tickets
+    where workspace_id = ${workspaceId} and customer_id = ${customerId} and deleted_at is null
+    limit 1
+  `;
+  if (t) {
+    return c.json({ error: 'This customer has ticket history — merge them into another profile instead', code: 'has_tickets' }, 409);
+  }
+
+  // Soft-delete the profile but HARD-delete its internal notes (free-text
+  // PII with no UI reachable once the profile is gone — same treatment GDPR
+  // erasure gives them; individual note deletion is soft, this purge is the
+  // deliberate exception). Portal access is revoked in the same transaction:
+  // sessions/magic-links only cascade on a HARD customer delete, so without
+  // this a soft-deleted customer's portal login would keep working. One
+  // transaction so a crash can't hide the profile while leaving notes or
+  // live sessions behind.
+  const notesDeleted = await sql.begin(async (tx) => {
+    const gone = await tx`
+      delete from customer_notes
+      where workspace_id = ${workspaceId} and customer_id = ${customerId}
+      returning id
+    `;
+    await tx`delete from portal_sessions where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
+    await tx`delete from portal_magic_links where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
+    await tx`
+      update customers set deleted_at = now()
+      where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+    `;
+    return gone.length;
+  });
+
+  await writeAudit({
+    workspaceId,
+    actorUserId: c.get('userId'),
+    action: 'customer.deleted',
+    targetType: 'customer',
+    targetId: cust.id,
+    metadata: {
+      display_id: cust.display_id,
+      email: cust.email,
+      name: [cust.first_name, cust.last_name].filter(Boolean).join(' ') || null,
+      notes_deleted: notesDeleted,
+    },
+  });
+  // Known accepted limit: customers have no sync endpoint, so OTHER open tabs
+  // keep the row until reload — true of every customer mutation today. The
+  // acting tab splices locally on the 204.
+  return new Response(null, { status: 204 });
 });
 
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
