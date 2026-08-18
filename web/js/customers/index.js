@@ -33,6 +33,7 @@ import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
+import { showToast } from '../core/toast.js';
 import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 
@@ -233,10 +234,10 @@ function bulkDeleteCustomers() {
       CUSTOMER_SELECTED_IDS.clear();
       renderPage('customers');
       if (skippedTickets || failures.length) {
-        const parts = [`${deleted} deleted.`];
-        if (skippedTickets) parts.push(`${skippedTickets} skipped — they have tickets; merge them into another profile instead.`);
-        if (failures.length) parts.push(`${failures.length} failed:\n${failures.join('\n')}`);
-        alert(parts.join('\n'));
+        const parts = [`${deleted} deleted`];
+        if (skippedTickets) parts.push(`${skippedTickets} skipped — they have tickets; merge them instead`);
+        if (failures.length) parts.push(`${failures.length} failed (${failures[0]}${failures.length > 1 ? ', …' : ''})`);
+        showToast(parts.join(' · '), skippedTickets && !failures.length ? 'warn' : 'error', 8000);
       }
     },
   });
@@ -439,7 +440,7 @@ function addCustomerNote(custId) {
       closeModal();
       let res;
       try { res = await apiPost(`/api/v1/customers/${c._uuid}/notes`, { text }); }
-      catch (err) { alert(`Couldn't save the note: ${err?.message || err}`); return; }
+      catch (err) { showToast(`Couldn't save the note: ${err?.message || err}`, 'error', 6000); return; }
       c.notes.unshift(mapCustomerNote(res.note));
       renderPage('customers');
       return;
@@ -474,7 +475,7 @@ function deleteCustomerNote(custId, noteId, idx) {
       closeModal();
       if (c._uuid && note.id) {
         try { await apiDelete(`/api/v1/customers/${c._uuid}/notes/${note.id}`); }
-        catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+        catch (err) { showToast(`Couldn't delete: ${err?.message || err}`, 'error', 6000); return; }
       }
       const i = c.notes.indexOf(note);
       if (i >= 0) c.notes.splice(i, 1);

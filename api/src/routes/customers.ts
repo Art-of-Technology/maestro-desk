@@ -122,7 +122,13 @@ customers.get('/', async (c) => {
 // any agent shares context; delete is gated by the can_delete capability.
 
 // GET /notes — every note in the workspace in one call (the SPA groups them
-// by customer at bootstrap; no per-customer N+1).
+// by customer at bootstrap; no per-customer N+1). Bounded: newest-first with
+// a hard cap so a note-heavy workspace can't balloon the bootstrap payload —
+// beyond the cap the oldest notes simply don't ship (per-customer paging is
+// Phase-4 profile-overhaul territory). Backed by the composite
+// (workspace_id, created_at desc) index (20260818130000).
+const NOTES_LIST_CAP = 2000;
+
 customers.get('/notes', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -138,8 +144,9 @@ customers.get('/notes', async (c) => {
     left join users u on u.id = n.author_user_id
     where n.workspace_id = ${workspaceId}
     order by n.created_at desc
+    limit ${NOTES_LIST_CAP}
   `;
-  return c.json({ notes: rows });
+  return c.json({ notes: rows, capped: rows.length === NOTES_LIST_CAP });
 });
 
 const NoteBody = z.object({ text: z.string().trim().min(1).max(4000) });

@@ -677,7 +677,7 @@ function deleteTicketPrompt(id) {
       closeModal();
       if (t._uuid) {
         try { await apiDelete(`/api/v1/tickets/${t._uuid}`); }
-        catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+        catch (err) { showToast(`Couldn't delete: ${err?.message || err}`, 'error', 6000); return; }
       }
       clearAllDrafts(id);
       const i = TICKETS.findIndex(x => x.id === id);

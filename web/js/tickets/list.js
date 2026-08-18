@@ -28,6 +28,7 @@ import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { openTicket, showNewTicketModal } from './detail.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
+import { showToast } from '../core/toast.js';
 import { clearAllDrafts } from './drafts.js';
 import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
@@ -620,7 +621,7 @@ function bulkDeleteTickets() {
       updateNavBadges();
       renderPage('tickets');
       if (failures.length) {
-        alert(`${ids.length - failures.length} deleted. ${failures.length} could not be deleted:\n${failures.join('\n')}`);
+        showToast(`${ids.length - failures.length} deleted · ${failures.length} could not be deleted (${failures[0]}${failures.length > 1 ? ', …' : ''})`, 'error', 8000);
       }
     },
   });
