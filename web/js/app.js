@@ -83,21 +83,25 @@ function applyWorkspaceBrand(brand) {
   if (!brand) return;
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');
-  const logoEl = document.querySelector('.sb-logo');
-  if (logoEl && brand.logoUrl) {
-    // Render logo image alongside (in place of, visually) the word
-    // mark. Use background-image so we don't have to restructure the
-    // HTML — keeps the sub-text in flow.
-    if (wordEl) {
-      wordEl.style.backgroundImage    = `url("${brand.logoUrl}")`;
-      wordEl.style.backgroundRepeat   = 'no-repeat';
-      wordEl.style.backgroundPosition = 'left center';
-      wordEl.style.backgroundSize     = 'auto 70%';
-      wordEl.style.paddingLeft        = '34px';
-      wordEl.style.minHeight          = '28px';
+  if (wordEl) {
+    if (brand.logoUrl) {
+      // The uploaded logo REPLACES the word mark — it must never render
+      // behind the lettering. Height cap + object-fit keep it undistorted;
+      // the width cap leaves room for the workspace-switcher caret
+      // (absolute at right:14px in .sb-logo).
+      wordEl.textContent = '';
+      const img = document.createElement('img');
+      img.src = brand.logoUrl;
+      img.alt = brand.name || 'Workspace logo';
+      img.style.cssText = 'display:block;max-height:28px;max-width:calc(100% - 20px);object-fit:contain';
+      // A dead logo URL (404, hotlink-blocked, CSP-refused) must not leave
+      // the workspace unidentifiable — fall back to the word mark.
+      img.onerror = () => { wordEl.textContent = brand.name || 'Respovia'; };
+      wordEl.appendChild(img);
+    } else if (brand.name) {
+      wordEl.textContent = brand.name;
     }
   }
-  if (wordEl && brand.name) wordEl.textContent = brand.name;
   if (subEl)                subEl.textContent  = brand.slug ? brand.slug : 'AI Helpdesk';
   if (brand.name) document.title = `${brand.name} — Helpdesk`;
   if (brand.primaryColor) {
@@ -112,12 +116,8 @@ function applyWorkspaceBrand(brand) {
 function resetWorkspaceBrand() {
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');
-  if (wordEl) {
-    wordEl.textContent = 'Respovia';
-    wordEl.style.backgroundImage = '';
-    wordEl.style.paddingLeft     = '';
-    wordEl.style.minHeight       = '';
-  }
+  // textContent assignment also removes a workspace-logo <img> child.
+  if (wordEl) wordEl.textContent = 'Respovia';
   if (subEl) subEl.textContent = 'iGaming · AI Assisted';
   document.title = 'Respovia — AI Support';
   document.documentElement.style.removeProperty('--purple');

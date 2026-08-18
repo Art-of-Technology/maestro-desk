@@ -44,7 +44,7 @@ The left sidebar is grouped into three sections:
 
 **Work**
 - **Dashboard** — your at-a-glance view: open tickets, what's awaiting your reply, activity.
-- **Conversations** — the ticket queue. This is where you spend most of your day.
+- **Tickets** — the ticket queue. This is where you spend most of your day.
 - **Customers** — the players who've contacted you: their profile, history, and (where
   connected) live Maestro account context.
 
@@ -62,7 +62,7 @@ workspace setting grouped into cards (see *Administering a brand* below).
 
 ## Working a ticket (agents)
 
-1. Open **Conversations** and pick a ticket. Tickets arrive from your web portal,
+1. Open **Tickets** and pick a ticket. Tickets arrive from your web portal,
    inbound email, and Slack, and each carries a stable per-brand ID.
 2. Read the thread. The AI may have already **triaged** it (category, priority, sentiment)
    and **drafted a suggested reply** — review it, don't send blind.

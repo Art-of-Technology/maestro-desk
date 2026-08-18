@@ -26,7 +26,7 @@ const FIELD_LAYOUTS = {
   ticket: [
     { key:'subject',    label:'Subject',          locked:true,  required:true,  visible:true },
     { key:'customerId', label:'Customer',         locked:true,  required:true,  visible:true },
-    { key:'category',   label:'Category',         locked:false, required:false, visible:true },
+    { key:'category',   label:'Category',         locked:true,  required:true,  visible:true },
     { key:'priority',   label:'Priority',         locked:false, required:false, visible:true },
     { key:'agent',      label:'Assignee',         locked:false, required:false, visible:true },
     { key:'message',    label:'First message',    locked:false, required:false, visible:true },
