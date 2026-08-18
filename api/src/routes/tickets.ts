@@ -834,10 +834,16 @@ tickets.post('/:id/unmerge', async (c) => {
 // updated_at, deleted_at} tombstones (this UPDATE fires set_updated_at, so
 // the tombstone crosses the sync cursor), and the router-level non-GET hook
 // publishes ticket.changed — other tabs drop the row within one poll.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 tickets.delete('/:id', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
+  // A non-uuid here (e.g. the display id "T-1024" pasted into a curl) must
+  // 404 like any other miss — unguarded it would raise Postgres 22P02 and
+  // surface as a 500 + ops alert.
+  if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
 
   const [t] = await sql<{ id: string; display_id: string; subject: string; customer_id: string }[]>`
     select id, display_id, subject, customer_id

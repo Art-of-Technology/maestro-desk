@@ -134,13 +134,28 @@ runDbTests('customer delete + notes (DB-backed)', () => {
     expect(((await blocked.json()) as any).code).toBe('has_tickets');
 
     await as(admin.token, ctx.wsA, `/api/v1/tickets/${ticket.id}`, { method: 'DELETE' });
+
+    // Give the customer a note — deleting the profile must hard-delete it
+    // (free-text PII with no reachable UI once the profile is gone).
+    await as(agent.token, ctx.wsA, `/api/v1/customers/${cust}/notes`, {
+      method: 'POST', body: JSON.stringify({ text: 'PII that must not outlive the profile' }),
+    });
+
     const ok = await as(admin.token, ctx.wsA, `/api/v1/customers/${cust}`, { method: 'DELETE' });
     expect(ok.status).toBe(204);
-    const [audit] = await sql`
-      select 1 from audit_events
+    const [{ count }] = await sql<{ count: string }[]>`
+      select count(*)::text as count from customer_notes
+      where workspace_id = ${ctx.wsA} and customer_id = ${cust}
+    `;
+    expect(count).toBe('0');
+    const list = await as(admin.token, ctx.wsA, '/api/v1/customers/notes');
+    expect(((await list.json()) as any).notes.some((n: any) => n.customer_id === cust)).toBe(false);
+    const [audit] = await sql<{ metadata: any }[]>`
+      select metadata from audit_events
       where workspace_id = ${ctx.wsA} and action = 'customer.deleted' and target_id = ${cust}
     `;
     expect(audit).toBeDefined();
+    expect(audit.metadata.notes_deleted).toBe(1);
     ctx.deletedCust = cust;
   });
 

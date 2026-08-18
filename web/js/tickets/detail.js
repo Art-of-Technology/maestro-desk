@@ -10,7 +10,7 @@
 // all still in app.js. navTo is a direct ES import.
 
 import { AGENTS, CANNED_RESPONSES, CATEGORIES, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
-import { COMPOSE_TAB, CURRENT_TICKET, SESSION, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
+import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
@@ -672,14 +672,19 @@ function deleteTicketPrompt(id) {
     bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(id)} · ${window.escHtml(t.subject || '')}</strong>${blank ? '' : ' and its full conversation history'}? This cannot be undone.</div>`,
     confirmLabel: 'Delete ticket',
     onConfirm: async () => {
+      // Close before the await — a modal left open during the round-trip
+      // fires a second DELETE on a double-click (spurious 404 alert).
+      closeModal();
       if (t._uuid) {
         try { await apiDelete(`/api/v1/tickets/${t._uuid}`); }
         catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
       }
-      closeModal();
       clearAllDrafts(id);
       const i = TICKETS.findIndex(x => x.id === id);
       if (i >= 0) TICKETS.splice(i, 1);
+      // Drop it from any bulk selection too, or the list's bulk bar keeps
+      // counting a ghost row.
+      TICKET_SELECTED_IDS.delete(id);
       setCurrentTicket(null);
       updateNavBadges();
       renderPage('tickets');

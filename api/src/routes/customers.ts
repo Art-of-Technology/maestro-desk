@@ -127,10 +127,14 @@ customers.get('/notes', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
+  // Join customers so notes of soft-deleted (or erased) profiles never ship
+  // to the client — DELETE /:id below also hard-deletes them, but this keeps
+  // any legacy stragglers from leaking free-text PII forever.
   const rows = await sql`
     select n.id, n.customer_id, n.author_user_id, u.name as author_name,
            n.text, n.created_at
     from customer_notes n
+    join customers cu on cu.id = n.customer_id and cu.deleted_at is null
     left join users u on u.id = n.author_user_id
     where n.workspace_id = ${workspaceId}
     order by n.created_at desc
@@ -236,10 +240,22 @@ customers.delete('/:id', async (c) => {
     return c.json({ error: 'This customer has ticket history — merge them into another profile instead', code: 'has_tickets' }, 409);
   }
 
-  await sql`
-    update customers set deleted_at = now()
-    where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
+  // Soft-delete the profile but HARD-delete its internal notes (free-text
+  // PII with no UI reachable once the profile is gone — same treatment GDPR
+  // erasure gives them). One transaction so a crash can't hide the profile
+  // while leaving its notes behind.
+  const notesDeleted = await sql.begin(async (tx) => {
+    const gone = await tx`
+      delete from customer_notes
+      where workspace_id = ${workspaceId} and customer_id = ${customerId}
+      returning id
+    `;
+    await tx`
+      update customers set deleted_at = now()
+      where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+    `;
+    return gone.length;
+  });
 
   await writeAudit({
     workspaceId,
@@ -251,6 +267,7 @@ customers.delete('/:id', async (c) => {
       display_id: cust.display_id,
       email: cust.email,
       name: [cust.first_name, cust.last_name].filter(Boolean).join(' ') || null,
+      notes_deleted: notesDeleted,
     },
   });
   // Known accepted limit: customers have no sync endpoint, so OTHER open tabs

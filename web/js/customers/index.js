@@ -433,11 +433,16 @@ function addCustomerNote(custId) {
     if (!c.notes) c.notes = [];
     if (c._uuid) {
       // Persisted: the server stamps the author + timestamp; map its row to
-      // the render shape exactly like bootstrap does.
+      // the render shape exactly like bootstrap does. Close BEFORE the await
+      // — modal.confirm re-invokes on every click, so a modal left open
+      // during the round-trip double-posts on a double-click.
+      closeModal();
       let res;
       try { res = await apiPost(`/api/v1/customers/${c._uuid}/notes`, { text }); }
       catch (err) { alert(`Couldn't save the note: ${err?.message || err}`); return; }
       c.notes.unshift(mapCustomerNote(res.note));
+      renderPage('customers');
+      return;
     } else {
       // Demo persona — in-memory only, as before.
       c.notes.unshift({
@@ -464,11 +469,13 @@ function deleteCustomerNote(custId, noteId, idx) {
     bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete this internal note by <strong style="color:var(--ink)">${window.escHtml(note.author || 'Unknown')}</strong>? This cannot be undone.</div><div style="margin-top:10px;padding:10px 12px;background:var(--off2);border-radius:var(--r);font-size:12px;color:var(--ink2);white-space:pre-wrap">${window.escHtml(String(note.text || '').slice(0, 300))}</div>`,
     confirmLabel: 'Delete note',
     onConfirm: async () => {
+      // Close before the await — a modal left open during the round-trip
+      // fires a second DELETE on a double-click (spurious 404 alert).
+      closeModal();
       if (c._uuid && note.id) {
         try { await apiDelete(`/api/v1/customers/${c._uuid}/notes/${note.id}`); }
         catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
       }
-      closeModal();
       const i = c.notes.indexOf(note);
       if (i >= 0) c.notes.splice(i, 1);
       renderPage('customers');

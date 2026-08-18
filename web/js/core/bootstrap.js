@@ -203,7 +203,13 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/roles'),
     apiGet('/api/v1/custom-values?entity_type=customer'),
     apiGet('/api/v1/categories'),
-    apiGet('/api/v1/customers/notes'),
+    // Notes are a nice-to-have sidebar payload — never let them take the
+    // whole all-or-nothing bootstrap down (e.g. web deployed ahead of api,
+    // where the old API 404s this endpoint and every login would fail).
+    apiGet('/api/v1/customers/notes').catch((err) => {
+      console.warn('[bootstrap] customer notes load failed:', err?.message || err);
+      return { notes: [] };
+    }),
   ]);
 
   const customersRaw = customersRes.customers || [];
