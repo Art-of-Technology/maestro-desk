@@ -109,6 +109,15 @@ runDbTests('customer delete + notes (DB-backed)', () => {
 
     const ok = await as(admin.token, ctx.wsA, `/api/v1/customers/${ctx.noteCust}/notes/${ctx.noteId}`, { method: 'DELETE' });
     expect(ok.status).toBe(204);
+    // Soft delete: the row survives with deleted_at set, and the list hides it.
+    const [row] = await sql<{ deleted_at: string | null }[]>`
+      select deleted_at from customer_notes where id = ${ctx.noteId}
+    `;
+    expect(row.deleted_at).not.toBeNull();
+    const listAfter = await as(admin.token, ctx.wsA, '/api/v1/customers/notes');
+    expect(((await listAfter.json()) as any).notes.some((n: any) => n.id === ctx.noteId)).toBe(false);
+    // A second delete of the same note is a 404 (deleted_at guard).
+    expect((await as(admin.token, ctx.wsA, `/api/v1/customers/${ctx.noteCust}/notes/${ctx.noteId}`, { method: 'DELETE' })).status).toBe(404);
     const [audit] = await sql<{ metadata: any }[]>`
       select metadata from audit_events
       where workspace_id = ${ctx.wsA} and action = 'customer_note.deleted' and target_id = ${ctx.noteId}
@@ -136,13 +145,20 @@ runDbTests('customer delete + notes (DB-backed)', () => {
     await as(admin.token, ctx.wsA, `/api/v1/tickets/${ticket.id}`, { method: 'DELETE' });
 
     // Give the customer a note — deleting the profile must hard-delete it
-    // (free-text PII with no reachable UI once the profile is gone).
+    // (free-text PII with no reachable UI once the profile is gone) — and a
+    // portal session, which must be revoked in the same transaction.
     await as(agent.token, ctx.wsA, `/api/v1/customers/${cust}/notes`, {
       method: 'POST', body: JSON.stringify({ text: 'PII that must not outlive the profile' }),
     });
+    await sql`insert into portal_sessions (token, workspace_id, customer_id, expires_at)
+              values (${'tok-' + RUN}, ${ctx.wsA}, ${cust}, ${new Date(Date.now() + 3600_000).toISOString()})`;
 
     const ok = await as(admin.token, ctx.wsA, `/api/v1/customers/${cust}`, { method: 'DELETE' });
     expect(ok.status).toBe(204);
+    const [{ count: sessCount }] = await sql<{ count: string }[]>`
+      select count(*)::text as count from portal_sessions where customer_id = ${cust}
+    `;
+    expect(sessCount).toBe('0');
     const [{ count }] = await sql<{ count: string }[]>`
       select count(*)::text as count from customer_notes
       where workspace_id = ${ctx.wsA} and customer_id = ${cust}

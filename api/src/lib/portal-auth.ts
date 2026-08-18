@@ -82,10 +82,14 @@ export async function customerForSession(args: {
 }): Promise<{ customerId: string } | null> {
   const { workspaceId, sessionToken } = args;
   const sql = getDb();
+  // Join customers so a session can never authenticate a soft-deleted (or
+  // hard-gone) profile — the customer-delete route also revokes sessions,
+  // but this is the backstop for any row that slips through.
   const [row] = await sql<{ customer_id: string; expires_at: string }[]>`
-    select customer_id, expires_at
-    from portal_sessions
-    where token = ${hashToken(sessionToken)} and workspace_id = ${workspaceId}
+    select ps.customer_id, ps.expires_at
+    from portal_sessions ps
+    join customers cu on cu.id = ps.customer_id and cu.deleted_at is null
+    where ps.token = ${hashToken(sessionToken)} and ps.workspace_id = ${workspaceId}
   `;
   if (!row) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) return null;

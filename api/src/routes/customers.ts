@@ -142,7 +142,7 @@ customers.get('/notes', async (c) => {
     from customer_notes n
     join customers cu on cu.id = n.customer_id and cu.deleted_at is null
     left join users u on u.id = n.author_user_id
-    where n.workspace_id = ${workspaceId}
+    where n.workspace_id = ${workspaceId} and n.deleted_at is null
     order by n.created_at desc
     limit ${NOTES_LIST_CAP}
   `;
@@ -179,9 +179,10 @@ customers.post('/:id/notes', async (c) => {
   return c.json({ note: { ...note, author_name: u?.name ?? null } }, 201);
 });
 
-// DELETE /:id/notes/:noteId — remove a note. HARD delete: the table has no
-// deleted_at (GDPR erasure already hard-deletes rows here) and the audit row
-// below is the durable trail, preview included.
+// DELETE /:id/notes/:noteId — SOFT delete, matching the codebase convention
+// (the row stays for recoverability; the audit row is the visible trail).
+// The two deliberate hard-delete paths for notes live elsewhere: GDPR
+// erasure, and the profile-delete purge in DELETE /:id below.
 customers.delete('/:id/notes/:noteId', async (c) => {
   const denied = await requireDeletePermission(c);
   if (denied) return denied;
@@ -193,8 +194,8 @@ customers.delete('/:id/notes/:noteId', async (c) => {
   if (!UUID_RE.test(customerId) || !UUID_RE.test(noteId)) return c.json({ error: 'Note not found' }, 404);
 
   const [row] = await sql<{ id: string; author_user_id: string | null; text: string; created_at: string }[]>`
-    delete from customer_notes
-    where id = ${noteId} and workspace_id = ${workspaceId} and customer_id = ${customerId}
+    update customer_notes set deleted_at = now()
+    where id = ${noteId} and workspace_id = ${workspaceId} and customer_id = ${customerId} and deleted_at is null
     returning id, author_user_id, text, created_at
   `;
   if (!row) return c.json({ error: 'Note not found' }, 404);
@@ -249,14 +250,20 @@ customers.delete('/:id', async (c) => {
 
   // Soft-delete the profile but HARD-delete its internal notes (free-text
   // PII with no UI reachable once the profile is gone — same treatment GDPR
-  // erasure gives them). One transaction so a crash can't hide the profile
-  // while leaving its notes behind.
+  // erasure gives them; individual note deletion is soft, this purge is the
+  // deliberate exception). Portal access is revoked in the same transaction:
+  // sessions/magic-links only cascade on a HARD customer delete, so without
+  // this a soft-deleted customer's portal login would keep working. One
+  // transaction so a crash can't hide the profile while leaving notes or
+  // live sessions behind.
   const notesDeleted = await sql.begin(async (tx) => {
     const gone = await tx`
       delete from customer_notes
       where workspace_id = ${workspaceId} and customer_id = ${customerId}
       returning id
     `;
+    await tx`delete from portal_sessions where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
+    await tx`delete from portal_magic_links where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
     await tx`
       update customers set deleted_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null

@@ -659,7 +659,10 @@ function setComposeTab(tab, id) { setComposeTabValue(tab); openTicket(id); }
 // server re-verifies with the same rule regardless.
 function isTicketBlank(t) {
   if (t._uuid && !t._detailLoaded) return false;
-  return (t.msgs || []).every(m => m.r === 'system');
+  // KEEP IN SYNC with the server rule in api/src/routes/tickets.ts
+  // DELETE /:id — blank ⇔ no message whose role is one of these four.
+  const REAL_ROLES = ['customer', 'agent', 'ai', 'note'];
+  return (t.msgs || []).every(m => !REAL_ROLES.includes(m.r));
 }
 
 function deleteTicketPrompt(id) {
