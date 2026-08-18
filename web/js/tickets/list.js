@@ -27,7 +27,8 @@ import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { openTicket, showNewTicketModal } from './detail.js';
 import { logTicketEvent } from '../core/activity-log.js';
-import { showModal, closeModal } from '../core/modal.js';
+import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
+import { clearAllDrafts } from './drafts.js';
 import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
@@ -196,7 +197,7 @@ export function renderTickets() {
         ${MACROS.map(m => `<option value="${window.escAttr(m.id)}">${window.escHtml(m.icon || '⚡')} ${window.escHtml(m.name)}</option>`).join('')}
       </select>
       <button class="btn btn-sm" data-action="tickets.bulkExport">Export selected</button>
-      <button class="btn btn-sm btn-danger" data-action="tickets.bulkDelete">Delete</button>
+      ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" data-action="tickets.bulkDelete">Delete</button>` : ''}
       <button class="btn btn-sm" data-action="tickets.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
@@ -582,23 +583,47 @@ function bulkExportTickets() {
   }
 }
 
+// Bulk delete — real, server-persisted. The button only renders for
+// canDeleteRecords() holders, and the server re-verifies per ticket (a
+// blank ticket would pass for anyone, but bulk is a permission-holder
+// surface). Each selected API ticket gets its own DELETE so per-row 403/409
+// failures (e.g. a merge primary with live duplicates) are reported without
+// aborting the rest; demo rows (no _uuid) keep the in-memory splice.
 function bulkDeleteTickets() {
+  if (!window.canDeleteRecords()) return;
   const n = TICKET_SELECTED_IDS.size;
   if (n === 0) return;
-  showModal(`Delete ${n} ticket${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> ticket${n===1?'':'s'}? This cannot be undone.</div>`, () => {
-    const ids = [...TICKET_SELECTED_IDS];
-    ids.forEach(id => {
-      const t = TICKETS.find(x => x.id === id);
-      if (t) logTicketEvent(id, 'system', `Ticket deleted (bulk) by ${SESSION?.name || 'system'}`);
-    });
-    for (let i = TICKETS.length - 1; i >= 0; i--) {
-      if (TICKET_SELECTED_IDS.has(TICKETS[i].id)) TICKETS.splice(i, 1);
-    }
-    TICKET_SELECTED_IDS.clear();
-    closeModal();
-    updateNavBadges();
-    renderPage('tickets');
-  }, 'Delete');
+  showDangerConfirm({
+    title: `Delete ${n} ticket${n===1?'':'s'}`,
+    bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> ticket${n===1?'':'s'}? Their full conversation history goes with them. This cannot be undone.</div>`,
+    confirmLabel: 'Delete',
+    onConfirm: async () => {
+      closeModal();
+      const ids = [...TICKET_SELECTED_IDS];
+      const failures = [];
+      for (const id of ids) {
+        const t = TICKETS.find(x => x.id === id);
+        if (!t) continue;
+        if (t._uuid) {
+          try { await apiDelete(`/api/v1/tickets/${t._uuid}`); }
+          catch (err) { failures.push(`${id}: ${err?.message || err}`); continue; }
+        } else {
+          // Demo persona — no API; the splice below is the whole delete.
+          logTicketEvent(id, 'system', `Ticket deleted (bulk) by ${SESSION?.name || 'system'}`);
+        }
+        clearAllDrafts(id);
+        const i = TICKETS.findIndex(x => x.id === id);
+        if (i >= 0) TICKETS.splice(i, 1);
+        TICKET_SELECTED_IDS.delete(id);
+      }
+      TICKET_SELECTED_IDS.clear();
+      updateNavBadges();
+      renderPage('tickets');
+      if (failures.length) {
+        alert(`${ids.length - failures.length} deleted. ${failures.length} could not be deleted:\n${failures.join('\n')}`);
+      }
+    },
+  });
 }
 
 function exportTicketList() {

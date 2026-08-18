@@ -25,13 +25,14 @@ import { CUSTOMERS, CUSTOM_FIELDS, TICKETS } from '../core/data.js';
 import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, SESSION, setCustColumns, setCustDragCol, setCustomerSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
-import { showModal, closeModal } from '../core/modal.js';
+import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { isFieldVisible } from '../layouts/index.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
-import { apiPut, getBrandId } from '../core/api-client.js';
+import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
+import { mapCustomerNote } from '../core/bootstrap.js';
 import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 
@@ -197,17 +198,48 @@ function bulkSetCustConsent(v) {
   CUSTOMER_SELECTED_IDS.clear();
   renderPage('customers');
 }
+// Bulk delete — real, server-persisted, permission-gated. The server refuses
+// (409 has_tickets) any customer with live ticket history, so profiles can
+// never orphan tickets; those rows stay and the result modal says why. Demo
+// rows (no _uuid) keep the in-memory splice.
 function bulkDeleteCustomers() {
+  if (!window.canDeleteRecords()) return;
   const n = CUSTOMER_SELECTED_IDS.size;
   if (n === 0) return;
-  showModal(`Delete ${n} customer${n===1?'':'s'}`, `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> customer${n===1?'':'s'}? Tickets they own will be orphaned.</div>`, () => {
-    for (let i = CUSTOMERS.length - 1; i >= 0; i--) {
-      if (CUSTOMER_SELECTED_IDS.has(CUSTOMERS[i].id)) CUSTOMERS.splice(i, 1);
-    }
-    CUSTOMER_SELECTED_IDS.clear();
-    closeModal();
-    renderPage('customers');
-  }, 'Delete');
+  showDangerConfirm({
+    title: `Delete ${n} customer${n===1?'':'s'}`,
+    bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${n}</strong> customer profile${n===1?'':'s'}? Profiles with ticket history are skipped — merge those into another profile instead. This cannot be undone.</div>`,
+    confirmLabel: 'Delete',
+    onConfirm: async () => {
+      closeModal();
+      const ids = [...CUSTOMER_SELECTED_IDS];
+      let deleted = 0, skippedTickets = 0;
+      const failures = [];
+      for (const id of ids) {
+        const c = CUSTOMERS.find(x => x.id === id);
+        if (!c) continue;
+        if (c._uuid) {
+          try { await apiDelete(`/api/v1/customers/${c._uuid}`); }
+          catch (err) {
+            if (err?.body?.code === 'has_tickets') skippedTickets++;
+            else failures.push(`${id}: ${err?.message || err}`);
+            continue;
+          }
+        }
+        deleted++;
+        const i = CUSTOMERS.findIndex(x => x.id === id);
+        if (i >= 0) CUSTOMERS.splice(i, 1);
+      }
+      CUSTOMER_SELECTED_IDS.clear();
+      renderPage('customers');
+      if (skippedTickets || failures.length) {
+        const parts = [`${deleted} deleted.`];
+        if (skippedTickets) parts.push(`${skippedTickets} skipped — they have tickets; merge them into another profile instead.`);
+        if (failures.length) parts.push(`${failures.length} failed:\n${failures.join('\n')}`);
+        alert(parts.join('\n'));
+      }
+    },
+  });
 }
 
 function exportCustomerList() {
@@ -281,7 +313,7 @@ export function renderCustomers() {
         <option value="yes">Consent: Yes</option>
         <option value="no">Consent: No</option>
       </select>
-      <button class="btn btn-sm btn-danger" data-action="cust.bulkDelete">Delete</button>
+      ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" data-action="cust.bulkDelete">Delete</button>` : ''}
       <button class="btn btn-sm" data-action="cust.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
@@ -393,26 +425,55 @@ function getCustomerRisk(c) {
 }
 
 function addCustomerNote(custId) {
-  showModal('Add internal note', `<div class="form-row"><label class="form-label">Note</label><textarea class="form-input" id="cn-text" style="min-height:120px;font-family:'Inter',sans-serif" placeholder="Context the team should know about this customer…"></textarea></div>`, () => {
+  showModal('Add internal note', `<div class="form-row"><label class="form-label">Note</label><textarea class="form-input" id="cn-text" style="min-height:120px;font-family:'Inter',sans-serif" placeholder="Context the team should know about this customer…"></textarea></div>`, async () => {
     const text = document.getElementById('cn-text').value.trim();
     if (!text) return;
     const c = CUSTOMERS.find(x => x.id === custId);
     if (!c) return;
     if (!c.notes) c.notes = [];
-    c.notes.unshift({
-      author: SESSION?.name || 'Unknown',
-      ts: new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }),
-      text,
-    });
+    if (c._uuid) {
+      // Persisted: the server stamps the author + timestamp; map its row to
+      // the render shape exactly like bootstrap does.
+      let res;
+      try { res = await apiPost(`/api/v1/customers/${c._uuid}/notes`, { text }); }
+      catch (err) { alert(`Couldn't save the note: ${err?.message || err}`); return; }
+      c.notes.unshift(mapCustomerNote(res.note));
+    } else {
+      // Demo persona — in-memory only, as before.
+      c.notes.unshift({
+        author: SESSION?.name || 'Unknown',
+        ts: new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }),
+        text,
+      });
+    }
     closeModal(); renderPage('customers');
   }, 'Add note');
 }
 
-function deleteCustomerNote(custId, idx) {
+// Note deletion is real (API) and permission-gated; every path confirms
+// first. Notes are addressed by id for API rows; demo rows (no _uuid on the
+// customer, no id on the note) fall back to the array index.
+function deleteCustomerNote(custId, noteId, idx) {
+  if (!window.canDeleteRecords()) return;
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c || !c.notes) return;
-  c.notes.splice(idx, 1);
-  renderPage('customers');
+  const note = (noteId && c.notes.find(n => n.id === noteId)) || c.notes[idx];
+  if (!note) return;
+  showDangerConfirm({
+    title: 'Delete note',
+    bodyHtml: `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete this internal note by <strong style="color:var(--ink)">${window.escHtml(note.author || 'Unknown')}</strong>? This cannot be undone.</div><div style="margin-top:10px;padding:10px 12px;background:var(--off2);border-radius:var(--r);font-size:12px;color:var(--ink2);white-space:pre-wrap">${window.escHtml(String(note.text || '').slice(0, 300))}</div>`,
+    confirmLabel: 'Delete note',
+    onConfirm: async () => {
+      if (c._uuid && note.id) {
+        try { await apiDelete(`/api/v1/customers/${c._uuid}/notes/${note.id}`); }
+        catch (err) { alert(`Couldn't delete: ${err?.message || err}`); return; }
+      }
+      closeModal();
+      const i = c.notes.indexOf(note);
+      if (i >= 0) c.notes.splice(i, 1);
+      renderPage('customers');
+    },
+  });
 }
 
 function openCustomerProfile(id) { setCustomerSelected(id); renderPage('customers'); }
@@ -655,7 +716,7 @@ function renderCustomerDetail(custId) {
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
             <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(n.author)}</span>
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${n.ts}</span>
-            ${admin ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
+            ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
           </div>
           <div style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${window.escHtml(n.text)}</div>
         </div>
@@ -775,7 +836,7 @@ registerActions({
   // Detail-page actions
   'cust.openTicket':      (ds) => openTicket(ds.ticketId),
   'cust.addNote':         (ds) => addCustomerNote(ds.custId),
-  'cust.deleteNote':      (ds) => deleteCustomerNote(ds.custId, parseInt(ds.noteIdx, 10)),
+  'cust.deleteNote':      (ds) => deleteCustomerNote(ds.custId, ds.noteId || null, parseInt(ds.noteIdx, 10)),
   'cust.unmerge':         (ds) => unmergeCustomer(ds.custId),
   'cust.showMergeModal':  (ds) => showMergeCustomerModal(ds.custId),
   'cust.showGdpr':        (ds) => showCustomerGDPR(ds.custId),

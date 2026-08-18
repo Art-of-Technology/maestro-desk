@@ -17,3 +17,14 @@ export function saveDraft(id, value) {
 }
 
 export function clearDraft(id) { localStorage.removeItem(getDraftKey(id)); }
+
+// Remove EVERY tab's draft for a ticket (reply + internal note) — used when
+// the ticket itself is deleted, where clearing only the active COMPOSE_TAB
+// would leave the other tab's draft orphaned in localStorage forever.
+export function clearAllDrafts(id) {
+  const prefix = `draft:${id}:`;
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(prefix)) localStorage.removeItem(k);
+  }
+}
