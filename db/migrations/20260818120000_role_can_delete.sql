@@ -26,6 +26,17 @@
 alter table roles
   add column if not exists can_delete boolean not null default false;
 
+-- Retro-fit the implicit-grant rule onto can_manage_custom_fields too: admin
+-- roles were historically seeded/backfilled with a materialised true
+-- (20260619130000), which carried the same demotion leak — a role demoted
+-- from is_admin kept managing custom fields. Every read path ORs is_admin
+-- (whoami.ts, authz.ts, the SPA role map), so clearing the materialised
+-- value changes nothing for admins and closes the leak. Explicit non-admin
+-- grants (e.g. the seeded Senior Agent) are untouched.
+update roles
+  set can_manage_custom_fields = false
+  where is_admin = true and can_manage_custom_fields = true;
+
 -- ─── 2. Extract role seeding out of provision_brand ─────────────────────────
 -- provision_brand has now been recreated wholesale five times just to touch
 -- its 3-row roles INSERT (20260522160000, 20260604120000, 20260619120000,
@@ -33,9 +44,9 @@ alter table roles
 -- function so the NEXT capability migration redefines only this small seeder
 -- and can't silently revert unrelated provision_brand changes.
 --
--- can_manage_custom_fields keeps its historical materialised Admin=true (it
--- predates the implicit-grant rule and existing rows already carry it);
--- can_delete follows the new rule and stays false everywhere by default.
+-- Both capability flags follow the implicit-grant rule: raw column values
+-- record EXPLICIT grants only, and admin roles get every capability via
+-- is_admin at read time — so the Admin row seeds false for both.
 create or replace function public.seed_default_roles(p_workspace_id uuid)
 returns void
 language plpgsql
@@ -44,7 +55,7 @@ set search_path = public, pg_temp
 as $$
 begin
   insert into roles (workspace_id, name, is_admin, can_manage_custom_fields, can_delete) values
-    (p_workspace_id, 'Admin',        true,  true,  false),
+    (p_workspace_id, 'Admin',        true,  false, false),
     (p_workspace_id, 'Senior Agent', false, true,  false),
     (p_workspace_id, 'Read Only',    false, false, false);
 end;

@@ -18,7 +18,7 @@ export function revealGodNav() {
 export function enterGod(user) {
   revealGodNav();
   const initials = user.initials || (user.email || 'PA').slice(0, 2).toUpperCase();
-  window.login('Platform Admin', user.name || user.email, initials, user.id);
+  window.login('Platform Admin', user.name || user.email, initials, { userId: user.id });
   nav('god', document.getElementById('nav-god'));
 }
 

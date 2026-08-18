@@ -36,7 +36,11 @@ import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 
-function login(role, name, initials, userId = null, canManageCustomFields = false, canDelete = false) {
+// Demo personas call login(role, name, initials); real-auth boot paths pass
+// the identity/capability extras in `opts` (an options object rather than a
+// growing positional tail).
+function login(role, name, initials, opts = {}) {
+  const { userId = null, canManageCustomFields = false, canDelete = false } = opts;
   setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';

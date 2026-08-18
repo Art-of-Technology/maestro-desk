@@ -140,7 +140,11 @@ async function bootShell(user, membership) {
   await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
-  window.login(role, user.name || user.email, initials, user.id, membership.can_manage_custom_fields === true, membership.can_delete === true);
+  window.login(role, user.name || user.email, initials, {
+    userId: user.id,
+    canManageCustomFields: membership.can_manage_custom_fields === true,
+    canDelete: membership.can_delete === true,
+  });
   window.applyWorkspaceBrand?.({
     name:         membership.workspace_name,
     slug:         membership.workspace_slug,
