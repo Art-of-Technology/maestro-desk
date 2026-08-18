@@ -48,10 +48,16 @@ roles.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const input = parsed.data;
 
+  // Normalisation invariant: admin roles never carry materialised capability
+  // flags — the grant is implicit (every read path ORs is_admin), and a
+  // materialised true would silently survive a later is_admin demotion.
+  const isAdmin = input.is_admin ?? false;
   try {
     const [role] = await sql`
       insert into roles (workspace_id, name, is_admin, can_manage_custom_fields, can_delete)
-      values (${workspaceId}, ${input.name}, ${input.is_admin ?? false}, ${input.can_manage_custom_fields ?? false}, ${input.can_delete ?? false})
+      values (${workspaceId}, ${input.name}, ${isAdmin},
+              ${isAdmin ? false : (input.can_manage_custom_fields ?? false)},
+              ${isAdmin ? false : (input.can_delete ?? false)})
       returning id, name, is_admin, can_manage_custom_fields, can_delete
     `;
     return c.json({ role }, 201);
@@ -92,12 +98,23 @@ roles.patch('/:id', async (c) => {
   if (parsed.data.can_delete !== undefined)               updates.can_delete               = parsed.data.can_delete;
 
   try {
-    const [role] = await sql`
+    let [role] = await sql`
       update roles set ${sql(updates)}
       where id = ${id} and workspace_id = ${workspaceId}
       returning id, name, is_admin, can_manage_custom_fields, can_delete
     `;
     if (!role) return c.json({ error: 'Role not found' }, 404);
+    // Same normalisation invariant as POST: if the row ends up (or already
+    // is) admin, clear any materialised capability flags — whether this PATCH
+    // set is_admin=true on a flagged role, or tried to flag an admin role.
+    // Without this, demoting the role later would retain the stale grant.
+    if (role.is_admin && (role.can_manage_custom_fields || role.can_delete)) {
+      [role] = await sql`
+        update roles set can_manage_custom_fields = false, can_delete = false
+        where id = ${id} and workspace_id = ${workspaceId}
+        returning id, name, is_admin, can_manage_custom_fields, can_delete
+      `;
+    }
     return c.json({ role });
   } catch (err) {
     if ((err as any)?.code === '23505') return c.json({ error: 'Role name already exists' }, 409);

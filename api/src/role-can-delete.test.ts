@@ -116,6 +116,37 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     await sql`update workspace_members set role_id = ${ctx.plainRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
   });
 
+  it('write paths normalise admin roles: capability flags never materialise on is_admin rows', async () => {
+    // POST with both is_admin and capability trues → capabilities forced false.
+    const mk = await as(admin.token, ctx.ws, '/api/v1/roles', {
+      method: 'POST', body: JSON.stringify({ name: `SuperAdmin-${RUN}`, is_admin: true, can_delete: true, can_manage_custom_fields: true }),
+    });
+    expect(mk.status).toBe(201);
+    const { role } = await mk.json() as any;
+    expect(role.is_admin).toBe(true);
+    expect(role.can_delete).toBe(false);
+    expect(role.can_manage_custom_fields).toBe(false);
+
+    // PATCH flagging an admin role → normalised straight back to false.
+    const flag = await as(admin.token, ctx.ws, `/api/v1/roles/${role.id}`, {
+      method: 'PATCH', body: JSON.stringify({ can_delete: true }),
+    });
+    expect(((await flag.json()) as any).role.can_delete).toBe(false);
+
+    // PATCH promoting a flagged role to admin → its explicit flags clear, so
+    // a later demotion cannot retain them.
+    const mk2 = await as(admin.token, ctx.ws, '/api/v1/roles', {
+      method: 'POST', body: JSON.stringify({ name: `Promotable-${RUN}`, can_delete: true }),
+    });
+    const { role: promotable } = await mk2.json() as any;
+    const promoted = await as(admin.token, ctx.ws, `/api/v1/roles/${promotable.id}`, {
+      method: 'PATCH', body: JSON.stringify({ is_admin: true }),
+    });
+    const pr = ((await promoted.json()) as any).role;
+    expect(pr.is_admin).toBe(true);
+    expect(pr.can_delete).toBe(false);
+  });
+
   it('GET /roles returns the flag; POST /roles accepts it (admin only)', async () => {
     const list = await as(admin.token, ctx.ws, '/api/v1/roles');
     const { roles } = await list.json() as any;
