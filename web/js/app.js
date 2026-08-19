@@ -30,6 +30,9 @@ import { nav, renderPage } from './core/router.js';
 // of import. Callers import navTo/focusGlobalSearch from core/keybindings.js
 // directly, so this is a pure side-effect import.
 import './core/keybindings.js';
+// Sidebar collapse: registers app.toggleSidebar and restores the saved rail
+// state at load. Pure side-effect import, like keybindings above.
+import './core/sidebar.js';
 import { stopPresence } from './core/presence.js';
 import { startListSync, stopListSync } from './tickets/list-sync.js';
 import { startRealtime, stopRealtime } from './core/realtime.js';

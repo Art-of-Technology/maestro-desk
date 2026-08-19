@@ -101,6 +101,11 @@
       <div class="sb-word">Respovia</div>
       <div class="sb-sub">iGaming · AI Assisted</div>
     </div>
+    <!-- Collapse toggle. Its own data-action wins over the brand block's
+         wsswitch.open (the dispatcher matches the CLOSEST [data-action]), so
+         it can't accidentally open the workspace switcher. -->
+    <button class="sb-collapse" id="sb-collapse" data-action="app.toggleSidebar"
+            title="Collapse menu" aria-label="Collapse menu" aria-expanded="true">‹</button>
     <div class="sb-user">
       <div class="sb-av" id="sb-av">EC</div>
       <div><div class="sb-uname" id="sb-uname">Emma Clarke</div><div class="sb-urole" id="sb-urole">Admin</div></div>
