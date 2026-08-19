@@ -29,7 +29,7 @@ import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiPost, apiPatch } from '../core/api-client.js';
 import { updateOrInsertTicket } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
-import { saveDraftFor } from './drafts.js';
+import { saveDraft } from './drafts.js';
 import { showToast } from '../core/toast.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
@@ -43,7 +43,8 @@ const NT = {
   categoryLabel: '',
   subject: '',
   priority: 'normal',
-  agentName: '__auto__',
+  agentUserId: null,     // explicit assignee (user id) — null = Auto (rules)
+  agentName: '',         // display name for the step-2 summary strip
   message: '',
 };
 
@@ -55,7 +56,8 @@ function resetNT() {
   NT.categoryLabel = '';
   NT.subject = '';
   NT.priority = 'normal';
-  NT.agentName = '__auto__';
+  NT.agentUserId = null;
+  NT.agentName = '';
   NT.message = '';
 }
 
@@ -98,12 +100,21 @@ function customerRef(c) {
   return { uuid: c._uuid || null, displayId: c.id, label: `${c.first} ${c.last}`.trim() || c.id };
 }
 
-function applyTemplateToNT(id) {
+// keepMessage: on a step-1 REVISIT the agent may already have written the
+// first message on step 2 — step 1 has no message field, so silently
+// replacing it with a template body would destroy work with nothing on
+// screen to show it. The initial open (nothing typed yet) still prefills.
+function applyTemplateToNT(id, { keepMessage = false } = {}) {
   NT.templateId = id || null;
   const t = id ? TICKET_TEMPLATES.find(x => x.id === id) : null;
-  if (!t) { NT.subject = ''; NT.message = ''; NT.categoryValue = ''; NT.categoryLabel = ''; return; }
+  if (!t) {
+    NT.subject = '';
+    if (!keepMessage) NT.message = '';
+    NT.categoryValue = ''; NT.categoryLabel = '';
+    return;
+  }
   NT.subject = t.subject || '';
-  NT.message = t.body || '';
+  if (!keepMessage) NT.message = t.body || '';
   if (t.priority) NT.priority = t.priority;
   const cat = matchTemplateCategory(t.category);
   NT.categoryValue = cat ? cat.value : '';
@@ -149,11 +160,16 @@ function renderStep1() {
         <select class="form-input" id="nt-pri">${['normal', 'high', 'urgent', 'low'].map(p => `<option ${NT.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
       </div>`
     : '';
+  // Deactivated members are excluded: the server refuses them (400 "not an
+  // active member"), which would fail the create at the very last step.
+  // Option VALUES are user ids, not names — names aren't unique (mapAgentRow
+  // falls back to email, then 'Unknown'), and a name-based lookup miss would
+  // silently drop the agent's deliberate pick.
   const agentRow = visible('agent')
     ? `<div class="form-row"><label class="form-label">Assign to${reqMark('agent')}</label>
         <select class="form-input" id="nt-agent">
-          <option value="__auto__" ${NT.agentName === '__auto__' ? 'selected' : ''}>Auto (apply rules)</option>
-          ${AGENTS.map(a => `<option value="${window.escAttr(a.name)}" ${NT.agentName === a.name ? 'selected' : ''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
+          <option value="__auto__" ${NT.agentUserId ? '' : 'selected'}>Auto (apply rules)</option>
+          ${AGENTS.filter(a => a.active !== false).map(a => `<option value="${window.escAttr(a.userId || a.name)}" ${NT.agentUserId === (a.userId || a.name) ? 'selected' : ''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
         </select>
       </div>`
     : '';
@@ -175,7 +191,13 @@ function renderStep1() {
     if (NT.busy) return;
     harvestStep1();
     if (!validateStep1(cats.length)) return;   // early-return keeps the modal open
-    if (singleStep) { void finishCreate({ message: '', send: false }); return; }
+    if (singleStep) {
+      // No step 2 to host the busy state — guard the create here, or a
+      // double-click on "Create ticket" mints two tickets.
+      setBusy(true, 'Creating…');
+      void finishCreate({ message: '', send: false });
+      return;
+    }
     closeModal();
     renderStep2();
   }, singleStep ? 'Create ticket' : 'Next — write the message');
@@ -188,10 +210,17 @@ function harvestStep1() {
   const catSel = document.getElementById('nt-cat');
   if (catSel) {
     NT.categoryValue = catSel.value || '';
-    NT.categoryLabel = catSel.selectedOptions[0]?.textContent || '';
+    // Only a real pick carries a label — otherwise the placeholder's own text
+    // ("Select a category…") would leak into the demo ticket's category.
+    NT.categoryLabel = NT.categoryValue ? (catSel.selectedOptions[0]?.textContent || '') : '';
   }
   NT.priority = document.getElementById('nt-pri')?.value || NT.priority;
-  NT.agentName = document.getElementById('nt-agent')?.value || NT.agentName;
+  const agentSel = document.getElementById('nt-agent');
+  if (agentSel) {
+    const v = agentSel.value;
+    NT.agentUserId = (!v || v === '__auto__') ? null : v;
+    NT.agentName = NT.agentUserId ? (agentSel.selectedOptions[0]?.textContent.replace(/ \(OOO\)$/, '') || '') : '';
+  }
 }
 
 function validateStep1(haveCats) {
@@ -202,7 +231,7 @@ function validateStep1(haveCats) {
   // nothing to pick, so don't dead-end it.
   if (visible('category') && haveCats && !NT.categoryValue) { alert('Please select a category.'); return false; }
   if (visible('priority') && required('priority') && !NT.priority) { alert('Priority is required.'); return false; }
-  if (visible('agent') && required('agent') && NT.agentName === '__auto__') {
+  if (visible('agent') && required('agent') && !NT.agentUserId) {
     alert('Assignee is required (Auto does not satisfy a required assignment).'); return false;
   }
   return true;
@@ -229,25 +258,17 @@ function renderSuggestions(q) {
   if (!box) return;
   const rows = matchCustomers(q);
   if (!rows.length) { box.innerHTML = ''; return; }
+  // Reuses the global-search dropdown classes (.gs-results/.gs-result in
+  // web/styles/shell.css) so the keyboard highlight is actually VISIBLE and
+  // hover comes from CSS — no inline styles, no per-row listeners.
   box.innerHTML = `
-    <div class="nt-sug" style="position:absolute;top:2px;left:0;right:0;z-index:30;background:var(--w,#fff);border:1px solid var(--rule);border-radius:var(--r);box-shadow:0 8px 24px rgba(19,14,48,.12);overflow:hidden">
+    <div class="gs-results show" style="top:2px">
       ${rows.map((c, i) => `
-        <div class="nt-sug-row ${i === 0 ? 'active' : ''}" data-mousedown-action="nt.pick" data-cust-id="${window.escAttr(c.id)}"
-             style="display:flex;gap:10px;align-items:center;padding:8px 12px;cursor:pointer">
-          <div style="width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;flex-shrink:0">${window.escHtml((c.first?.[0] || '') + (c.last?.[0] || ''))}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12.5px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(`${c.first} ${c.last}`.trim() || c.id)}</div>
-            <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(c.id)}${c.email ? ` · ${window.escHtml(c.email)}` : ''}</div>
-          </div>
+        <div class="gs-result ${i === 0 ? 'active' : ''}" data-mousedown-action="nt.pick" data-cust-id="${window.escAttr(c.id)}">
+          <span class="gs-result-type">${window.escHtml(c.id)}</span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(`${c.first} ${c.last}`.trim() || c.id)}${c.email ? ` · ${window.escHtml(c.email)}` : ''}</span>
         </div>`).join('')}
     </div>`;
-  // Highlight-follows-hover keeps mouse and keyboard selection in sync.
-  box.querySelectorAll('.nt-sug-row').forEach(el => {
-    el.addEventListener('mouseenter', () => {
-      box.querySelectorAll('.nt-sug-row').forEach(r => r.classList.remove('active'));
-      el.classList.add('active');
-    });
-  });
 }
 
 // Keyboard nav on the search input — arrows move the highlight, Enter picks
@@ -259,7 +280,7 @@ function wireCustomerSearch() {
   if (!input) return;
   input.focus();
   input.addEventListener('keydown', (e) => {
-    const rows = [...document.querySelectorAll('.nt-sug-row')];
+    const rows = [...document.querySelectorAll('#nt-cust-sug .gs-result')];
     if (!rows.length) return;
     const idx = rows.findIndex(r => r.classList.contains('active'));
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -304,7 +325,7 @@ function renderStep2() {
       <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(NT.customer?.displayId || '')}</span>
       <span>·</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px">${window.escHtml(NT.subject)}</span>
       ${NT.categoryLabel ? `<span>·</span><span>${window.escHtml(NT.categoryLabel)}</span>` : ''}
-      ${NT.agentName !== '__auto__' ? `<span>·</span><span>→ ${window.escHtml(NT.agentName)}</span>` : ''}
+      ${NT.agentUserId ? `<span>·</span><span>→ ${window.escHtml(NT.agentName)}</span>` : ''}
       <span class="link" data-action="nt.back" style="margin-left:auto;font-size:11px">‹ Edit details</span>
     </div>
     ${TICKET_TEMPLATES.length ? `
@@ -335,34 +356,43 @@ function renderStep2() {
   document.getElementById('nt2-msg')?.focus();
 }
 
-function setStep2Busy(label) {
-  NT.busy = true;
-  const send = document.querySelector('#modal-container [data-action="modal.confirm"]');
-  if (send) { send.disabled = true; send.textContent = label; }
-  const draft = document.getElementById('nt2-draft-btn');
-  if (draft) draft.disabled = true;
-}
+// Freeze / unfreeze whichever step is on screen while a create is in flight.
+// EVERY exit is disabled, not just the confirm: nt.cancel's resetNT() would
+// otherwise null NT.customer mid-await and blow up the post-await read.
+// `busyLabel` remembers the confirm's original text so unbusy can restore it
+// (step 1 says "Create ticket", step 2 "Send").
+let _confirmLabelBeforeBusy = '';
 
-function step2Unbusy() {
-  NT.busy = false;
-  const send = document.querySelector('#modal-container [data-action="modal.confirm"]');
-  if (send) { send.disabled = false; send.textContent = 'Send'; }
+function setBusy(on, label) {
+  NT.busy = on;
+  const confirm = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  if (confirm) {
+    if (on) { _confirmLabelBeforeBusy = confirm.textContent; confirm.textContent = label; }
+    else if (_confirmLabelBeforeBusy) { confirm.textContent = _confirmLabelBeforeBusy; }
+    confirm.disabled = on;
+  }
   const draft = document.getElementById('nt2-draft-btn');
-  if (draft) draft.disabled = false;
+  if (draft) draft.disabled = on;
+  document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"]')
+    .forEach(el => {
+      if (el.tagName === 'BUTTON') el.disabled = on;
+      el.style.pointerEvents = on ? 'none' : '';
+      el.style.opacity = on ? '.5' : '';
+    });
 }
 
 async function confirmSend() {
   if (NT.busy) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
   if (required('message') && !msg) { alert('First message is required.'); return; }
-  setStep2Busy(msg ? 'Sending…' : 'Creating…');
+  setBusy(true, msg ? 'Sending…' : 'Creating…');
   await finishCreate({ message: msg, send: !!msg });
 }
 
 async function saveAsDraft() {
   if (NT.busy) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
-  setStep2Busy('Creating…');
+  setBusy(true, 'Creating…');
   await finishCreate({ message: msg, send: false });
 }
 
@@ -370,25 +400,40 @@ async function saveAsDraft() {
 
 async function finishCreate({ message, send }) {
   const isApiBacked = Boolean(NT.customer?.uuid);
-  let displayId;
+  // Snapshot everything the async path needs BEFORE the first await — NT is
+  // module state and must not be read across it.
+  const snapshot = {
+    customerUuid: NT.customer?.uuid || null,
+    customerDisplayId: NT.customer?.displayId || 'M001',
+    subject: NT.subject,
+    categoryValue: NT.categoryValue,
+    categoryLabel: NT.categoryLabel,
+    priority: NT.priority,
+    agentUserId: NT.agentUserId,
+    agentName: NT.agentName,
+  };
+  let displayId, keptDraft = false;
   if (isApiBacked) {
-    displayId = await createOnServer({ message, send });
-    if (!displayId) { step2Unbusy(); return; }   // error already surfaced; modal stays open
+    const res = await createOnServer(snapshot, { message, send });
+    if (!res) { setBusy(false); return; }        // error already surfaced; modal stays open
+    displayId = res.displayId; keptDraft = res.keptDraft;
   } else {
-    displayId = createDemoTicket({ message, send });
+    const res = createDemoTicket(snapshot, { message, send });
+    displayId = res.displayId; keptDraft = res.keptDraft;
   }
-  setComposeTabValue('reply');   // drafts key off the live COMPOSE_TAB — land on the tab that shows it
+  // Only move the app-wide compose tab when there IS a reply draft to reveal
+  // — silently switching an agent out of Internal-note mode otherwise.
+  if (keptDraft) setComposeTabValue('reply');
   closeModal();
   resetNT();
   updateNavBadges();
   openTicket(displayId);         // lazy detail load paints the thread (incl. the sent message)
 }
 
-async function createOnServer({ message, send }) {
-  const agentUserId = NT.agentName !== '__auto__' ? (AGENTS.find(a => a.name === NT.agentName)?.userId || null) : null;
-  const body = { subject: NT.subject, customer_id: NT.customer.uuid, priority_key: NT.priority };
-  if (NT.categoryValue) body.category_key = NT.categoryValue;
-  if (agentUserId) body.assigned_user_id = agentUserId;
+async function createOnServer(snap, { message, send }) {
+  const body = { subject: snap.subject, customer_id: snap.customerUuid, priority_key: snap.priority };
+  if (snap.categoryValue) body.category_key = snap.categoryValue;
+  if (snap.agentUserId) body.assigned_user_id = snap.agentUserId;
 
   let res;
   try { res = await apiPost('/api/v1/tickets', body); }
@@ -398,10 +443,14 @@ async function createOnServer({ message, send }) {
   // so fall back to what the agent entered for every other column.
   const now = new Date().toISOString();
   const srv = res?.ticket || {};
+  if (!srv.id || !srv.display_id) {
+    showToast("The ticket was created but the server's response was incomplete — reload to see it.", 'warn', 8000);
+    return null;
+  }
   const row = {
-    subject: NT.subject, status_key: 'open', priority_key: NT.priority,
-    category_key: NT.categoryValue || null, assigned_user_id: agentUserId,
-    customer_id: NT.customer.uuid, sla_state: 'ok', created_at: now, updated_at: now,
+    subject: snap.subject, status_key: 'open', priority_key: snap.priority,
+    category_key: snap.categoryValue || null, assigned_user_id: snap.agentUserId,
+    customer_id: snap.customerUuid, sla_state: 'ok', created_at: now, updated_at: now,
     snoozed_until: null, snoozed_at: null, snooze_reason: null, snooze_woken_at: null,
     merged_into_id: null, merged_at: null, status_before_merge: null,
     latest_customer_sentiment: null, last_message_role: null,
@@ -411,51 +460,59 @@ async function createOnServer({ message, send }) {
 
   // Old-API fallback: the explicit assignee wasn't applied on create — the
   // existing membership-checked PATCH still lands it.
-  if (agentUserId && row.assigned_user_id !== agentUserId) {
+  if (snap.agentUserId && row.assigned_user_id !== snap.agentUserId) {
     try {
-      await apiPatch(`/api/v1/tickets/${row.id}`, { assigned_user_id: agentUserId });
+      await apiPatch(`/api/v1/tickets/${row.id}`, { assigned_user_id: snap.agentUserId });
       const t = TICKETS.find(x => x._uuid === row.id);
-      if (t) t.agent = NT.agentName;
+      if (t) t.agent = snap.agentName;
     } catch { /* rules' pick stands; visible on the ticket */ }
   }
 
+  let keptDraft = false;
   if (send && message) {
+    let mres;
     try {
-      const mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message });
-      notifyReplyDelivery(mres.delivery);
+      // ONLY the network call is in the try — a throw from the toast helper
+      // below would otherwise be misreported as a send failure and prompt a
+      // duplicate send.
+      mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message });
     } catch (err) {
       // The ticket already exists — retrying in the modal would duplicate it.
       // Rescue the text as a composer draft and let the agent send from there.
-      saveDraftFor(row.display_id, 'reply', message);
+      saveDraft(row.display_id, message, 'reply');
       showToast('Ticket created, but the message failed to send — it was kept as a draft on the ticket.', 'warn', 8000);
+      return { displayId: row.display_id, keptDraft: true };
     }
+    if (mres?.delivery) notifyReplyDelivery(mres.delivery);
   } else if (message) {
-    saveDraftFor(row.display_id, 'reply', message);
+    saveDraft(row.display_id, message, 'reply');
+    keptDraft = true;
   }
-  return row.display_id;
+  return { displayId: row.display_id, keptDraft };
 }
 
 // Demo persona — the legacy in-memory mint, verbatim semantics.
-function createDemoTicket({ message, send }) {
+function createDemoTicket(snap, { message, send }) {
   // parseInt on non-numeric IDs returns NaN; filter them out so a stray
   // ticket like "TK-foo" can't poison Math.max into NaN.
   const ticketNums = TICKETS.map(t => parseInt((t.id || '').split('-')[1] || '0', 10)).filter(n => Number.isFinite(n));
   const newId = 'TK-' + String(Math.max(0, ...ticketNums) + 1).padStart(3, '0');
   TICKETS.unshift({
-    id: newId, subject: NT.subject, customerId: NT.customer?.displayId || 'M001',
+    id: newId, subject: snap.subject, customerId: snap.customerDisplayId,
     status: 'open',
-    priority: NT.priority,
-    category: NT.categoryLabel || catOptions()[0]?.label || 'General',
-    agent: NT.agentName === '__auto__' ? '' : NT.agentName,
+    priority: snap.priority,
+    category: snap.categoryLabel || catOptions()[0]?.label || 'General',
+    agent: snap.agentName || '',
     created: new Date().toISOString().slice(0, 10), updated: 'just now',
     sla: 'ok', tags: [], aiTags: [], csat: null,
     msgs: (send && message) ? [{ from: SESSION.name, r: 'agent', t: message, ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }] : [],
   });
-  if (NT.agentName === '__auto__') applyAssignmentRules(TICKETS[0]);
+  if (!snap.agentUserId) applyAssignmentRules(TICKETS[0]);
   refreshTicketSLA(TICKETS[0]);
   fireWebhook('ticket.created', ticketPayload(TICKETS[0]));
-  if (!send && message) saveDraftFor(newId, 'reply', message);
-  return newId;
+  const keptDraft = Boolean(!send && message);
+  if (keptDraft) saveDraft(newId, message, 'reply');
+  return { displayId: newId, keptDraft };
 }
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -473,15 +530,18 @@ registerActions({
 
 registerChangeActions({
   'nt.applyTemplate': (ds, el) => {
-    // Template prefill overwrites subject/category/priority/message — same
-    // semantics as the old single-step modal.
-    applyTemplateToNT(el.value);
+    // Keep a message the agent already drafted on step 2 (step 1 has no
+    // message field, so clobbering it would be invisible). Priority is only
+    // rewritten when the template actually carries one — matching the old
+    // modal, which never reset a hand-picked priority.
+    const before = NT.priority;
+    applyTemplateToNT(el.value, { keepMessage: Boolean(NT.message) });
     const subj = document.getElementById('nt-subj');
     if (subj) subj.value = NT.subject;
     const cat = document.getElementById('nt-cat');
     if (cat) cat.value = NT.categoryValue;
     const pri = document.getElementById('nt-pri');
-    if (pri) pri.value = NT.priority;
+    if (pri && NT.priority !== before) pri.value = NT.priority;
   },
   'nt.appendTemplate': (ds, el) => {
     const t = TICKET_TEMPLATES.find(x => x.id === el.value);

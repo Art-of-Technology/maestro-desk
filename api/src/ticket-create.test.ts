@@ -120,13 +120,18 @@ runDbTests('ticket create (DB-backed)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('category matrix: valid ok · inactive 400 · unknown 400 · omitted ok (null)', async () => {
+  it('category matrix: valid ok · inactive 400 · unknown 400 · omitted ok (null) · case-insensitive canonicalised', async () => {
     expect((await create({ subject: 'c1', customer_id: ctx.custId, category_key: 'Payments' })).status).toBe(201);
     expect((await create({ subject: 'c2', customer_id: ctx.custId, category_key: 'Retired' })).status).toBe(400);
     expect((await create({ subject: 'c3', customer_id: ctx.custId, category_key: 'NoSuchKey' })).status).toBe(400);
     const omitted = await create({ subject: 'c4', customer_id: ctx.custId });
     expect(omitted.status).toBe(201);
     expect(((await omitted.json()) as any).ticket.category_key).toBeNull();
+    // Matching is case-insensitive (like the rules engine's catEq) but the
+    // stored value is the canonical key, never the caller's casing.
+    const lower = await create({ subject: 'c5', customer_id: ctx.custId, category_key: 'payments' });
+    expect(lower.status).toBe(201);
+    expect(((await lower.json()) as any).ticket.category_key).toBe('Payments');
   });
 
   it('initial_message regression pin: role customer, author "API caller", not the last word on shape', async () => {

@@ -53,6 +53,19 @@ tickets.use('*', async (c, next) => {
 // explicitly scopes by workspace_id — the authorization that RLS used to
 // enforce now lives here in the route + the auth middleware (which verifies
 // the caller is a member of the active workspace).
+// The list-row column set, shared by GET / and the post-create re-select so
+// the SPA's mapTicket sees exactly the same shape from both. Built per call
+// (never at module scope — that would open a DB handle at import time).
+// GET /sync keeps its own slimmer set; it also ships tombstones.
+function ticketListCols(sql: ReturnType<typeof getDb>) {
+  return sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+    customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
+    snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
+    (select tm.role from ticket_messages tm
+       where tm.ticket_id = tickets.id and tm.deleted_at is null
+       order by tm.created_at desc limit 1) as last_message_role`;
+}
+
 tickets.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -66,12 +79,7 @@ tickets.get('/', async (c) => {
   // turns a per-page full count into once per list-open.
   const withCount = offset === 0;
   const rows = await sql`
-    select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
-           customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
-           snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
-           (select tm.role from ticket_messages tm
-              where tm.ticket_id = tickets.id and tm.deleted_at is null
-              order by tm.created_at desc limit 1) as last_message_role
+    select ${ticketListCols(sql)}
            ${withCount ? sql`, count(*) over() ::int as total_count` : sql``}
     from tickets
     where workspace_id = ${workspaceId} and deleted_at is null
@@ -1054,18 +1062,24 @@ tickets.post('/', async (c) => {
   `;
   if (!customer) return c.json({ error: 'Customer not found' }, 404);
 
-  // Reject an unknown/disabled category — same rule PATCH enforces (:266).
-  // Omitted stays nullable (player-lookup and API callers send none).
-  if (input.category_key != null) {
-    const [cat] = await sql`
+  // Reject an unknown/disabled category — same rule the PATCH handler
+  // enforces. Omitted stays nullable (player-lookup and API callers send
+  // none). Matched case-insensitively, like the rules engine's catEq
+  // (lib/assign-rules-engine.ts), so a caller can't be refused here for a
+  // key that downstream matching would happily accept; the row stores the
+  // canonical key.
+  let categoryKey = input.category_key ?? null;
+  if (categoryKey != null) {
+    const [cat] = await sql<{ key: string }[]>`
       select key from ticket_categories
-      where workspace_id = ${workspaceId} and key = ${input.category_key} and is_active = true
+      where workspace_id = ${workspaceId} and lower(key) = lower(${categoryKey}) and is_active = true
     `;
-    if (!cat) return c.json({ error: `Unknown or inactive category: ${input.category_key}` }, 400);
+    if (!cat) return c.json({ error: `Unknown or inactive category: ${categoryKey}` }, 400);
+    categoryKey = cat.key;
   }
 
-  // Reject an explicit assignee who isn't an active member — mirrors PATCH
-  // (:277) and the customer_id check above.
+  // Reject an explicit assignee who isn't an active member — mirrors the
+  // PATCH handler's assignee check and the customer_id check above.
   if (input.assigned_user_id != null) {
     const [member] = await sql`
       select 1 from workspace_members
@@ -1079,7 +1093,7 @@ tickets.post('/', async (c) => {
   const [created] = await sql<{ id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)
     values (${workspaceId}, ${displayId}, ${input.subject}, ${input.customer_id},
-            ${input.status_key}, ${input.priority_key}, ${input.category_key ?? null},
+            ${input.status_key}, ${input.priority_key}, ${categoryKey},
             ${input.assigned_user_id ?? userId})
     returning id
   `;
@@ -1102,12 +1116,13 @@ tickets.post('/', async (c) => {
     catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
   }
 
-  // Slack notification on creation.
-  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[slack] notify created failed:', err); }
-  // Generic outgoing webhooks (any URL the workspace configured).
-  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
+  // Slack + outgoing webhooks are third-party round-trips: fire-and-forget
+  // like publishTicketChanged below, so the agent's create doesn't wait on
+  // someone else's endpoint.
+  void notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id })
+    .catch((err) => console.warn('[slack] notify created failed:', err));
+  void dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id })
+    .catch((err) => console.warn('[outgoing-webhooks] created failed:', err));
 
   void publishTicketChanged(workspaceId, created.id);
 
@@ -1115,15 +1130,13 @@ tickets.post('/', async (c) => {
   // set, so the SPA can upsert the row locally without a follow-up fetch —
   // the insert's `returning` would show the pre-rules assignee.
   const [ticket] = await sql`
-    select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
-           customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
-           snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
-           (select tm.role from ticket_messages tm
-              where tm.ticket_id = tickets.id and tm.deleted_at is null
-              order by tm.created_at desc limit 1) as last_message_role
+    select ${ticketListCols(sql)}
     from tickets
     where id = ${created.id} and workspace_id = ${workspaceId}
   `;
+  // The row was just inserted in this request and nothing deletes between —
+  // but never hand the SPA an undefined row if that ever changes.
+  if (!ticket) return c.json({ ticket: { id: created.id, display_id: displayId } }, 201);
   return c.json({ ticket }, 201);
 });
 

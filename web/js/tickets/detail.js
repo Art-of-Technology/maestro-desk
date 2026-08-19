@@ -2,9 +2,9 @@
 // The per-ticket detail view: header banners (snooze / merged), full sidebar
 // (timing, SLA gauge, custom fields, mentions, attachments, linked tickets,
 // macros, AI summary, KB suggestions), the activity log, and the compose
-// pane with its AI / send / translate / mention controls. Also the New
-// Ticket modal entry point (the only "create" flow surfaced from this
-// page).
+// pane with its AI / send / translate / mention controls. The create flow
+// lives in tickets/new-ticket.js (which imports openTicket and
+// notifyReplyDelivery from here).
 //
 // External reaches (interim, via window): escAttr, escHtml, fmtMinutes —
 // all still in app.js. navTo is a direct ES import.
