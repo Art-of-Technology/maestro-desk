@@ -5,8 +5,8 @@
 // ticket table with row checkboxes.
 //
 // External reaches (interim, via window): escAttr, escHtml, fmtMinutes —
-// all still in app.js. openTicket and
-// showNewTicketModal are direct ES imports from tickets/detail.js.
+// all still in app.js. openTicket is a direct ES import from tickets/detail.js;
+// showNewTicketModal from tickets/new-ticket.js.
 //
 // No window-bridge namespace: the page's inline on*= handlers are delegated
 // as list.* actions (bottom of file). renderTickets (router + list-sync) and
@@ -25,7 +25,8 @@ import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
 import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
-import { openTicket, showNewTicketModal } from './detail.js';
+import { openTicket } from './detail.js';
+import { showNewTicketModal } from './new-ticket.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { showToast } from '../core/toast.js';

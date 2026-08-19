@@ -1,9 +1,8 @@
 // ─── Ticket Templates ────────────────────────────────────────────────────────
 // Config-section page for the per-category ticket starter templates that
 // the New Ticket modal can prefill from. CRUD only — the template picker
-// inside the New Ticket modal lives in app.js (showNewTicketModal +
-// ntApplyTemplate) because it's part of the new-ticket form, not this
-// Config page.
+// inside the New Ticket modal lives in tickets/new-ticket.js because it's
+// part of the new-ticket form, not this Config page.
 //
 // Click/change/input handlers route through core/event-delegation.js.
 // `renderTicketTemplates` is the only export (the app.js router calls
@@ -11,14 +10,14 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml — all
 // still in app.js. showModal and closeModal are direct ES imports.
-// showNewTicketModal is a direct ES import from tickets/detail.js
-// (no cycle — detail.js doesn't import from this module).
+// showNewTicketModal is a direct ES import from tickets/new-ticket.js
+// (no cycle — new-ticket.js doesn't import from this module).
 
 import { TICKETS, TICKET_TEMPLATES } from '../core/data.js';
 import { TT_FILTER_CAT, setTtFilterCat } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
-import { showNewTicketModal } from '../tickets/detail.js';
+import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 
