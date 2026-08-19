@@ -44,6 +44,32 @@ function apply(collapsed) {
     if (collapsed) foot.setAttribute('title', 'Sign out');
     else foot.removeAttribute('title');
   }
+  // Same problem, eight more times: the rail hides every .sb-lbl, so each nav
+  // row becomes a bare icon with no tooltip and no accessible name. Borrow
+  // the label text we just hid. Read from .sb-lbl rather than a static map so
+  // rows added later (or relabelled per workspace) are covered for free.
+  for (const item of document.querySelectorAll('.sidebar .sb-item')) {
+    const label = item.querySelector('.sb-lbl')?.textContent.trim();
+    if (!label) continue;
+    if (collapsed) {
+      item.setAttribute('title', label);
+      item.setAttribute('aria-label', label);
+    } else {
+      item.removeAttribute('title');
+      item.removeAttribute('aria-label');
+    }
+  }
+  // The brand block is CSS-neutralised while collapsed (pointer-events:none),
+  // but that doesn't stop the keyboard — drop it out of the tab order too.
+  // Only when it's actually a switcher trigger; otherwise it has no tabindex.
+  const logo = document.querySelector('.sidebar .sb-logo.switchable');
+  if (logo) logo.setAttribute('tabindex', collapsed ? '-1' : '0');
+}
+
+// Read-only accessor for modules that wire the sidebar up asynchronously and
+// so can't assume it is expanded (workspace-switcher/index.js).
+export function isSidebarCollapsed() {
+  return !!document.querySelector('.sidebar')?.classList.contains('collapsed');
 }
 
 export function toggleSidebar() {

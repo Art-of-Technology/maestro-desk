@@ -27,6 +27,7 @@ import { renderPage } from '../core/router.js';
 import { registerActions } from '../core/event-delegation.js';
 import { SESSION, setSession } from '../core/state.js';
 import { initTaglineSdk } from '../tagline-sdk/index.js';
+import { isSidebarCollapsed } from '../core/sidebar.js';
 
 let _memberships = [];   // cached from /whoami; refreshed each time the popover opens
 let _switching   = false;
@@ -58,7 +59,11 @@ function enableTrigger() {
   if (!el) return;
   el.classList.add('switchable');
   el.setAttribute('data-action', 'wsswitch.open');
-  el.setAttribute('tabindex', '0');
+  // This runs after memberships resolve, which is well after core/sidebar.js
+  // applied the stored collapsed state — so ask, rather than assume the
+  // sidebar is expanded. Collapsed, the trigger is CSS-neutralised and must
+  // stay out of the tab order (core/sidebar.js owns the same rule on toggle).
+  el.setAttribute('tabindex', isSidebarCollapsed() ? '-1' : '0');
   el.setAttribute('role', 'button');
   el.setAttribute('aria-haspopup', 'true');
   el.setAttribute('title', 'Switch workspace');
