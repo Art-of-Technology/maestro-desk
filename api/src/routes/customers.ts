@@ -583,12 +583,27 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
               ${`Unmerged ${source.display_id} — ${restored.length} ticket${restored.length === 1 ? '' : 's'} and ${notesBack.length} note${notesBack.length === 1 ? '' : 's'} restored.`})
     `;
 
+    // Both sides' live notes ride back so the SPA can apply server truth
+    // wholesale (mirrors the merge response) instead of filtering local
+    // stamps — which go stale after a reload or a second stacked merge.
+    const notesFor = (custId: string) => tx`
+      select n.id, n.customer_id, n.author_user_id, u.name as author_name, n.text,
+             n.merged_from_customer_id, n.created_at
+      from customer_notes n
+      left join users u on u.id = n.author_user_id
+      where n.workspace_id = ${workspaceId} and n.customer_id = ${custId} and n.deleted_at is null
+      order by n.created_at desc
+    `;
+    const [sourceNotes, primaryNotes] = await Promise.all([notesFor(sourceId), notesFor(primaryId)]);
+
     outcome = {
       status: 200,
       body: {
         source: { id: sourceId, display_id: source.display_id },
         primary: { id: primaryId },
         tickets_restored_ids: restored.map((r) => r.id),
+        source_notes: sourceNotes,
+        primary_notes: primaryNotes,
         fields_reverted: audit.reverted,
         fields_kept_due_to_edit: audit.kept,
       },
@@ -685,6 +700,20 @@ customers.post('/:id/erase', async (c) => {
   // pointer dangling. performUnmerge restores everything to this profile
   // first (and writes its own survivor note); the redaction below then
   // reaches all of it.
+  // Erasing a merge SURVIVOR would over-redact: its tickets include the
+  // merged-in history of its duplicates (customer_id points at the survivor),
+  // so by-customer_id redaction would destroy THEIR correspondence too, and
+  // a later unmerge would hand redacted tickets back. Unmerge the duplicates
+  // first, then erase each profile individually.
+  const [childOfTarget] = await getDb()`
+    select 1 from customers
+    where workspace_id = ${workspaceId} and merged_into_customer_id = ${customerId} and deleted_at is null
+    limit 1
+  `;
+  if (childOfTarget) {
+    return c.json({ error: 'This profile has merged duplicates — unmerge them before erasing, or their tickets would be redacted too', code: 'has_merged_children' }, 409);
+  }
+
   const [mergeState] = await getDb()<{ merged_into_customer_id: string | null }[]>`
     select merged_into_customer_id from customers
     where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null

@@ -672,11 +672,16 @@ async function unmergeCustomer(srcId) {
     TICKETS.forEach(t => {
       if (t._uuid && restored.has(t._uuid)) { t.customerId = srcId; delete t.preMergeCustomerId; }
     });
-    if (primary && primary.notes) {
-      const back = primary.notes.filter(n => n.mergedFromCustomerId === srcId);
-      primary.notes = primary.notes.filter(n => n.mergedFromCustomerId !== srcId);
-      src.notes = back.map(n => ({ ...n, mergedFromCustomerId: undefined }));
-    }
+    // Both sides' notes come back from the server (server truth beats
+    // filtering local stamps, which go stale after a reload or a second
+    // stacked merge into the same survivor).
+    const custByUuid = Object.fromEntries(CUSTOMERS.map(x => [x._uuid, x]));
+    const mapNotes = (rows) => (rows || []).map(n => ({
+      ...mapCustomerNote(n),
+      mergedFromCustomerId: n.merged_from_customer_id ? (custByUuid[n.merged_from_customer_id]?.id) : undefined,
+    }));
+    src.notes = mapNotes(res.source_notes);
+    if (primary) primary.notes = mapNotes(res.primary_notes);
     (res.fields_reverted || []).forEach(col => { if (primary) primary[MERGE_COL_MAP[col] || col] = ''; });
     if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
     delete src.mergedInto;

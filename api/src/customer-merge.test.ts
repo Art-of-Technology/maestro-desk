@@ -243,6 +243,19 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     `;
     expect(tRow.customer_id).toBe(src);
     expect(tRow.subject).not.toBe('erase-me subject');
+    // Erasing the SURVIVOR is refused while it holds merged children — its
+    // by-customer_id redaction would destroy the duplicates' tickets too.
+    const src2 = await mkCustomer('erase-child');
+    const pri2 = await mkCustomer('erase-parent');
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${src2}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: pri2 }),
+    })).status).toBe(200);
+    const blockedErase = await as(admin.token, ctx.ws, `/api/v1/customers/${pri2}/erase`, {
+      method: 'POST', body: JSON.stringify({}),
+    });
+    expect(blockedErase.status).toBe(409);
+    expect(((await blockedErase.json()) as any).code).toBe('has_merged_children');
+
     // Source is unmerged + erased; the survivor is untouched.
     const [srcRow] = await sql<{ merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select merged_into_customer_id, erased_at from customers where id = ${src}
@@ -275,6 +288,10 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(body.tickets_restored_ids).not.toContain(postMergeTicket);
     expect(body.fields_reverted).toContain('mobile');
     expect(body.fields_kept_due_to_edit).toContain('vip_tier');
+    // Both sides' notes ride back as server truth for the SPA.
+    expect(body.source_notes.some((n: any) => n.text === 'source note')).toBe(true);
+    expect(body.primary_notes.some((n: any) => n.text.startsWith('Unmerged M-src'))).toBe(true);
+    expect(body.primary_notes.some((n: any) => n.text === 'source note')).toBe(false);
 
     const [t1row] = await sql<{ customer_id: string; pre_merge_customer_id: string | null }[]>`
       select customer_id, pre_merge_customer_id from tickets where id = ${ctx.movedTicket}
