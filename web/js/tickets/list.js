@@ -42,6 +42,34 @@ let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
+// The four advanced selects live behind "More filters" (issue #447). Closed by
+// default; anything actually filtering is still visible as a removal chip in
+// the main bar, so nothing hides silently.
+let SHOW_MORE_FILTERS = false;
+
+// The table's sortable columns, in order. Single source of truth: the header
+// row maps over it AND groupHeader derives its colspan from its length, so the
+// two can't disagree. The select-all checkbox column is deliberately not here
+// — it's hand-written and isn't sortable.
+//
+// SLA was removed as a column in #447 (it's a per-row flag beside the ID now),
+// but t.sla is still read by the KPI tile, the "SLA risk" view chip, the
+// breach filter and both CSV exports — dropping the column doesn't drop the
+// data.
+const TICKET_COLUMNS = [
+  ['id','ID'], ['customerId','Customer'], ['subject','Subject'], ['status','Status'],
+  ['priority','Priority'], ['category','Category'], ['agent','Agent'], ['updated','Updated'],
+];
+
+// Per-row SLA signal, replacing the old SLA column. Only the two states an
+// agent must act on get a mark — 'ok' and 'snoozed' render nothing, so the
+// column of IDs stays quiet and the marks actually stand out. Solid vs hollow
+// triangle, not just colour, so the two are distinguishable without it.
+function slaFlag(sla) {
+  if (sla === 'breach') return '<span class="sla-flag sla-breach" title="SLA breached" aria-label="SLA breached">▲</span>';
+  if (sla === 'warn')   return '<span class="sla-flag sla-warn" title="SLA at risk — approaching breach" aria-label="SLA at risk">△</span>';
+  return '';
+}
 
 // Saved searches: per-user, persisted server-side. Lazy-load on first
 // paint of the list and re-render once the fetch resolves. The
@@ -124,6 +152,10 @@ export function renderTickets() {
   const list = getFilteredTickets();
   const groups = groupTicketsBy(list, TICKET_GROUP_BY);
   const cats = [...new Set(TICKETS.map(t => t.category))];
+  // How many of the four "More filters" selects are actually narrowing the
+  // list. Badged on the toggle so a closed row never hides an active filter.
+  // Group-by is excluded on purpose — it rearranges rows, it doesn't drop any.
+  const advancedN = [FILTER_CATEGORY, FILTER_PRIORITY, FILTER_AGENT, FILTER_SENTIMENT].filter(v => v !== 'all').length;
 
   // KPIs
   const total = TICKETS.length;
@@ -151,7 +183,7 @@ export function renderTickets() {
       <td style="width:32px;padding-right:0" data-action="">
         <input type="checkbox" ${checked?'checked':''} data-change-action="tickets.toggleSelected" data-id="${window.escAttr(t.id)}" style="cursor:pointer;accent-color:var(--purple)" />
       </td>
-      <td class="bold">${window.escHtml(t.id)}</td>
+      <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}</td>
       <td>${cust ? window.escHtml(cust.first+' '+cust.last) : '—'}</td>
       <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
@@ -159,11 +191,14 @@ export function renderTickets() {
       <td>${window.escHtml(t.category)}</td>
       <td>${t.agent ? window.escHtml(t.agent) : '<span style="color:var(--ink3)">Unassigned</span>'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(t.updated)}</td>
-      <td><span class="sla-${window.escAttr(t.sla)}" style="font-family:'Inter',sans-serif;font-size:11px;font-weight:500;text-transform:uppercase">${window.escHtml(t.sla)}</span></td>
     </tr>`;
   };
 
-  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="10" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink3);text-transform:capitalize">${window.escHtml(key)}</td></tr>`;
+  // colspan is derived, not literal: it used to be a hardcoded 10 sitting six
+  // lines away from the header array it had to agree with, which is exactly
+  // the pair that drifts when a column is added or removed. +1 for the
+  // select-all checkbox column, which isn't in TICKET_COLUMNS.
+  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="${TICKET_COLUMNS.length + 1}" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink3);text-transform:capitalize">${window.escHtml(key)}</td></tr>`;
   const tableBody = groups.map(g => `${g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : ''}${g.items.map(rowFor).join('')}`).join('');
 
   const filteredIds = list.map(t => t.id);
@@ -217,9 +252,35 @@ export function renderTickets() {
       </div>
       ${bulkBar}
       <div class="tab-bar">${tabs}</div>
+      ${/* One bar, not two (issue #447). What stays out here is what an agent
+             uses constantly — search, the saved views, and a chip for every
+             filter currently narrowing the list. The four rarely-touched
+             selects moved behind "More filters", which carries a count so a
+             collapsed row can never hide an active filter. */''}
       <div class="filter-bar" style="flex-wrap:wrap">
-        <span class="filter-label">Search</span>
-        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
+        ${/* The "Search" label became the placeholder to buy back a slot in
+             the merged bar, so the input needs an explicit accessible name —
+             a placeholder is not one, and it vanishes once you type. */''}
+        <input class="filter-select" id="ticket-search" type="search" aria-label="Search tickets" placeholder="Search subject, ID, customer, tag, agent…" style="width:250px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
+        ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
+        ${renderPinnedSavedSearchChips()}
+        <button class="filter-more${SHOW_MORE_FILTERS?' open':''}" data-action="tickets.toggleMoreFilters"
+                aria-expanded="${SHOW_MORE_FILTERS?'true':'false'}" aria-controls="tickets-more-filters">
+          More filters${advancedN?` <span class="filter-more-n">${advancedN}</span>`:''} <span class="filter-more-caret" aria-hidden="true">${SHOW_MORE_FILTERS?'▴':'▾'}</span>
+        </button>
+        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_CATEGORY)}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
+        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
+        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
+        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
+        ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+      </div>
+      ${/* .filter-subbar, NOT .filter-bar: collapsible.js indexes .filter-bar
+             elements by position to build its persisted data-sec-id, so a row
+             that comes and goes would shuffle those ids. It also shouldn't get
+             its own collapse caret — it's already a disclosure. */''}
+      ${SHOW_MORE_FILTERS ? `
+      <div class="filter-subbar" id="tickets-more-filters">
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="category">
           <option value="all">All categories</option>
           ${cats.map(c=>`<option value="${window.escAttr(c)}" ${FILTER_CATEGORY===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
@@ -242,6 +303,7 @@ export function renderTickets() {
           <option value="neutral"    ${FILTER_SENTIMENT==='neutral'?'selected':''}>Neutral</option>
           <option value="positive"   ${FILTER_SENTIMENT==='positive'?'selected':''}>Positive</option>
         </select>
+        <span class="filter-subbar-sep" aria-hidden="true"></span>
         <select class="filter-select" data-change-action="tickets.setGroupBy" title="Group rows">
           <option value="none"     ${TICKET_GROUP_BY==='none'?'selected':''}>No grouping</option>
           <option value="status"   ${TICKET_GROUP_BY==='status'?'selected':''}>Group by status</option>
@@ -249,28 +311,17 @@ export function renderTickets() {
           <option value="category" ${TICKET_GROUP_BY==='category'?'selected':''}>Group by category</option>
           <option value="agent"    ${TICKET_GROUP_BY==='agent'?'selected':''}>Group by agent</option>
         </select>
-        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_CATEGORY)}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
-        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
-        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
-        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
-        ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
-      </div>
-      <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
-        <span class="filter-label">View</span>
-        ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
-        ${renderPinnedSavedSearchChips()}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           ${renderSavedSearchesControls()}
         </span>
-      </div>
+      </div>` : ''}
       <div style="flex:1;overflow-y:auto">
         <table class="tbl">
           <thead><tr>
             <th style="width:32px;padding-right:0" data-action="">
               <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} data-change-action="tickets.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
             </th>
-            ${[['id','ID'],['customerId','Customer'],['subject','Subject'],['status','Status'],['priority','Priority'],['category','Category'],['agent','Agent'],['updated','Updated'],['sla','SLA']].map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
+            ${TICKET_COLUMNS.map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
           </tr></thead>
           <tbody>${tableBody}</tbody>
         </table>
@@ -658,6 +709,7 @@ registerActions({
   // status tabs / view chips / sort / row open / topbar
   'tickets.setStatus':     (ds) => setStatusFilter(ds.status),
   'tickets.setView':       (ds) => setTicketView(ds.view),
+  'tickets.toggleMoreFilters': () => { SHOW_MORE_FILTERS = !SHOW_MORE_FILTERS; renderPage('tickets'); },
   'tickets.sort':          (ds) => sortTickets(ds.col),
   'tickets.openTicket':    (ds) => openTicket(ds.id),
   'tickets.newTicket':     () => showNewTicketModal(),

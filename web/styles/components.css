@@ -74,6 +74,20 @@
 .filter-tag.active{background:var(--purple);border-color:var(--purple);color:#fff;font-weight:600}
 .filter-tag.active .rm{color:rgba(255,255,255,0.7)}
 .filter-tag.active .rm:hover{color:#fff}
+/* "More filters" disclosure and the row it reveals (issue #447). The row is
+   .filter-subbar, NOT a second .filter-bar: collapsible.js indexes .filter-bar
+   elements by position to build the data-sec-id it persists, so a row that
+   appears and disappears would shuffle those ids — and a disclosure shouldn't
+   carry its own collapse caret anyway. */
+.filter-more{font-family:var(--font-sans);font-size:11px;padding:3px 11px;border:1px solid var(--rule2);border-radius:var(--r-pill);background:var(--off2);color:var(--ink2);cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .12s;white-space:nowrap}
+.filter-more:hover{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
+.filter-more.open{border-color:var(--rule3);color:var(--ink);background:var(--off)}
+.filter-more-caret{font-size:9px;line-height:1;opacity:.7}
+/* The count of active advanced filters. Uses the CTA, not a status colour:
+   it's a "you have filters applied" nudge, not a health signal. */
+.filter-more-n{font-family:var(--font-mono);font-size:10px;font-weight:600;line-height:1;padding:1px 6px;border-radius:var(--r-pill);background:var(--cta);color:var(--cta-ink)}
+.filter-subbar{display:flex;align-items:center;gap:6px;padding:0 20px 10px;flex-wrap:wrap;flex-shrink:0;background:var(--off)}
+.filter-subbar-sep{width:1px;align-self:stretch;margin:2px 4px;background:var(--rule2)}
 .filter-tag .rm{cursor:pointer;color:var(--ink3);font-size:11px;line-height:1}
 .filter-tag .rm:hover{color:var(--red);cursor:pointer}
 /* ── Tab bar ── */
@@ -171,6 +185,12 @@ textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
    --ink3's 3.8:1). */
 .empty-txt{font-family:var(--font-sans);font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
 .sla-ok{color:var(--green);font-weight:500}.sla-warn{color:var(--amber);font-weight:500}.sla-breach{color:var(--red);font-weight:500}.sla-snoozed{color:var(--ink3);font-weight:500}
+/* Per-row SLA mark in the ticket-ID cell, replacing the SLA column (#447).
+   Solid ▲ = breached, hollow △ = at risk, nothing at all for ok/snoozed — so
+   the shape carries the meaning as well as the colour, and a clean list shows
+   no marks. Sits on the row's own background, so it survives both the hover
+   and selected-row tints, which paint behind it. */
+.sla-flag{font-size:9px;line-height:1;margin-right:5px;vertical-align:1px;font-weight:700}
 .link{color:var(--blue);cursor:pointer;text-decoration:underline}
 .link:hover{color:var(--ink)}
 /* ── Colour picker ── */

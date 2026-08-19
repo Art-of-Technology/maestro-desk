@@ -2,7 +2,9 @@
 // After each renderPage we inject a small caret into every .kpi-bar /
 // .filter-bar / .tab-bar so an agent can hide chrome they don't need today.
 // Section IDs are page-scoped + indexed within the page, so a page with
-// multiple filter bars (e.g. tickets has two) tracks them independently.
+// multiple bars of the same kind tracks them independently. Because the index
+// is positional, adding or removing a bar remaps every later id on that page —
+// see RETIRED_SECTION_IDS below before you change a page's bar composition.
 //
 // Cross-cutting concern (used by every page), so it lives under js/core/.
 //
@@ -25,6 +27,27 @@ const SEC_LABELS = {
 function persistCollapsedSections() {
   localStorage.setItem('collapsed_sections', JSON.stringify([...COLLAPSED_SECTIONS]));
 }
+
+// ─── Retired section ids ────────────────────────────────────────────────────
+// Because ids are positional, removing a bar from a page doesn't just orphan
+// its stored id — nothing ever prunes it, and the counter in Settings →
+// Appearance would keep counting a section the user can no longer see or
+// restore. Any change that deletes a bar adds its id here.
+//
+// tickets:filter-bar:1 — the tickets page's second filter bar (View chips +
+// saved searches) was merged into the first in #447, so only :0 now exists.
+const RETIRED_SECTION_IDS = ['tickets:filter-bar:1'];
+
+(function pruneRetiredSections() {
+  let changed = false;
+  for (const id of RETIRED_SECTION_IDS) {
+    if (COLLAPSED_SECTIONS.delete(id)) changed = true;
+  }
+  // Guarded: this runs at module evaluation, so an unguarded quota or
+  // private-mode failure here would take down app boot. The in-memory prune
+  // has already happened either way; only the write-back is best-effort.
+  if (changed) { try { persistCollapsedSections(); } catch { /* re-pruned next load */ } }
+})();
 
 // Single source of truth for class + caret + aria sync. Both the post-render
 // initial pass and the click handler call this so the visible state can't
