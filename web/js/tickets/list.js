@@ -42,6 +42,37 @@ let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'id';
 let SORT_DIR = 1;
+// The four advanced selects live behind "More filters" (issue #447). Closed by
+// default; anything actually filtering is still visible as a removal chip in
+// the main bar, so nothing hides silently.
+let SHOW_MORE_FILTERS = false;
+
+// The table's sortable columns, in order. Single source of truth: the header
+// row maps over it AND groupHeader derives its colspan from its length, so the
+// two can't disagree. The select-all checkbox column is deliberately not here
+// — it's hand-written and isn't sortable.
+//
+// SLA was removed as a column in #447 (it's a per-row flag beside the ID now),
+// but t.sla is still read by the KPI tile, the "SLA risk" view chip, the
+// breach filter and both CSV exports — dropping the column doesn't drop the
+// data.
+const TICKET_COLUMNS = [
+  ['id','ID'], ['customerId','Customer'], ['subject','Subject'], ['status','Status'],
+  ['priority','Priority'], ['category','Category'], ['agent','Agent'], ['updated','Updated'],
+];
+
+// Per-row SLA signal, replacing the old SLA column. Only the two states an
+// agent must act on get a mark — 'ok' and 'snoozed' render nothing, so the
+// column of IDs stays quiet and the marks actually stand out. Solid vs hollow
+// triangle, not just colour, so the two are distinguishable without it.
+function slaFlag(sla) {
+  // role="img" is load-bearing: aria-label is not supported on a bare span
+  // (it maps to role=generic) and screen readers drop it, which would leave a
+  // breached row with no SLA signal at all now the column is gone.
+  if (sla === 'breach') return '<span class="sla-flag sla-breach" role="img" title="SLA breached" aria-label="SLA breached">▲</span>';
+  if (sla === 'warn')   return '<span class="sla-flag sla-warn" role="img" title="SLA at risk — approaching breach" aria-label="SLA at risk">△</span>';
+  return '';
+}
 
 // Saved searches: per-user, persisted server-side. Lazy-load on first
 // paint of the list and re-render once the fetch resolves. The
@@ -50,13 +81,35 @@ let SORT_DIR = 1;
 let SAVED_SEARCHES = [];
 let SAVED_SEARCHES_LOADED = false;
 
+// Kick off the one-time saved-searches fetch. This used to be a side effect
+// of renderSavedSearchesControls(), which was fine while that ran on every
+// paint — but the #447 merge moved it inside the "More filters" disclosure,
+// so on a fresh load nothing fetched and the PINNED chips (which live in the
+// always-visible bar) silently stayed empty. renderTickets calls this now, so
+// the fetch no longer depends on which controls happen to be on screen.
+// Failure is non-fatal — saved searches are an enhancement, not the page —
+// but it shouldn't be permanent either: the flag is set before the request,
+// so one transient error used to mean no pinned chips until a full reload.
+// Release the flag on failure so a later render retries, capped so a
+// consistently-down endpoint can't be re-hit on every render (renderTickets
+// runs on each list-sync poll).
+const SAVED_SEARCHES_MAX_ATTEMPTS = 3;
+let SAVED_SEARCHES_ATTEMPTS = 0;
+
+function ensureSavedSearchesLoaded() {
+  if (SAVED_SEARCHES_LOADED || SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS) return;
+  SAVED_SEARCHES_LOADED = true;
+  SAVED_SEARCHES_ATTEMPTS++;
+  apiGet('/api/v1/saved-searches')
+    .then((res) => { SAVED_SEARCHES = res.saved_searches || []; renderPage('tickets'); })
+    .catch((err) => {
+      SAVED_SEARCHES_LOADED = false;
+      const last = SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS;
+      console.warn(`[tickets] saved searches load failed${last ? ' (giving up)' : ', will retry'}:`, err);
+    });
+}
+
 function renderSavedSearchesControls() {
-  if (!SAVED_SEARCHES_LOADED) {
-    SAVED_SEARCHES_LOADED = true;
-    apiGet('/api/v1/saved-searches')
-      .then((res) => { SAVED_SEARCHES = res.saved_searches || []; renderPage('tickets'); })
-      .catch((err) => { console.warn('[tickets] saved searches load failed:', err); });
-  }
   // Group: own searches first, then "Shared with workspace" (via
   // <optgroup>) so the picker reads as a clear two-section list.
   const own    = SAVED_SEARCHES.filter((s) => !s.is_shared || isOwnedByMe(s));
@@ -91,7 +144,7 @@ function renderPinnedSavedSearchChips() {
     const sharedMark = s.is_shared && !isOwnedByMe(s)
       ? ` <span style="font-size:9px;color:var(--ink3);font-weight:400" title="Shared by ${window.escAttr(s.owner_name || 'someone')}">★</span>`
       : '';
-    return `<span class="filter-tag" style="cursor:pointer" data-action="tickets.applySearch" data-id="${window.escAttr(s.id)}" title="${window.escAttr(s.is_shared ? `Shared by ${s.owner_name || 'someone'}` : 'Pinned saved search')}">${window.escHtml(s.name)}${sharedMark}</span>`;
+    return `<span class="filter-tag filter-tag-saved" style="cursor:pointer" data-action="tickets.applySearch" data-id="${window.escAttr(s.id)}" title="${window.escAttr(s.is_shared ? `Shared by ${s.owner_name || 'someone'}` : 'Pinned saved search')}">${window.escHtml(s.name)}${sharedMark}</span>`;
   }).join('');
 }
 
@@ -118,12 +171,21 @@ export function initTicketsPage() {
 }
 
 export function renderTickets() {
+  ensureSavedSearchesLoaded();
   const statuses = ['all','open','pending','escalated','gdpr','resolved'];
   const tabs = statuses.map(s => `<div class="tab ${FILTER_STATUS===s?'active':''}" data-action="tickets.setStatus" data-status="${s}">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}${s!=='all'?' ('+TICKETS.filter(t=>t.status===s).length+')':' ('+TICKETS.length+')'}</div>`).join('');
 
   const list = getFilteredTickets();
   const groups = groupTicketsBy(list, TICKET_GROUP_BY);
   const cats = [...new Set(TICKETS.map(t => t.category))];
+  // How many of the four "More filters" selects are actually narrowing the
+  // list. Badged on the toggle so a closed row never hides an active filter.
+  // Group-by is excluded on purpose — it rearranges rows, it doesn't drop any.
+  const advancedN = [FILTER_CATEGORY, FILTER_PRIORITY, FILTER_AGENT, FILTER_SENTIMENT].filter(v => v !== 'all').length;
+  // Chips that carry an × — advanced filters plus the query and the grouping.
+  // Drives the separator that divides "views you can pick" from "filters
+  // currently applied", since both render as .filter-tag.
+  const activeChipN = advancedN + (FILTER_QUERY ? 1 : 0) + (TICKET_GROUP_BY !== 'none' ? 1 : 0);
 
   // KPIs
   const total = TICKETS.length;
@@ -151,7 +213,7 @@ export function renderTickets() {
       <td style="width:32px;padding-right:0" data-action="">
         <input type="checkbox" ${checked?'checked':''} data-change-action="tickets.toggleSelected" data-id="${window.escAttr(t.id)}" style="cursor:pointer;accent-color:var(--purple)" />
       </td>
-      <td class="bold">${window.escHtml(t.id)}</td>
+      <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}</td>
       <td>${cust ? window.escHtml(cust.first+' '+cust.last) : '—'}</td>
       <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
@@ -159,11 +221,14 @@ export function renderTickets() {
       <td>${window.escHtml(t.category)}</td>
       <td>${t.agent ? window.escHtml(t.agent) : '<span style="color:var(--ink3)">Unassigned</span>'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(t.updated)}</td>
-      <td><span class="sla-${window.escAttr(t.sla)}" style="font-family:'Inter',sans-serif;font-size:11px;font-weight:500;text-transform:uppercase">${window.escHtml(t.sla)}</span></td>
     </tr>`;
   };
 
-  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="10" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink3);text-transform:capitalize">${window.escHtml(key)}</td></tr>`;
+  // colspan is derived, not literal: it used to be a hardcoded 10 sitting six
+  // lines away from the header array it had to agree with, which is exactly
+  // the pair that drifts when a column is added or removed. +1 for the
+  // select-all checkbox column, which isn't in TICKET_COLUMNS.
+  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="${TICKET_COLUMNS.length + 1}" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink3);text-transform:capitalize">${window.escHtml(key)}</td></tr>`;
   const tableBody = groups.map(g => `${g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : ''}${g.items.map(rowFor).join('')}`).join('');
 
   const filteredIds = list.map(t => t.id);
@@ -217,9 +282,50 @@ export function renderTickets() {
       </div>
       ${bulkBar}
       <div class="tab-bar">${tabs}</div>
+      ${/* One bar, not two (issue #447). What stays out here is what an agent
+             uses constantly — search, the saved views, and a chip for every
+             filter currently narrowing the list. The four rarely-touched
+             selects moved behind "More filters", which carries a count so a
+             collapsed row can never hide an active filter. */''}
       <div class="filter-bar" style="flex-wrap:wrap">
-        <span class="filter-label">Search</span>
-        <input class="filter-select" id="ticket-search" placeholder="Subject, ID, customer, tag, agent…" style="width:260px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
+        ${/* The "Search" label became the placeholder to buy back a slot in
+             the merged bar, so the input needs an explicit accessible name —
+             a placeholder is not one, and it vanishes once you type. */''}
+        <input class="filter-select" id="ticket-search" type="search" aria-label="Search tickets" placeholder="Search subject, ID, customer, tag, agent…" style="width:250px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
+        ${/* Three kinds of chip share this row, so each group is marked: the
+             built-in views are plain .filter-tag, a pinned saved search adds
+             .filter-tag-saved, and everything after the separator is an
+             active filter with an × on it. */''}
+        <span class="filter-label">View</span>
+        ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
+        ${renderPinnedSavedSearchChips()}
+        <button class="filter-more${SHOW_MORE_FILTERS?' open':''}" id="tickets-more-toggle" data-action="tickets.toggleMoreFilters"
+                aria-expanded="${SHOW_MORE_FILTERS?'true':'false'}" aria-controls="tickets-more-filters">
+          More filters${advancedN?` <span class="filter-more-n">${advancedN}</span>`:''} <span class="filter-more-caret" aria-hidden="true">${SHOW_MORE_FILTERS?'▴':'▾'}</span>
+        </button>
+        ${activeChipN?'<span class="filter-sep" aria-hidden="true"></span>':''}
+        ${/* escHtml on every one of these: applySavedSearch writes them
+             straight from a saved-search row, and the API validates
+             priority/sentiment only as a bounded string — so a shared search
+             from another workspace user is untrusted input. */''}
+        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_CATEGORY)}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
+        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_PRIORITY)}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
+        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
+        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_SENTIMENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
+        ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
+        ${/* Grouping isn't a filter (it drops no rows, so it's not in the
+             badge) but it does visibly restructure the table, and with the
+             select tucked away there'd otherwise be nothing on screen naming
+             it or undoing it. */''}
+        ${TICKET_GROUP_BY!=='none'?`<span class="filter-tag">Grouped by ${window.escHtml(TICKET_GROUP_BY)}<span class="rm" data-action="tickets.clearGroupBy" title="Remove grouping">×</span></span>`:''}
+        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
+        ${/* A CHILD of .filter-bar, not a sibling, and always in the DOM:
+             as a sibling it survived the section being collapsed (leaving an
+             orphaned row whose toggle was hidden), and rendering it
+             conditionally left aria-controls pointing at nothing while
+             closed. It is not itself a .filter-bar — collapsible.js indexes
+             those positionally for its persisted ids. */''}
+        <div class="filter-subbar" id="tickets-more-filters" ${SHOW_MORE_FILTERS?'':'hidden'}>
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="category">
           <option value="all">All categories</option>
           ${cats.map(c=>`<option value="${window.escAttr(c)}" ${FILTER_CATEGORY===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
@@ -242,6 +348,7 @@ export function renderTickets() {
           <option value="neutral"    ${FILTER_SENTIMENT==='neutral'?'selected':''}>Neutral</option>
           <option value="positive"   ${FILTER_SENTIMENT==='positive'?'selected':''}>Positive</option>
         </select>
+        <span class="filter-subbar-sep" aria-hidden="true"></span>
         <select class="filter-select" data-change-action="tickets.setGroupBy" title="Group rows">
           <option value="none"     ${TICKET_GROUP_BY==='none'?'selected':''}>No grouping</option>
           <option value="status"   ${TICKET_GROUP_BY==='status'?'selected':''}>Group by status</option>
@@ -249,20 +356,10 @@ export function renderTickets() {
           <option value="category" ${TICKET_GROUP_BY==='category'?'selected':''}>Group by category</option>
           <option value="agent"    ${TICKET_GROUP_BY==='agent'?'selected':''}>Group by agent</option>
         </select>
-        ${FILTER_CATEGORY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_CATEGORY)}<span class="rm" data-action="tickets.clearFilter" data-filter="category">×</span></span>`:''}
-        ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${FILTER_PRIORITY}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
-        ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
-        ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${FILTER_SENTIMENT}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
-        ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
-        <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
-      </div>
-      <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
-        <span class="filter-label">View</span>
-        ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
-        ${renderPinnedSavedSearchChips()}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           ${renderSavedSearchesControls()}
         </span>
+        </div>
       </div>
       <div style="flex:1;overflow-y:auto">
         <table class="tbl">
@@ -270,7 +367,7 @@ export function renderTickets() {
             <th style="width:32px;padding-right:0" data-action="">
               <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} data-change-action="tickets.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
             </th>
-            ${[['id','ID'],['customerId','Customer'],['subject','Subject'],['status','Status'],['priority','Priority'],['category','Category'],['agent','Agent'],['updated','Updated'],['sla','SLA']].map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
+            ${TICKET_COLUMNS.map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
           </tr></thead>
           <tbody>${tableBody}</tbody>
         </table>
@@ -658,6 +755,15 @@ registerActions({
   // status tabs / view chips / sort / row open / topbar
   'tickets.setStatus':     (ds) => setStatusFilter(ds.status),
   'tickets.setView':       (ds) => setTicketView(ds.view),
+  'tickets.toggleMoreFilters': () => {
+    SHOW_MORE_FILTERS = !SHOW_MORE_FILTERS;
+    renderPage('tickets');
+    // renderPage replaces the whole page, so a keyboard user who pressed
+    // Enter on the toggle would land back on <body> and have to tab through
+    // the entire shell to reach the row they just opened.
+    document.getElementById('tickets-more-toggle')?.focus();
+  },
+  'tickets.clearGroupBy': () => setTicketGroupBy('none'),
   'tickets.sort':          (ds) => sortTickets(ds.col),
   'tickets.openTicket':    (ds) => openTicket(ds.id),
   'tickets.newTicket':     () => showNewTicketModal(),

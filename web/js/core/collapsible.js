@@ -2,7 +2,9 @@
 // After each renderPage we inject a small caret into every .kpi-bar /
 // .filter-bar / .tab-bar so an agent can hide chrome they don't need today.
 // Section IDs are page-scoped + indexed within the page, so a page with
-// multiple filter bars (e.g. tickets has two) tracks them independently.
+// multiple bars of the same kind tracks them independently. Because the index
+// is positional, adding or removing a bar remaps every later id on that page —
+// see RETIRED_SECTION_IDS below before you change a page's bar composition.
 //
 // Cross-cutting concern (used by every page), so it lives under js/core/.
 //
@@ -25,6 +27,51 @@ const SEC_LABELS = {
 function persistCollapsedSections() {
   localStorage.setItem('collapsed_sections', JSON.stringify([...COLLAPSED_SECTIONS]));
 }
+
+// ─── Retired section ids ────────────────────────────────────────────────────
+// Because ids are positional, removing a bar from a page doesn't just orphan
+// its stored id — nothing ever prunes it, and the counter in Settings →
+// Appearance would keep counting a section the user can no longer see or
+// restore. Any change that deletes a bar adds its id here.
+//
+// Each entry is one migration: the ids it retires. Append, never edit — the
+// stored marker is the count of migrations already applied, so rewriting
+// history would re-run the wrong ones.
+//
+// v1 (#447) — the tickets page's two filter bars merged into one:
+//   :1 (View chips + saved searches) no longer exists at all.
+//   :0 survives but is a DIFFERENT section: it used to be search + four
+//      selects, and now also holds the view chips. Someone who collapsed the
+//      old :0 to hide selects they never used would otherwise come back to
+//      find "Needs attention" — the main way into the queue — hidden behind a
+//      bar labelled only "Show Filters".
+const SECTION_MIGRATIONS = [
+  ['tickets:filter-bar:0', 'tickets:filter-bar:1'],
+];
+const MIGRATION_KEY = 'collapsed_sections_migration';
+
+// Runs ONCE per browser per migration. The marker is what makes this safe:
+// tickets:filter-bar:0 is a live id, so an ungated prune would re-delete it
+// on every load and the merged bar could never stay collapsed — a worse bug
+// than the stale state the migration exists to clear.
+(function applySectionMigrations() {
+  let applied = 0;
+  try { applied = parseInt(localStorage.getItem(MIGRATION_KEY) || '0', 10) || 0; }
+  catch { return; }   // storage unreadable: skip rather than prune every load
+  if (applied >= SECTION_MIGRATIONS.length) return;
+
+  let changed = false;
+  for (const ids of SECTION_MIGRATIONS.slice(applied)) {
+    for (const id of ids) if (COLLAPSED_SECTIONS.delete(id)) changed = true;
+  }
+  // Guarded: this runs at module evaluation, so an unguarded quota or
+  // private-mode failure would take down app boot. Write the marker even when
+  // nothing was pruned — the migration still counts as done.
+  try {
+    if (changed) persistCollapsedSections();
+    localStorage.setItem(MIGRATION_KEY, String(SECTION_MIGRATIONS.length));
+  } catch { /* retried next load */ }
+})();
 
 // Single source of truth for class + caret + aria sync. Both the post-render
 // initial pass and the click handler call this so the visible state can't
