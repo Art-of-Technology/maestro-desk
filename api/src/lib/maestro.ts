@@ -103,15 +103,30 @@ export async function maestroFetch<T = unknown>(path: string, opts: FetchOpts): 
     parsed = text;
   }
 
-  // A 2xx whose body isn't JSON is NOT a success. The gateway only ever speaks
-  // JSON, so this means we reached something else wearing its address — a
-  // parked page, a proxy error page, an captive-portal style interstitial.
-  // Without this the raw string flows on as if it were data: callers read
-  // `.organizations` off it and get undefined (so an agent is told they have no
-  // brand access), and /players would return the HTML as a `member` object and
-  // write an audit row for it. Fail loudly with the same MaestroError the
-  // non-2xx path uses.
-  if (res.ok && text && !parsedAsJson) {
+  // A 2xx from the gateway must carry a JSON body. Two ways it can fail to, and
+  // both mean we reached something that is not the gateway. 204 is exempt — a
+  // deliberate no-content response is a genuine success.
+  //
+  // Empty body: the exact signature of the retired mert.md hosts, which answered
+  // 200 with zero bytes on EVERY path for six days while looking healthy. This
+  // is the failure this whole change exists to fix, so it must not be the one
+  // case that slips through: unguarded, `parsed` is null and we hand that back
+  // as if it were data, and the caller dies later with a cryptic TypeError far
+  // from the cause.
+  if (res.ok && res.status !== 204 && !text) {
+    throw new MaestroError(
+      `Maestro gateway returned an EMPTY ${res.status} body — the signature of a retired ` +
+      'or parked host. Check MAESTRO_GATEWAY_URL points at the live API.',
+      502,
+    );
+  }
+
+  // Non-JSON body: a parked page, a proxy error page, a captive-portal
+  // interstitial. Unguarded the raw string flows on as data — callers read
+  // `.organizations` off it and get undefined (so an agent is wrongly told they
+  // have no brand access), and /players would return the HTML as a `member`
+  // object AND write an audit row for it.
+  if (res.ok && !parsedAsJson) {
     throw new MaestroError(
       `Maestro gateway returned a non-JSON ${res.status} body (content-type: ` +
       `${res.headers.get('content-type') ?? 'none'}) — check MAESTRO_GATEWAY_URL points at the API host.`,
