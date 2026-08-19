@@ -45,12 +45,11 @@ runDbTests('customer profile summary endpoints (DB-backed)', () => {
     return c.id;
   }
   async function addTicket(wsId: string, custId: string, displayId: string, opts: {
-    status?: string; sla?: string; csat?: number | null; deleted?: boolean; tags?: string[];
+    status?: string; csat?: number | null; deleted?: boolean; tags?: string[];
   } = {}): Promise<string> {
     const [t] = await sql<{ id: string }[]>`
-      insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, sla_state, csat_score)
-      values (${wsId}, ${displayId}, 'S', ${custId}, ${opts.status ?? 'open'}, 'normal',
-              ${opts.sla ?? 'ok'}, ${opts.csat ?? null})
+      insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, csat_score)
+      values (${wsId}, ${displayId}, 'S', ${custId}, ${opts.status ?? 'open'}, 'normal', ${opts.csat ?? null})
       returning id`;
     if (opts.deleted) await sql`update tickets set deleted_at = now() where id = ${t.id}`;
     for (const tag of opts.tags ?? []) {
@@ -100,24 +99,55 @@ runDbTests('customer profile summary endpoints (DB-backed)', () => {
     }
   });
 
-  it('aggregates the full history, not one page, and excludes soft-deleted tickets', async () => {
+  it('aggregates the FULL history, well past one page, and excludes soft-deleted tickets', async () => {
     const cust = await addCustomer(ctx.wsA, `C-AGG-${RUN}`);
-    await addTicket(ctx.wsA, cust, `AG1-${RUN}`, { status: 'open', sla: 'breach', csat: 5 });
-    await addTicket(ctx.wsA, cust, `AG2-${RUN}`, { status: 'open', sla: 'ok', csat: 3 });
-    await addTicket(ctx.wsA, cust, `AG3-${RUN}`, { status: 'resolved', sla: 'breach' });
-    await addTicket(ctx.wsA, cust, `AG4-${RUN}`, { status: 'escalated' });
-    await addTicket(ctx.wsA, cust, `AG5-${RUN}`, { status: 'open', deleted: true, csat: 1 });
+    // 30 > CUSTOMER_TICKETS_DEFAULT_LIMIT (25) on purpose: with fewer than a
+    // page, a page-scoped implementation would produce identical totals and
+    // this test — the headline contract of the whole endpoint — would pass
+    // without proving anything.
+    for (let i = 0; i < 30; i++) {
+      await addTicket(ctx.wsA, cust, `AG${i}-${RUN}`, { status: i === 0 ? 'resolved' : 'open' });
+    }
+    await addTicket(ctx.wsA, cust, `AGC1-${RUN}`, { status: 'escalated', csat: 5 });
+    await addTicket(ctx.wsA, cust, `AGC2-${RUN}`, { status: 'escalated', csat: 3 });
+    await addTicket(ctx.wsA, cust, `AGX-${RUN}`, { status: 'open', deleted: true, csat: 1 });
 
     const res = await summary(cust, userA.token, ctx.wsA);
     expect(res.status).toBe(200);
     const b = await res.json() as any;
 
-    expect(b.totals.tickets).toBe(4);              // the deleted one is excluded
-    expect(b.totals.sla_breaches).toBe(2);
-    expect(b.totals.csat_count).toBe(2);           // deleted ticket's score excluded
+    expect(b.totals.tickets).toBe(32);                       // 30 + 2, deleted excluded
+    expect(b.tickets.rows.length).toBe(25);                  // page 0 only
+    expect(b.totals.tickets).toBeGreaterThan(b.tickets.rows.length);   // the point
+    expect(b.totals.csat_count).toBe(2);                     // deleted ticket's score excluded
     expect(b.totals.csat_avg).toBeCloseTo(4, 5);
-    expect(b.by_status).toEqual({ open: 2, resolved: 1, escalated: 1 });
+    expect(b.by_status).toEqual({ open: 29, resolved: 1, escalated: 2 });
     expect(b.totals.first_ticket_at).toBeTruthy();
+  });
+
+  it('does not report an SLA-breach count', async () => {
+    // sla_state is only ever written as 'ok' by the real insert paths and left
+    // NULL by POST /tickets; 'breach'/'warn' exist only in the demo seed.
+    // Counting it would ship a tile reading 0 on every live workspace.
+    const cust = await addCustomer(ctx.wsA, `C-NOSLA-${RUN}`);
+    await addTicket(ctx.wsA, cust, `NS1-${RUN}`);
+    const b = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    expect(b.totals).not.toHaveProperty('sla_breaches');
+  });
+
+  it('reports last_ticket_at from created_at, so retagging an old ticket does not move it', async () => {
+    const cust = await addCustomer(ctx.wsA, `C-LAST-${RUN}`);
+    const old = await addTicket(ctx.wsA, cust, `LA1-${RUN}`);
+    await sql`update tickets set created_at = now() - interval '400 days' where id = ${old}`;
+    const recent = await addTicket(ctx.wsA, cust, `LA2-${RUN}`);
+    await sql`update tickets set created_at = now() - interval '2 days' where id = ${recent}`;
+
+    const before = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    // Touch the ancient ticket the way a tag add would (bumps updated_at only).
+    await sql`update tickets set updated_at = now() where id = ${old}`;
+    const after = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+
+    expect(after.totals.last_ticket_at).toBe(before.totals.last_ticket_at);
   });
 
   it('reports csat_avg as null rather than 0 when nothing is rated', async () => {
@@ -140,15 +170,18 @@ runDbTests('customer profile summary endpoints (DB-backed)', () => {
     expect(b.tickets.total).toBe(0);
   });
 
-  it('ranks tags by frequency and caps the list', async () => {
+  it('ranks tags by frequency and caps the list at 8, dropping the rarest', async () => {
     const cust = await addCustomer(ctx.wsA, `C-TAGS-${RUN}`);
-    await addTicket(ctx.wsA, cust, `TG1-${RUN}`, { tags: ['withdrawal', 'bonus'] });
-    await addTicket(ctx.wsA, cust, `TG2-${RUN}`, { tags: ['withdrawal'] });
-    await addTicket(ctx.wsA, cust, `TG3-${RUN}`, { tags: ['withdrawal', 'bonus'] });
+    // Nine distinct tags so the cap is actually exercised. 'rarest' appears
+    // once and must be the one excluded.
+    await addTicket(ctx.wsA, cust, `TG1-${RUN}`, { tags: ['withdrawal', 'bonus', 't3', 't4', 't5', 't6', 't7', 't8'] });
+    await addTicket(ctx.wsA, cust, `TG2-${RUN}`, { tags: ['withdrawal', 'bonus', 't3', 't4', 't5', 't6', 't7', 't8'] });
+    await addTicket(ctx.wsA, cust, `TG3-${RUN}`, { tags: ['withdrawal', 'rarest'] });
+
     const b = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    expect(b.tags.length).toBe(8);
     expect(b.tags[0]).toEqual({ tag: 'withdrawal', n: 3 });
-    expect(b.tags[1]).toEqual({ tag: 'bonus', n: 2 });
-    expect(b.tags.length).toBeLessThanOrEqual(8);
+    expect(b.tags.map((t: any) => t.tag)).not.toContain('rarest');
   });
 
   it('returns recent messages, excluding deleted and merge-copied rows', async () => {
@@ -167,6 +200,66 @@ runDbTests('customer profile summary endpoints (DB-backed)', () => {
     expect(bodies).not.toContain('deleted one');
     expect(bodies).not.toContain('merge copy');
     expect(b.activity[0].display_id).toBeTruthy();   // ticket display id is carried through
+  });
+
+  it('returns the newest messages first and caps at 15', async () => {
+    const cust = await addCustomer(ctx.wsA, `C-LIM-${RUN}`);
+    const t = await addTicket(ctx.wsA, cust, `LM1-${RUN}`);
+    for (let i = 0; i < 20; i++) {
+      await sql`
+        insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, created_at)
+        values (${ctx.wsA}, ${t}, 'customer', 'c', ${'msg-' + i}, now() + (${i} * interval '1 second'))`;
+    }
+    const b = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    expect(b.activity.length).toBe(15);
+    expect(b.activity[0].body).toBe('msg-19');          // newest first
+    expect(b.activity[14].body).toBe('msg-5');
+    expect(b.activity.map((m: any) => m.body)).not.toContain('msg-0');
+  });
+
+  it('still finds conversations when newer message-less tickets crowd the window', async () => {
+    // The activity window is bounded to the 50 most-recently-updated tickets.
+    // Tag adds, time entries, bulk edits and the customer-merge sweep all bump
+    // updated_at without adding a message, so without an exists() filter a
+    // customer with 50+ such tickets would get an empty timeline — the exact
+    // structurally-empty panel this endpoint exists to remove.
+    const cust = await addCustomer(ctx.wsA, `C-WIN-${RUN}`);
+    const conversation = await addTicket(ctx.wsA, cust, `WN0-${RUN}`);
+    await addMsg(ctx.wsA, conversation, 'customer', 'the only real message');
+    for (let i = 1; i <= 55; i++) {
+      const t = await addTicket(ctx.wsA, cust, `WN${i}-${RUN}`);
+      await sql`update tickets set updated_at = now() + (${i} * interval '1 second') where id = ${t}`;
+    }
+    const b = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    expect(b.activity.map((m: any) => m.body)).toContain('the only real message');
+  });
+
+  it('keeps customer-merge system markers out of the timeline', async () => {
+    // A merge stamps a 'system' marker onto every moved ticket in one
+    // statement, with a NULL merged_from_id — so the merged_from_id filter
+    // does not catch them and 15+ moved tickets would evict all real history.
+    const cust = await addCustomer(ctx.wsA, `C-SYS-${RUN}`);
+    const t = await addTicket(ctx.wsA, cust, `SY1-${RUN}`);
+    await addMsg(ctx.wsA, t, 'customer', 'real conversation');
+    for (let i = 0; i < 20; i++) {
+      await addMsg(ctx.wsA, t, 'system', `── Customer merged ${i} ──`);
+    }
+    const b = await (await summary(cust, userA.token, ctx.wsA)).json() as any;
+    expect(b.activity.map((m: any) => m.role)).not.toContain('system');
+    expect(b.activity.map((m: any) => m.body)).toContain('real conversation');
+  });
+
+  it('hides a soft-deleted customer entirely', async () => {
+    // DELETE /customers/:id soft-deletes the profile specifically to hide it;
+    // the history and its message previews must go with it.
+    const cust = await addCustomer(ctx.wsA, `C-DEL-${RUN}`);
+    const t = await addTicket(ctx.wsA, cust, `DL1-${RUN}`);
+    await addMsg(ctx.wsA, t, 'customer', 'private');
+    expect((await summary(cust, userA.token, ctx.wsA)).status).toBe(200);
+
+    await sql`update customers set deleted_at = now() where id = ${cust}`;
+    expect((await summary(cust, userA.token, ctx.wsA)).status).toBe(404);
+    expect((await ticketPage(cust, userA.token, ctx.wsA)).status).toBe(404);
   });
 
   it('truncates long message bodies and flags that it did', async () => {
@@ -209,6 +302,24 @@ runDbTests('customer profile summary endpoints (DB-backed)', () => {
 
     const firstIds = first.rows.map((r: any) => r.id);
     expect(second.rows.some((r: any) => firstIds.includes(r.id))).toBe(false);
+  });
+
+  it('pages deterministically when tickets share an updated_at', async () => {
+    // A customer merge stamps a batch of tickets in one transaction, so they
+    // all carry the identical updated_at. Without the id tie-break, ordering
+    // is nondeterministic and consecutive pages can repeat one row and silently
+    // skip another.
+    const cust = await addCustomer(ctx.wsA, `C-TIE-${RUN}`);
+    for (let i = 0; i < 6; i++) await addTicket(ctx.wsA, cust, `TI${i}-${RUN}`);
+    await sql`update tickets set updated_at = now() where customer_id = ${cust}`;
+
+    const seen: string[] = [];
+    for (let offset = 0; offset < 6; offset += 2) {
+      const p = await (await ticketPage(cust, userA.token, ctx.wsA, `?limit=2&offset=${offset}`)).json() as any;
+      seen.push(...p.rows.map((r: any) => r.id));
+    }
+    expect(seen.length).toBe(6);
+    expect(new Set(seen).size).toBe(6);   // no duplicates, nothing skipped
   });
 
   it('follows tickets moved by a customer merge to the survivor', async () => {

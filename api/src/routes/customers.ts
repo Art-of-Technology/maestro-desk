@@ -8,7 +8,7 @@ import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
-import { customerSummary, customerTicketPage } from '../lib/customer-summary.js';
+import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -669,14 +669,14 @@ customers.get('/:id/tickets', async (c) => {
   const limit = parseInt(c.req.query('limit') ?? '', 10);
   const offset = parseInt(c.req.query('offset') ?? '', 10);
 
-  // Existence is checked here rather than inferred from an empty page: a
-  // customer with no tickets and a customer in another workspace both return
-  // zero rows, and only one of those is a 404.
-  const sql = getDb();
-  const found = await sql`
-    select 1 from customers where id = ${customerId} and workspace_id = ${workspaceId} limit 1
-  `;
-  if (found.length === 0) return c.json({ error: 'Customer not found' }, 404);
+  // Existence is checked rather than inferred from an empty page: a customer
+  // with no tickets and a customer in another workspace both return zero rows,
+  // and only one of those is a 404. Shares customerVisible() with /summary so
+  // the "missing, wrong-workspace and soft-deleted are indistinguishable" rule
+  // lives in exactly one place.
+  if (!(await customerVisible(workspaceId, customerId))) {
+    return c.json({ error: 'Customer not found' }, 404);
+  }
 
   const page = await customerTicketPage({
     workspaceId,
