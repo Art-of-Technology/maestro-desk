@@ -87,12 +87,26 @@ let SAVED_SEARCHES_LOADED = false;
 // so on a fresh load nothing fetched and the PINNED chips (which live in the
 // always-visible bar) silently stayed empty. renderTickets calls this now, so
 // the fetch no longer depends on which controls happen to be on screen.
+// Failure is non-fatal — saved searches are an enhancement, not the page —
+// but it shouldn't be permanent either: the flag is set before the request,
+// so one transient error used to mean no pinned chips until a full reload.
+// Release the flag on failure so a later render retries, capped so a
+// consistently-down endpoint can't be re-hit on every render (renderTickets
+// runs on each list-sync poll).
+const SAVED_SEARCHES_MAX_ATTEMPTS = 3;
+let SAVED_SEARCHES_ATTEMPTS = 0;
+
 function ensureSavedSearchesLoaded() {
-  if (SAVED_SEARCHES_LOADED) return;
+  if (SAVED_SEARCHES_LOADED || SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS) return;
   SAVED_SEARCHES_LOADED = true;
+  SAVED_SEARCHES_ATTEMPTS++;
   apiGet('/api/v1/saved-searches')
     .then((res) => { SAVED_SEARCHES = res.saved_searches || []; renderPage('tickets'); })
-    .catch((err) => { console.warn('[tickets] saved searches load failed:', err); });
+    .catch((err) => {
+      SAVED_SEARCHES_LOADED = false;
+      const last = SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS;
+      console.warn(`[tickets] saved searches load failed${last ? ' (giving up)' : ', will retry'}:`, err);
+    });
 }
 
 function renderSavedSearchesControls() {

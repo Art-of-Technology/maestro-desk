@@ -34,26 +34,43 @@ function persistCollapsedSections() {
 // Appearance would keep counting a section the user can no longer see or
 // restore. Any change that deletes a bar adds its id here.
 //
-// #447 merged the tickets page's two filter bars into one:
+// Each entry is one migration: the ids it retires. Append, never edit — the
+// stored marker is the count of migrations already applied, so rewriting
+// history would re-run the wrong ones.
+//
+// v1 (#447) — the tickets page's two filter bars merged into one:
 //   :1 (View chips + saved searches) no longer exists at all.
-//   :0 survives but is a different section — it used to be search + four
+//   :0 survives but is a DIFFERENT section: it used to be search + four
 //      selects, and now also holds the view chips. Someone who collapsed the
 //      old :0 to hide selects they never used would otherwise come back to
-//      find "Needs attention" — the main triage entry point — hidden behind a
-//      bar labelled only "Show Filters". So :0 is reset too, once. Worst case
-//      a user re-collapses one bar; the alternative silently removes their
-//      primary way into the queue.
-const RETIRED_SECTION_IDS = ['tickets:filter-bar:0', 'tickets:filter-bar:1'];
+//      find "Needs attention" — the main way into the queue — hidden behind a
+//      bar labelled only "Show Filters".
+const SECTION_MIGRATIONS = [
+  ['tickets:filter-bar:0', 'tickets:filter-bar:1'],
+];
+const MIGRATION_KEY = 'collapsed_sections_migration';
 
-(function pruneRetiredSections() {
+// Runs ONCE per browser per migration. The marker is what makes this safe:
+// tickets:filter-bar:0 is a live id, so an ungated prune would re-delete it
+// on every load and the merged bar could never stay collapsed — a worse bug
+// than the stale state the migration exists to clear.
+(function applySectionMigrations() {
+  let applied = 0;
+  try { applied = parseInt(localStorage.getItem(MIGRATION_KEY) || '0', 10) || 0; }
+  catch { return; }   // storage unreadable: skip rather than prune every load
+  if (applied >= SECTION_MIGRATIONS.length) return;
+
   let changed = false;
-  for (const id of RETIRED_SECTION_IDS) {
-    if (COLLAPSED_SECTIONS.delete(id)) changed = true;
+  for (const ids of SECTION_MIGRATIONS.slice(applied)) {
+    for (const id of ids) if (COLLAPSED_SECTIONS.delete(id)) changed = true;
   }
   // Guarded: this runs at module evaluation, so an unguarded quota or
-  // private-mode failure here would take down app boot. The in-memory prune
-  // has already happened either way; only the write-back is best-effort.
-  if (changed) { try { persistCollapsedSections(); } catch { /* re-pruned next load */ } }
+  // private-mode failure would take down app boot. Write the marker even when
+  // nothing was pruned — the migration still counts as done.
+  try {
+    if (changed) persistCollapsedSections();
+    localStorage.setItem(MIGRATION_KEY, String(SECTION_MIGRATIONS.length));
+  } catch { /* retried next load */ }
 })();
 
 // Single source of truth for class + caret + aria sync. Both the post-render
