@@ -89,7 +89,9 @@ runDbTests('ticket delete (DB-backed)', () => {
 
   beforeEach(() => {
     // Ticket mutations fan out to Slack/webhooks/Pubby — never hit the network.
-    globalThis.fetch = (async () => new Response('{}', { status: 200 })) as typeof fetch;
+    // Double cast: the stub omits fetch.preconnect, which the DOM lib now
+    // declares on typeof fetch. Nothing under test calls it.
+    globalThis.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
   });
 
   afterAll(async () => {
