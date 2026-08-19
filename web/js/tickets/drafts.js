@@ -7,16 +7,21 @@ import { COMPOSE_TAB } from '../core/state.js';
 //
 // COMPOSE_TAB is imported from core/state.js.
 
-function getDraftKey(id) { return `draft:${id}:${COMPOSE_TAB}`; }
+// The tab is an explicit parameter defaulting to the live COMPOSE_TAB, so a
+// caller that knows which tab it means (the new-ticket flow always writes a
+// customer-facing 'reply' draft) doesn't have to move the app-wide global to
+// address the right key.
+function getDraftKey(id, tab = COMPOSE_TAB) { return `draft:${id}:${tab}`; }
 
-export function loadDraft(id)   { return localStorage.getItem(getDraftKey(id)) || ''; }
+export function loadDraft(id, tab)   { return localStorage.getItem(getDraftKey(id, tab)) || ''; }
 
-export function saveDraft(id, value) {
-  if (value && value.length) localStorage.setItem(getDraftKey(id), value);
-  else localStorage.removeItem(getDraftKey(id));
+export function saveDraft(id, value, tab) {
+  const key = getDraftKey(id, tab);
+  if (value && value.length) localStorage.setItem(key, value);
+  else localStorage.removeItem(key);
 }
 
-export function clearDraft(id) { localStorage.removeItem(getDraftKey(id)); }
+export function clearDraft(id, tab) { localStorage.removeItem(getDraftKey(id, tab)); }
 
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB

@@ -53,6 +53,19 @@ tickets.use('*', async (c, next) => {
 // explicitly scopes by workspace_id — the authorization that RLS used to
 // enforce now lives here in the route + the auth middleware (which verifies
 // the caller is a member of the active workspace).
+// The list-row column set, shared by GET / and the post-create re-select so
+// the SPA's mapTicket sees exactly the same shape from both. Built per call
+// (never at module scope — that would open a DB handle at import time).
+// GET /sync keeps its own slimmer set; it also ships tombstones.
+function ticketListCols(sql: ReturnType<typeof getDb>) {
+  return sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+    customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
+    snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
+    (select tm.role from ticket_messages tm
+       where tm.ticket_id = tickets.id and tm.deleted_at is null
+       order by tm.created_at desc limit 1) as last_message_role`;
+}
+
 tickets.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -66,12 +79,7 @@ tickets.get('/', async (c) => {
   // turns a per-page full count into once per list-open.
   const withCount = offset === 0;
   const rows = await sql`
-    select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
-           customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
-           snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
-           (select tm.role from ticket_messages tm
-              where tm.ticket_id = tickets.id and tm.deleted_at is null
-              order by tm.created_at desc limit 1) as last_message_role
+    select ${ticketListCols(sql)}
            ${withCount ? sql`, count(*) over() ::int as total_count` : sql``}
     from tickets
     where workspace_id = ${workspaceId} and deleted_at is null
@@ -1023,7 +1031,17 @@ const CreateTicket = z.object({
   customer_id: z.string().uuid(),
   status_key: z.string().default('open'),
   priority_key: z.string().default('normal'),
-  category_key: z.string().optional(),
+  // Bounded like every other free-text field — the value is validated
+  // against the workspace's categories below, but an unbounded string
+  // shouldn't reach the query in the first place.
+  category_key: z.string().min(1).max(100).optional(),
+  // Explicit assignee (the new-ticket flow's step-1 pick). When present the
+  // assignment-rules engine is SKIPPED — an agent's deliberate choice wins.
+  assigned_user_id: z.string().uuid().optional(),
+  // API-only convenience (external callers): inserts a role='customer'
+  // message labelled 'API caller' — NOT emailed. The SPA never uses it; its
+  // agent-authored first message goes through POST /:id/messages so it gets
+  // real authorship + email delivery.
   initial_message: z.string().min(1).optional(),
 });
 
@@ -1047,37 +1065,83 @@ tickets.post('/', async (c) => {
   `;
   if (!customer) return c.json({ error: 'Customer not found' }, 404);
 
+  // Reject an unknown/disabled category — same rule the PATCH handler
+  // enforces. Omitted stays nullable (player-lookup and API callers send
+  // none). Matched case-insensitively, like the rules engine's catEq
+  // (lib/assign-rules-engine.ts), so a caller can't be refused here for a
+  // key that downstream matching would happily accept; the row stores the
+  // canonical key.
+  let categoryKey = input.category_key ?? null;
+  if (categoryKey != null) {
+    const [cat] = await sql<{ key: string }[]>`
+      select key from ticket_categories
+      where workspace_id = ${workspaceId} and lower(key) = lower(${categoryKey}) and is_active = true
+    `;
+    if (!cat) return c.json({ error: `Unknown or inactive category: ${categoryKey}` }, 400);
+    categoryKey = cat.key;
+  }
+
+  // Reject an explicit assignee who isn't an active member — mirrors the
+  // PATCH handler's assignee check and the customer_id check above.
+  if (input.assigned_user_id != null) {
+    const [member] = await sql`
+      select 1 from workspace_members
+      where user_id = ${input.assigned_user_id} and workspace_id = ${workspaceId} and active = true
+    `;
+    if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
+  }
+
   const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 
-  const [ticket] = await sql<{ id: string; display_id: string }[]>`
+  const [created] = await sql<{ id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)
     values (${workspaceId}, ${displayId}, ${input.subject}, ${input.customer_id},
-            ${input.status_key}, ${input.priority_key}, ${input.category_key ?? null}, ${userId})
-    returning id, display_id
+            ${input.status_key}, ${input.priority_key}, ${categoryKey},
+            ${input.assigned_user_id ?? userId})
+    returning id
   `;
 
   if (input.initial_message) {
     await sql`
       insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
-      values (${workspaceId}, ${ticket.id}, 'customer', 'API caller', ${input.initial_message})
+      values (${workspaceId}, ${created.id}, 'customer', 'API caller', ${input.initial_message})
     `;
   }
 
-  // Auto-apply assignment rules on the freshly-created ticket. Errors
-  // swallowed (logged) so a misconfigured rule can't break ticket
-  // creation. POST currently stamps assigned_user_id=userId (the
-  // creating agent); the engine may override that with a rule's pick.
-  try { await applyAssignmentRules({ workspaceId, ticketId: ticket.id }); }
-  catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+  // Auto-apply assignment rules on the freshly-created ticket — but ONLY
+  // when no explicit assignee was given (a deliberate step-1 pick must not
+  // be overridden by a rule). Errors swallowed (logged) so a misconfigured
+  // rule can't break ticket creation. Without an explicit assignee the
+  // insert stamps assigned_user_id=userId (the creating agent) and the
+  // engine may override that with a rule's pick.
+  if (input.assigned_user_id == null) {
+    try { await applyAssignmentRules({ workspaceId, ticketId: created.id }); }
+    catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+  }
 
-  // Slack notification on creation.
-  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  // Slack notification on creation. AWAITED deliberately: an unawaited
+  // dispatch can be dropped when the runtime freezes the moment the response
+  // is written (the same reason /sync awaits its last_active_at stamp).
+  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
   catch (err) { console.warn('[slack] notify created failed:', err); }
-  // Generic outgoing webhooks (any URL the workspace configured).
-  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  // Generic outgoing webhooks (any URL the workspace configured) — awaited
+  // for the same durability reason.
+  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
   catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
-  void publishTicketChanged(workspaceId, ticket.id);
+  void publishTicketChanged(workspaceId, created.id);
+
+  // Re-select AFTER the rules step with the list endpoint's exact column
+  // set, so the SPA can upsert the row locally without a follow-up fetch —
+  // the insert's `returning` would show the pre-rules assignee.
+  const [ticket] = await sql`
+    select ${ticketListCols(sql)}
+    from tickets
+    where id = ${created.id} and workspace_id = ${workspaceId}
+  `;
+  // The row was just inserted in this request and nothing deletes between —
+  // but never hand the SPA an undefined row if that ever changes.
+  if (!ticket) return c.json({ ticket: { id: created.id, display_id: displayId } }, 201);
   return c.json({ ticket }, 201);
 });
 

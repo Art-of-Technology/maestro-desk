@@ -5,9 +5,9 @@
 // in the UI but disable the Required toggle so admins can't accidentally
 // turn off something the rest of the app depends on.
 //
-// isFieldVisible and isFieldRequired are the read API; app.js's
-// showNewTicketModal and renderCustomerDetail import them to gate fields
-// and validate on submit.
+// isFieldVisible and isFieldRequired are the read API; tickets/new-ticket.js
+// (showNewTicketModal) and customers/index.js (renderCustomerDetail) import
+// them to gate fields and validate on submit.
 //
 // Click/change handlers route through core/event-delegation.js. No
 // inline `on*=` references remain. No external module calls into this
