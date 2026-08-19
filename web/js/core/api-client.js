@@ -110,8 +110,10 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
   if (!res.ok) {
     // Short plain-text bodies count as a message too — HTTP/2 has no status
     // text, so without this a text-bodied 4xx surfaces as a bare "HTTP 400".
-    // Length + no-markup guards keep proxy/CDN HTML error pages out.
-    const textMsg = (typeof parsed === 'string' && parsed.trim() && parsed.length <= 200 && !parsed.includes('<'))
+    // Length + no-markup guards keep proxy/CDN HTML error pages out, and the
+    // sub-500 gate keeps server-internal 5xx text (old API builds, proxies)
+    // from being promoted to user-facing copy.
+    const textMsg = (res.status < 500 && typeof parsed === 'string' && parsed.trim() && parsed.length <= 200 && !parsed.includes('<'))
       ? parsed.trim() : '';
     const msg = (parsed && parsed.error) || textMsg || res.statusText || `HTTP ${res.status}`;
     throw new ApiError(msg, res.status, parsed);

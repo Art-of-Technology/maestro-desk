@@ -167,12 +167,13 @@ app.onError(async (err, c) => {
     // - Other sub-500s are shaped as JSON {error} so the SPA can show the
     //   actual reason (HTTP/2 has no status text — a text body used to reach
     //   agents as a bare "HTTP 400").
-    // - 5xx keep Hono's default response: their messages can wrap internal
-    //   detail (upstream URLs, DB error text) that must not become
-    //   client-visible copy.
+    // - 5xx get a GENERIC body: their messages can wrap internal detail
+    //   (upstream URLs, DB error text) that must not ship over the wire at
+    //   all — Hono's default would render the message as the text body.
+    //   Routes that intend user-facing 5xx copy return c.json directly.
     if (err.res) return err.getResponse();
     if (err.status < 500) return c.json({ error: err.message || 'Request failed' }, err.status);
-    return err.getResponse();
+    return c.json({ error: 'Server error' }, err.status);
   }
   // Report the unhandled error to Sentry (no-op when the DSN is unset), then
   // log it server-side. The DB error text (table/column/constraint names) is
