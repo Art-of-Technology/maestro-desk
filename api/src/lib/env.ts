@@ -119,8 +119,8 @@ const Env = z.object({
   // OIDC discovery lives at a NON-STANDARD path on the issuer host — see the
   // integration guide (`maestro integrate`): issuer is the bare host, the
   // discovery document is under /api/auth/.
-  MAESTRO_ISSUER: z.string().url().default('https://auth.mert.md'),
-  MAESTRO_GATEWAY_URL: z.string().url().default('https://api.mert.md'),
+  MAESTRO_ISSUER: z.string().url().default('https://auth.maestro-connect.com'),
+  MAESTRO_GATEWAY_URL: z.string().url().default('https://api.maestro-connect.com'),
   MAESTRO_API_TOKEN: z.string().default(''),
   MAESTRO_BRAND_ID: z.string().default(''),
   // Sentry error tracking (observability). Both optional: when SENTRY_DSN is

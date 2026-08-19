@@ -43,7 +43,7 @@ const OAUTH_ERROR_URL = `${env.BETTER_AUTH_URL}/api/v1/maestro/oauth-error`;
 
 // The sign-in flow is top-level browser navigation, so an error status renders
 // as a raw error page (Cloudflare replaces an origin 502 with its own "Host
-// Error" screen — seen during the mert.md platform outages). Failures land the
+// Error" screen — seen whenever the Maestro platform is unreachable). Failures land the
 // user back on the login screen instead, while keeping app.onError's
 // observability (Sentry + the deduped ops alert). The redirect target is the
 // fixed SPA_ORIGIN constant, never caller input.
@@ -101,7 +101,7 @@ maestro.get('/login', async (c) => {
       throw new Error(`Maestro did not return an authorization URL (upstream status ${baResp.status}).`);
     }
     // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
-    // browser stores it before following the redirect to auth.mert.md.
+    // browser stores it before following the redirect to auth.maestro-connect.com.
     const headers = new Headers({ Location: data.url });
     for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
       headers.append('set-cookie', cookie);

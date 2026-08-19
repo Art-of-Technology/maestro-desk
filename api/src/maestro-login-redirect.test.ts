@@ -80,7 +80,7 @@ describe('GET /api/v1/maestro/login', () => {
   });
 
   it('still 302s to the Maestro authorize URL with the PKCE Set-Cookie propagated on success', async () => {
-    const authorizeUrl = 'https://auth.mert.md/oauth2/authorize?client_id=x&state=y';
+    const authorizeUrl = 'https://auth.maestro-connect.com/oauth2/authorize?client_id=x&state=y';
     const pkceCookie = 'better-auth.state=abc123; Path=/; HttpOnly; SameSite=Lax';
     api.signInWithOAuth2 = async () =>
       new Response(JSON.stringify({ url: authorizeUrl }), {
