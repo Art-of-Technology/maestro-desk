@@ -1031,7 +1031,10 @@ const CreateTicket = z.object({
   customer_id: z.string().uuid(),
   status_key: z.string().default('open'),
   priority_key: z.string().default('normal'),
-  category_key: z.string().optional(),
+  // Bounded like every other free-text field — the value is validated
+  // against the workspace's categories below, but an unbounded string
+  // shouldn't reach the query in the first place.
+  category_key: z.string().min(1).max(100).optional(),
   // Explicit assignee (the new-ticket flow's step-1 pick). When present the
   // assignment-rules engine is SKIPPED — an agent's deliberate choice wins.
   assigned_user_id: z.string().uuid().optional(),
@@ -1116,13 +1119,15 @@ tickets.post('/', async (c) => {
     catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
   }
 
-  // Slack + outgoing webhooks are third-party round-trips: fire-and-forget
-  // like publishTicketChanged below, so the agent's create doesn't wait on
-  // someone else's endpoint.
-  void notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id })
-    .catch((err) => console.warn('[slack] notify created failed:', err));
-  void dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id })
-    .catch((err) => console.warn('[outgoing-webhooks] created failed:', err));
+  // Slack notification on creation. AWAITED deliberately: an unawaited
+  // dispatch can be dropped when the runtime freezes the moment the response
+  // is written (the same reason /sync awaits its last_active_at stamp).
+  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
+  catch (err) { console.warn('[slack] notify created failed:', err); }
+  // Generic outgoing webhooks (any URL the workspace configured) — awaited
+  // for the same durability reason.
+  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
+  catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
   void publishTicketChanged(workspaceId, created.id);
 
