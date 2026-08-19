@@ -130,10 +130,11 @@ export function renderPage(page) {
   // 'constructor' / 'toString' / 'valueOf' would otherwise pass the guard and
   // then be CALLED, painting [object Object] into the page.
   //
-  // The route smoke fails the build on this warning (see
-  // scripts/bridge-smoke-shim-suffix.js) — otherwise deleting a renderer while
-  // leaving its sidebar row would keep CI green and only surface as a console
-  // message in the user's browser.
+  // The route smoke fails the build when a listed route lands here: it
+  // compares the key it asked for against document.body.dataset.currentPage
+  // (see scripts/bridge-smoke-shim-suffix.js). Without that, deleting a
+  // renderer while leaving its sidebar row would keep CI green and only
+  // surface as a console message in the user's browser.
   if (!Object.hasOwn(pages, page)) {
     console.warn(`[router] unknown page "${page}" — falling back to dashboard`);
     // Guard the recursion: if 'dashboard' itself ever goes missing, fail
