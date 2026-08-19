@@ -1,9 +1,10 @@
 // ─── Customers ────────────────────────────────────────────────────────────────
-// Customers list page (column manager, bulk actions, group-by, view chips,
-// CSV export) and the per-customer detail view (profile, custom fields, risk
-// indicators, activity timeline, notes, related tickets). Customer merge /
-// un-merge bookkeeping lives at the bottom: tickets reassign with a stamp so
-// the reversal can restore them, and primary-record backfill is undoable.
+// Customers list page (topbar overflow menu, column manager, bulk actions,
+// one filter bar with a "More filters" disclosure, view chips, CSV export) and
+// the per-customer detail view (profile, custom fields, risk indicators,
+// activity timeline, notes, related tickets). Customer merge / un-merge
+// bookkeeping lives at the bottom: tickets reassign with a stamp so the
+// reversal can restore them, and primary-record backfill is undoable.
 //
 // Click/change/input/mousedown handlers route through
 // core/event-delegation.js. Drag-to-reorder on the column headers uses
@@ -16,10 +17,10 @@
 // External reaches (interim, via window): escAttr, escHtml, isAdmin —
 // all still in app.js. openTicket, showManageFieldsModal,
 // showCSVModal and showNewCustomerModal are direct ES imports. The
-// customers↔customers/modals.js cycle (modals.js imports refreshCustTable
-// from this module; this module imports the modal openers back) is tolerated
-// — the openers are only used inside registerActions closures, never at
-// module top level.
+// customers↔customers/modals.js import cycle is GONE: modals.js used to
+// import refreshCustTable from here, but creating a customer moves the KPI
+// bar and the "N of M" total as well as the rows, so it calls renderPage
+// instead. The dependency is now one-way (this module imports the openers).
 
 import { CUSTOMERS, CUSTOM_FIELDS, TICKETS } from '../core/data.js';
 import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, SESSION, setCustColumns, setCustDragCol, setCustomerSelected } from '../core/state.js';
@@ -94,20 +95,29 @@ function dropCustCol(targetIdx) {
   const si=all.indexOf(src), ti=all.indexOf(tgt);
   all.splice(si,1); all.splice(ti,0,src);
   setCustDragCol(null);
-  refreshCustTable(CUSTOMERS);
+  refreshCustTable(applyCustFilters());
+}
+
+// The grouped table body. Both the full render and the incremental refresh
+// call this — they used to carry byte-identical copies, each with its own
+// hardcoded colspan="20" against a table that actually has 9 columns. The
+// span is derived from the visible column list now (+1 for the select-all
+// checkbox column, which buildCustHeaders writes by hand), so adding, hiding
+// or reordering a column can't leave a group header spanning the wrong width.
+function buildCustTableBody(list) {
+  const span = getCustColumns().filter(c => c.visible).length + 1;
+  const groups = groupCustomersBy(list, CUST_GROUP_BY);
+  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="${span}" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
+  return groups.map(g =>
+    (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
+  ).join('');
 }
 
 export function refreshCustTable(list) {
   const thead = document.getElementById('cust-thead');
   const tbody = document.getElementById('cust-tbody');
   if (thead) thead.innerHTML = buildCustHeaders();
-  if (tbody) {
-    const groups = groupCustomersBy(list, CUST_GROUP_BY);
-    const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
-    tbody.innerHTML = groups.map(g =>
-      (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
-    ).join('');
-  }
+  if (tbody) tbody.innerHTML = buildCustTableBody(list);
 }
 
 function showColumnPanel() {
@@ -136,8 +146,25 @@ let CUST_VIP_FILTER = 'all';
 let CUST_BRAND_FILTER = 'all';
 let CUST_VIEW_FILTER = 'all';
 let CUST_GROUP_BY = 'none';
+// The VIP / brand / group-by selects live behind "More filters" (issue #447).
+// Closed by default; anything actually filtering stays visible as a removal
+// chip in the main bar, so nothing hides silently.
+let CUST_SHOW_MORE_FILTERS = false;
 // CUSTOMER_SELECTED_IDS lives in core/state.js so the renderPage page-guard
 // in app.js can clear it on navigation away from the customers tab.
+
+// Customers with at least one breaching or escalated ticket. Built as one
+// pass over TICKETS rather than a nested `TICKETS.some()` per customer, which
+// was O(customers × tickets) — tolerable when the page only rendered on
+// navigation, wasteful now that every keystroke in the search box re-renders.
+// Both the "At risk" chip count and its filter predicate read this.
+function atRiskCustomerIdSet() {
+  const ids = new Set();
+  for (const t of TICKETS) {
+    if (t.sla === 'breach' || t.status === 'escalated') ids.add(t.customerId);
+  }
+  return ids;
+}
 
 function applyCustFilters() {
   let list = [...CUSTOMERS];
@@ -147,7 +174,7 @@ function applyCustFilters() {
   if (CUST_VIEW_FILTER === 'premium')         list = list.filter(c => c.vip === 'Platinum' || c.vip === 'Gold');
   else if (CUST_VIEW_FILTER === 'kyc-pending') list = list.filter(c => c.kyc !== 'Verified');
   else if (CUST_VIEW_FILTER === 'no-consent')  list = list.filter(c => !c.consent);
-  else if (CUST_VIEW_FILTER === 'at-risk')     list = list.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated')));
+  else if (CUST_VIEW_FILTER === 'at-risk')     { const ids = atRiskCustomerIdSet(); list = list.filter(c => ids.has(c.id)); }
   if (CUST_QUERY.trim()) {
     const q = CUST_QUERY.toLowerCase();
     list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.email+' '+c.brand).toLowerCase().includes(q));
@@ -256,10 +283,95 @@ function exportCustomerList() {
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
-function filterCustomers(q) { CUST_QUERY = q; refreshCustTable(applyCustFilters()); refreshCustCounter(); }
-function refreshCustCounter() {
-  const el = document.getElementById('cust-counter'); if (!el) return;
-  el.textContent = `${applyCustFilters().length} of ${CUSTOMERS.length}`;
+// Full re-render rather than the old incremental table patch: the query now
+// has a removal chip and feeds the "N of M" counter alongside the badge, and
+// refreshCustTable only rewrites thead/tbody — the chrome would go stale as
+// you type. Focus and caret are restored the same way tickets/list.js does.
+// ─── Topbar overflow menu ───────────────────────────────────────────────────
+// The ⋯ menu behind Columns / Fields / Import / Export. Unlike the composer's
+// .comp-menu it owns its dismissal entirely (backdrop + Escape + every item
+// handler), so core/dismiss.js does not participate — see openCustMoreMenu
+// for why it can't live inside the topbar.
+const CUST_MENU_ITEMS = [
+  { action: 'cust.showColumnPanel', label: 'Columns…' },
+  { action: 'cust.manageFields',    label: 'Fields…' },
+  { action: 'cust.csvImport',       label: 'Import CSV…' },
+  { action: 'cust.export',          label: 'Export CSV' },
+];
+
+function closeCustMoreMenu() {
+  document.getElementById('cust-more-backdrop')?.remove();
+  document.removeEventListener('keydown', onCustMenuKeydown, true);
+  document.getElementById('cust-more-menu-btn')?.setAttribute('aria-expanded', 'false');
+}
+
+function onCustMenuKeydown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCustMoreMenu();
+    document.getElementById('cust-more-menu-btn')?.focus();
+  }
+}
+
+// Built at BODY level with its own full-viewport backdrop, mirroring the
+// workspace switcher, because .topbar is height:48px with overflow:hidden AND
+// isolation:isolate: a panel rendered inside it is cut off at 48px, and even
+// as position:fixed its z-index stays trapped in the topbar's stacking
+// context, painting underneath the filter bar below.
+function openCustMoreMenu() {
+  const btn = document.getElementById('cust-more-menu-btn');
+  if (!btn) return;
+  closeCustMoreMenu();
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'cust-more-backdrop';
+  backdrop.className = 'menu-backdrop';
+  backdrop.setAttribute('data-action', 'cust.closeMoreMenu');
+
+  const panel = document.createElement('div');
+  panel.id = 'cust-more-menu';
+  panel.className = 'comp-menu comp-menu-fixed';
+  panel.setAttribute('role', 'menu');
+  panel.setAttribute('aria-label', 'More customer actions');
+  // Absorber: a click inside the panel but not on an item must not fall
+  // through to the backdrop and close it.
+  panel.setAttribute('data-action', '');
+  // Real <button>s, not divs: these were plain buttons before the topbar was
+  // decluttered, and a div would have made all four mouse-only.
+  panel.innerHTML = CUST_MENU_ITEMS
+    .map((i) => `<button type="button" role="menuitem" class="comp-menu-item" data-action="${i.action}">${i.label}</button>`)
+    .join('');
+
+  const r = btn.getBoundingClientRect();
+  const W = 200;
+  panel.style.top  = `${Math.round(r.bottom + 4)}px`;
+  panel.style.left = `${Math.round(Math.max(8, Math.min(r.right - W, window.innerWidth - W - 12)))}px`;
+  panel.style.display = 'block';
+
+  backdrop.appendChild(panel);
+  document.body.appendChild(backdrop);
+  document.addEventListener('keydown', onCustMenuKeydown, true);
+  btn.setAttribute('aria-expanded', 'true');
+  panel.querySelector('.comp-menu-item')?.focus();
+}
+
+function filterCustomers(q) {
+  // Capture the caret BEFORE the re-render: the input element is destroyed and
+  // rebuilt, and forcing the caret to the end broke mid-string editing —
+  // typing into "smith" at offset 0 put the next character at the end.
+  const before = document.getElementById('cust-search');
+  const selStart = before ? before.selectionStart : null;
+  const selEnd   = before ? before.selectionEnd   : null;
+  CUST_QUERY = q;
+  renderPage('customers');
+  const input = document.getElementById('cust-search');
+  if (input) {
+    input.focus();
+    if (selStart !== null) {
+      const max = input.value.length;
+      input.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    }
+  }
 }
 function custSetVIP(v)   { CUST_VIP_FILTER = v;   renderPage('customers'); }
 function custSetBrand(v) { CUST_BRAND_FILTER = v; renderPage('customers'); }
@@ -283,7 +395,7 @@ export function renderCustomers() {
   // View chip counts
   const kycPendingN = CUSTOMERS.filter(c => c.kyc !== 'Verified').length;
   const noConsentN  = CUSTOMERS.filter(c => !c.consent).length;
-  const atRiskN     = CUSTOMERS.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated'))).length;
+  const atRiskN     = (() => { const ids = atRiskCustomerIdSet(); return CUSTOMERS.filter(c => ids.has(c.id)).length; })();
   const mergedN = CUSTOMERS.filter(c => c.mergedInto).length;
   const views = [
     { k: 'all',         l: 'All',                         active: CUST_VIEW_FILTER === 'all' },
@@ -294,11 +406,12 @@ export function renderCustomers() {
     { k: 'merged',      l: `Merged · ${mergedN}`,         active: CUST_VIEW_FILTER === 'merged' },
   ];
 
-  const groups = groupCustomersBy(filtered, CUST_GROUP_BY);
-  const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="20" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
-  const tableBody = groups.map(g =>
-    (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
-  ).join('');
+  const tableBody = buildCustTableBody(filtered);
+  // How many of the "More filters" selects are narrowing the list. Badged on
+  // the toggle so a closed row can never hide an active filter. Grouping is
+  // excluded — it rearranges rows, it drops none — but it still gets a chip.
+  const advancedN = [CUST_VIP_FILTER, CUST_BRAND_FILTER].filter(v => v !== 'all').length;
+  const activeChipN = advancedN + (CUST_QUERY ? 1 : 0) + (CUST_GROUP_BY !== 'none' ? 1 : 0);
 
   const bulkBar = CUSTOMER_SELECTED_IDS.size > 0 ? `
     <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
@@ -327,13 +440,17 @@ export function renderCustomers() {
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/><path d="M7.7 7.7L11 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           Look up player
         </button>` : ''}
-        <button class="btn btn-sm" data-action="cust.showColumnPanel">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="5" y="1" width="3" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="1" width="2" height="10" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
-          Columns
-        </button>
-        <button class="btn btn-sm" data-action="cust.manageFields">Fields</button>
-        <button class="btn btn-sm" data-action="cust.csvImport">CSV Import</button>
-        <button class="btn btn-sm" data-action="cust.export">Export CSV</button>
+        ${/* Columns / Fields / Import / Export are housekeeping — they were
+             crowding out the two actions that matter, so they fold into an
+             overflow menu. */''}
+        ${/* Trigger only — the panel is built at body level by
+             openCustMoreMenu(). It cannot live in here: .topbar is height:48px
+             with overflow:hidden AND isolation:isolate (shell.css), so a
+             descendant panel is clipped to a sliver and its z-index is trapped
+             in the topbar's own stacking context, painting underneath the
+             filter bar below it. Same escape the workspace switcher uses. */''}
+        <button class="btn btn-sm" id="cust-more-menu-btn" data-action="cust.toggleMoreMenu"
+                aria-haspopup="true" aria-expanded="false" aria-label="More customer actions" title="More actions">⋯</button>
         <button class="btn btn-sm btn-solid" data-action="cust.new">+ New Customer</button>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
@@ -344,33 +461,55 @@ export function renderCustomers() {
         <div class="kpi"><div class="kpi-n c-green">${consentRate}%</div><div class="kpi-l">Consent</div></div>
       </div>
       ${bulkBar}
+      ${/* One bar, not two (issue #447), matching the Tickets page. Search
+           and the saved views stay out; the selects move behind "More
+           filters", which badges how many are actually narrowing the list. */''}
       <div class="filter-bar" style="flex-wrap:wrap">
-        <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search name, username, ID, email, brand…" style="width:240px" value="${window.escAttr(CUST_QUERY)}" data-input-action="cust.filter"/>
-        <select class="filter-select" data-change-action="cust.setVIP">
-          <option value="all"      ${CUST_VIP_FILTER==='all'?'selected':''}>All VIP tiers</option>
-          <option value="Platinum" ${CUST_VIP_FILTER==='Platinum'?'selected':''}>Platinum</option>
-          <option value="Gold"     ${CUST_VIP_FILTER==='Gold'?'selected':''}>Gold</option>
-          <option value="Silver"   ${CUST_VIP_FILTER==='Silver'?'selected':''}>Silver</option>
-          <option value="Bronze"   ${CUST_VIP_FILTER==='Bronze'?'selected':''}>Bronze</option>
-        </select>
-        <select class="filter-select" data-change-action="cust.setBrand">
-          <option value="all" ${CUST_BRAND_FILTER==='all'?'selected':''}>All brands</option>
-          ${brands.map(b => `<option value="${window.escAttr(b)}" ${CUST_BRAND_FILTER===b?'selected':''}>${window.escHtml(b)}</option>`).join('')}
-        </select>
-        <select class="filter-select" data-change-action="cust.setGroupBy" title="Group rows">
-          <option value="none"         ${CUST_GROUP_BY==='none'?'selected':''}>No grouping</option>
-          <option value="vip"          ${CUST_GROUP_BY==='vip'?'selected':''}>Group by VIP</option>
-          <option value="brand"        ${CUST_GROUP_BY==='brand'?'selected':''}>Group by brand</option>
-          <option value="jurisdiction" ${CUST_GROUP_BY==='jurisdiction'?'selected':''}>Group by jurisdiction</option>
-          <option value="kyc"          ${CUST_GROUP_BY==='kyc'?'selected':''}>Group by KYC</option>
-          <option value="consent"      ${CUST_GROUP_BY==='consent'?'selected':''}>Group by consent</option>
-        </select>
-        <span id="cust-counter" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${filtered.length} of ${total}</span>
-      </div>
-      <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
+        ${/* aria-label, not just a placeholder: the "Filter" label was dropped
+             to buy back a slot, and a placeholder is not an accessible name —
+             it also vanishes the moment you type. */''}
+        <input class="filter-select" id="cust-search" type="search" aria-label="Search customers" placeholder="Search name, username, ID, email, brand…" style="width:230px" value="${window.escAttr(CUST_QUERY)}" data-input-action="cust.filter"/>
         <span class="filter-label">View</span>
         ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="cust.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
+        <button class="filter-more${CUST_SHOW_MORE_FILTERS?' open':''}" id="cust-more-toggle" data-action="cust.toggleMoreFilters"
+                aria-expanded="${CUST_SHOW_MORE_FILTERS?'true':'false'}" aria-controls="cust-more-filters">
+          More filters${advancedN?` <span class="filter-more-n">${advancedN}</span>`:''} <span class="filter-more-caret" aria-hidden="true">${CUST_SHOW_MORE_FILTERS?'▴':'▾'}</span>
+        </button>
+        ${activeChipN?'<span class="filter-sep" aria-hidden="true"></span>':''}
+        ${CUST_VIP_FILTER!=='all'?`<span class="filter-tag">${window.escHtml(CUST_VIP_FILTER)}<span class="rm" data-action="cust.clearFilter" data-filter="vip">×</span></span>`:''}
+        ${CUST_BRAND_FILTER!=='all'?`<span class="filter-tag">${window.escHtml(CUST_BRAND_FILTER)}<span class="rm" data-action="cust.clearFilter" data-filter="brand">×</span></span>`:''}
+        ${CUST_QUERY?`<span class="filter-tag">"${window.escHtml(CUST_QUERY)}"<span class="rm" data-action="cust.clearFilter" data-filter="query">×</span></span>`:''}
+        ${/* Grouping isn't a filter so it stays out of the badge, but with the
+             select tucked away there'd otherwise be nothing on screen naming
+             it or undoing it. */''}
+        ${CUST_GROUP_BY!=='none'?`<span class="filter-tag">Grouped by ${window.escHtml(CUST_GROUP_BY)}<span class="rm" data-action="cust.clearFilter" data-filter="group" title="Remove grouping">×</span></span>`:''}
+        <span id="cust-counter" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${filtered.length} of ${total}</span>
+        ${/* A CHILD of .filter-bar, always in the DOM: as a sibling it would
+             survive the section being collapsed (an orphaned row whose toggle
+             is hidden), and rendering it conditionally would leave
+             aria-controls pointing at nothing while closed. */''}
+        <div class="filter-subbar" id="cust-more-filters" ${CUST_SHOW_MORE_FILTERS?'':'hidden'}>
+          <select class="filter-select" aria-label="Filter by VIP tier" data-change-action="cust.setVIP">
+            <option value="all"      ${CUST_VIP_FILTER==='all'?'selected':''}>All VIP tiers</option>
+            <option value="Platinum" ${CUST_VIP_FILTER==='Platinum'?'selected':''}>Platinum</option>
+            <option value="Gold"     ${CUST_VIP_FILTER==='Gold'?'selected':''}>Gold</option>
+            <option value="Silver"   ${CUST_VIP_FILTER==='Silver'?'selected':''}>Silver</option>
+            <option value="Bronze"   ${CUST_VIP_FILTER==='Bronze'?'selected':''}>Bronze</option>
+          </select>
+          <select class="filter-select" aria-label="Filter by brand" data-change-action="cust.setBrand">
+            <option value="all" ${CUST_BRAND_FILTER==='all'?'selected':''}>All brands</option>
+            ${brands.map(b => `<option value="${window.escAttr(b)}" ${CUST_BRAND_FILTER===b?'selected':''}>${window.escHtml(b)}</option>`).join('')}
+          </select>
+          <span class="filter-subbar-sep" aria-hidden="true"></span>
+          <select class="filter-select" aria-label="Group rows" data-change-action="cust.setGroupBy" title="Group rows">
+            <option value="none"         ${CUST_GROUP_BY==='none'?'selected':''}>No grouping</option>
+            <option value="vip"          ${CUST_GROUP_BY==='vip'?'selected':''}>Group by VIP</option>
+            <option value="brand"        ${CUST_GROUP_BY==='brand'?'selected':''}>Group by brand</option>
+            <option value="jurisdiction" ${CUST_GROUP_BY==='jurisdiction'?'selected':''}>Group by jurisdiction</option>
+            <option value="kyc"          ${CUST_GROUP_BY==='kyc'?'selected':''}>Group by KYC</option>
+            <option value="consent"      ${CUST_GROUP_BY==='consent'?'selected':''}>Group by consent</option>
+          </select>
+        </div>
       </div>
       <div style="flex:1;overflow:auto">
         <table class="tbl" style="min-width:500px">
@@ -946,16 +1085,35 @@ registerActions({
   // List + bulk actions
   'cust.openProfile':     (ds) => openCustomerProfile(ds.custId),
   'cust.closeProfile':    () => closeCustomerProfile(),
+  'cust.toggleMoreFilters': () => {
+    CUST_SHOW_MORE_FILTERS = !CUST_SHOW_MORE_FILTERS;
+    renderPage('customers');
+    // renderPage replaces the page, so a keyboard user who pressed Enter here
+    // would land back on <body> and have to tab the whole shell again.
+    document.getElementById('cust-more-toggle')?.focus();
+  },
+  'cust.toggleMoreMenu': () => {
+    if (document.getElementById('cust-more-backdrop')) closeCustMoreMenu();
+    else openCustMoreMenu();
+  },
+  'cust.closeMoreMenu': () => closeCustMoreMenu(),
+  'cust.clearFilter': (ds) => {
+    if      (ds.filter === 'vip')   CUST_VIP_FILTER = 'all';
+    else if (ds.filter === 'brand') CUST_BRAND_FILTER = 'all';
+    else if (ds.filter === 'query') CUST_QUERY = '';
+    else if (ds.filter === 'group') CUST_GROUP_BY = 'none';
+    renderPage('customers');
+  },
   'cust.setView':         (ds) => setCustView(ds.view),
   'cust.bulkDelete':      () => bulkDeleteCustomers(),
   'cust.clearSelection':  () => clearCustSelection(),
-  'cust.showColumnPanel': () => showColumnPanel(),
-  'cust.manageFields':    () => showManageFieldsModal(),
+  'cust.showColumnPanel': () => { closeCustMoreMenu(); showColumnPanel(); },
+  'cust.manageFields':    () => { closeCustMoreMenu(); showManageFieldsModal(); },
   // Direct imports despite the customers↔customers/modals.js cycle — the
   // openers are only referenced inside these closures. See header.
-  'cust.csvImport':       () => showCSVModal(),
+  'cust.csvImport':       () => { closeCustMoreMenu(); showCSVModal(); },
   'cust.new':             () => showNewCustomerModal(),
-  'cust.export':          () => exportCustomerList(),
+  'cust.export':          () => { closeCustMoreMenu(); exportCustomerList(); },
   'cust.closeGdpr':       () => closeModal(),
   // Detail-page actions
   'cust.openTicket':      (ds) => openTicket(ds.ticketId),
@@ -975,7 +1133,7 @@ registerActions({
 registerChangeActions({
   'cust.toggleSelected': (ds) => toggleCustSelected(ds.custId),
   'cust.toggleAll':      () => toggleAllCustomers(),
-  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(CUSTOMERS); },
+  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(applyCustFilters()); },
   'cust.bulkSetVIP':     (ds, el) => bulkSetCustVIP(el.value),
   'cust.bulkSetConsent': (ds, el) => bulkSetCustConsent(el.value),
   'cust.setVIP':         (ds, el) => custSetVIP(el.value),

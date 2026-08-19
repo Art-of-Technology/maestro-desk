@@ -45,8 +45,13 @@ function persistCollapsedSections() {
 //      old :0 to hide selects they never used would otherwise come back to
 //      find "Needs attention" — the main way into the queue — hidden behind a
 //      bar labelled only "Show Filters".
+//
+// v2 (#447) — the customers page got the same merge, with the same
+//   consequences: :1 (the View chip row) is gone, and :0 now holds the view
+//   chips as well as the search box.
 const SECTION_MIGRATIONS = [
   ['tickets:filter-bar:0', 'tickets:filter-bar:1'],
+  ['customers:filter-bar:0', 'customers:filter-bar:1'],
 ];
 const MIGRATION_KEY = 'collapsed_sections_migration';
 

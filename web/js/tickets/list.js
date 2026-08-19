@@ -511,10 +511,22 @@ async function deleteSavedSearch(id) {
   }
 }
 function setTicketQuery(q)  {
+  // Capture the caret BEFORE the re-render (the input is destroyed and
+  // rebuilt). Forcing it to the end broke mid-string editing: typing into
+  // "smith" at offset 0 put the next character at the end instead.
+  const before = document.getElementById('ticket-search');
+  const selStart = before ? before.selectionStart : null;
+  const selEnd   = before ? before.selectionEnd   : null;
   setFilterQuery(q);
   renderPage('tickets');
   const input = document.getElementById('ticket-search');
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  if (input) {
+    input.focus();
+    if (selStart !== null) {
+      const max = input.value.length;
+      input.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    }
+  }
 }
 function setTicketGroupBy(v) { TICKET_GROUP_BY = v; renderPage('tickets'); }
 
