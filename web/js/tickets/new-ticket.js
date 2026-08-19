@@ -46,6 +46,7 @@ const NT = {
   agentUserId: null,     // explicit assignee (user id) — null = Auto (rules)
   agentName: '',         // display name for the step-2 summary strip
   message: '',
+  messageTouched: false, // the AGENT edited the message (vs a template filling it)
 };
 
 function resetNT() {
@@ -59,6 +60,7 @@ function resetNT() {
   NT.agentUserId = null;
   NT.agentName = '';
   NT.message = '';
+  NT.messageTouched = false;
 }
 
 const visible = key => isFieldVisible('ticket', key);
@@ -71,9 +73,19 @@ const reqMark = key => required(key) ? ' <span style="color:var(--red);font-weig
 function catOptions() {
   const active = CATEGORIES.filter(c => c.is_active);
   if (active.length) return active.map(c => ({ value: c.key, label: c.label }));
+  // Derived-from-seed-data fallback is DEMO ONLY: those values are labels,
+  // and the API validates category_key against the workspace's real keys —
+  // offering them in a real workspace would 400 the create. An API-backed
+  // workspace with no active categories simply shows none (the category
+  // guard then lets the create through uncategorised).
+  if (isSessionApiBacked()) return [];
   return [...new Set([...TICKETS.map(t => t.category), ...TICKET_TEMPLATES.map(t => t.category)])]
     .filter(Boolean).map(l => ({ value: l, label: l }));
 }
+
+// Real workspace (persisted) vs demo persona (in-memory) — a property of the
+// SESSION, never of which fields the layout happens to show.
+function isSessionApiBacked() { return Boolean(getJwt() && getWorkspaceId()); }
 
 // Templates store category as a FREE STRING — match it case-insensitively
 // against both label and key; no match → '' (placeholder forces a pick).
@@ -100,10 +112,12 @@ function customerRef(c) {
   return { uuid: c._uuid || null, displayId: c.id, label: `${c.first} ${c.last}`.trim() || c.id };
 }
 
-// keepMessage: on a step-1 REVISIT the agent may already have written the
-// first message on step 2 — step 1 has no message field, so silently
-// replacing it with a template body would destroy work with nothing on
-// screen to show it. The initial open (nothing typed yet) still prefills.
+// keepMessage: the agent may already have written the first message on step
+// 2 — step 1 has no message field, so silently replacing it with a template
+// body would destroy work with nothing on screen to show it. Callers pass
+// NT.messageTouched (an explicit "the agent typed here" flag) rather than
+// inferring from non-emptiness, which would also protect a body that only a
+// PREVIOUS template put there.
 function applyTemplateToNT(id, { keepMessage = false } = {}) {
   NT.templateId = id || null;
   const t = id ? TICKET_TEMPLATES.find(x => x.id === id) : null;
@@ -338,7 +352,7 @@ function renderStep2() {
     </div>` : ''}
     <div class="form-row">
       <label class="form-label">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
-      <textarea class="form-input" id="nt2-msg" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
+      <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
       ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
@@ -398,13 +412,26 @@ async function saveAsDraft() {
 
 // ─── Creation ────────────────────────────────────────────────────────────────
 
-async function finishCreate({ message, send }) {
+// Single funnel for every create trigger. An unexpected throw anywhere in
+// the path must not leave the modal frozen (NT.busy true, every button
+// disabled) with no way forward — surface it and unfreeze.
+async function finishCreate(args) {
+  try {
+    await runCreate(args);
+  } catch (err) {
+    console.error('[new-ticket] create failed:', err);
+    showToast(`Couldn't finish creating the ticket: ${err?.message || err}`, 'error', 8000);
+    setBusy(false);
+  }
+}
+
+async function runCreate({ message, send }) {
   // Which path applies is a property of the SESSION, not of the pick: a real
   // workspace whose layout HIDES the Customer field leaves NT.customer null,
   // and routing that to the demo mint would silently create a ghost ticket
   // that vanishes on reload — the exact bug this phase exists to kill. Demo
   // personas carry no JWT/workspace, so they still take the in-memory path.
-  const isApiBacked = Boolean(getJwt() && getWorkspaceId());
+  const isApiBacked = isSessionApiBacked();
   // Snapshot everything the async path needs BEFORE the first await — NT is
   // module state and must not be read across it.
   const snapshot = {
@@ -545,7 +572,8 @@ registerActions({
   'nt.clearCust': () => clearCustomer(),
   'nt.saveDraft': () => { void saveAsDraft(); },
   'nt.back':      () => {
-    NT.message = document.getElementById('nt2-msg')?.value ?? NT.message;
+    const ta = document.getElementById('nt2-msg');
+    if (ta) { NT.message = ta.value; if (ta.value.trim()) NT.messageTouched = true; }
     closeModal();
     renderStep1();
   },
@@ -559,7 +587,7 @@ registerChangeActions({
     // rewritten when the template actually carries one — matching the old
     // modal, which never reset a hand-picked priority.
     const before = NT.priority;
-    applyTemplateToNT(el.value, { keepMessage: Boolean(NT.message) });
+    applyTemplateToNT(el.value, { keepMessage: NT.messageTouched });
     const subj = document.getElementById('nt-subj');
     if (subj) subj.value = NT.subject;
     const cat = document.getElementById('nt-cat');
@@ -578,6 +606,9 @@ registerChangeActions({
 
 registerInputActions({
   'nt.custSearch': (ds, el) => renderSuggestions(el.value),
+  // Typing in the drafting window marks the message as the agent's, so a
+  // later template pick on a step-1 revisit won't overwrite it.
+  'nt.msgInput':   (ds, el) => { NT.message = el.value; NT.messageTouched = true; },
 });
 
 registerMousedownActions({
