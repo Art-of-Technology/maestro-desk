@@ -789,13 +789,16 @@ function renderCustomerDetail(custId) {
   }).join('') || '<div style="color:var(--ink3);font-size:12px;padding:8px 0">No custom fields defined. They can be added from the Custom Fields page (Senior Agent and above).</div>';
 
   const riskPanel = risks.length ? `
-    <div class="card" style="margin-bottom:16px;border-color:var(--red-bd);background:rgba(158,30,22,0.05)">
+    <div class="card" style="margin-bottom:16px;border-color:var(--red-bd);background:var(--red-wash)">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1l6 11H1L7 1z" stroke="var(--red)" stroke-width="1.4" stroke-linejoin="round"/><path d="M7 5v3M7 10v.5" stroke="var(--red)" stroke-width="1.4" stroke-linecap="round"/></svg>
         <div class="card-title" style="margin:0;color:var(--red)">Risk indicators</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${risks.map(r => `<span class="tag" style="font-size:10px;border-color:${r.level==='high'?'var(--red-bd)':'var(--amber-bd)'};color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${window.escHtml(r.text)}</span>`).join('')}
+        ${/* No border-color: .tag declares no border-width, so it would be
+             inert, and the 1px outline is reserved as the shape cue for VIP
+             tier badges (styles/pages.css). These read as tint-only pills. */''}
+        ${risks.map(r => `<span class="tag" style="font-size:10px;color:${r.level==='high'?'var(--red)':'var(--amber)'};background:${r.level==='high'?'var(--red-lt)':'var(--amber-lt)'}">${window.escHtml(r.text)}</span>`).join('')}
       </div>
     </div>` : '';
 

@@ -35,6 +35,10 @@ html,body{height:100%;overflow:hidden}
   --red-bd:rgba(158,30,22,0.34);--green-bd:rgba(15,107,58,0.34);
   --amber-bd:rgba(109,74,0,0.34);--cyan-bd:rgba(5,80,94,0.34);
   --blue-bd:rgba(34,71,184,0.34);
+  /* Whole-card callout fill. Far lighter than --red-lt: a pill tint covers a
+     few hundred square pixels, a card covers the width of the panel, and the
+     pill alpha would shout. */
+  --red-wash:rgba(158,30,22,0.05);
   --cta:#ffe228;--cta-ink:#130e30;--cta-hover:#f2d500;
   /* Garden decoration palette (DESIGN.md "Hero Card"/"Imagery") — these raw
      hues are for background blob shapes, never for buttons or icons. Since
