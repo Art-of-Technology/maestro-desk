@@ -60,6 +60,13 @@
 .sb-collapse:hover{color:var(--purple);border-color:var(--purple);background:var(--purple-lt)}
 .sb-logo{padding:18px 18px 14px;border-bottom:1px solid var(--rule)}
 .sb-word{font-family:var(--font-sans);font-size:18px;font-weight:600;letter-spacing:-.025em;color:var(--ink)}
+/* Sidebar only — the auth screen reuses .sb-word and has no toggle to dodge.
+   The brand block's right gutter is shared with .sb-collapse (right:10px..32px)
+   and, for multi-workspace agents, the switcher caret (right:38px), so a long
+   brand.name must stop short of both; applyWorkspaceBrand() caps an uploaded
+   logo <img> to the same 34px. .sb-sub needs no cap — it sits below the
+   toggle's 14px..36px band. */
+.sidebar .sb-word{max-width:calc(100% - 34px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-sub{font-family:var(--font-sans);font-size:12px;font-weight:400;color:var(--ink3);margin-top:3px}
 /* In-session workspace switcher: the brand block becomes a trigger when the
    agent has 2+ memberships (workspace-switcher/index.js wires this in). */

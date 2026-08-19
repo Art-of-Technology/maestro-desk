@@ -99,13 +99,15 @@ function applyWorkspaceBrand(brand) {
     if (brand.logoUrl) {
       // The uploaded logo REPLACES the word mark — it must never render
       // behind the lettering. Height cap + object-fit keep it undistorted;
-      // the width cap leaves room for the workspace-switcher caret
-      // (absolute at right:14px in .sb-logo).
+      // the width cap leaves room for the two things pinned to the block's
+      // right edge: the .sb-collapse toggle (right:10px..32px) and, for
+      // multi-workspace agents, the switcher caret (right:38px). 34px clears
+      // both — see the matching cap on .sb-word in shell.css.
       wordEl.textContent = '';
       const img = document.createElement('img');
       img.src = brand.logoUrl;
       img.alt = brand.name || 'Workspace logo';
-      img.style.cssText = 'display:block;max-height:28px;max-width:calc(100% - 20px);object-fit:contain';
+      img.style.cssText = 'display:block;max-height:28px;max-width:calc(100% - 34px);object-fit:contain';
       // A dead logo URL (404, hotlink-blocked, CSP-refused) must not leave
       // the workspace unidentifiable — fall back to the word mark.
       img.onerror = () => { wordEl.textContent = brand.name || 'Respovia'; };

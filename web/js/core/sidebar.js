@@ -80,6 +80,20 @@ export function toggleSidebar() {
 
 registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
 
+// The nav rows and the workspace-switcher trigger are role="button" divs, and
+// the shared dispatcher (core/event-delegation.js) only listens for click — so
+// they were focusable but not operable. Bridge Enter/Space to a click here
+// rather than in the dispatcher: a global keydown handler would also fire on
+// [data-action] inputs, where Enter means something else. Scoped to the
+// sidebar and to elements that actually claim role="button".
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+  const target = e.target.closest?.('.sidebar [role="button"][data-action]');
+  if (!target) return;
+  e.preventDefault();   // stop Space from scrolling the page
+  target.click();
+});
+
 // The shell markup is static in index.html, so it already exists by the time
 // this module is evaluated — no DOMContentLoaded wait needed.
 apply(read());
