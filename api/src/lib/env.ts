@@ -116,9 +116,12 @@ const Env = z.object({
   //      Both empty → player-context enrichment is skipped.
   MAESTRO_CLIENT_ID: z.string().default(''),
   MAESTRO_CLIENT_SECRET: z.string().default(''),
-  // OIDC discovery lives at a NON-STANDARD path on the issuer host — see the
-  // integration guide (`maestro integrate`): issuer is the bare host, the
-  // discovery document is under /api/auth/.
+  // Discovery itself is at the CANONICAL path
+  // (`${MAESTRO_ISSUER}/.well-known/openid-configuration`, fetched in
+  // lib/auth.ts); `iss` is the bare host. It is the endpoints *inside* that
+  // document which sit on a non-standard prefix — authorize/token/userinfo are
+  // all under /api/auth/ — but Better Auth reads those from the doc, so nothing
+  // here needs to encode them.
   MAESTRO_ISSUER: z.string().url().default('https://auth.maestro-connect.com'),
   MAESTRO_GATEWAY_URL: z.string().url().default('https://api.maestro-connect.com'),
   MAESTRO_API_TOKEN: z.string().default(''),

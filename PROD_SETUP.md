@@ -62,7 +62,16 @@ CRON_SECRET=<openssl rand -base64 32>              # REQUIRED on Vercel — sign
 # Cloudflare R2 (brand-asset/logo uploads):
 R2_ACCOUNT_ID=…  R2_ACCESS_KEY_ID=…  R2_SECRET_ACCESS_KEY=…
 R2_BUCKET=brand-assets  R2_PUBLIC_BASE_URL=https://<pub-…r2.dev or custom domain>
+# Maestro Connect (app "Service Desk"). Sign-in needs the first two; the headless
+# player-context worker needs the last two. Leave a pair empty to disable that half.
+MAESTRO_CLIENT_ID=…  MAESTRO_CLIENT_SECRET=…
+MAESTRO_API_TOKEN=mh_live_…  MAESTRO_BRAND_ID=<brand uuid from `maestro apps installations`>
+# Do NOT set MAESTRO_ISSUER / MAESTRO_GATEWAY_URL. They default to
+# https://auth.maestro-connect.com and https://api.maestro-connect.com in
+# api/src/lib/env.ts; setting them here only pins a host that can go stale (they
+# were left pointing at the retired mert.md domain through the 2026-08 migration).
 ```
+- [ ] 👤 **Maestro host check (do this after any platform domain change):** confirm `MAESTRO_ISSUER` / `MAESTRO_GATEWAY_URL` are **absent** from the Dokploy `respovia-api` env — a value set here silently overrides the code default and no health check will catch it. Symptom of a stale host: `GET /api/v1/maestro/status` still returns `{"enabled":true}` (it only checks the client id/secret) while `/api/v1/maestro/login` fails, because the issuer's `/.well-known/openid-configuration` returns an empty body.
 - [ ] 👤 **R2 asset-domain headers (audit #7, config half):** new uploads store `Content-Disposition: attachment` (set by the API at PUT time), but `X-Content-Type-Options: nosniff` can't be stored as S3 object metadata — add it at the serving layer. On a custom asset domain: Cloudflare → Rules → Transform Rules → Modify Response Header → add `X-Content-Type-Options: nosniff` for the asset hostname. (Not possible on a bare `pub-….r2.dev` URL — becomes available once the domain is registered and the bucket gets a custom domain.)
 - [ ] 👤 Deploy the API; verify `GET /api/v1/health` = 200 and `GET /api/v1/health/ready` proves DB connectivity (`/ready/neon` is a legacy alias).
 - [ ] 👤 **Vercel (SPA):** deploy the static frontend (the **`web/`** directory — `index.html`, `portal.html`, `js/`, `styles/`; the SPA project's **Root Directory must be `web`**, so it builds as pure static with zero functions and never picks up `api/`). The agent app serves at `https://app.respovia.com`. The SPA picks its API base by hostname (`web/js/api-base.js`) — see the URL notes at the top for which hosts are recognized; every other host falls back to `localhost:3001`. There is **no** `/api/v1/config` fetch anymore.
