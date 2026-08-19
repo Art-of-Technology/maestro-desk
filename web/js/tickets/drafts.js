@@ -18,6 +18,16 @@ export function saveDraft(id, value) {
 
 export function clearDraft(id) { localStorage.removeItem(getDraftKey(id)); }
 
+// Write a draft for an EXPLICIT tab, independent of the live COMPOSE_TAB
+// global — the new-ticket flow saves its step-2 text as a 'reply' draft on
+// the freshly-created ticket, and must not land under whatever tab the agent
+// last used elsewhere.
+export function saveDraftFor(id, tab, value) {
+  const key = `draft:${id}:${tab}`;
+  if (value && value.length) localStorage.setItem(key, value);
+  else localStorage.removeItem(key);
+}
+
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB
 // would leave the other tab's draft orphaned in localStorage forever.
