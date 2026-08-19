@@ -125,9 +125,25 @@ export function renderPage(page) {
   // so a retired page (this PR removed 'inbox') would silently show the last
   // page's content under the new page's name. Fall back to the dashboard and
   // say so, rather than lying about where the user is.
-  if (!pages[page]) {
+  //
+  // hasOwn, not a truthiness check: `pages` is an object literal, so
+  // 'constructor' / 'toString' / 'valueOf' would otherwise pass the guard and
+  // then be CALLED, painting [object Object] into the page.
+  //
+  // The route smoke fails the build on this warning (see
+  // scripts/bridge-smoke-shim-suffix.js) — otherwise deleting a renderer while
+  // leaving its sidebar row would keep CI green and only surface as a console
+  // message in the user's browser.
+  if (!Object.hasOwn(pages, page)) {
     console.warn(`[router] unknown page "${page}" — falling back to dashboard`);
+    // Guard the recursion: if 'dashboard' itself ever goes missing, fail
+    // loudly instead of overflowing the stack.
+    if (page === 'dashboard') throw new Error('[router] dashboard renderer is missing');
     renderPage('dashboard');
+    // nav() resolved the sidebar highlight against the unknown key, so no row
+    // is active — point it at the dashboard row we actually rendered.
+    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+    document.querySelector('.sb-item[data-page="dashboard"]')?.classList.add('active');
     return;
   }
   main.innerHTML = pages[page]();

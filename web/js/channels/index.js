@@ -307,7 +307,7 @@ function chEdit(id) {
 function chDelete(id) {
   if (!window.isAdmin()) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
-  showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Incoming email to its address will stop matching it and arrive with no channel defaults. Past tickets and inbox history are kept.</div>`, async () => {
+  showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Incoming email to its address will stop matching it and arrive with no channel defaults. Past tickets and their email history are kept.</div>`, async () => {
     if (chBusy) return;
     chBusy = true;
     try {

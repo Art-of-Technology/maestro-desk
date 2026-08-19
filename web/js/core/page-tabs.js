@@ -1,6 +1,6 @@
 // ─── Page tabs ───────────────────────────────────────────────────────────────
 // A small header-level tab switcher for the merged nav destinations:
-//   Insights = Reports | Activity     Insights = Reports | Activity
+//   Insights = Reports | Activity
 // It renders inside a page's .topbar in place of the .tb-title. Each tab carries
 // data-action="pagetab.go" data-page="<router key>"; the handler (registered in
 // app.js) calls renderPage(key) directly — NOT nav() — so the sidebar's active

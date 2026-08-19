@@ -229,7 +229,6 @@ export async function loadWorkspaceData() {
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
   const userByUuid     = Object.fromEntries(agentsRaw.map((a) => [a.user_id, a.users]));
-  const channelByUuid  = Object.fromEntries(channelsRaw.map((c) => [c.id, c]));
 
   // ─── CUSTOMERS ──────────────────────────────────────────────────────────
   // Group custom values by entity_id so we can attach each customer's

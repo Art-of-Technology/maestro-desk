@@ -36,7 +36,7 @@ maestro-desk/
 │   ├── js/
 │   │   ├── app.js        #   bootstrap only (login, layout, startup, window bridge)
 │   │   ├── core/         #   router, state, data, api-client, realtime, modal, …
-│   │   └── <feature>/    #   per-feature ES modules (tickets, inbox, dashboard, ai, …)
+│   │   └── <feature>/    #   per-feature ES modules (tickets, customers, dashboard, ai, …)
 │   └── styles/
 ├── api/                  # Backend (Vercel Root Directory = "api")
 │   └── src/
