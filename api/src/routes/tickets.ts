@@ -6,6 +6,7 @@ import { applyAssignmentRules } from '../lib/assign-rules-engine.js';
 import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
+import { ticketListCols } from '../lib/ticket-cols.js';
 import { sendCsatSurvey } from '../lib/csat-survey.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
@@ -53,19 +54,6 @@ tickets.use('*', async (c, next) => {
 // explicitly scopes by workspace_id — the authorization that RLS used to
 // enforce now lives here in the route + the auth middleware (which verifies
 // the caller is a member of the active workspace).
-// The list-row column set, shared by GET / and the post-create re-select so
-// the SPA's mapTicket sees exactly the same shape from both. Built per call
-// (never at module scope — that would open a DB handle at import time).
-// GET /sync keeps its own slimmer set; it also ships tombstones.
-function ticketListCols(sql: ReturnType<typeof getDb>) {
-  return sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
-    customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
-    snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
-    (select tm.role from ticket_messages tm
-       where tm.ticket_id = tickets.id and tm.deleted_at is null
-       order by tm.created_at desc limit 1) as last_message_role`;
-}
-
 tickets.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
