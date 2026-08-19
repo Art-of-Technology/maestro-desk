@@ -83,11 +83,24 @@
 .filter-more:hover{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
 .filter-more.open{border-color:var(--rule3);color:var(--ink);background:var(--off)}
 .filter-more-caret{font-size:9px;line-height:1;opacity:.7}
-/* The count of active advanced filters. Uses the CTA, not a status colour:
-   it's a "you have filters applied" nudge, not a health signal. */
-.filter-more-n{font-family:var(--font-mono);font-size:10px;font-weight:600;line-height:1;padding:1px 6px;border-radius:var(--r-pill);background:var(--cta);color:var(--cta-ink)}
-.filter-subbar{display:flex;align-items:center;gap:6px;padding:0 20px 10px;flex-wrap:wrap;flex-shrink:0;background:var(--off)}
+/* The count of active advanced filters. --purple, not --cta, for the same
+   reason .filter-tag.active is: the topbar already has the view's one solid
+   yellow button, and --purple is what applyWorkspaceBrand overrides. */
+.filter-more-n{font-family:var(--font-mono);font-size:10px;font-weight:600;line-height:1;padding:1px 6px;border-radius:var(--r-pill);background:var(--purple);color:#fff}
+/* A full-width child of .filter-bar, so it wraps onto its own line and is
+   hidden along with everything else when the section is collapsed. */
+.filter-subbar{flex-basis:100%;display:flex;align-items:center;gap:6px;padding:8px 0 0;margin-top:2px;border-top:1px solid var(--rule);flex-wrap:wrap}
+/* Always in the DOM so aria-controls resolves; [hidden] alone loses to the
+   display:flex above, so it needs an explicit rule. */
+.filter-subbar[hidden]{display:none}
 .filter-subbar-sep{width:1px;align-self:stretch;margin:2px 4px;background:var(--rule2)}
+/* Divides the chips you can PICK (views, pinned searches) from the chips that
+   are currently APPLIED — both are .filter-tag, and only the × told them
+   apart. */
+.filter-sep{width:1px;align-self:center;height:16px;margin:0 4px;background:var(--rule2)}
+/* A pinned saved search sits among the built-in view chips; the dashed edge
+   marks it as one of yours rather than one of the six standard views. */
+.filter-tag-saved{border-style:dashed}
 .filter-tag .rm{cursor:pointer;color:var(--ink3);font-size:11px;line-height:1}
 .filter-tag .rm:hover{color:var(--red);cursor:pointer}
 /* ── Tab bar ── */

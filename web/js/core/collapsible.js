@@ -34,9 +34,16 @@ function persistCollapsedSections() {
 // Appearance would keep counting a section the user can no longer see or
 // restore. Any change that deletes a bar adds its id here.
 //
-// tickets:filter-bar:1 — the tickets page's second filter bar (View chips +
-// saved searches) was merged into the first in #447, so only :0 now exists.
-const RETIRED_SECTION_IDS = ['tickets:filter-bar:1'];
+// #447 merged the tickets page's two filter bars into one:
+//   :1 (View chips + saved searches) no longer exists at all.
+//   :0 survives but is a different section — it used to be search + four
+//      selects, and now also holds the view chips. Someone who collapsed the
+//      old :0 to hide selects they never used would otherwise come back to
+//      find "Needs attention" — the main triage entry point — hidden behind a
+//      bar labelled only "Show Filters". So :0 is reset too, once. Worst case
+//      a user re-collapses one bar; the alternative silently removes their
+//      primary way into the queue.
+const RETIRED_SECTION_IDS = ['tickets:filter-bar:0', 'tickets:filter-bar:1'];
 
 (function pruneRetiredSections() {
   let changed = false;
