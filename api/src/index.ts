@@ -161,7 +161,18 @@ app.route('/api/v1/maestro', maestro);
 
 app.onError(async (err, c) => {
   if (err instanceof HTTPException) {
-    return err.getResponse();   // expected 4xx — not an incident, never reported
+    // Expected 4xx — not an incident, never reported.
+    // - A custom Response always wins untouched: it may carry mandated
+    //   headers (WWW-Authenticate, Retry-After) or a deliberate body.
+    // - Other sub-500s are shaped as JSON {error} so the SPA can show the
+    //   actual reason (HTTP/2 has no status text — a text body used to reach
+    //   agents as a bare "HTTP 400").
+    // - 5xx keep Hono's default response: their messages can wrap internal
+    //   detail (upstream URLs, DB error text) that must not become
+    //   client-visible copy.
+    if (err.res) return err.getResponse();
+    if (err.status < 500) return c.json({ error: err.message || 'Request failed' }, err.status);
+    return err.getResponse();
   }
   // Report the unhandled error to Sentry (no-op when the DSN is unset), then
   // log it server-side. The DB error text (table/column/constraint names) is
