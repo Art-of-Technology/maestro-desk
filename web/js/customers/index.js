@@ -288,15 +288,10 @@ function exportCustomerList() {
 // refreshCustTable only rewrites thead/tbody — the chrome would go stale as
 // you type. Focus and caret are restored the same way tickets/list.js does.
 // ─── Topbar overflow menu ───────────────────────────────────────────────────
-// Built at body level rather than inside the .topbar, and dismissed by its own
-// full-viewport backdrop, mirroring the workspace switcher. The topbar is a
-// clipping, isolated stacking context, so a panel rendered inside it is both
-// cut off at 48px and painted under the filter bar.
-//
-// Because it isn't a display-toggled .comp-menu inside a wrapper, core/
-// dismiss.js doesn't participate — the backdrop and Escape handle it, and
-// every item handler closes it explicitly so it can't linger behind the modal
-// it just opened.
+// The ⋯ menu behind Columns / Fields / Import / Export. Unlike the composer's
+// .comp-menu it owns its dismissal entirely (backdrop + Escape + every item
+// handler), so core/dismiss.js does not participate — see openCustMoreMenu
+// for why it can't live inside the topbar.
 const CUST_MENU_ITEMS = [
   { action: 'cust.showColumnPanel', label: 'Columns…' },
   { action: 'cust.manageFields',    label: 'Fields…' },
@@ -318,6 +313,11 @@ function onCustMenuKeydown(e) {
   }
 }
 
+// Built at BODY level with its own full-viewport backdrop, mirroring the
+// workspace switcher, because .topbar is height:48px with overflow:hidden AND
+// isolation:isolate: a panel rendered inside it is cut off at 48px, and even
+// as position:fixed its z-index stays trapped in the topbar's stacking
+// context, painting underneath the filter bar below.
 function openCustMoreMenu() {
   const btn = document.getElementById('cust-more-menu-btn');
   if (!btn) return;
