@@ -65,6 +65,12 @@ export function setBrandId(id) {
  *   { brand: true }      — add the X-Brand-Id header (for Maestro player lookups)
  */
 export async function apiCall(path, { method = 'GET', body, auth = true, workspace = true, brand = false } = {}) {
+  // NOTE: `workspace: true` means "attach the X-Workspace-Id header IF one is
+  // active", not "this endpoint requires a workspace" — plenty of default-
+  // options callers (god panel, push settings, whoami-class endpoints) are
+  // legitimately workspace-less. Don't add a client-side missing-workspace
+  // guard here: the server's auth middleware is the authority, and its 400
+  // now arrives as a readable JSON {error}.
   const headers = { 'Content-Type': 'application/json' };
   if (auth) {
     const jwt = getJwt();
@@ -102,7 +108,14 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
   try { parsed = text ? JSON.parse(text) : null; }
   catch { parsed = text; }
   if (!res.ok) {
-    const msg = (parsed && parsed.error) || res.statusText || `HTTP ${res.status}`;
+    // Short plain-text bodies count as a message too — HTTP/2 has no status
+    // text, so without this a text-bodied 4xx surfaces as a bare "HTTP 400".
+    // Length + no-markup guards keep proxy/CDN HTML error pages out, and the
+    // sub-500 gate keeps server-internal 5xx text (old API builds, proxies)
+    // from being promoted to user-facing copy.
+    const textMsg = (res.status < 500 && typeof parsed === 'string' && parsed.trim() && parsed.length <= 200 && !parsed.includes('<'))
+      ? parsed.trim() : '';
+    const msg = (parsed && parsed.error) || textMsg || res.statusText || `HTTP ${res.status}`;
     throw new ApiError(msg, res.status, parsed);
   }
   return parsed;
