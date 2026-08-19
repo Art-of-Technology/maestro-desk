@@ -359,7 +359,7 @@ registerActions({
   'slaBreach.retry':    () => { SB.error = null; SB.rows = null; reRender(); },
   'slaBreach.open':     (ds) => {
     // openTicket resolves against the paginated in-memory TICKETS snapshot
-    // and silently bounces to the Conversations list on a miss — and this
+    // and silently bounces to the Tickets list on a miss — and this
     // report exists precisely because old tickets aren't in that snapshot.
     // Only navigate when the ticket is actually loadable; otherwise say so
     // instead of kicking the agent out of the report.

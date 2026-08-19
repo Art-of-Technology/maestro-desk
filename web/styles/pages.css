@@ -141,11 +141,6 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .msg-agent .msg-from{color:var(--purple)}.msg-ai .msg-from{color:var(--green)}.msg-note .msg-from{color:var(--amber)}
 .ai-mark{font-size:8px;padding:0 6px;border:1px solid var(--green);color:var(--green);border-radius:var(--r-pill);background:var(--green-lt)}
 .note-mark{font-size:8px;padding:0 6px;border:1px solid var(--amber);color:var(--amber);border-radius:var(--r-pill)}
-.inbox-row{padding:10px 12px;border:1px solid transparent;border-radius:var(--r2);background:var(--off);margin-bottom:6px;cursor:pointer;transition:all .12s}
-.inbox-row:hover{border-color:var(--purple);background:var(--purple-lt)}
-.inbox-row-selected{border-color:var(--purple)!important;background:var(--purple-lt)!important;box-shadow:0 0 0 1px var(--purple) inset}
-.inbox-row-read{opacity:.78}
-.inbox-row-unread{border-left:3px solid var(--blue)}
 .ts-stale-badge{font-weight:400;text-transform:none;letter-spacing:0;color:var(--amber);font-size:10px;font-style:italic;margin-left:6px}
 .portal-banner{padding:8px 20px;background:var(--purple-lt);border-bottom:1px solid var(--purple);color:var(--purple);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:10px;flex-shrink:0}
 .portal-tabs{display:flex;gap:2px;padding:8px 20px;background:var(--off);flex-shrink:0}

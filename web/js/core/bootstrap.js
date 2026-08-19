@@ -11,11 +11,11 @@
 //
 // Demo persona flow doesn't call this — it relies on data.js's seed data.
 //
-// Future PRs: SLA_POLICIES, TAG_LIBRARY, KB_ARTICLES, INBOX,
+// Future PRs: SLA_POLICIES, TAG_LIBRARY, KB_ARTICLES,
 // CHANNELS, ROLES, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
 // ASSIGN_RULES are still seeded from data.js. Each migrates per-feature.
 
-import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, INBOX, KB_ARTICLES, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from './data.js';
+import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, KB_ARTICLES, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from './data.js';
 import { apiGet } from './api-client.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
@@ -184,14 +184,13 @@ export function mapCustomerNote(n) {
 }
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, inboxRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
     apiGet(`/api/v1/tickets?limit=${TICKETS_PAGE_SIZE}&offset=0`),
     apiGet('/api/v1/customers'),
     apiGet('/api/v1/agents'),
-    apiGet('/api/v1/inbox'),
     apiGet('/api/v1/channels'),
     apiGet('/api/v1/sla-policies'),
     apiGet('/api/v1/tags'),
@@ -215,7 +214,6 @@ export async function loadWorkspaceData() {
   const customersRaw = customersRes.customers || [];
   const agentsRaw    = agentsRes.agents       || [];
   const ticketsRaw   = ticketsRes.tickets     || [];
-  const inboxRaw     = inboxRes.inbox         || [];
   const channelsRaw  = channelsRes.channels   || [];
   const slaRaw       = slaRes.sla_policies    || [];
   const tagsRaw      = tagsRes.tags           || [];
@@ -231,7 +229,6 @@ export async function loadWorkspaceData() {
   // Build UUID → display_id and UUID → user-name maps for the ticket join.
   const customerByUuid = Object.fromEntries(customersRaw.map((c) => [c.id, c]));
   const userByUuid     = Object.fromEntries(agentsRaw.map((a) => [a.user_id, a.users]));
-  const channelByUuid  = Object.fromEntries(channelsRaw.map((c) => [c.id, c]));
 
   // ─── CUSTOMERS ──────────────────────────────────────────────────────────
   // Group custom values by entity_id so we can attach each customer's
@@ -356,25 +353,6 @@ export async function loadWorkspaceData() {
     volume30d:       c.volume_30d || 0,
   }));
   replaceInPlace(CHANNELS, mappedChannels);
-
-  // ─── INBOX ──────────────────────────────────────────────────────────────
-  // inbox_messages has no display_id column, so the id stays a UUID — fine,
-  // the UI uses it only for row selection. channelId is mapped to the
-  // channel's display_id so the existing `CHANNELS.find(c => c.id === e.channelId)`
-  // pattern keeps working.
-  const mappedInbox = inboxRaw.map((e) => ({
-    _uuid:              e.id,
-    id:                 e.id,
-    channelId:          channelByUuid[e.channel_id]?.display_id || e.channel_id,
-    from:               e.from_name || '',
-    fromEmail:          e.from_email || '',
-    subject:            e.subject || '',
-    body:               e.body || '',
-    receivedAt:         fmtInboxDate(e.received_at),
-    status:             e.status,
-    convertedTicketId:  e.converted_ticket_display_id || null,
-  }));
-  replaceInPlace(INBOX, mappedInbox);
 
   // ─── SLA_POLICIES ───────────────────────────────────────────────────────
   // category_key is null on the server for "any category"; the SPA models
@@ -712,16 +690,6 @@ function fmtTime(iso) {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
   return d.toTimeString().slice(0, 5);
-}
-
-// "YYYY-MM-DD HH:MM" — matches data.js's INBOX receivedAt shape.
-function fmtInboxDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  const date = d.toISOString().slice(0, 10);
-  const time = d.toTimeString().slice(0, 5);
-  return `${date} ${time}`;
 }
 
 // "YYYY-MM-DD HH:MM" — matches data.js's time-entry ts shape.

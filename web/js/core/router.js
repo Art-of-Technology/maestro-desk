@@ -1,7 +1,7 @@
 // ─── Router ──────────────────────────────────────────────────────────────────
 // The app's single-page navigation core: nav() (sidebar click → render),
 // renderPage() (the page registry + per-page state reset + post-render hooks),
-// and updateNavBadges() (the open/inbox/notification badge refresh that every
+// and updateNavBadges() (the open-ticket / notification badge refresh that every
 // page render ends with).
 //
 // Extracted from app.js. Every caller (feature modules + app.js's own login /
@@ -14,13 +14,12 @@
 //
 // State is read/written through core/state.js imports: renderPage's per-page
 // resets call setKbSelected/setCurrentPage/… and read CURRENT_PAGE etc. as live
-// bindings. TICKETS and INBOX are imported from core/data.js for updateNavBadges.
+// bindings. TICKETS is imported from core/data.js for updateNavBadges.
 
-import { INBOX, TICKETS } from './data.js';
-import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setInboxSelectedId, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
+import { TICKETS } from './data.js';
+import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';
-import { renderInbox } from '../inbox/index.js';
 import { renderCustomers } from '../customers/index.js';
 import { resetPlayerLookup } from '../customers/player-lookup.js';
 import { renderReports } from '../reports/index.js';
@@ -55,12 +54,12 @@ import { stopPresence } from './presence.js';
 import { taglineCheck } from '../tagline-sdk/index.js';
 
 // Merged sidebar destinations own extra page keys through their header tabs
-// (Conversations = tickets|inbox, Insights = reports|activity). Map those tab
+// (Insights = reports|activity). Map those tab
 // keys to the sidebar item that represents them so programmatic navigation
 // (global search, quick switcher, deep links) highlights the right row. Keys
 // with their own sidebar item — or none at all, e.g. config-hub-only pages like
 // portal — need no entry; the lookup falls through to data-page or no highlight.
-const NAV_ITEM_FOR_PAGE = { inbox: 'tickets', activity: 'reports', 'sla-breach': 'reports' };
+const NAV_ITEM_FOR_PAGE = { activity: 'reports', 'sla-breach': 'reports' };
 
 export function nav(page, el) {
   document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
@@ -82,7 +81,6 @@ export function renderPage(page) {
   if (page !== 'agents')    setAgentSelected(null);
   if (page !== 'customers') { setCustomerSelected(null); CUSTOMER_SELECTED_IDS.clear(); resetPlayerLookup(); }
   if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
-  if (page !== 'inbox')     setInboxSelectedId(null);
   if (page !== 'tags')      { setTagSelected(null); TAG_SELECTED_NAMES.clear(); }
   setCurrentPage(page);
   setCurrentTicket(null);
@@ -93,7 +91,6 @@ export function renderPage(page) {
   const pages = {
     dashboard: renderDashboard,
     tickets:   renderTickets,
-    inbox:     renderInbox,
     customers: renderCustomers,
     reports:   renderReports,
     agents:    renderAgents,
@@ -124,7 +121,33 @@ export function renderPage(page) {
     god:           renderGod,
   };
   document.body.dataset.currentPage = page;
-  if (pages[page]) main.innerHTML = pages[page]();
+  // An unrecognised key used to leave whatever was rendered before on screen,
+  // so a retired page (this PR removed 'inbox') would silently show the last
+  // page's content under the new page's name. Fall back to the dashboard and
+  // say so, rather than lying about where the user is.
+  //
+  // hasOwn, not a truthiness check: `pages` is an object literal, so
+  // 'constructor' / 'toString' / 'valueOf' would otherwise pass the guard and
+  // then be CALLED, painting [object Object] into the page.
+  //
+  // The route smoke fails the build when a listed route lands here: it
+  // compares the key it asked for against document.body.dataset.currentPage
+  // (see scripts/bridge-smoke-shim-suffix.js). Without that, deleting a
+  // renderer while leaving its sidebar row would keep CI green and only
+  // surface as a console message in the user's browser.
+  if (!Object.hasOwn(pages, page)) {
+    console.warn(`[router] unknown page "${page}" — falling back to dashboard`);
+    // Guard the recursion: if 'dashboard' itself ever goes missing, fail
+    // loudly instead of overflowing the stack.
+    if (page === 'dashboard') throw new Error('[router] dashboard renderer is missing');
+    renderPage('dashboard');
+    // nav() resolved the sidebar highlight against the unknown key, so no row
+    // is active — point it at the dashboard row we actually rendered.
+    document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+    document.querySelector('.sb-item[data-page="dashboard"]')?.classList.add('active');
+    return;
+  }
+  main.innerHTML = pages[page]();
   if (page === 'ai') initAI();
   if (page === 'tickets') initTicketsPage();
   applyCollapsibleHeaders();
@@ -138,11 +161,5 @@ export function renderPage(page) {
 // after innerHTML.
 export function updateNavBadges() {
   document.getElementById('nb-open').textContent = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
-  const inboxBadge = document.getElementById('nb-inbox');
-  if (inboxBadge) {
-    const newCount = INBOX.filter(e => e.status === 'new').length;
-    inboxBadge.textContent = newCount;
-    inboxBadge.style.display = newCount > 0 ? '' : 'none';
-  }
   refreshNotifBadge();
 }
