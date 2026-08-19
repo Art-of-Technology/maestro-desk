@@ -26,6 +26,13 @@
       }[ch]));
     }
 
+    // Status-pill tint class. Allow-listed rather than interpolated so a
+    // server-side status_key can never inject a class name.
+    const PORTAL_STATUS_CLASSES = ['open', 'pending', 'escalated', 'gdpr', 'resolved'];
+    function statusClass(key) {
+      return PORTAL_STATUS_CLASSES.includes(key) ? `st-${key}` : '';
+    }
+
     async function api(path, opts = {}) {
       const headers = {};
       if (opts.body) headers['Content-Type'] = 'application/json';
@@ -150,7 +157,7 @@
             <div class="ticket-row-head">
               <span class="ticket-row-id">${escHtml(t.display_id)}</span>
               <span class="ticket-row-subj">${escHtml(t.subject)}</span>
-              <span class="ticket-row-status" style="margin-left:auto">${escHtml(t.status_key)}</span>
+              <span class="ticket-row-status ${statusClass(t.status_key)}" style="margin-left:auto">${escHtml(t.status_key)}</span>
             </div>
             <div class="ticket-row-id" style="margin-top:4px">Updated ${(t.updated_at || '').slice(0, 10)}</div>
           </a>`).join('');

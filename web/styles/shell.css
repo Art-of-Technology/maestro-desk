@@ -12,15 +12,70 @@
 .sidebar::before,.sidebar::after{content:'';position:absolute;z-index:-1;pointer-events:none}
 .sidebar::before{width:190px;height:160px;background:var(--deco-moss);border-radius:var(--blob-a);left:-70px;bottom:34px;transform:rotate(-12deg)}
 .sidebar::after{width:110px;height:92px;background:var(--deco-fuchsia);border-radius:var(--blob-b);left:-60px;bottom:168px;transform:rotate(16deg)}
+/* ── Collapsed rail (issue #447) ───────────────────────────────────────────
+   One class on .sidebar swaps the 200px column for a 60px icon rail. .main is
+   already flex:1;min-width:0 so the content area reflows on its own — nothing
+   else in the shell needs to know. Everything textual hides; the icons, the
+   avatar and the toggle stay. */
+.sidebar{transition:width .16s ease,min-width .16s ease}
+.sidebar.collapsed{width:60px;min-width:60px}
+.sidebar.collapsed .sb-word,
+.sidebar.collapsed .sb-sub,
+.sidebar.collapsed .sb-lbl,
+.sidebar.collapsed .sb-heading,
+.sidebar.collapsed .sb-n,
+.sidebar.collapsed .sb-uname,
+.sidebar.collapsed .sb-urole,
+.sidebar.collapsed .sb-logo-caret{display:none}
+.sidebar.collapsed .sb-logo{padding:14px 0 12px;min-height:47px}
+/* Collapsed, the brand block is an empty box — but a multi-workspace agent's
+   copy still carries wsswitch.open, so it would be an invisible click target
+   in a blank gap. Neutralise it; the switcher is reachable again on expand.
+   (sidebar.js drops its tabindex to match — pointer-events doesn't stop the
+   keyboard.) */
+.sidebar.collapsed .sb-logo.switchable{pointer-events:none;cursor:default}
+/* The .sb-user and .sb-foot text wrappers are emptied by the display:none
+   list above, but a 0-width flex item still eats the row's `gap` and pushes
+   the avatar and the online dot off the rail's centreline. Remove both. */
+.sidebar.collapsed .sb-user{padding:10px 0;justify-content:center;gap:0}
+.sidebar.collapsed .sb-foot{padding:12px 0;justify-content:center;gap:0}
+.sidebar.collapsed .sb-user > div:last-child,
+.sidebar.collapsed .sb-foot > div:last-child{display:none}
+.sidebar.collapsed .sb-item{padding:9px 0;justify-content:center;border-left-width:0}
+.sidebar.collapsed .sb-section{margin-bottom:10px}
+.sidebar.collapsed .sb-collapse{right:50%;transform:translateX(50%)}
+/* The garden blobs are drawn for a 200px column; at 60px they'd swamp the
+   icons (and the fuchsia one fails contrast under text — see the note above),
+   so the rail drops them entirely. */
+.sidebar.collapsed::before,.sidebar.collapsed::after{display:none}
+/* No element opacity here: it would composite the border and the glyph
+   together against --off, dropping the 1px --rule border to ~1:1 and the
+   chevron to ~3.2:1 — under the contrast contract this file documents at the
+   top. Resting state is a real border colour and real ink instead. */
+.sb-collapse{position:absolute;top:14px;right:10px;z-index:3;width:22px;height:22px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--off2);border:1px solid var(--rule2);border-radius:var(--r-pill);
+  color:var(--ink2);font-family:var(--font-sans);font-size:12px;line-height:1;cursor:pointer;
+  transition:all .12s}
+.sb-collapse:hover{color:var(--purple);border-color:var(--purple);background:var(--purple-lt)}
 .sb-logo{padding:18px 18px 14px;border-bottom:1px solid var(--rule)}
 .sb-word{font-family:var(--font-sans);font-size:18px;font-weight:600;letter-spacing:-.025em;color:var(--ink)}
+/* Sidebar only — the auth screen reuses .sb-word and has no toggle to dodge.
+   The brand block's right gutter is shared with .sb-collapse (right:10px..32px)
+   and, for multi-workspace agents, the switcher caret (right:38px), so a long
+   brand.name must stop short of both; applyWorkspaceBrand() caps an uploaded
+   logo <img> to the same 34px. .sb-sub needs no cap — it sits below the
+   toggle's 14px..36px band. */
+.sidebar .sb-word{max-width:calc(100% - 34px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sb-sub{font-family:var(--font-sans);font-size:12px;font-weight:400;color:var(--ink3);margin-top:3px}
 /* In-session workspace switcher: the brand block becomes a trigger when the
    agent has 2+ memberships (workspace-switcher/index.js wires this in). */
 .sb-logo.switchable{position:relative;cursor:pointer;transition:background .1s}
 .sb-logo.switchable:hover{background:var(--purple-lt)}
 .sb-logo.switchable:focus-visible{outline:2px solid var(--purple);outline-offset:-2px}
-.sb-logo-caret{position:absolute;right:14px;top:18px;font-size:13px;line-height:1;color:var(--ink3);pointer-events:none}
+/* right:38px, not 14px: the .sb-collapse toggle occupies right:10px..32px
+   and would paint over the caret and steal its click. */
+.sb-logo-caret{position:absolute;right:38px;top:18px;font-size:13px;line-height:1;color:var(--ink3);pointer-events:none}
 .ws-switch-backdrop{position:fixed;inset:0;z-index:200}
 .ws-switch-pop{position:fixed;width:248px;max-width:calc(100vw - 24px);background:var(--off);border:1px solid var(--rule2);border-radius:var(--r2);box-shadow:0 8px 24px rgba(19,14,48,0.10);padding:8px;z-index:201}
 .ws-switch-head{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);padding:4px 8px 8px}
@@ -161,7 +216,10 @@
   50%{transform:rotate(calc(var(--rot) - 3deg)) translate(-10px,-26px);border-radius:var(--shape-alt)}
   75%{transform:rotate(calc(var(--rot) - 7deg)) translate(-24px,12px)}
 }
-@media (prefers-reduced-motion:reduce){.auth-garden::before,.auth-garden::after,.auth-garden i{animation:none}}
+@media (prefers-reduced-motion:reduce){.auth-garden::before,.auth-garden::after,.auth-garden i{animation:none}
+  /* The sidebar transition animates WIDTH, so .main — often a full ticket
+     table — relayouts every frame for 160ms. Honour the preference. */
+  .sidebar,.sb-collapse{transition:none}}
 /* On narrow screens the center-adjacent blobs would slide under the card —
    drop them; the corner ones (moss, fuchsia, moss2, sun2) keep peeking in. */
 @media (max-width:900px){.auth-garden .auth-blob-sun,.auth-garden .auth-blob-violet,.auth-garden .auth-blob-fuchsia2,.auth-garden .auth-blob-violet2{display:none}}

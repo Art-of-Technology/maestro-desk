@@ -328,7 +328,7 @@ export function renderSearchResults() {
       </div>
       ${ql ? `<div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
-        ${filters.map(f => `<span class="filter-tag" style="cursor:pointer;${SEARCH_PAGE_FILTER===f.k?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="gs.setFilter" data-filter="${window.escAttr(f.k)}">${f.l}</span>`).join('')}
+        ${filters.map(f => `<span class="filter-tag${SEARCH_PAGE_FILTER===f.k?' active':''}" style="cursor:pointer" data-action="gs.setFilter" data-filter="${window.escAttr(f.k)}">${f.l}</span>`).join('')}
       </div>` : ''}
       <div class="page-scroll">${body}</div>
     </div>`;

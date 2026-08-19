@@ -157,12 +157,12 @@ Hedvig Letters Serif weight 700 at 48-64px, line-height 1.0-1.1, letter-spacing 
 - Use Hedvig Letters Serif exclusively for headings ≥22px and Inter for everything below; never use Inter for headings or Hedvig for body copy
 - Set body text to #130e30 (not pure black) for warmth; reserve #000000 for the logo mark, input borders, and high-contrast fine details
 - Build the surface stack as Canvas #f9fbf2 → Soft Meadow #eff2e5 cards; the slight green tint is intentional and should be preserved
-- Use the decorative organic blobs (green #59e25d, fuchsia #e261e5, yellow #ffe228, violet #130e30) only as background atmosphere behind hero/product visuals — never as UI fills or icon colors
+- Use the decorative organic blobs (green #59e25d, fuchsia #e261e5, yellow #ffe228, violet #130e30) as background atmosphere behind hero/product visuals, and — since the 2026-08-19 amendment below — as low-alpha TINTS behind status pills. Never as a solid UI fill or an icon color
 - Tighten letter-spacing to -0.01em on all headings and -0.02em on small caps labels for the warm, literary headline feel
 
 ### Don't
 - Do not use sharp corners (<16px) on buttons, inputs, or nav items — the pill is non-negotiable
-- Do not introduce additional accent colors into the UI; green, pink, and fuchsia are decoration-only and must not appear in buttons, badges, or status indicators
+- Do not introduce accent colors beyond the garden palette; moss, fuchsia and hi-yellow may tint STATUS pills (see the boundary section below) but must never fill buttons, icons, or nav — yellow remains the sole CTA fill
 - Do not use pure white #ffffff for card surfaces when Soft Meadow #eff2e5 is the designated card layer
 - Do not place two primary yellow CTAs in the same viewport; alternate with the dark pill for hierarchy
 - Do not use Inter for display headlines or Hedvig Letters Serif for UI labels — the font-role boundary is strict
@@ -211,7 +211,14 @@ Max-width 1200px centered container with generous side padding. Hero is a two-co
 
 ## Decoration vs Interface Color Boundary
 
-The colors #59e25d (moss green) and #e261e5 (fuchsia) exist exclusively in the organic blob shapes behind the hero product card. They must never appear in buttons, badges, tags, icons, or any functional UI element. The single exception is #ffe228 yellow, which functions as both a decorative blob color AND the primary CTA fill — it is the bridge between decoration and interface. This dual role is deliberate: the yellow appears in the atmosphere before the user interacts, then becomes the action color they click.
+The colors #59e25d (moss green) and #e261e5 (fuchsia) belong to the organic blob shapes behind the hero product card. They must never appear as a SOLID fill in buttons, icons, or nav — the yellow #ffe228 is the only garden color that fills an interactive surface, as the primary CTA. That dual role is deliberate: the yellow appears in the atmosphere before the user interacts, then becomes the action color they click.
+
+**Amended 2026-08-19 (issue #447).** Status pills may carry a saturated TINT at the garden brightness — `--green-lt`, `--red-lt`, `--amber-lt`, `--cyan-lt`, `--escalate-lt` in `web/styles/tokens.css`. Two of these are the garden hues exactly: `--green-lt` is moss #59e25d and `--escalate-lt` is fuchsia #e261e5. The other three are NOT garden colors — the palette has no red, no cyan, and its only yellow is the CTA — so they are siblings mixed at the same brightness (#e26159, #40c4d6, and a yellow deliberately off the #ffe228 CTA hex). The original rule produced status pills mixed from ink at 9–11% alpha, which read as grey smudges beside the brand's own colors and made the app look muted and unfinished. The constraints that keep this honest:
+
+- Tint only. The solid hex never fills a pill; it is mixed into the background at ≤42% alpha and paired with a darkened text color that holds WCAG AA at 10px/600 uppercase — verified against the composited background on the DARKEST surface a pill lands on (`--off2`), not just on white.
+- Semantics first. A color means a state (green = resolved, red = breach/urgent, amber = pending/at-risk, cyan = open, fuchsia = escalated) — never decoration for its own sake.
+- Solid yellow stays reserved for the primary CTA button, one per viewport. The ACTIVE filter chip (`.filter-tag.active`) is a solid --purple fill instead: every list page already carries a yellow button in its topbar, and --purple is the token applyWorkspaceBrand overrides, so a white-labelled workspace keeps its own "you are here" colour.
+- Buttons, icons, nav and text keep ink and the neutrals. Nothing in this amendment licenses a green button.
 
 ## Surface Temperature
 

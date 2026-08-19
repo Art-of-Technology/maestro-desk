@@ -258,7 +258,7 @@ export function renderTickets() {
       </div>
       <div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
-        ${views.map(v => `<span class="filter-tag" style="cursor:pointer;${v.active?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
+        ${views.map(v => `<span class="filter-tag${v.active?' active':''}" style="cursor:pointer" data-action="tickets.setView" data-view="${window.escAttr(v.k)}">${v.l}</span>`).join('')}
         ${renderPinnedSavedSearchChips()}
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
           ${renderSavedSearchesControls()}
