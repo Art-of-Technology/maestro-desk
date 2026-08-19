@@ -200,7 +200,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .vip-badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 10px;border-radius:var(--r-pill)}
 .vip-bronze{color:#8a5a2b;background:rgba(138,90,43,0.13)}
 .vip-silver{color:#63626f;background:rgba(99,98,111,0.13)}
-.vip-gold{color:#8a6d00;background:rgba(138,109,0,0.14)}
+.vip-gold{color:var(--amber);background:rgba(255,226,40,0.60)}
 .vip-platinum{color:var(--ink);background:rgba(19,14,48,0.12)}
 /* ── Reports ── */
 .report-chart{height:120px;display:flex;align-items:flex-end;gap:4px;border-bottom:1px solid var(--rule);padding-bottom:4px;margin-top:8px}

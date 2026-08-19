@@ -7,12 +7,21 @@ html,body{height:100%;overflow:hidden}
   --w:#f9fbf2;--off:#eff2e5;--off2:#e5ead6;
   --rule:rgba(19,14,48,0.08);--rule2:rgba(19,14,48,0.14);--rule3:rgba(19,14,48,0.26);
   --ink:#130e30;--ink2:#413d54;--ink3:#5f5c6e;--ink4:#9c99aa;
-  --red:#c73a2c;--red-lt:rgba(199,58,44,0.09);
-  --green:#217a46;--green-lt:rgba(33,122,70,0.10);
+  /* Status colours. The -lt tints are mixed from the GARDEN palette (moss /
+     fuchsia / hi-yellow) rather than from the ink colour, so a status pill
+     reads as part of the brand instead of a grey smudge (issue #447; see
+     DESIGN.md "Decoration vs Interface Color Boundary"). The solid values
+     are darkened to hold AA contrast on those livelier tints — pill text is
+     10px/600 uppercase, so contrast matters more here than at body size. */
+  --red:#a8231a;--red-lt:rgba(226,97,89,0.28);
+  --green:#0f6b3a;--green-lt:rgba(89,226,93,0.30);
   --blue:#2e5bd7;--blue-lt:rgba(46,91,215,0.09);
-  --amber:#9a6b0a;--amber-lt:rgba(154,107,10,0.11);
+  --amber:#6d4a00;--amber-lt:rgba(255,226,40,0.55);
   --purple:#130e30;--purple-lt:rgba(19,14,48,0.06);
-  --cyan:#0b7285;--cyan-lt:rgba(11,114,133,0.09);
+  --cyan:#05505e;--cyan-lt:rgba(64,196,214,0.28);
+  /* Escalation reads fuchsia — the one status that used bare ink and so was
+     indistinguishable from ordinary text at a glance. */
+  --escalate:#7d1580;--escalate-lt:rgba(226,97,229,0.22);
   --cta:#ffe228;--cta-ink:#130e30;--cta-hover:#f2d500;
   /* Garden decoration palette (DESIGN.md "Hero Card"/"Imagery") — DECORATION
      ONLY: background blob shapes, never buttons/badges/status/icons. The

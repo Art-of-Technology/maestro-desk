@@ -117,8 +117,8 @@ export function renderLayouts() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Apply to</span>
-        <span class="filter-tag" style="cursor:pointer;${tab==='ticket'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="layouts.setTab" data-tab="ticket">Tickets</span>
-        <span class="filter-tag" style="cursor:pointer;${tab==='customer'?'border-color:var(--purple);color:var(--purple);background:var(--purple-lt)':''}" data-action="layouts.setTab" data-tab="customer">Customers</span>
+        <span class="filter-tag${tab==='ticket'?' active':''}" style="cursor:pointer" data-action="layouts.setTab" data-tab="ticket">Tickets</span>
+        <span class="filter-tag${tab==='customer'?' active':''}" style="cursor:pointer" data-action="layouts.setTab" data-tab="customer">Customers</span>
       </div>
       <div class="page-scroll">
         <table class="tbl">

@@ -38,13 +38,15 @@
 .tag{font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:2px 10px;border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:3px}
 .tag-open{color:var(--cyan);background:var(--cyan-lt)}
 .tag-pending{color:var(--amber);background:var(--amber-lt)}
-.tag-escalated{color:var(--purple);background:rgba(19,14,48,0.10)}
+.tag-escalated{color:var(--escalate);background:var(--escalate-lt)}
 .tag-gdpr{color:var(--red);background:var(--red-lt)}
 .tag-resolved{color:var(--green);background:var(--green-lt)}
 .tag-urgent{color:var(--red);background:var(--red-lt)}
 .tag-high{color:var(--amber);background:var(--amber-lt)}
 .tag-normal{color:var(--ink2);background:var(--off2)}
-.tag-low{color:var(--ink4);background:var(--off2)}
+/* --ink4 on --off2 measured 2.26:1 — below AA even before the retheme.
+   --ink3 keeps "low" visually quiet while staying legible. */
+.tag-low{color:var(--ink3);background:var(--off2)}
 .tag-neutral{color:var(--ink2);background:var(--off2)}
 /* ── Table ── */
 .tbl{width:100%;border-collapse:collapse}
@@ -60,6 +62,11 @@
 .filter-select{font-family:var(--font-sans);font-size:11px;padding:5px 12px;border:1px solid var(--rule);border-radius:var(--r-pill);background:#ffffff;color:var(--ink2);cursor:pointer;outline:none}
 .filter-select:focus{border-color:var(--purple)}
 .filter-tag{font-family:var(--font-sans);font-size:11px;padding:3px 11px;border:1px solid var(--rule2);border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:4px;color:var(--ink2);background:var(--off2)}
+/* The ACTIVE view chip is solid CTA yellow — which view you're looking at is
+   the single most important state on a list page, and the previous faint
+   grey wash was easy to miss. A real modifier class, not the inline style
+   overrides the call sites used to carry (issue #447). */
+.filter-tag.active{background:var(--cta);border-color:var(--cta);color:var(--cta-ink);font-weight:600}
 .filter-tag .rm{cursor:pointer;color:var(--ink3);font-size:11px;line-height:1}
 .filter-tag .rm:hover{color:var(--red);cursor:pointer}
 /* ── Tab bar ── */

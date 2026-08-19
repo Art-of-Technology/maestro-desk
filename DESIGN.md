@@ -162,7 +162,7 @@ Hedvig Letters Serif weight 700 at 48-64px, line-height 1.0-1.1, letter-spacing 
 
 ### Don't
 - Do not use sharp corners (<16px) on buttons, inputs, or nav items — the pill is non-negotiable
-- Do not introduce additional accent colors into the UI; green, pink, and fuchsia are decoration-only and must not appear in buttons, badges, or status indicators
+- Do not introduce accent colors beyond the garden palette; moss, fuchsia and hi-yellow may tint STATUS pills (see the boundary section below) but must never fill buttons, icons, or nav — yellow remains the sole CTA fill
 - Do not use pure white #ffffff for card surfaces when Soft Meadow #eff2e5 is the designated card layer
 - Do not place two primary yellow CTAs in the same viewport; alternate with the dark pill for hierarchy
 - Do not use Inter for display headlines or Hedvig Letters Serif for UI labels — the font-role boundary is strict
@@ -211,7 +211,14 @@ Max-width 1200px centered container with generous side padding. Hero is a two-co
 
 ## Decoration vs Interface Color Boundary
 
-The colors #59e25d (moss green) and #e261e5 (fuchsia) exist exclusively in the organic blob shapes behind the hero product card. They must never appear in buttons, badges, tags, icons, or any functional UI element. The single exception is #ffe228 yellow, which functions as both a decorative blob color AND the primary CTA fill — it is the bridge between decoration and interface. This dual role is deliberate: the yellow appears in the atmosphere before the user interacts, then becomes the action color they click.
+The colors #59e25d (moss green) and #e261e5 (fuchsia) belong to the organic blob shapes behind the hero product card. They must never appear as a SOLID fill in buttons, icons, or nav — the yellow #ffe228 is the only garden color that fills an interactive surface, as the primary CTA. That dual role is deliberate: the yellow appears in the atmosphere before the user interacts, then becomes the action color they click.
+
+**Amended 2026-08-19 (issue #447).** The garden colors may be used as low-alpha TINTS behind status pills — `--green-lt`, `--red-lt`, `--amber-lt`, `--cyan-lt`, `--escalate-lt` in `web/styles/tokens.css`. The original rule produced status pills mixed from ink at 9–11% alpha, which read as grey smudges beside the brand's own colors and made the app look muted and unfinished. The constraints that keep this honest:
+
+- Tint only. The solid garden hex never fills a pill; it is mixed into the background at ≤60% alpha and paired with a darkened text color that holds WCAG AA at 10px/600 uppercase.
+- Semantics first. A color means a state (green = resolved, red = breach/urgent, amber = pending/at-risk, cyan = open, fuchsia = escalated) — never decoration for its own sake.
+- Solid yellow stays reserved for actions: the primary CTA button and the ACTIVE filter chip (`.filter-tag.active`), which is the "you are here" state on a list page.
+- Buttons, icons, nav and text keep ink and the neutrals. Nothing in this amendment licenses a green button.
 
 ## Surface Temperature
 
