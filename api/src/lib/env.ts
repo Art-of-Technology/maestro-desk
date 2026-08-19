@@ -118,12 +118,19 @@ const Env = z.object({
   MAESTRO_CLIENT_SECRET: z.string().default(''),
   // Discovery itself is at the CANONICAL path
   // (`${MAESTRO_ISSUER}/.well-known/openid-configuration`, fetched in
-  // lib/auth.ts); `iss` is the bare host. It is the endpoints *inside* that
-  // document which sit on a non-standard prefix — authorize/token/userinfo are
-  // all under /api/auth/ — but Better Auth reads those from the doc, so nothing
-  // here needs to encode them.
-  MAESTRO_ISSUER: z.string().url().default('https://auth.maestro-connect.com'),
-  MAESTRO_GATEWAY_URL: z.string().url().default('https://api.maestro-connect.com'),
+  // lib/auth.ts); `iss` is the issuer ORIGIN — scheme included, no path prefix
+  // (`https://auth.maestro-connect.com`), which is what the live document
+  // returns. It is the endpoints *inside* that document which sit on a
+  // non-standard prefix — authorize/token/userinfo are all under /api/auth/ —
+  // but Better Auth reads those from the doc, so nothing here encodes them.
+  // Both are concatenated by their consumers (auth.ts discoveryUrl,
+  // maestro.ts request builder), so they strip trailing slashes like the other
+  // URL vars above — a pasted 'https://api.maestro-connect.com/' would
+  // otherwise produce a '//api/v1/...' path that the gateway 404s.
+  MAESTRO_ISSUER: z.string().url().default('https://auth.maestro-connect.com')
+    .transform((v) => v.replace(/\/+$/, '')),
+  MAESTRO_GATEWAY_URL: z.string().url().default('https://api.maestro-connect.com')
+    .transform((v) => v.replace(/\/+$/, '')),
   MAESTRO_API_TOKEN: z.string().default(''),
   MAESTRO_BRAND_ID: z.string().default(''),
   // Sentry error tracking (observability). Both optional: when SENTRY_DSN is
@@ -175,6 +182,25 @@ if (isProductionDeploy) {
       'set the real public URLs in the Vercel Production env (see PROD_SETUP.md §3).'
     );
   }
+}
+
+// Maestro Connect moved from mert.md to maestro-connect.com in 2026-08. The
+// retired hosts still answer — with an EMPTY 200 on every path — so a stale
+// value fails silently and confusingly: OIDC discovery returns nothing, sign-in
+// dies with a generic "temporarily unavailable", and /api/v1/maestro/status
+// still reports enabled:true because it only inspects the client id/secret.
+// Changing the defaults above cannot help a deploy that sets these explicitly,
+// and no health check covers them, so name the cause at boot.
+// Deliberately a warning, NOT a throw: refusing to boot would turn a broken
+// sign-in button into a total API outage, which is strictly worse.
+const retiredMaestroHosts = (['MAESTRO_ISSUER', 'MAESTRO_GATEWAY_URL'] as const)
+  .filter((k) => /(^|\.)mert\.md(\/|$)/.test(env[k]));
+if (retiredMaestroHosts.length > 0) {
+  console.error(
+    `[env] ${retiredMaestroHosts.join(' and ')} still point at the RETIRED mert.md domain. ` +
+    'Maestro sign-in and player lookups will fail (the old hosts return empty 200s). ' +
+    'Unset them to pick up the maestro-connect.com defaults — see PROD_SETUP.md §3.'
+  );
 }
 
 // Runtime environment flag (distinct from the validated config above —

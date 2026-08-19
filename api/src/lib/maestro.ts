@@ -95,10 +95,29 @@ export async function maestroFetch<T = unknown>(path: string, opts: FetchOpts): 
 
   const text = await res.text();
   let parsed: unknown = null;
+  let parsedAsJson = false;
   try {
     parsed = text ? JSON.parse(text) : null;
+    parsedAsJson = true;
   } catch {
     parsed = text;
+  }
+
+  // A 2xx whose body isn't JSON is NOT a success. The gateway only ever speaks
+  // JSON, so this means we reached something else wearing its address — a
+  // parked page, a proxy error page, an captive-portal style interstitial.
+  // Without this the raw string flows on as if it were data: callers read
+  // `.organizations` off it and get undefined (so an agent is told they have no
+  // brand access), and /players would return the HTML as a `member` object and
+  // write an audit row for it. Fail loudly with the same MaestroError the
+  // non-2xx path uses.
+  if (res.ok && text && !parsedAsJson) {
+    throw new MaestroError(
+      `Maestro gateway returned a non-JSON ${res.status} body (content-type: ` +
+      `${res.headers.get('content-type') ?? 'none'}) — check MAESTRO_GATEWAY_URL points at the API host.`,
+      502,
+      text.slice(0, 200),
+    );
   }
 
   if (!res.ok) {
@@ -127,9 +146,19 @@ export async function getUserAccessToken(userId: string, headers: Headers): Prom
       headers,
     });
     return result?.accessToken ?? null;
-  } catch {
-    // No linked Maestro account, or the refresh failed (e.g. revoked) — the
-    // caller surfaces this as "reconnect your Maestro account".
+  } catch (err) {
+    // Two very different cases collapse to null here, and the caller renders
+    // both as "No linked Maestro account": (a) the user genuinely never linked
+    // one, and (b) they DID, but the stored refresh token was rejected — which
+    // is what a token minted by a previous issuer looks like after the platform
+    // moved domains. (b) is silent and self-inflicted, so log it; the user-facing
+    // remedy (sign in with Maestro again) is the same either way.
+    console.warn(
+      `[maestro] getAccessToken failed for user ${userId} — treating as unlinked. ` +
+      'If they HAVE linked Maestro, their stored token was rejected by the current ' +
+      `issuer (${env.MAESTRO_ISSUER}) and they need to sign in again:`,
+      err instanceof Error ? err.message : String(err),
+    );
     return null;
   }
 }

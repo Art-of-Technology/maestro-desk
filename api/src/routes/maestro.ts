@@ -101,7 +101,7 @@ maestro.get('/login', async (c) => {
       throw new Error(`Maestro did not return an authorization URL (upstream status ${baResp.status}).`);
     }
     // Propagate Better Auth's Set-Cookie (the PKCE state) onto our 302 so the
-    // browser stores it before following the redirect to auth.maestro-connect.com.
+    // browser stores it before following the redirect to the Maestro auth host.
     const headers = new Headers({ Location: data.url });
     for (const cookie of baResp.headers.getSetCookie?.() ?? []) {
       headers.append('set-cookie', cookie);
