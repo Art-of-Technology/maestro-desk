@@ -26,7 +26,7 @@ import { isFieldRequired, isFieldVisible } from '../layouts/index.js';
 import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
-import { apiPost, apiPatch } from '../core/api-client.js';
+import { apiPost, apiPatch, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
 import { saveDraft } from './drafts.js';
@@ -399,7 +399,12 @@ async function saveAsDraft() {
 // ─── Creation ────────────────────────────────────────────────────────────────
 
 async function finishCreate({ message, send }) {
-  const isApiBacked = Boolean(NT.customer?.uuid);
+  // Which path applies is a property of the SESSION, not of the pick: a real
+  // workspace whose layout HIDES the Customer field leaves NT.customer null,
+  // and routing that to the demo mint would silently create a ghost ticket
+  // that vanishes on reload — the exact bug this phase exists to kill. Demo
+  // personas carry no JWT/workspace, so they still take the in-memory path.
+  const isApiBacked = Boolean(getJwt() && getWorkspaceId());
   // Snapshot everything the async path needs BEFORE the first await — NT is
   // module state and must not be read across it.
   const snapshot = {
@@ -415,7 +420,11 @@ async function finishCreate({ message, send }) {
   let displayId, keptDraft = false;
   if (isApiBacked) {
     const res = await createOnServer(snapshot, { message, send });
-    if (!res) { setBusy(false); return; }        // error already surfaced; modal stays open
+    // retry === true → nothing was created; keep the modal open so the agent
+    // can fix and resubmit. Otherwise a ticket MAY exist server-side, so the
+    // modal must close — a second Send would create a duplicate.
+    if (!res) { setBusy(false); return; }
+    if (res.aborted) { setBusy(false); closeModal(); resetNT(); return; }
     displayId = res.displayId; keptDraft = res.keptDraft;
   } else {
     const res = createDemoTicket(snapshot, { message, send });
@@ -431,6 +440,13 @@ async function finishCreate({ message, send }) {
 }
 
 async function createOnServer(snap, { message, send }) {
+  // The API requires a customer. The only way to reach this without one is a
+  // workspace whose layout hides the Customer field — say so plainly instead
+  // of failing with a schema error.
+  if (!snap.customerUuid) {
+    showToast('This workspace hides the Customer field, but a ticket needs one — re-enable it under Configuration › Layouts.', 'error', 8000);
+    return null;
+  }
   const body = { subject: snap.subject, customer_id: snap.customerUuid, priority_key: snap.priority };
   if (snap.categoryValue) body.category_key = snap.categoryValue;
   if (snap.agentUserId) body.assigned_user_id = snap.agentUserId;
@@ -444,8 +460,16 @@ async function createOnServer(snap, { message, send }) {
   const now = new Date().toISOString();
   const srv = res?.ticket || {};
   if (!srv.id || !srv.display_id) {
-    showToast("The ticket was created but the server's response was incomplete — reload to see it.", 'warn', 8000);
-    return null;
+    // The POST succeeded, so a ticket EXISTS — we just can't address it.
+    // Close everything (aborted) rather than inviting a retry that would
+    // create a second one; the message text is surfaced for copy/paste.
+    showToast(
+      message
+        ? "The ticket was created but the server's response was incomplete — reload to find it, then send your message from the ticket."
+        : "The ticket was created but the server's response was incomplete — reload to see it.",
+      'warn', 10000,
+    );
+    return { aborted: true };
   }
   const row = {
     subject: snap.subject, status_key: 'open', priority_key: snap.priority,
