@@ -7,16 +7,45 @@ html,body{height:100%;overflow:hidden}
   --w:#f9fbf2;--off:#eff2e5;--off2:#e5ead6;
   --rule:rgba(19,14,48,0.08);--rule2:rgba(19,14,48,0.14);--rule3:rgba(19,14,48,0.26);
   --ink:#130e30;--ink2:#413d54;--ink3:#5f5c6e;--ink4:#9c99aa;
-  --red:#c73a2c;--red-lt:rgba(199,58,44,0.09);
-  --green:#217a46;--green-lt:rgba(33,122,70,0.10);
-  --blue:#2e5bd7;--blue-lt:rgba(46,91,215,0.09);
-  --amber:#9a6b0a;--amber-lt:rgba(154,107,10,0.11);
+  /* Status colours. The -lt tints are mixed from a saturated hue at the same
+     brightness as the garden palette — moss and fuchsia exactly (green,
+     escalate), and siblings at that brightness where the garden has no
+     equivalent (red, cyan) — rather than from the ink colour, so a status
+     pill reads as part of the brand instead of a grey smudge (issue #447;
+     see DESIGN.md "Decoration vs Interface Color Boundary"). The solid
+     values are darkened to hold WCAG AA on those livelier tints over the
+     DARKEST surface they land on (--off2) — pill text is 10px/600
+     uppercase, so contrast matters more here than at body size. */
+  --red:#9e1e16;--red-lt:rgba(226,97,89,0.28);
+  --green:#0f6b3a;--green-lt:rgba(89,226,93,0.30);
+  --blue:#2247b8;--blue-lt:rgba(74,124,240,0.24);
+  /* --amber-lt is deliberately NOT the --cta hex: solid #ffe228 is the
+     primary-action colour, and a pending pill must not read as a faded
+     button. This tint is a deeper, warmer yellow at a lower alpha. */
+  --amber:#6d4a00;--amber-lt:rgba(230,196,30,0.42);
   --purple:#130e30;--purple-lt:rgba(19,14,48,0.06);
-  --cyan:#0b7285;--cyan-lt:rgba(11,114,133,0.09);
+  --cyan:#05505e;--cyan-lt:rgba(64,196,214,0.28);
+  /* Escalation reads fuchsia — the one status that used bare ink and so was
+     indistinguishable from ordinary text at a glance. */
+  --escalate:#7d1580;--escalate-lt:rgba(226,97,229,0.22);
+  /* Border companions for the -lt fills (KPI tiles, callout cards, outlined
+     chips). These exist so call sites stop hand-copying an rgba literal
+     derived from whatever the solid happened to be that week — a retune of
+     the solids above must not leave a muddy ring around a bright fill. */
+  --red-bd:rgba(158,30,22,0.34);--green-bd:rgba(15,107,58,0.34);
+  --amber-bd:rgba(109,74,0,0.34);--cyan-bd:rgba(5,80,94,0.34);
+  --blue-bd:rgba(34,71,184,0.34);
+  /* Whole-card callout fill. Far lighter than --red-lt: a pill tint covers a
+     few hundred square pixels, a card covers the width of the panel, and the
+     pill alpha would shout. */
+  --red-wash:rgba(158,30,22,0.05);
   --cta:#ffe228;--cta-ink:#130e30;--cta-hover:#f2d500;
-  /* Garden decoration palette (DESIGN.md "Hero Card"/"Imagery") — DECORATION
-     ONLY: background blob shapes, never buttons/badges/status/icons. The
-     functional status colors above (--green, --red, …) are a separate set.
+  /* Garden decoration palette (DESIGN.md "Hero Card"/"Imagery") — these raw
+     hues are for background blob shapes, never for buttons or icons. Since
+     issue #447 the status TINTS above are mixed from these same hues so a
+     pill reads as part of the brand; that is the one sanctioned crossover,
+     and it goes through the --*-lt tokens, never by naming --deco-* in a
+     component rule.
      (--cta/--ink are safe alias targets: applyWorkspaceBrand only overrides
      --purple/--accent.) The --blob-* shape tokens are the organic outlines
      shared by every blob use site (portal.html mirrors them locally). */

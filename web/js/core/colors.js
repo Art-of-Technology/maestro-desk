@@ -7,6 +7,6 @@
 // the var() level of indirection means a token retune re-tints every
 // chart without touching this file.
 
-export const STATUS_COLORS    = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--purple)', gdpr:'var(--red)', resolved:'var(--green)' };
+export const STATUS_COLORS    = { open:'var(--cyan)', pending:'var(--amber)', escalated:'var(--escalate)', gdpr:'var(--red)', resolved:'var(--green)' };
 export const PRIORITY_COLORS  = { urgent:'var(--red)', high:'var(--amber)', normal:'var(--cyan)', low:'var(--ink4)' };
 export const SENTIMENT_COLORS = { angry:'var(--red)', frustrated:'var(--amber)', neutral:'var(--ink3)', positive:'var(--green)' };
