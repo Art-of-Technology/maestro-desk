@@ -63,7 +63,9 @@ runDbTests('customer delete + notes (DB-backed)', () => {
   }, 30000);
 
   beforeEach(() => {
-    globalThis.fetch = (async () => new Response('{}', { status: 200 })) as typeof fetch;
+    // Double cast: the stub omits fetch.preconnect, which the DOM lib now
+    // declares on typeof fetch. Nothing under test calls it.
+    globalThis.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
   });
 
   afterAll(async () => {
