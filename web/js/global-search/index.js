@@ -34,7 +34,6 @@ import {
 export const SEARCH_PAGES = [
   {p:'dashboard', l:'Dashboard'},
   {p:'tickets',   l:'Tickets'},
-  {p:'inbox',     l:'Inbox'},
   {p:'customers', l:'Customers'},
   {p:'reports',   l:'Insights'},
   {p:'reports',   l:'Reports'},

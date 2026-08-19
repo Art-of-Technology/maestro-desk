@@ -134,40 +134,6 @@ export const CHANNELS = [
   {id:'CH-005', name:'Partner API integration',type:'api',     address:'/api/v1/tickets',             status:'inactive', defaultCategory:'all',       defaultAgent:'',                 volume30d:0,   signature:''},
 ];
 
-// Synthetic inbox of incoming emails awaiting triage. Real-world this would
-// be polled from each email channel's IMAP/API; for the demo it's seeded so
-// the agent has realistic content to convert into tickets.
-export const INBOX = [
-  {id:'EM-001', channelId:'CH-001', from:'Sarah Mitchell', fromEmail:'sarah.m@acme.com',
-   subject:'Card keeps getting declined at checkout',
-   body:'Hi, I\'ve tried three different cards and the checkout flow keeps failing on the final step. The page just spins for a while and then says "Something went wrong". I\'m on Chrome on a Mac. Order total was £148. Could you help?\n\nThanks,\nSarah',
-   receivedAt:'2025-04-17 09:14', status:'new'},
-  {id:'EM-002', channelId:'CH-002', from:'James Reed', fromEmail:'james.r@globex.io',
-   subject:'March invoice missing',
-   body:'Hi billing,\n\nI can\'t find the March 2025 invoice in my account. I need it for our finance team\'s month-end close. Can you resend it as a PDF?\n\nReference: GLO-2025-03\n\nJames Reed\nGlobex Finance',
-   receivedAt:'2025-04-17 10:22', status:'new'},
-  {id:'EM-003', channelId:'CH-001', from:'Carlos Diaz', fromEmail:'carlos@tyrell.com',
-   subject:'iOS app crashing on login',
-   body:'Since the last update the iOS app crashes the moment I tap "Sign in". Force-closing and reopening doesn\'t help. iPhone 14 Pro, iOS 17.4.\n\n— Carlos',
-   receivedAt:'2025-04-17 11:03', status:'new'},
-  {id:'EM-004', channelId:'CH-001', from:'Unknown sender', fromEmail:'newsletter@offers.example',
-   subject:'🔥 Limited time — upgrade your account today!',
-   body:'Click here for an exclusive offer just for you! Reply STOP to unsubscribe.',
-   receivedAt:'2025-04-17 11:30', status:'new'},
-  {id:'EM-005', channelId:'CH-002', from:'Priya Sharma', fromEmail:'priya@nakatomi.jp',
-   subject:'Subscription renewal date question',
-   body:'Hello,\n\nWhen exactly does my subscription auto-renew? I want to make sure my card on file is up to date before it processes.\n\nThanks,\nPriya',
-   receivedAt:'2025-04-17 12:48', status:'new'},
-  {id:'EM-006', channelId:'CH-001', from:'Tom Brewer', fromEmail:'tom@umbrella.co',
-   subject:'Forgot to mention - export to XLSX too?',
-   body:'Following up on my earlier export request — could the CSV export also be available as XLSX? Excel parses dates funny on the CSV.\n\n— Tom',
-   receivedAt:'2025-04-17 13:11', status:'new'},
-  {id:'EM-007', channelId:'CH-001', from:'Nina Kowalski', fromEmail:'nina@initech.com',
-   subject:'Re: Initial setup help — thanks!',
-   body:'Just wanted to say the setup walkthrough was excellent. Got everything configured in under 30 mins. Cheers.\n\nNina',
-   receivedAt:'2025-04-17 14:02', status:'new'},
-];
-
 // The set of role names in the workspace. Bootstrap replaces this in place
 // from the API (/api/v1/roles); the demo persona flow uses these seeds.
 // Authorization is the binary is_admin flag enforced server-side — there is

@@ -76,7 +76,7 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
     }, 30 * 1000);
   }
   // Real-auth users (userId != null) get the always-on list-sync poll so
-  // TICKETS / nav badges / inbox stay live. Demo personas skip — they
+  // TICKETS and the nav badges stay live. Demo personas skip — they
   // have no API to talk to and TICKETS comes from data.js seeds.
   if (userId) { startListSync(); startRealtime(); initTaglineSdk(userId); }
   // Enable the in-session workspace switcher for real-auth agents who belong

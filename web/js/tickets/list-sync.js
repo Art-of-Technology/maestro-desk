@@ -1,7 +1,7 @@
 // Always-on polling of /tickets/sync. Watches for ticket-level changes
 // (status, assignment, priority, snooze, merge, sentiment, deletes) +
 // new tickets arriving via email/portal/API. Keeps the TICKETS array
-// fresh in the background so the list view, inbox, "Needs attention"
+// fresh in the background so the list view, "Needs attention"
 // chip count, and sidebar nav badges stay live regardless of which
 // page the agent is currently on.
 //
@@ -24,7 +24,6 @@ import { updateNavBadges } from '../core/router.js';
 import { apiGet } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 import { renderTickets } from './list.js';
-import { renderInbox } from '../inbox/index.js';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -89,8 +88,6 @@ export async function tick() {
     const page = CURRENT_PAGE;
     if (page === 'tickets') {
       renderTickets();
-    } else if (page === 'inbox') {
-      renderInbox();
     }
     // Nav badges read off TICKETS too — refresh regardless of page so
     // the sidebar counts don't go stale while the agent is elsewhere.

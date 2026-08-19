@@ -1,13 +1,13 @@
 // ─── Page tabs ───────────────────────────────────────────────────────────────
 // A small header-level tab switcher for the merged nav destinations:
-//   Conversations = Tickets | Inbox     Insights = Reports | Activity
+//   Insights = Reports | Activity     Insights = Reports | Activity
 // It renders inside a page's .topbar in place of the .tb-title. Each tab carries
 // data-action="pagetab.go" data-page="<router key>"; the handler (registered in
 // app.js) calls renderPage(key) directly — NOT nav() — so the sidebar's active
 // item (the merged destination) stays highlighted while the tab flips the body.
 //
 // Tabs are label-only by design: the per-view counts already live in each page's
-// KPI bar, and keeping them out avoids cross-importing TICKETS/INBOX here.
+// KPI bar, and keeping them out avoids cross-importing TICKETS here.
 // The Insights tab set, shared by all three renderers (reports/index.js,
 // core/activity-log.js, reports/sla-breach.js) so adding or renaming a tab
 // is a one-place change. Lives here — the one leaf module all three already
