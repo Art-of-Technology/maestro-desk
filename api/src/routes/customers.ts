@@ -8,6 +8,7 @@ import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
+import { customerSummary, customerTicketPage } from '../lib/customer-summary.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -640,6 +641,55 @@ customers.post('/:id/unmerge', async (c) => {
 
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
 // returns the customer's full personal-data bundle as a downloadable JSON file.
+// ─── Profile history ────────────────────────────────────────────────────────
+// The customer profile page's counts, CSAT, topics, timeline and ticket table.
+// Member-level (the whole router is behind requireAuth) — this is the same
+// data an agent can already reach by opening the tickets, just aggregated, so
+// it needs no admin gate and writes no audit row, unlike /export.
+//
+// Both routes answer 404 identically for "no such customer" and "belongs to
+// another workspace", so they can't be used to probe for ids across tenants.
+customers.get('/:id/summary', async (c) => {
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const summary = await customerSummary({ workspaceId, customerId });
+  if (!summary) return c.json({ error: 'Customer not found' }, 404);
+  return c.json(summary);
+});
+
+// Subsequent pages of the profile's ticket table. Page 0 already ships inside
+// /summary, so this exists purely for "Load more".
+customers.get('/:id/tickets', async (c) => {
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const limit = parseInt(c.req.query('limit') ?? '', 10);
+  const offset = parseInt(c.req.query('offset') ?? '', 10);
+
+  // Existence is checked here rather than inferred from an empty page: a
+  // customer with no tickets and a customer in another workspace both return
+  // zero rows, and only one of those is a 404.
+  const sql = getDb();
+  const found = await sql`
+    select 1 from customers where id = ${customerId} and workspace_id = ${workspaceId} limit 1
+  `;
+  if (found.length === 0) return c.json({ error: 'Customer not found' }, 404);
+
+  const page = await customerTicketPage({
+    workspaceId,
+    customerId,
+    limit: Number.isFinite(limit) ? limit : undefined,
+    offset: Number.isFinite(offset) ? offset : undefined,
+  });
+  // total is null on later pages (the count is computed on page 0 only); omit
+  // the key rather than sending null, matching GET /tickets.
+  const { total, ...rest } = page;
+  return c.json(total === null ? rest : { ...rest, total });
+});
+
 customers.get('/:id/export', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
