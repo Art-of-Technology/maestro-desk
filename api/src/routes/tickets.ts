@@ -1024,6 +1024,13 @@ const CreateTicket = z.object({
   status_key: z.string().default('open'),
   priority_key: z.string().default('normal'),
   category_key: z.string().optional(),
+  // Explicit assignee (the new-ticket flow's step-1 pick). When present the
+  // assignment-rules engine is SKIPPED — an agent's deliberate choice wins.
+  assigned_user_id: z.string().uuid().optional(),
+  // API-only convenience (external callers): inserts a role='customer'
+  // message labelled 'API caller' — NOT emailed. The SPA never uses it; its
+  // agent-authored first message goes through POST /:id/messages so it gets
+  // real authorship + email delivery.
   initial_message: z.string().min(1).optional(),
 });
 
@@ -1047,37 +1054,76 @@ tickets.post('/', async (c) => {
   `;
   if (!customer) return c.json({ error: 'Customer not found' }, 404);
 
+  // Reject an unknown/disabled category — same rule PATCH enforces (:266).
+  // Omitted stays nullable (player-lookup and API callers send none).
+  if (input.category_key != null) {
+    const [cat] = await sql`
+      select key from ticket_categories
+      where workspace_id = ${workspaceId} and key = ${input.category_key} and is_active = true
+    `;
+    if (!cat) return c.json({ error: `Unknown or inactive category: ${input.category_key}` }, 400);
+  }
+
+  // Reject an explicit assignee who isn't an active member — mirrors PATCH
+  // (:277) and the customer_id check above.
+  if (input.assigned_user_id != null) {
+    const [member] = await sql`
+      select 1 from workspace_members
+      where user_id = ${input.assigned_user_id} and workspace_id = ${workspaceId} and active = true
+    `;
+    if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
+  }
+
   const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 
-  const [ticket] = await sql<{ id: string; display_id: string }[]>`
+  const [created] = await sql<{ id: string }[]>`
     insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)
     values (${workspaceId}, ${displayId}, ${input.subject}, ${input.customer_id},
-            ${input.status_key}, ${input.priority_key}, ${input.category_key ?? null}, ${userId})
-    returning id, display_id
+            ${input.status_key}, ${input.priority_key}, ${input.category_key ?? null},
+            ${input.assigned_user_id ?? userId})
+    returning id
   `;
 
   if (input.initial_message) {
     await sql`
       insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
-      values (${workspaceId}, ${ticket.id}, 'customer', 'API caller', ${input.initial_message})
+      values (${workspaceId}, ${created.id}, 'customer', 'API caller', ${input.initial_message})
     `;
   }
 
-  // Auto-apply assignment rules on the freshly-created ticket. Errors
-  // swallowed (logged) so a misconfigured rule can't break ticket
-  // creation. POST currently stamps assigned_user_id=userId (the
-  // creating agent); the engine may override that with a rule's pick.
-  try { await applyAssignmentRules({ workspaceId, ticketId: ticket.id }); }
-  catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+  // Auto-apply assignment rules on the freshly-created ticket — but ONLY
+  // when no explicit assignee was given (a deliberate step-1 pick must not
+  // be overridden by a rule). Errors swallowed (logged) so a misconfigured
+  // rule can't break ticket creation. Without an explicit assignee the
+  // insert stamps assigned_user_id=userId (the creating agent) and the
+  // engine may override that with a rule's pick.
+  if (input.assigned_user_id == null) {
+    try { await applyAssignmentRules({ workspaceId, ticketId: created.id }); }
+    catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+  }
 
   // Slack notification on creation.
-  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
   catch (err) { console.warn('[slack] notify created failed:', err); }
   // Generic outgoing webhooks (any URL the workspace configured).
-  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: ticket.id }); }
+  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
   catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
 
-  void publishTicketChanged(workspaceId, ticket.id);
+  void publishTicketChanged(workspaceId, created.id);
+
+  // Re-select AFTER the rules step with the list endpoint's exact column
+  // set, so the SPA can upsert the row locally without a follow-up fetch —
+  // the insert's `returning` would show the pre-rules assignee.
+  const [ticket] = await sql`
+    select id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+           customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
+           snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
+           (select tm.role from ticket_messages tm
+              where tm.ticket_id = tickets.id and tm.deleted_at is null
+              order by tm.created_at desc limit 1) as last_message_role
+    from tickets
+    where id = ${created.id} and workspace_id = ${workspaceId}
+  `;
   return c.json({ ticket }, 201);
 });
 
