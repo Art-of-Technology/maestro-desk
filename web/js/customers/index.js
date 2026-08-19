@@ -1,9 +1,10 @@
 // ─── Customers ────────────────────────────────────────────────────────────────
-// Customers list page (column manager, bulk actions, group-by, view chips,
-// CSV export) and the per-customer detail view (profile, custom fields, risk
-// indicators, activity timeline, notes, related tickets). Customer merge /
-// un-merge bookkeeping lives at the bottom: tickets reassign with a stamp so
-// the reversal can restore them, and primary-record backfill is undoable.
+// Customers list page (topbar overflow menu, column manager, bulk actions,
+// one filter bar with a "More filters" disclosure, view chips, CSV export) and
+// the per-customer detail view (profile, custom fields, risk indicators,
+// activity timeline, notes, related tickets). Customer merge / un-merge
+// bookkeeping lives at the bottom: tickets reassign with a stamp so the
+// reversal can restore them, and primary-record backfill is undoable.
 //
 // Click/change/input/mousedown handlers route through
 // core/event-delegation.js. Drag-to-reorder on the column headers uses
@@ -16,10 +17,10 @@
 // External reaches (interim, via window): escAttr, escHtml, isAdmin —
 // all still in app.js. openTicket, showManageFieldsModal,
 // showCSVModal and showNewCustomerModal are direct ES imports. The
-// customers↔customers/modals.js cycle (modals.js imports refreshCustTable
-// from this module; this module imports the modal openers back) is tolerated
-// — the openers are only used inside registerActions closures, never at
-// module top level.
+// customers↔customers/modals.js import cycle is GONE: modals.js used to
+// import refreshCustTable from here, but creating a customer moves the KPI
+// bar and the "N of M" total as well as the rows, so it calls renderPage
+// instead. The dependency is now one-way (this module imports the openers).
 
 import { CUSTOMERS, CUSTOM_FIELDS, TICKETS } from '../core/data.js';
 import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, SESSION, setCustColumns, setCustDragCol, setCustomerSelected } from '../core/state.js';
@@ -152,6 +153,19 @@ let CUST_SHOW_MORE_FILTERS = false;
 // CUSTOMER_SELECTED_IDS lives in core/state.js so the renderPage page-guard
 // in app.js can clear it on navigation away from the customers tab.
 
+// Customers with at least one breaching or escalated ticket. Built as one
+// pass over TICKETS rather than a nested `TICKETS.some()` per customer, which
+// was O(customers × tickets) — tolerable when the page only rendered on
+// navigation, wasteful now that every keystroke in the search box re-renders.
+// Both the "At risk" chip count and its filter predicate read this.
+function atRiskCustomerIdSet() {
+  const ids = new Set();
+  for (const t of TICKETS) {
+    if (t.sla === 'breach' || t.status === 'escalated') ids.add(t.customerId);
+  }
+  return ids;
+}
+
 function applyCustFilters() {
   let list = [...CUSTOMERS];
   // Hide merged-into duplicates by default; the "Merged" view chip surfaces them on demand.
@@ -160,7 +174,7 @@ function applyCustFilters() {
   if (CUST_VIEW_FILTER === 'premium')         list = list.filter(c => c.vip === 'Platinum' || c.vip === 'Gold');
   else if (CUST_VIEW_FILTER === 'kyc-pending') list = list.filter(c => c.kyc !== 'Verified');
   else if (CUST_VIEW_FILTER === 'no-consent')  list = list.filter(c => !c.consent);
-  else if (CUST_VIEW_FILTER === 'at-risk')     list = list.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated')));
+  else if (CUST_VIEW_FILTER === 'at-risk')     { const ids = atRiskCustomerIdSet(); list = list.filter(c => ids.has(c.id)); }
   if (CUST_QUERY.trim()) {
     const q = CUST_QUERY.toLowerCase();
     list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.email+' '+c.brand).toLowerCase().includes(q));
@@ -381,7 +395,7 @@ export function renderCustomers() {
   // View chip counts
   const kycPendingN = CUSTOMERS.filter(c => c.kyc !== 'Verified').length;
   const noConsentN  = CUSTOMERS.filter(c => !c.consent).length;
-  const atRiskN     = CUSTOMERS.filter(c => TICKETS.some(t => t.customerId === c.id && (t.sla === 'breach' || t.status === 'escalated'))).length;
+  const atRiskN     = (() => { const ids = atRiskCustomerIdSet(); return CUSTOMERS.filter(c => ids.has(c.id)).length; })();
   const mergedN = CUSTOMERS.filter(c => c.mergedInto).length;
   const views = [
     { k: 'all',         l: 'All',                         active: CUST_VIEW_FILTER === 'all' },
@@ -427,9 +441,8 @@ export function renderCustomers() {
           Look up player
         </button>` : ''}
         ${/* Columns / Fields / Import / Export are housekeeping — they were
-             crowding out the two actions that matter. Folded into an overflow
-             menu using the existing .comp-menu convention, so core/dismiss.js
-             closes it on outside-click for free. */''}
+             crowding out the two actions that matter, so they fold into an
+             overflow menu. */''}
         ${/* Trigger only — the panel is built at body level by
              openCustMoreMenu(). It cannot live in here: .topbar is height:48px
              with overflow:hidden AND isolation:isolate (shell.css), so a
