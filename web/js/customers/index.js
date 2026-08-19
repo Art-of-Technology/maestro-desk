@@ -29,6 +29,7 @@ import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { isFieldVisible } from '../layouts/index.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
+import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
@@ -891,6 +892,7 @@ function renderCustomerDetail(custId) {
         </div>` : ''}
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
+          ${!c.mergedInto ? `<button class="btn btn-sm" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}">✉ New ticket</button>` : ''}
           ${c.bo ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
           ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
@@ -955,6 +957,8 @@ registerActions({
   // Detail-page actions
   'cust.openTicket':      (ds) => openTicket(ds.ticketId),
   'cust.addNote':         (ds) => addCustomerNote(ds.custId),
+  // Opens the two-step new-ticket flow with this customer pre-picked.
+  'cust.newTicket':       (ds) => showNewTicketModal(null, ds.custId),
   'cust.deleteNote':      (ds) => deleteCustomerNote(ds.custId, ds.noteId || null, parseInt(ds.noteIdx, 10)),
   'cust.unmerge':         (ds) => unmergeCustomer(ds.custId),
   'cust.showMergeModal':  (ds) => showMergeCustomerModal(ds.custId),
