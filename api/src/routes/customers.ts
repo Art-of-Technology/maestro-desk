@@ -108,6 +108,7 @@ customers.get('/', async (c) => {
   const rows = await sql`
     select id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
            jurisdiction, consent, kyc_status, since, backoffice_url, erased_at, created_at,
+           merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count
     from customers
     where workspace_id = ${workspaceId} and deleted_at is null
@@ -248,6 +249,18 @@ customers.delete('/:id', async (c) => {
     return c.json({ error: 'This customer has ticket history — merge them into another profile instead', code: 'has_tickets' }, 409);
   }
 
+  // A merge survivor with live duplicates can't be deleted: the duplicates'
+  // unmerge would target a hidden profile. (Deleting a merged SOURCE is
+  // allowed — it just forfeits its unmerge, same rule as tickets.)
+  const [child] = await sql`
+    select 1 from customers
+    where workspace_id = ${workspaceId} and merged_into_customer_id = ${customerId} and deleted_at is null
+    limit 1
+  `;
+  if (child) {
+    return c.json({ error: 'This profile has merged duplicates — unmerge them first', code: 'has_merged_children' }, 409);
+  }
+
   // Soft-delete the profile but HARD-delete its internal notes (free-text
   // PII with no UI reachable once the profile is gone — same treatment GDPR
   // erasure gives them; individual note deletion is soft, this purge is the
@@ -288,6 +301,341 @@ customers.delete('/:id', async (c) => {
   // keep the row until reload — true of every customer mutation today. The
   // acting tab splices locally on the 204.
   return new Response(null, { status: 204 });
+});
+
+// ─── Customer merge / unmerge ────────────────────────────────────────────────
+// Server-side profile merge, mirroring the ticket-merge shape (routes/
+// tickets.ts /:id/merge). Gated by the can_delete capability (Phase-2
+// decision: merge rides the delete & merge permission, not admin-only).
+//
+// Merge moves EVERY ticket of the source (live, deleted, and ticket-merged —
+// no dangling pointers left behind) onto the survivor, stamping each with
+// pre_merge_customer_id; message rows are untouched, so original emails and
+// timestamps stay exactly as they were. Notes MOVE (server truth, not the
+// old client-side copy) with a merged_from stamp. Blank survivor fields
+// backfill from the source — email deliberately excluded (the live-but-merged
+// source row still holds it; copying would trip the partial unique index) —
+// and the copied values land in a customer_merges journal row so unmerge can
+// revert exactly those, only where the survivor hasn't edited them since.
+
+const MergeBody = z.object({ into_id: z.string().uuid() });
+
+// Backfillable columns — email is NOT here by design (see above); custom-field
+// values were a client-only flourish and are dropped from the server merge.
+const BACKFILL_COLS = ['mobile', 'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
+
+customers.post('/:id/merge', async (c) => {
+  const denied = await requireDeletePermission(c);
+  if (denied) return denied;
+
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const sourceId = c.req.param('id');
+  if (!UUID_RE.test(sourceId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const raw = await c.req.json().catch(() => null);
+  const parsed = MergeBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  const primaryId = parsed.data.into_id;
+  if (primaryId === sourceId) return c.json({ error: 'Cannot merge a customer into themselves' }, 400);
+
+  let outcome: { status: number; body: unknown };
+  const audit: { tickets: number; notes: number; backfilled: string[] } = { tickets: 0, notes: 0, backfilled: [] };
+
+  await sql.begin(async (tx) => {
+    // Lock both rows in deterministic id order so two concurrent merges of
+    // the same pair (either direction) can't deadlock.
+    const [a, b] = [sourceId, primaryId].sort();
+    const rows = await tx<{ id: string; display_id: string; first_name: string | null; last_name: string | null; email: string | null;
+      mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null;
+      kyc_status: string | null; since: string | null; backoffice_url: string | null;
+      merged_into_customer_id: string | null; erased_at: string | null }[]>`
+      select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
+             jurisdiction, kyc_status, since::text as since, backoffice_url, merged_into_customer_id, erased_at
+      from customers
+      where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
+      order by id
+      for update
+    `;
+    // ^ since::text — it's a DATE column; without the cast postgres.js hands
+    // back a JS Date that json-serialises as a full (TZ-shifted) timestamp,
+    // which would leak into the SPA, the journal, and the unmerge equality
+    // check. As text it's a plain 'YYYY-MM-DD' end to end.
+    const source = rows.find((r) => r.id === sourceId);
+    const primary = rows.find((r) => r.id === primaryId);
+    if (!source)  { outcome = { status: 404, body: { error: 'Customer not found' } }; return; }
+    if (!primary) { outcome = { status: 404, body: { error: 'Primary customer not found' } }; return; }
+    if (source.merged_into_customer_id)  { outcome = { status: 409, body: { error: 'This profile is already merged' } }; return; }
+    if (primary.merged_into_customer_id) { outcome = { status: 409, body: { error: 'The chosen survivor is itself a merged duplicate — pick the chain primary instead' } }; return; }
+    if (source.erased_at || primary.erased_at) { outcome = { status: 409, body: { error: 'Erased profiles cannot be merged' } }; return; }
+
+    // A source that is itself a merge SURVIVOR can't be merged away: step 1
+    // below would overwrite its children's pre_merge/merged_from stamps
+    // (they all currently point at the source), permanently stranding their
+    // unmerge. Unmerge the children first, then merge.
+    const [childOfSource] = await tx`
+      select 1 from customers
+      where workspace_id = ${workspaceId} and merged_into_customer_id = ${sourceId} and deleted_at is null
+      limit 1
+    `;
+    if (childOfSource) {
+      outcome = { status: 409, body: { error: 'This profile has merged duplicates — unmerge them before merging it into another profile', code: 'has_merged_children' } };
+      return;
+    }
+
+    // 1. Move EVERY ticket (incl. soft-deleted / ticket-merged ones) so no
+    // pointer keeps referencing the merged-away profile.
+    const moved = await tx<{ id: string; deleted_at: string | null }[]>`
+      update tickets
+      set pre_merge_customer_id = customer_id, customer_id = ${primaryId}
+      where workspace_id = ${workspaceId} and customer_id = ${sourceId}
+      returning id, deleted_at
+    `;
+    audit.tickets = moved.length;
+
+    // 2. A 'system' marker on each moved LIVE ticket's thread — one statement
+    // for all of them (a heavy duplicate can hold hundreds of tickets, and
+    // both customer rows stay locked for the whole transaction).
+    const liveMovedIds = moved.filter((m) => !m.deleted_at).map((m) => m.id);
+    if (liveMovedIds.length) {
+      await tx`
+        insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+        select ${workspaceId}, t.id, 'system', 'System',
+               ${`── Customer merged: ${source.display_id} → ${primary.display_id} ──`}
+        from unnest(${liveMovedIds}::uuid[]) as t(id)
+      `;
+    }
+
+    // 3. Move the source's LIVE notes onto the survivor, stamped for unmerge.
+    // Soft-deleted notes stay behind (they're invisible everywhere and would
+    // only inflate the moved-count in the auto note below).
+    const movedNotes = await tx<{ id: string }[]>`
+      update customer_notes
+      set customer_id = ${primaryId}, merged_from_customer_id = ${sourceId}
+      where workspace_id = ${workspaceId} and customer_id = ${sourceId} and deleted_at is null
+      returning id
+    `;
+    audit.notes = movedNotes.length;
+
+    // 4. The spec-required merge note on the survivor. merged_from stays NULL
+    // so it survives a later unmerge as history. Deliberately identifies the
+    // source by display id ONLY — no name/email — so a later GDPR erasure of
+    // the source leaves no PII stranded in the survivor's notes.
+    await tx`
+      insert into customer_notes (workspace_id, customer_id, author_user_id, text)
+      values (${workspaceId}, ${primaryId}, ${userId},
+              ${`Merged ${source.display_id} into this profile — ${moved.length} ticket${moved.length === 1 ? '' : 's'} and ${movedNotes.length} note${movedNotes.length === 1 ? '' : 's'} moved.`})
+    `;
+
+    // 5. Backfill blank survivor fields from the source, journalling exactly
+    // what was copied.
+    const backfilled: Record<string, string> = {};
+    for (const col of BACKFILL_COLS) {
+      const srcVal = (source as Record<string, string | null>)[col];
+      const priVal = (primary as Record<string, string | null>)[col];
+      if (srcVal && !priVal) backfilled[col] = srcVal;
+    }
+    if (Object.keys(backfilled).length) {
+      await tx`update customers set ${tx(backfilled)} where id = ${primaryId} and workspace_id = ${workspaceId}`;
+    }
+    audit.backfilled = Object.keys(backfilled);
+
+    // 6. Stamp the source as merged.
+    const [stamped] = await tx<{ merged_at: string }[]>`
+      update customers set merged_into_customer_id = ${primaryId}, merged_at = now()
+      where id = ${sourceId} and workspace_id = ${workspaceId}
+      returning merged_at
+    `;
+
+    // 7. Journal row — the unmerge's memory + permanent history.
+    await tx`
+      insert into customer_merges (workspace_id, source_customer_id, primary_customer_id, merged_by_user_id,
+                                   tickets_moved, notes_moved, backfilled_fields)
+      values (${workspaceId}, ${sourceId}, ${primaryId}, ${userId}, ${moved.length}, ${movedNotes.length}, ${tx.json(backfilled)})
+    `;
+
+    // Everything the SPA needs to update locally without a reload.
+    // deleted_at filter matters: the SPA replaces the survivor's notes
+    // wholesale with this list, so a soft-deleted note must not resurface.
+    const notes = await tx`
+      select n.id, n.customer_id, n.author_user_id, u.name as author_name, n.text,
+             n.merged_from_customer_id, n.created_at
+      from customer_notes n
+      left join users u on u.id = n.author_user_id
+      where n.workspace_id = ${workspaceId} and n.customer_id = ${primaryId} and n.deleted_at is null
+      order by n.created_at desc
+    `;
+    outcome = {
+      status: 200,
+      body: {
+        source: { id: sourceId, display_id: source.display_id, merged_at: stamped.merged_at },
+        primary: { id: primaryId, display_id: primary.display_id },
+        tickets_moved_ids: moved.map((m) => m.id),
+        notes,
+        backfilled_fields: backfilled,
+      },
+    };
+  });
+
+  if (outcome!.status === 200) {
+    await writeAudit({
+      workspaceId,
+      actorUserId: userId,
+      action: 'customer.merged',
+      targetType: 'customer',
+      targetId: sourceId,
+      metadata: { into: primaryId, tickets_moved: audit.tickets, notes_moved: audit.notes, backfilled: audit.backfilled },
+    });
+  }
+  return c.json(outcome!.body as Record<string, unknown>, outcome!.status as 200);
+});
+
+// Unmerge core — shared by POST /:id/unmerge and POST /:id/erase (GDPR
+// erasure of a merged-away source must FIRST restore its history to the
+// source, or eraseCustomer's by-customer_id redaction would miss everything
+// the merge re-homed onto the survivor). Restores tickets/notes by their
+// stamps, reverts journalled backfills only where the survivor still carries
+// the copied value (survivor edits win), clears the merge pointers, and
+// stamps the journal row (kept as history).
+async function performUnmerge(workspaceId: string, userId: string, sourceId: string):
+  Promise<{ status: number; body: Record<string, unknown>; audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[] } }> {
+  const sql = getDb();
+  let outcome: { status: number; body: Record<string, unknown> };
+  const audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[] } =
+    { from: null, tickets: 0, notes: 0, reverted: [], kept: [] };
+
+  await sql.begin(async (tx) => {
+    // Peek (no lock) to learn the survivor, then lock BOTH rows in sorted-id
+    // order — the same order merge uses. Locking source-then-survivor here
+    // would AB-BA deadlock against a concurrent merge on the same pair.
+    const [peek] = await tx<{ merged_into_customer_id: string | null }[]>`
+      select merged_into_customer_id from customers
+      where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
+    `;
+    if (!peek) { outcome = { status: 404, body: { error: 'Customer not found' } }; return; }
+    if (!peek.merged_into_customer_id) { outcome = { status: 409, body: { error: 'This profile is not merged' } }; return; }
+    const primaryId = peek.merged_into_customer_id;
+    audit.from = primaryId;
+
+    const [a, b] = [sourceId, primaryId].sort();
+    await tx`
+      select id from customers
+      where id = any(${[a, b]}) and workspace_id = ${workspaceId}
+      order by id
+      for update
+    `;
+    // Re-verify under the lock — the peek raced unlocked, so the merge state
+    // may have changed before we got here.
+    const [source] = await tx<{ id: string; display_id: string; merged_into_customer_id: string | null }[]>`
+      select id, display_id, merged_into_customer_id from customers
+      where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
+    `;
+    if (!source) { outcome = { status: 404, body: { error: 'Customer not found' } }; return; }
+    if (source.merged_into_customer_id !== primaryId) { outcome = { status: 409, body: { error: 'This profile is not merged' } }; return; }
+
+    const restored = await tx<{ id: string }[]>`
+      update tickets set customer_id = ${sourceId}, pre_merge_customer_id = null
+      where workspace_id = ${workspaceId} and customer_id = ${primaryId} and pre_merge_customer_id = ${sourceId}
+      returning id
+    `;
+    audit.tickets = restored.length;
+
+    const notesBack = await tx<{ id: string }[]>`
+      update customer_notes set customer_id = ${sourceId}, merged_from_customer_id = null
+      where workspace_id = ${workspaceId} and customer_id = ${primaryId} and merged_from_customer_id = ${sourceId}
+      returning id
+    `;
+    audit.notes = notesBack.length;
+
+    // Conditional backfill revert from the journal.
+    const [journal] = await tx<{ id: string; backfilled_fields: Record<string, string> }[]>`
+      select id, backfilled_fields from customer_merges
+      where workspace_id = ${workspaceId} and source_customer_id = ${sourceId}
+        and primary_customer_id = ${primaryId} and unmerged_at is null
+      order by merged_at desc
+      limit 1
+    `;
+    const backfilled = journal?.backfilled_fields || {};
+    for (const [col, copied] of Object.entries(backfilled)) {
+      if (!(BACKFILL_COLS as readonly string[]).includes(col)) continue;  // identifier safety
+      const res = await tx`
+        update customers set ${tx({ [col]: null })}
+        where id = ${primaryId} and workspace_id = ${workspaceId} and ${tx(col)} = ${copied}
+        returning id
+      `;
+      (res.length ? audit.reverted : audit.kept).push(col);
+    }
+
+    await tx`
+      update customers set merged_into_customer_id = null, merged_at = null
+      where id = ${sourceId} and workspace_id = ${workspaceId}
+    `;
+    if (journal) {
+      await tx`
+        update customer_merges set unmerged_at = now(), unmerged_by_user_id = ${userId}
+        where id = ${journal.id}
+      `;
+    }
+    await tx`
+      insert into customer_notes (workspace_id, customer_id, author_user_id, text)
+      values (${workspaceId}, ${primaryId}, ${userId},
+              ${`Unmerged ${source.display_id} — ${restored.length} ticket${restored.length === 1 ? '' : 's'} and ${notesBack.length} note${notesBack.length === 1 ? '' : 's'} restored.`})
+    `;
+
+    // Both sides' live notes ride back so the SPA can apply server truth
+    // wholesale (mirrors the merge response) instead of filtering local
+    // stamps — which go stale after a reload or a second stacked merge.
+    const notesFor = (custId: string) => tx`
+      select n.id, n.customer_id, n.author_user_id, u.name as author_name, n.text,
+             n.merged_from_customer_id, n.created_at
+      from customer_notes n
+      left join users u on u.id = n.author_user_id
+      where n.workspace_id = ${workspaceId} and n.customer_id = ${custId} and n.deleted_at is null
+      order by n.created_at desc
+    `;
+    const [sourceNotes, primaryNotes] = await Promise.all([notesFor(sourceId), notesFor(primaryId)]);
+
+    outcome = {
+      status: 200,
+      body: {
+        source: { id: sourceId, display_id: source.display_id },
+        primary: { id: primaryId },
+        tickets_restored_ids: restored.map((r) => r.id),
+        source_notes: sourceNotes,
+        primary_notes: primaryNotes,
+        fields_reverted: audit.reverted,
+        fields_kept_due_to_edit: audit.kept,
+      },
+    };
+  });
+
+  return { ...outcome!, audit };
+}
+
+// POST /:id/unmerge — :id is the merged SOURCE. Thin wrapper over
+// performUnmerge (shared with the erase route) + the audit row.
+customers.post('/:id/unmerge', async (c) => {
+  const denied = await requireDeletePermission(c);
+  if (denied) return denied;
+
+  const workspaceId = c.get('workspaceId');
+  const userId = c.get('userId');
+  const sourceId = c.req.param('id');
+  if (!UUID_RE.test(sourceId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const { status, body, audit } = await performUnmerge(workspaceId, userId, sourceId);
+  if (status === 200) {
+    await writeAudit({
+      workspaceId,
+      actorUserId: userId,
+      action: 'customer.unmerged',
+      targetType: 'customer',
+      targetId: sourceId,
+      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept },
+    });
+  }
+  return c.json(body, status as 200);
 });
 
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
@@ -344,6 +692,44 @@ customers.post('/:id/erase', async (c) => {
   const parsed = eraseBody.safeParse(raw ?? {});
   if (!parsed.success) return c.json({ error: 'Invalid request body' }, 400);
   const reason = parsed.data.reason || null;
+
+  // A merged-away source must be UNMERGED before erasure: the merge re-homed
+  // its tickets and notes onto the survivor, and eraseCustomer redacts by
+  // customer_id — erasing while merged would leave the person's emails and
+  // notes un-redacted on the survivor (Art. 17 failure) and their merge
+  // pointer dangling. performUnmerge restores everything to this profile
+  // first (and writes its own survivor note); the redaction below then
+  // reaches all of it.
+  // Erasing a merge SURVIVOR would over-redact: its tickets include the
+  // merged-in history of its duplicates (customer_id points at the survivor),
+  // so by-customer_id redaction would destroy THEIR correspondence too, and
+  // a later unmerge would hand redacted tickets back. Unmerge the duplicates
+  // first, then erase each profile individually.
+  const [childOfTarget] = await getDb()`
+    select 1 from customers
+    where workspace_id = ${workspaceId} and merged_into_customer_id = ${customerId} and deleted_at is null
+    limit 1
+  `;
+  if (childOfTarget) {
+    return c.json({ error: 'This profile has merged duplicates — unmerge them before erasing, or their tickets would be redacted too', code: 'has_merged_children' }, 409);
+  }
+
+  const [mergeState] = await getDb()<{ merged_into_customer_id: string | null }[]>`
+    select merged_into_customer_id from customers
+    where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+  `;
+  if (mergeState?.merged_into_customer_id) {
+    const un = await performUnmerge(workspaceId, userId, customerId);
+    if (un.status !== 200) return c.json(un.body, un.status as 200);
+    await writeAudit({
+      workspaceId,
+      actorUserId: userId,
+      action: 'customer.unmerged',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, reason: 'pre-erasure' },
+    });
+  }
 
   const result = await eraseCustomer({ workspaceId, customerId, requestedByUserId: userId, reason });
   if (!result) return c.json({ error: 'Customer not found' }, 404);

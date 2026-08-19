@@ -132,13 +132,15 @@ publicRoutes.post('/:slug/tickets', async (c) => {
 
   // Match-or-create customer.
   let customerId: string;
-  const [existing] = await sql<{ id: string }[]>`
-    select id from customers
+  const [existing] = await sql<{ id: string; merged_into_customer_id: string | null }[]>`
+    select id, merged_into_customer_id from customers
     where workspace_id = ${ws.id} and email = ${email} and deleted_at is null
   `;
 
   if (existing) {
-    customerId = existing.id;
+    // Merged-away duplicates keep their email; new portal tickets belong on
+    // the survivor (single hop — see the merge route's chain guard).
+    customerId = existing.merged_into_customer_id || existing.id;
   } else {
     const [first, ...rest] = input.name.trim().split(/\s+/);
     const last = rest.join(' ') || null;
@@ -273,8 +275,8 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   const emailLimited = await enforceRateLimit(c, { name: 'portal-auth-request-email', by: email, max: 5, windowSeconds: 900, failClosed: true });
   if (emailLimited) return emailLimited;
 
-  const [customer] = await sql<{ id: string; first_name: string | null }[]>`
-    select id, first_name from customers
+  const [customer] = await sql<{ id: string; first_name: string | null; merged_into_customer_id: string | null }[]>`
+    select id, first_name, merged_into_customer_id from customers
     where workspace_id = ${ws.id} and email = ${email} and deleted_at is null
   `;
 
@@ -283,7 +285,10 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
 
   let token: string;
   try {
-    const link = await createMagicLink({ workspaceId: ws.id, customerId: customer.id });
+    // A merged-away duplicate's session belongs on the survivor — their
+    // tickets moved there; a session on the duplicate would show an empty
+    // portal (single hop — see the merge route's chain guard).
+    const link = await createMagicLink({ workspaceId: ws.id, customerId: customer.merged_into_customer_id || customer.id });
     token = link.token;
   } catch (err) {
     console.error('[portal-auth] createMagicLink failed:', err);

@@ -264,10 +264,26 @@ export async function loadWorkspaceData() {
     bo:           c.backoffice_url || '',
     custom:       customByEntity[c.id] || {},
     notes:        notesByCustomer[c.id] || [],
+    _mergedIntoUuid: c.merged_into_customer_id || null,
+    mergedInto:   null,          // display id, resolved in the pass below
+    mergedAt:     c.merged_at ? isoDate(c.merged_at) : null,
+    mergedFrom:   [],
     emailBounceState: c.email_bounce_state || 'none',
     emailBounceCount: c.email_bounce_count || 0,
     emailLastBounce:  c.email_last_bounce_at || null,
   }));
+  // Resolve customer-merge pointers to display ids (same pass the tickets
+  // merge graph gets below) so the existing mergedInto/mergedFrom badges and
+  // banners light up from server truth.
+  const custByUuid = Object.fromEntries(mappedCustomers.map((c) => [c._uuid, c]));
+  for (const c of mappedCustomers) {
+    if (!c._mergedIntoUuid) continue;
+    const survivor = custByUuid[c._mergedIntoUuid];
+    if (survivor) {
+      c.mergedInto = survivor.id;
+      survivor.mergedFrom.push(c.id);
+    }
+  }
   replaceInPlace(CUSTOMERS, mappedCustomers);
 
   // ─── AGENTS ─────────────────────────────────────────────────────────────
