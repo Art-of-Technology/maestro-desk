@@ -94,7 +94,7 @@ function dropCustCol(targetIdx) {
   const si=all.indexOf(src), ti=all.indexOf(tgt);
   all.splice(si,1); all.splice(ti,0,src);
   setCustDragCol(null);
-  refreshCustTable(CUSTOMERS);
+  refreshCustTable(applyCustFilters());
 }
 
 // The grouped table body. Both the full render and the incremental refresh
@@ -273,15 +273,91 @@ function exportCustomerList() {
 // has a removal chip and feeds the "N of M" counter alongside the badge, and
 // refreshCustTable only rewrites thead/tbody — the chrome would go stale as
 // you type. Focus and caret are restored the same way tickets/list.js does.
+// ─── Topbar overflow menu ───────────────────────────────────────────────────
+// Built at body level rather than inside the .topbar, and dismissed by its own
+// full-viewport backdrop, mirroring the workspace switcher. The topbar is a
+// clipping, isolated stacking context, so a panel rendered inside it is both
+// cut off at 48px and painted under the filter bar.
+//
+// Because it isn't a display-toggled .comp-menu inside a wrapper, core/
+// dismiss.js doesn't participate — the backdrop and Escape handle it, and
+// every item handler closes it explicitly so it can't linger behind the modal
+// it just opened.
+const CUST_MENU_ITEMS = [
+  { action: 'cust.showColumnPanel', label: 'Columns…' },
+  { action: 'cust.manageFields',    label: 'Fields…' },
+  { action: 'cust.csvImport',       label: 'Import CSV…' },
+  { action: 'cust.export',          label: 'Export CSV' },
+];
+
+function closeCustMoreMenu() {
+  document.getElementById('cust-more-backdrop')?.remove();
+  document.removeEventListener('keydown', onCustMenuKeydown, true);
+  document.getElementById('cust-more-menu-btn')?.setAttribute('aria-expanded', 'false');
+}
+
+function onCustMenuKeydown(e) {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCustMoreMenu();
+    document.getElementById('cust-more-menu-btn')?.focus();
+  }
+}
+
+function openCustMoreMenu() {
+  const btn = document.getElementById('cust-more-menu-btn');
+  if (!btn) return;
+  closeCustMoreMenu();
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'cust-more-backdrop';
+  backdrop.className = 'menu-backdrop';
+  backdrop.setAttribute('data-action', 'cust.closeMoreMenu');
+
+  const panel = document.createElement('div');
+  panel.id = 'cust-more-menu';
+  panel.className = 'comp-menu comp-menu-fixed';
+  panel.setAttribute('role', 'menu');
+  panel.setAttribute('aria-label', 'More customer actions');
+  // Absorber: a click inside the panel but not on an item must not fall
+  // through to the backdrop and close it.
+  panel.setAttribute('data-action', '');
+  // Real <button>s, not divs: these were plain buttons before the topbar was
+  // decluttered, and a div would have made all four mouse-only.
+  panel.innerHTML = CUST_MENU_ITEMS
+    .map((i) => `<button type="button" role="menuitem" class="comp-menu-item" data-action="${i.action}">${i.label}</button>`)
+    .join('');
+
+  const r = btn.getBoundingClientRect();
+  const W = 200;
+  panel.style.top  = `${Math.round(r.bottom + 4)}px`;
+  panel.style.left = `${Math.round(Math.max(8, Math.min(r.right - W, window.innerWidth - W - 12)))}px`;
+  panel.style.display = 'block';
+
+  backdrop.appendChild(panel);
+  document.body.appendChild(backdrop);
+  document.addEventListener('keydown', onCustMenuKeydown, true);
+  btn.setAttribute('aria-expanded', 'true');
+  panel.querySelector('.comp-menu-item')?.focus();
+}
+
 function filterCustomers(q) {
+  // Capture the caret BEFORE the re-render: the input element is destroyed and
+  // rebuilt, and forcing the caret to the end broke mid-string editing —
+  // typing into "smith" at offset 0 put the next character at the end.
+  const before = document.getElementById('cust-search');
+  const selStart = before ? before.selectionStart : null;
+  const selEnd   = before ? before.selectionEnd   : null;
   CUST_QUERY = q;
   renderPage('customers');
   const input = document.getElementById('cust-search');
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-}
-function refreshCustCounter() {
-  const el = document.getElementById('cust-counter'); if (!el) return;
-  el.textContent = `${applyCustFilters().length} of ${CUSTOMERS.length}`;
+  if (input) {
+    input.focus();
+    if (selStart !== null) {
+      const max = input.value.length;
+      input.setSelectionRange(Math.min(selStart, max), Math.min(selEnd, max));
+    }
+  }
 }
 function custSetVIP(v)   { CUST_VIP_FILTER = v;   renderPage('customers'); }
 function custSetBrand(v) { CUST_BRAND_FILTER = v; renderPage('customers'); }
@@ -354,16 +430,14 @@ export function renderCustomers() {
              crowding out the two actions that matter. Folded into an overflow
              menu using the existing .comp-menu convention, so core/dismiss.js
              closes it on outside-click for free. */''}
-        <div style="position:relative;display:inline-block">
-          <button class="btn btn-sm" id="cust-more-menu-btn" data-action="cust.toggleMoreMenu"
-                  aria-haspopup="true" aria-expanded="false" aria-label="More customer actions" title="More actions">⋯</button>
-          <div id="cust-more-menu" class="comp-menu comp-menu-below">
-            <div class="comp-menu-item" data-action="cust.showColumnPanel">Columns…</div>
-            <div class="comp-menu-item" data-action="cust.manageFields">Fields…</div>
-            <div class="comp-menu-item" data-action="cust.csvImport">Import CSV…</div>
-            <div class="comp-menu-item" data-action="cust.export">Export CSV</div>
-          </div>
-        </div>
+        ${/* Trigger only — the panel is built at body level by
+             openCustMoreMenu(). It cannot live in here: .topbar is height:48px
+             with overflow:hidden AND isolation:isolate (shell.css), so a
+             descendant panel is clipped to a sliver and its z-index is trapped
+             in the topbar's own stacking context, painting underneath the
+             filter bar below it. Same escape the workspace switcher uses. */''}
+        <button class="btn btn-sm" id="cust-more-menu-btn" data-action="cust.toggleMoreMenu"
+                aria-haspopup="true" aria-expanded="false" aria-label="More customer actions" title="More actions">⋯</button>
         <button class="btn btn-sm btn-solid" data-action="cust.new">+ New Customer</button>
       </div>
       <div class="kpi-bar" style="grid-template-columns:repeat(5,1fr)">
@@ -1006,12 +1080,10 @@ registerActions({
     document.getElementById('cust-more-toggle')?.focus();
   },
   'cust.toggleMoreMenu': () => {
-    const m = document.getElementById('cust-more-menu');
-    if (!m) return;
-    const open = m.style.display === 'block';
-    m.style.display = open ? 'none' : 'block';
-    document.getElementById('cust-more-menu-btn')?.setAttribute('aria-expanded', String(!open));
+    if (document.getElementById('cust-more-backdrop')) closeCustMoreMenu();
+    else openCustMoreMenu();
   },
+  'cust.closeMoreMenu': () => closeCustMoreMenu(),
   'cust.clearFilter': (ds) => {
     if      (ds.filter === 'vip')   CUST_VIP_FILTER = 'all';
     else if (ds.filter === 'brand') CUST_BRAND_FILTER = 'all';
@@ -1022,13 +1094,13 @@ registerActions({
   'cust.setView':         (ds) => setCustView(ds.view),
   'cust.bulkDelete':      () => bulkDeleteCustomers(),
   'cust.clearSelection':  () => clearCustSelection(),
-  'cust.showColumnPanel': () => showColumnPanel(),
-  'cust.manageFields':    () => showManageFieldsModal(),
+  'cust.showColumnPanel': () => { closeCustMoreMenu(); showColumnPanel(); },
+  'cust.manageFields':    () => { closeCustMoreMenu(); showManageFieldsModal(); },
   // Direct imports despite the customers↔customers/modals.js cycle — the
   // openers are only referenced inside these closures. See header.
-  'cust.csvImport':       () => showCSVModal(),
+  'cust.csvImport':       () => { closeCustMoreMenu(); showCSVModal(); },
   'cust.new':             () => showNewCustomerModal(),
-  'cust.export':          () => exportCustomerList(),
+  'cust.export':          () => { closeCustMoreMenu(); exportCustomerList(); },
   'cust.closeGdpr':       () => closeModal(),
   // Detail-page actions
   'cust.openTicket':      (ds) => openTicket(ds.ticketId),
@@ -1048,7 +1120,7 @@ registerActions({
 registerChangeActions({
   'cust.toggleSelected': (ds) => toggleCustSelected(ds.custId),
   'cust.toggleAll':      () => toggleAllCustomers(),
-  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(CUSTOMERS); },
+  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(applyCustFilters()); },
   'cust.bulkSetVIP':     (ds, el) => bulkSetCustVIP(el.value),
   'cust.bulkSetConsent': (ds, el) => bulkSetCustConsent(el.value),
   'cust.setVIP':         (ds, el) => custSetVIP(el.value),

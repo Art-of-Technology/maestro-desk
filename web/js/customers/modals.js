@@ -8,7 +8,7 @@
 
 import { CUSTOMERS } from '../core/data.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { refreshCustTable } from './index.js';
+import { renderPage } from '../core/router.js';
 
 export function showGDPRModal(id) {
   showModal('GDPR actions', `
@@ -67,6 +67,8 @@ export function showNewCustomerModal() {
     const id = nextCustomerId();
     const jurisdiction = document.getElementById('nc-jurisdiction').value.trim() || 'UK';
     CUSTOMERS.push({id,first,last,username:(first[0]+last).toLowerCase(),email:document.getElementById('nc-email').value,mobile:'',brand:document.getElementById('nc-brand').value,vip:'Bronze',jurisdiction,consent:true,kyc:'Pending',since:new Date().toISOString().slice(0,10),bo:'',custom:{}});
-    closeModal(); refreshCustTable(CUSTOMERS);
+    // Full re-render, not a tbody patch: a new customer moves the KPI bar
+    // and the "N of M" total as well as the rows.
+    closeModal(); renderPage('customers');
   }, 'Create');
 }
