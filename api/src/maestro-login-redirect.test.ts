@@ -80,7 +80,9 @@ describe('GET /api/v1/maestro/login', () => {
   });
 
   it('still 302s to the Maestro authorize URL with the PKCE Set-Cookie propagated on success', async () => {
-    const authorizeUrl = 'https://auth.mert.md/oauth2/authorize?client_id=x&state=y';
+    // Built from the configured issuer so a future host change can't leave a
+    // stale literal here (the assertion below round-trips whatever we pass).
+    const authorizeUrl = `${env.MAESTRO_ISSUER}/oauth2/authorize?client_id=x&state=y`;
     const pkceCookie = 'better-auth.state=abc123; Path=/; HttpOnly; SameSite=Lax';
     api.signInWithOAuth2 = async () =>
       new Response(JSON.stringify({ url: authorizeUrl }), {
@@ -110,5 +112,32 @@ describe('GET /api/v1/maestro/oauth-complete', () => {
     const res = await app.request('/api/v1/maestro/oauth-complete');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(SIGNIN_FAILED_REDIRECT);
+  });
+});
+
+// The platform moved from mert.md to maestro-connect.com in 2026-08, and the
+// retired hosts answer with empty 200s rather than failing — so a typo in these
+// defaults ('maestro-conect.com', a stray trailing slash) passes z.string().url(),
+// passes every other test and CI gate, and is first observed by an agent getting
+// "temporarily unavailable" in production. Pin the composed values instead.
+describe('Maestro host configuration', () => {
+  it('defaults to the maestro-connect.com hosts, with no retired domain left', () => {
+    expect(env.MAESTRO_ISSUER).toBe('https://auth.maestro-connect.com');
+    expect(env.MAESTRO_GATEWAY_URL).toBe('https://api.maestro-connect.com');
+    expect(`${env.MAESTRO_ISSUER}${env.MAESTRO_GATEWAY_URL}`).not.toContain('mert.md');
+  });
+
+  it('composes a discovery URL with exactly one slash before .well-known', () => {
+    // What lib/auth.ts passes to Better Auth as discoveryUrl. A trailing slash
+    // on the issuer would yield '//.well-known/...' and 404 the discovery fetch.
+    expect(`${env.MAESTRO_ISSUER}/.well-known/openid-configuration`).toBe(
+      'https://auth.maestro-connect.com/.well-known/openid-configuration',
+    );
+  });
+
+  it('strips a trailing slash so gateway paths never double up', () => {
+    // Mirrors lib/maestro.ts: new URL(`${MAESTRO_GATEWAY_URL}${path}`).
+    const url = new URL(`${env.MAESTRO_GATEWAY_URL}/api/v1/proxy/member/lookup`);
+    expect(url.pathname).toBe('/api/v1/proxy/member/lookup');
   });
 });

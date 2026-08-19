@@ -6,8 +6,9 @@
 //   1. Click "Continue with Maestro" → top-level navigation to
 //      `${API_BASE}/api/v1/maestro/login` (NOT a fetch — that keeps the PKCE
 //      state cookie first-party on the API origin).
-//   2. API 302s to auth.mert.md; agent signs in / consents.
-//   3. auth.mert.md → API callback → API /oauth-complete bridge, which hands
+//   2. API 302s to the Maestro auth host; agent signs in / consents. (Which host
+//      that is comes from MAESTRO_ISSUER — see api/src/lib/env.ts.)
+//   3. Maestro → API callback → API /oauth-complete bridge, which hands
 //      the session back to us as `#maestro_session=<token>` on APP_BASE_URL.
 //   4. handleMaestroRedirect() (called from app.js startup) reads that hash,
 //      stashes the bearer, then auto-detects the workspace:

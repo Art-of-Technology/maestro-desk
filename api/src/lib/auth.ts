@@ -116,8 +116,9 @@ export const auth = betterAuth({
               {
                 providerId: MAESTRO_PROVIDER_ID,
                 // Discovery lives at the canonical path (verified to return
-                // issuer "https://auth.mert.md"); the `iss` claim is the bare
-                // host, which Better Auth derives from the discovery doc.
+                // issuer "https://auth.maestro-connect.com"); `iss` is that full
+                // origin — scheme included, no path — and Better Auth derives it
+                // from the discovery doc rather than from anything we configure.
                 discoveryUrl: `${env.MAESTRO_ISSUER}/.well-known/openid-configuration`,
                 clientId: env.MAESTRO_CLIENT_ID,
                 clientSecret: env.MAESTRO_CLIENT_SECRET,
