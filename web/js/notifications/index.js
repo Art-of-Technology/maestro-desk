@@ -83,7 +83,7 @@ function getNotifications() {
     } else if (t.sla === 'breach' && NOTIF_PREFS.breach) {
       n = {id:'breach-'+t.id, type:'breach', color:'var(--red)', title:'SLA breach', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.status === 'escalated' && NOTIF_PREFS.escalated) {
-      n = {id:'esc-'+t.id, type:'escalated', color:'var(--purple)', title:'Escalated', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
+      n = {id:'esc-'+t.id, type:'escalated', color:'var(--escalate)', title:'Escalated', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.status === 'gdpr' && NOTIF_PREFS.gdpr) {
       n = {id:'gdpr-'+t.id, type:'gdpr', color:'var(--red)', title:'GDPR request', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.sla === 'warn' && NOTIF_PREFS.warn) {

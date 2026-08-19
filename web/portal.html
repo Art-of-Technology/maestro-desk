@@ -23,10 +23,19 @@
       --rule2:     rgba(19,14,48,0.14);
       --accent:    #130e30;
       --accent-lt: rgba(19,14,48,0.06);
-      --red:       #c73a2c;
-      --red-lt:    rgba(199,58,44,0.09);
-      --green:     #217a46;
-      --green-lt:  rgba(33,122,70,0.10);
+      /* Status colours — MUST stay byte-equal to styles/tokens.css so the
+         same ticket does not render two different greens to the customer
+         and the agent (issue #447 review). */
+      --red:       #9e1e16;
+      --red-lt:    rgba(226,97,89,0.28);
+      --green:     #0f6b3a;
+      --green-lt:  rgba(89,226,93,0.30);
+      --amber:     #6d4a00;
+      --amber-lt:  rgba(230,196,30,0.42);
+      --cyan:      #05505e;
+      --cyan-lt:   rgba(64,196,214,0.28);
+      --escalate:  #7d1580;
+      --escalate-lt: rgba(226,97,229,0.22);
       --cta:       #ffe228;
       --cta-ink:   #130e30;
       --cta-hover: #f2d500;
@@ -107,7 +116,15 @@
     .ticket-row-head { display: flex; gap: 10px; align-items: baseline; }
     .ticket-row-id { font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }
     .ticket-row-subj { font-weight: 500; }
-    .ticket-row-status { font-size: 11px; padding: 2px 10px; border-radius: var(--pill); background: var(--accent-lt); color: var(--accent); }
+    /* Same tinting rule as the agent app's .tag-* pills, so a customer sees
+       the ticket in the colour the agent sees it in. Unknown keys fall back
+       to the neutral ink wash. */
+    .ticket-row-status { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: 2px 10px; border-radius: var(--pill); background: var(--accent-lt); color: var(--accent); }
+    .ticket-row-status.st-open      { background: var(--cyan-lt);     color: var(--cyan); }
+    .ticket-row-status.st-pending   { background: var(--amber-lt);    color: var(--amber); }
+    .ticket-row-status.st-escalated { background: var(--escalate-lt); color: var(--escalate); }
+    .ticket-row-status.st-gdpr      { background: var(--red-lt);      color: var(--red); }
+    .ticket-row-status.st-resolved  { background: var(--green-lt);    color: var(--green); }
     .thread { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
     .msg { padding: 12px 16px; border-radius: var(--radius-sm); }
     .msg-customer { background: var(--accent-lt); align-self: flex-end; max-width: 80%; }

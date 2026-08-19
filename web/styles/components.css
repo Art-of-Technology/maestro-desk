@@ -62,11 +62,18 @@
 .filter-select{font-family:var(--font-sans);font-size:11px;padding:5px 12px;border:1px solid var(--rule);border-radius:var(--r-pill);background:#ffffff;color:var(--ink2);cursor:pointer;outline:none}
 .filter-select:focus{border-color:var(--purple)}
 .filter-tag{font-family:var(--font-sans);font-size:11px;padding:3px 11px;border:1px solid var(--rule2);border-radius:var(--r-pill);display:inline-flex;align-items:center;gap:4px;color:var(--ink2);background:var(--off2)}
-/* The ACTIVE view chip is solid CTA yellow — which view you're looking at is
-   the single most important state on a list page, and the previous faint
-   grey wash was easy to miss. A real modifier class, not the inline style
-   overrides the call sites used to carry (issue #447). */
-.filter-tag.active{background:var(--cta);border-color:var(--cta);color:var(--cta-ink);font-weight:600}
+/* The ACTIVE view chip is a SOLID fill — which view you're looking at is the
+   single most important state on a list page, and the previous faint grey
+   wash was easy to miss. The fill is --purple (the structural accent that
+   applyWorkspaceBrand overrides) rather than --cta, for two reasons: a
+   white-labelled workspace keeps its own "you are here" colour, and solid
+   CTA yellow stays reserved for the one primary action button per view —
+   DESIGN.md forbids two yellow CTAs in a viewport, and every list page has
+   a yellow button in the topbar. A real modifier class, not the inline
+   style overrides the call sites used to carry (issue #447). */
+.filter-tag.active{background:var(--purple);border-color:var(--purple);color:#fff;font-weight:600}
+.filter-tag.active .rm{color:rgba(255,255,255,0.7)}
+.filter-tag.active .rm:hover{color:#fff}
 .filter-tag .rm{cursor:pointer;color:var(--ink3);font-size:11px;line-height:1}
 .filter-tag .rm:hover{color:var(--red);cursor:pointer}
 /* ── Tab bar ── */

@@ -157,7 +157,7 @@ Hedvig Letters Serif weight 700 at 48-64px, line-height 1.0-1.1, letter-spacing 
 - Use Hedvig Letters Serif exclusively for headings ≥22px and Inter for everything below; never use Inter for headings or Hedvig for body copy
 - Set body text to #130e30 (not pure black) for warmth; reserve #000000 for the logo mark, input borders, and high-contrast fine details
 - Build the surface stack as Canvas #f9fbf2 → Soft Meadow #eff2e5 cards; the slight green tint is intentional and should be preserved
-- Use the decorative organic blobs (green #59e25d, fuchsia #e261e5, yellow #ffe228, violet #130e30) only as background atmosphere behind hero/product visuals — never as UI fills or icon colors
+- Use the decorative organic blobs (green #59e25d, fuchsia #e261e5, yellow #ffe228, violet #130e30) as background atmosphere behind hero/product visuals, and — since the 2026-08-19 amendment below — as low-alpha TINTS behind status pills. Never as a solid UI fill or an icon color
 - Tighten letter-spacing to -0.01em on all headings and -0.02em on small caps labels for the warm, literary headline feel
 
 ### Don't
@@ -217,7 +217,7 @@ The colors #59e25d (moss green) and #e261e5 (fuchsia) belong to the organic blob
 
 - Tint only. The solid garden hex never fills a pill; it is mixed into the background at ≤60% alpha and paired with a darkened text color that holds WCAG AA at 10px/600 uppercase.
 - Semantics first. A color means a state (green = resolved, red = breach/urgent, amber = pending/at-risk, cyan = open, fuchsia = escalated) — never decoration for its own sake.
-- Solid yellow stays reserved for actions: the primary CTA button and the ACTIVE filter chip (`.filter-tag.active`), which is the "you are here" state on a list page.
+- Solid yellow stays reserved for the primary CTA button, one per viewport. The ACTIVE filter chip (`.filter-tag.active`) is a solid --purple fill instead: every list page already carries a yellow button in its topbar, and --purple is the token applyWorkspaceBrand overrides, so a white-labelled workspace keeps its own "you are here" colour.
 - Buttons, icons, nav and text keep ink and the neutrals. Nothing in this amendment licenses a green button.
 
 ## Surface Temperature
