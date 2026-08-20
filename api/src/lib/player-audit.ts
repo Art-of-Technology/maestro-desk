@@ -10,9 +10,8 @@ import { str } from './maestro.js';
 // Field names the gateway may return that Respovia no longer surfaces anywhere,
 // and so must not disclose. Phase 4 removed KYC from the product; the gateway
 // still sends it. Both spellings are listed because the code this replaced
-// probed `kycStatus` and bare `kyc`, and `attributes` is where the gateway puts
-// compliance fields.
-const REMOVED_FIELDS = ['kycStatus', 'kyc'] as const;
+// probed `kycStatus` and bare `kyc`.
+export const REMOVED_PLAYER_FIELDS: readonly string[] = ['kycStatus', 'kyc'];
 
 /**
  * Strip fields the product no longer surfaces from a gateway member record,
@@ -23,12 +22,26 @@ const REMOVED_FIELDS = ['kycStatus', 'kyc'] as const;
  * disclosed (and visible in devtools) while no longer appearing in the
  * read-access categories, so the audit trail would understate what was seen.
  * Call this BEFORE summarizePlayerAccess so the two cannot disagree.
+ *
+ * Matching is by KEY NAME at both levels, not by path. `attributes` is where the
+ * gateway puts compliance fields today, but keying on that name would leak the
+ * moment it arrives under a different bag — and the bag names are the gateway's
+ * to change, not ours. One level deep is enough: the flattener that renders this
+ * record client-side is itself one level deep, so anything nested further is
+ * never displayed.
+ *
+ * Generic in the record type so a caller holding a declared `Member` interface
+ * (which has no index signature, and so is not assignable to
+ * `Record<string, unknown>`) can pass it without a cast and keep its own type.
  */
-export function stripRemovedPlayerFields(member: Record<string, unknown>): Record<string, unknown> {
-  for (const f of REMOVED_FIELDS) delete member[f];
-  const attrs = member.attributes;
-  if (attrs && typeof attrs === 'object') {
-    for (const f of REMOVED_FIELDS) delete (attrs as Record<string, unknown>)[f];
+export function stripRemovedPlayerFields<T extends object>(member: T): T {
+  const rec = member as Record<string, unknown>;
+  for (const f of REMOVED_PLAYER_FIELDS) delete rec[f];
+  for (const v of Object.values(rec)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const nested = v as Record<string, unknown>;
+      for (const f of REMOVED_PLAYER_FIELDS) delete nested[f];
+    }
   }
   return member;
 }

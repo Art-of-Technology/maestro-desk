@@ -219,21 +219,21 @@ function renderPlayerCard(p) {
   // if a future field arrives under a new spelling. Both spellings are listed
   // because the code this replaced probed `kycStatus` and bare `kyc`.
   //
-  // Nested keys are matched as `attributes.kycStatus`, since the flattener below
-  // emits `${k}.${k2}` — checking only the top-level `k` would let anything
-  // nested under `attributes` through, and that is where the gateway puts
-  // compliance fields.
+  // Nested fields are matched on the LEAF key name, not on a path like
+  // `attributes.kycStatus`. The gateway puts compliance fields under
+  // `attributes` today, but the bag name is theirs to change, and keying on it
+  // would leak the moment it moved.
+  const REMOVED = new Set(['kycStatus', 'kyc']);
   const mapped = new Set(['userId', 'memberId', 'id', 'firstName', 'lastName', 'username', 'email',
-    'mobile', 'vipLevel', 'kycStatus', 'kyc', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
-    'success', 'errorCode', 'errorDesc',
-    'attributes.kycStatus', 'attributes.kyc']);
+    'mobile', 'vipLevel', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
+    'success', 'errorCode', 'errorDesc', ...REMOVED]);
   const extra = [];
   for (const [k, v] of Object.entries(p._raw || {})) {
     if (mapped.has(k)) continue;
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') extra.push([k, String(v)]);
     else if (v && typeof v === 'object') {
       for (const [k2, v2] of Object.entries(v)) {
-        if (mapped.has(`${k}.${k2}`)) continue;
+        if (REMOVED.has(k2)) continue;
         if (typeof v2 === 'string' || typeof v2 === 'number' || typeof v2 === 'boolean') extra.push([`${k}.${k2}`, String(v2)]);
       }
     }

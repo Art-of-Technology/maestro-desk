@@ -80,4 +80,27 @@ describe('stripRemovedPlayerFields', () => {
     expect(() => stripRemovedPlayerFields({ userId: 'u', attributes: null })).not.toThrow();
     expect(() => stripRemovedPlayerFields({ userId: 'u', attributes: 'nope' })).not.toThrow();
   });
+
+  // Matching is by key name, not path: the gateway owns its bag names, so
+  // keying on `attributes` would leak the day the field moved.
+  it('strips a nested KYC field whatever the containing bag is called', () => {
+    const member: Record<string, unknown> = {
+      userId: 'u-1',
+      compliance: { kycStatus: 'verified' },
+      profile: { kyc: 'pending', nickname: 'jane' },
+    };
+    stripRemovedPlayerFields(member);
+    expect(JSON.stringify(member)).not.toMatch(/kyc/i);
+    // and it only removes the KYC keys, not the bag or its siblings
+    expect(member.profile).toEqual({ nickname: 'jane' });
+  });
+
+  it('accepts a declared interface without a cast, and returns the same object', () => {
+    interface Member { userId: string; kycStatus?: string; vipLevel?: string }
+    const member: Member = { userId: 'u-1', kycStatus: 'verified', vipLevel: 'gold' };
+    const out = stripRemovedPlayerFields(member);
+    expect(out).toBe(member);
+    expect(member.kycStatus).toBeUndefined();
+    expect(member.vipLevel).toBe('gold');
+  });
 });
