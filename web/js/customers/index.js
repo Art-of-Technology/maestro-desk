@@ -1057,10 +1057,10 @@ function renderCustomerDetail(custId) {
   const areasHtml = areaRows.map(row => {
     // Drop names the registry doesn't know. areaRows is a literal today so this
     // never fires, but admin-configurable order (a later PR) can carry the name
-    // of an area since renamed or removed — and `areas[k]()` on a missing key
-    // throws a TypeError out of renderCustomerDetail, blanking the whole profile
-    // rather than losing one block. Keying by name only buys resilience if the
-    // unknown name is actually handled, so handle it here rather than leaving
+    // of an area since renamed or removed — and `areas[k]` on a missing key is
+    // undefined, which interpolates into the page as the literal text
+    // "undefined" where a card should be. Keying by name only buys resilience if
+    // the unknown name is actually handled, so handle it here rather than leaving
     // the guarantee to the PR that introduces stored config.
     //
     // Object.hasOwn, not a truthiness check: a stored name like 'constructor' or
