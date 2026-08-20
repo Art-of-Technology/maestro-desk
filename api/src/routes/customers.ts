@@ -90,10 +90,10 @@ customers.post('/from-player', async (c) => {
   const displayId = await nextDisplayId(sql, workspaceId, 'customer');
   const [created] = await sql<{ id: string }[]>`
     insert into customers
-      (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction, kyc_status)
+      (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction)
     values
       (${workspaceId}, ${displayId}, ${str(m.firstName)}, ${str(m.lastName)}, ${str(m.username)},
-       ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)}, ${str(m.kycStatus)})
+       ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)})
     returning id
   `;
   return c.json({ customer: { id: created.id }, created: true }, 201);
@@ -107,7 +107,7 @@ customers.get('/', async (c) => {
 
   const rows = await sql`
     select id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
-           jurisdiction, consent, kyc_status, since, backoffice_url, erased_at, created_at,
+           jurisdiction, consent, since, backoffice_url, erased_at, created_at,
            merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count
     from customers
@@ -322,6 +322,16 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 
 // Backfillable columns — email is NOT here by design (see above); custom-field
 // values were a client-only flourish and are dropped from the server merge.
+// kyc_status stays in this list even though Phase 4 removed KYC from the
+// product. The column still exists and still holds values, and this list drives
+// BOTH the merge backfill and the unmerge revert — delisting it while the data
+// is live would strand a merged-away subject's value on the survivor with no way
+// to revert it, which POST /:id/erase depends on (it unmerges first precisely so
+// the survivor keeps nothing). It comes out with the drop-column migration.
+//
+// performUnmerge treats any column NOT listed here as "skipped" rather than
+// "kept", so once a name does leave, stale journal rows say so in the audit
+// instead of masquerading as a deliberate decision not to revert.
 const BACKFILL_COLS = ['mobile', 'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
 
 customers.post('/:id/merge', async (c) => {
@@ -499,11 +509,11 @@ customers.post('/:id/merge', async (c) => {
 // the copied value (survivor edits win), clears the merge pointers, and
 // stamps the journal row (kept as history).
 async function performUnmerge(workspaceId: string, userId: string, sourceId: string):
-  Promise<{ status: number; body: Record<string, unknown>; audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[] } }> {
+  Promise<{ status: number; body: Record<string, unknown>; audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[]; skipped: string[] } }> {
   const sql = getDb();
   let outcome: { status: number; body: Record<string, unknown> };
-  const audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[] } =
-    { from: null, tickets: 0, notes: 0, reverted: [], kept: [] };
+  const audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[]; skipped: string[] } =
+    { from: null, tickets: 0, notes: 0, reverted: [], kept: [], skipped: [] };
 
   await sql.begin(async (tx) => {
     // Peek (no lock) to learn the survivor, then lock BOTH rows in sorted-id
@@ -558,7 +568,10 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
     `;
     const backfilled = journal?.backfilled_fields || {};
     for (const [col, copied] of Object.entries(backfilled)) {
-      if (!(BACKFILL_COLS as readonly string[]).includes(col)) continue;  // identifier safety
+      // Identifier safety, and history tolerance: a journal row may name a
+      // column that no longer backfills (kyc_status, removed in Phase 4). Record
+      // it as skipped — lumping it in with `kept` would read as a decision.
+      if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
       const res = await tx`
         update customers set ${tx({ [col]: null })}
         where id = ${primaryId} and workspace_id = ${workspaceId} and ${tx(col)} = ${copied}
@@ -606,6 +619,7 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
         primary_notes: primaryNotes,
         fields_reverted: audit.reverted,
         fields_kept_due_to_edit: audit.kept,
+        fields_skipped: audit.skipped,
       },
     };
   });
@@ -632,7 +646,7 @@ customers.post('/:id/unmerge', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: sourceId,
-      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept },
+      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept, fields_skipped: audit.skipped },
     });
   }
   return c.json(body, status as 200);
@@ -727,7 +741,7 @@ customers.post('/:id/erase', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: customerId,
-      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, reason: 'pre-erasure' },
+      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, fields_reverted: un.audit.reverted, fields_kept_due_to_edit: un.audit.kept, fields_skipped: un.audit.skipped, reason: 'pre-erasure' },
     });
   }
 

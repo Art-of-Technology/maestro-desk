@@ -207,10 +207,11 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .cust-profile{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 /* VIP tier badges carry a 1px outline in their own ink; status pills never
    do. That outline is the shape cue that keeps them apart — a Gold customer
-   with unverified KYC renders the gold badge and an amber "pending" pill
+   on a merged profile renders the gold badge and a purple "merged" pill
    side by side in the profile header, and hue alone was not enough to
    separate them (issue #447 review). Gold is also pulled deeper than
-   --amber-lt so the two are not one alpha step apart. */
+   --amber-lt so a gold badge and an amber status pill are not one alpha step
+   apart wherever the two do meet. */
 .vip-badge{display:inline-flex;align-items:center;gap:4px;font-family:var(--font-sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 10px;border-radius:var(--r-pill);border:1px solid currentColor}
 .vip-bronze{color:#8a5a2b;background:rgba(138,90,43,0.13)}
 .vip-silver{color:#63626f;background:rgba(99,98,111,0.13)}

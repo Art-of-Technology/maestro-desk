@@ -299,7 +299,7 @@ function buildAIContext() {
   }
   if (AI_CONTEXT_SOURCES.customers) {
     parts.push(`CUSTOMERS (${CUSTOMERS.length}):\n` + CUSTOMERS.map(c =>
-      `- ${c.id}: ${c.first} ${c.last} | brand=${c.brand} | vip=${c.vip} | jurisdiction=${c.jurisdiction} | kyc=${c.kyc} | consent=${c.consent} | since=${c.since}`
+      `- ${c.id}: ${c.first} ${c.last} | brand=${c.brand} | vip=${c.vip} | jurisdiction=${c.jurisdiction} | consent=${c.consent} | since=${c.since}`
     ).join('\n'));
   }
   if (AI_CONTEXT_SOURCES.agents) {

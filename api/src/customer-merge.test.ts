@@ -277,6 +277,45 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     await sql`update workspace_members set role_id = ${ctx.plainRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
   });
 
+  // customer_merges.backfilled_fields is PERMANENT history, so a journal row can
+  // name a column that no longer backfills — kyc_status will be exactly this once
+  // its drop migration lands. BACKFILL_COLS doubles as the SQL-identifier
+  // allowlist for the revert, so such a name must be skipped rather than
+  // interpolated; the point of this test is that the skip is REPORTED, because
+  // silently landing in fields_kept_due_to_edit would read as "we chose not to
+  // revert it". The name used here is not a real column, which also pins the
+  // identifier safety: if it were ever interpolated, the statement would fail.
+  it('unmerge reports a journalled column that is no longer backfillable as skipped', async () => {
+    const a = await mkCustomer('skip-a', { mobile: '+4477009' });
+    const b = await mkCustomer('skip-b', { mobile: null });
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${a}/merge`,
+      { method: 'POST', body: JSON.stringify({ into_id: b }) })).status).toBe(200);
+
+    // Rewrite the journal as if a since-removed column had been backfilled.
+    await sql`
+      update customer_merges
+      set backfilled_fields = ${sql.json({ mobile: '+4477009', legacy_removed_col: 'x' })}
+      where workspace_id = ${ctx.ws} and source_customer_id = ${a} and unmerged_at is null
+    `;
+
+    const res = await as(admin.token, ctx.ws, `/api/v1/customers/${a}/unmerge`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.fields_skipped).toEqual(['legacy_removed_col']);
+    expect(body.fields_reverted).toContain('mobile');
+    expect(body.fields_kept_due_to_edit).not.toContain('legacy_removed_col');
+
+    // The real column still reverted, and the audit row carries the skip.
+    const [pri] = await sql<{ mobile: string | null }[]>`select mobile from customers where id = ${b}`;
+    expect(pri.mobile).toBeNull();
+    const [audit] = await sql<{ metadata: Record<string, unknown> }[]>`
+      select metadata from audit_events
+      where workspace_id = ${ctx.ws} and action = 'customer.unmerged' and target_id = ${a}
+      order by created_at desc limit 1
+    `;
+    expect(audit.metadata.fields_skipped).toEqual(['legacy_removed_col']);
+  });
+
   it('unmerges: stamped tickets/notes return, post-merge tickets stay, backfill reverts only untouched fields, journal stamped, audit', async () => {
     // Survivor edits the backfilled vip_tier post-merge; mobile stays copied.
     await sql`update customers set vip_tier = 'Platinum' where id = ${ctx.pri}`;

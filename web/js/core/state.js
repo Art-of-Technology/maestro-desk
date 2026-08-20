@@ -65,7 +65,6 @@ export const BASE_COLUMNS = [
   {id:'vip',label:'VIP',fixed:false},
   {id:'jurisdiction',label:'Jurisdiction',fixed:false},
   {id:'consent',label:'Consent',fixed:false},
-  {id:'kyc',label:'KYC',fixed:false},
 ];
 export let CUST_COLUMNS = BASE_COLUMNS.map(c=>({...c,visible:true}));
 export let CUST_DRAG_COL = null;

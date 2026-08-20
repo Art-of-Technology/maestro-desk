@@ -123,6 +123,8 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(cust.last_name).toBeNull();
     expect(cust.email).toBeNull();
     expect(cust.mobile).toBeNull();
+    // Still asserted after Phase 4 removed KYC from the product: the column
+    // survives until its drop migration, so erasure must keep nulling it.
     expect(cust.kyc_status).toBeNull();
     expect(cust.jurisdiction).toBeNull();
     expect(cust.erased_at).not.toBeNull();

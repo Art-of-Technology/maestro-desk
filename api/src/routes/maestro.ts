@@ -15,7 +15,7 @@ import {
   MaestroError,
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
-import { summarizePlayerAccess } from '../lib/player-audit.js';
+import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 // Maestro Connect integration routes.
@@ -280,9 +280,14 @@ maestro.get('/players', requireAuthOnly, async (c) => {
     }
     // Read-access audit: record WHO viewed WHICH player's sensitive data (the
     // "who looked at this account" trail regulators expect). Logs the stable
-    // player id + the categories exposed (balance/kyc/…) — never the values.
+    // player id + the categories exposed (balance/vip/…) — never the values.
     // Fall back to the looked-up value so the audit row always names a subject,
     // even if the gateway record lacks userId/memberId.
+    // Drop fields the product no longer surfaces (KYC, removed in Phase 4)
+    // BEFORE auditing, so the read-access categories can't understate what was
+    // actually disclosed to the agent's browser.
+    stripRemovedPlayerFields(member);
+
     const access = summarizePlayerAccess(member, Object.values(key)[0]);
     // writeAudit swallows its own errors (logs, never throws) — a failed audit
     // write can't abort the lookup; awaiting it just ensures the row is durably

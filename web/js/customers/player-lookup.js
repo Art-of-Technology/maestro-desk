@@ -91,7 +91,6 @@ function normalizePlayer(m) {
     name, first, last, username, email,
     mobile: m.mobile ?? '',
     vip: m.vipLevel ?? '',
-    kyc: m.kycStatus ?? '',
     country: m.country ?? '',
     balance: m.balance,
     balanceCy: m.balanceCy ?? '',
@@ -201,7 +200,6 @@ function renderPlayerCard(p) {
     ['Username', p.username],
     ['Mobile', p.mobile],
     ['VIP level', p.vip],
-    ['KYC', p.kyc],
     ['Country', p.country],
     ['Balance', balance],
     ['Date of birth', p.dob],
@@ -212,15 +210,30 @@ function renderPlayerCard(p) {
 
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
   // explicitly, so nothing the gateway returned is hidden.
+  //
+  // The KYC names stay in this set on purpose. Respovia dropped KYC in Phase 4,
+  // so there is no row for it above any more — but this dump is a catch-all, so
+  // dropping the names here would push the gateway's value straight back onto the
+  // page and quietly undo the removal. The API strips these too (routes/
+  // maestro.ts); this is the second line of defence, and the one that still holds
+  // if a future field arrives under a new spelling. Both spellings are listed
+  // because the code this replaced probed `kycStatus` and bare `kyc`.
+  //
+  // Nested fields are matched on the LEAF key name, not on a path like
+  // `attributes.kycStatus`. The gateway puts compliance fields under
+  // `attributes` today, but the bag name is theirs to change, and keying on it
+  // would leak the moment it moved.
+  const REMOVED = new Set(['kycStatus', 'kyc']);
   const mapped = new Set(['userId', 'memberId', 'id', 'firstName', 'lastName', 'username', 'email',
-    'mobile', 'vipLevel', 'kycStatus', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
-    'success', 'errorCode', 'errorDesc']);
+    'mobile', 'vipLevel', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
+    'success', 'errorCode', 'errorDesc', ...REMOVED]);
   const extra = [];
   for (const [k, v] of Object.entries(p._raw || {})) {
     if (mapped.has(k)) continue;
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') extra.push([k, String(v)]);
     else if (v && typeof v === 'object') {
       for (const [k2, v2] of Object.entries(v)) {
+        if (REMOVED.has(k2)) continue;
         if (typeof v2 === 'string' || typeof v2 === 'number' || typeof v2 === 'boolean') extra.push([`${k}.${k2}`, String(v2)]);
       }
     }

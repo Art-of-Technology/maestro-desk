@@ -15,7 +15,7 @@ redact the personal data** and stamp `customers.erased_at`.
 
 | Table | PII column(s) | Handling on erasure | Notes |
 |---|---|---|---|
-| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `kyc_status`, `jurisdiction` | **null**; set `erased_at = now()` | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. |
+| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `kyc_status`, `jurisdiction` | **null**; set `erased_at = now()` | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `kyc_status` is no longer surfaced anywhere in the product (removed in Phase 4) but the column still exists and still holds values, so it stays on the erasure list until the drop migration lands — erasure is idempotent, so a subject erased while it was omitted would keep that value permanently. |
 | `customer_notes` | `text` (NOT NULL) | **delete rows** for the customer | Internal agent notes *about* the data subject — removed entirely. |
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason` | `subject → '[erased]'`; `csat_comment`, `snooze_reason → null` | Row kept; status/category/timestamps retained for analytics. |
 | `ticket_messages` | `body` (NOT NULL), `author_label` | `body → '[erased]'`; `author_label → '[erased]'` only where `role = 'customer'` | Row kept (thread structure / audit). Agent/AI author labels are staff, not the data subject. |
