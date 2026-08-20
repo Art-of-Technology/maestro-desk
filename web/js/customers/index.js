@@ -1026,15 +1026,19 @@ function renderCustomerDetail(custId) {
   // positionally (`customers:filter-bar:0`) and documents at length how that
   // forced it to carry a SECTION_MIGRATIONS list; a stored layout referring to
   // "area 3" breaks the moment an area is inserted, whereas a name survives.
+  // Values, not thunks: every block above is already built by the time we get
+  // here, so a thunk would defer nothing and only imply laziness that isn't
+  // there. If hiding areas ever makes it worth not building them, the blocks
+  // move inside — that is a real change, not this one.
   const areas = {
-    risk:         () => riskPanel,
-    kpis:         () => kpisBlock,
-    tags:         () => tagsBlock,
-    details:      () => detailsBlock,
-    customFields: () => customFieldsBlock,
-    timeline:     () => timelineBlock,
-    notes:        () => notesBlock,
-    tickets:      () => ticketsBlock,
+    risk:         riskPanel,
+    kpis:         kpisBlock,
+    tags:         tagsBlock,
+    details:      detailsBlock,
+    customFields: customFieldsBlock,
+    timeline:     timelineBlock,
+    notes:        notesBlock,
+    tickets:      ticketsBlock,
   };
 
   // Rows, in order. A row of two areas shares one 2-column grid — that pairing
@@ -1060,11 +1064,10 @@ function renderCustomerDetail(custId) {
     // the guarantee to the PR that introduces stored config.
     //
     // Object.hasOwn, not a truthiness check: a stored name like 'constructor' or
-    // 'toString' resolves through the prototype chain, so `areas[k]` would be
-    // truthy and `areas[k]()` would return a non-string that renders as
-    // "[object Object]" in the page. Same guard core/router.js uses on its own
-    // name-keyed page registry.
-    const parts = row.filter(k => Object.hasOwn(areas, k)).map(k => areas[k]());
+    // 'toString' resolves through the prototype chain, so the row would keep it
+    // and render Object.prototype's member instead of an area. Same guard
+    // core/router.js uses on its own name-keyed page registry.
+    const parts = row.filter(k => Object.hasOwn(areas, k)).map(k => areas[k]);
     // A row with nothing in it emits nothing. Returning the grid wrapper for an
     // all-empty row would leave a stray margin-bottom gap on the page.
     if (parts.every(p => !p)) return '';
