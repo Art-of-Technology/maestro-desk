@@ -1065,8 +1065,9 @@ function renderCustomerDetail(custId) {
     //
     // Object.hasOwn, not a truthiness check: a stored name like 'constructor' or
     // 'toString' resolves through the prototype chain, so the row would keep it
-    // and render Object.prototype's member instead of an area. Same guard
-    // core/router.js uses on its own name-keyed page registry.
+    // and interpolate Object.prototype's member — a FUNCTION, which stringifies
+    // into the page as its own source ("function toString() { [native code] }").
+    // Same guard core/router.js uses on its own name-keyed page registry.
     const parts = row.filter(k => Object.hasOwn(areas, k)).map(k => areas[k]);
     // A row with nothing in it emits nothing. Returning the grid wrapper for an
     // all-empty row would leave a stray margin-bottom gap on the page.
