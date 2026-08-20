@@ -99,7 +99,8 @@ function dropCustCol(targetIdx) {
 
 // The grouped table body. Both the full render and the incremental refresh
 // call this — they used to carry byte-identical copies, each with its own
-// hardcoded colspan="20" against a table that actually has 9 columns. The
+// hardcoded colspan="20" against a table with a single-digit column count —
+// and the count keeps changing, which is the point. The
 // span is derived from the visible column list now (+1 for the select-all
 // checkbox column, which buildCustHeaders writes by hand), so adding, hiding
 // or reordering a column can't leave a group header spanning the wrong width.

@@ -7,6 +7,32 @@
 
 import { str } from './maestro.js';
 
+// Field names the gateway may return that Respovia no longer surfaces anywhere,
+// and so must not disclose. Phase 4 removed KYC from the product; the gateway
+// still sends it. Both spellings are listed because the code this replaced
+// probed `kycStatus` and bare `kyc`, and `attributes` is where the gateway puts
+// compliance fields.
+const REMOVED_FIELDS = ['kycStatus', 'kyc'] as const;
+
+/**
+ * Strip fields the product no longer surfaces from a gateway member record,
+ * IN PLACE, before it is audited or returned to a client.
+ *
+ * This exists so "we removed KYC" is enforced at the API boundary rather than by
+ * the SPA choosing not to render it: a value that still crossed the wire would be
+ * disclosed (and visible in devtools) while no longer appearing in the
+ * read-access categories, so the audit trail would understate what was seen.
+ * Call this BEFORE summarizePlayerAccess so the two cannot disagree.
+ */
+export function stripRemovedPlayerFields(member: Record<string, unknown>): Record<string, unknown> {
+  for (const f of REMOVED_FIELDS) delete member[f];
+  const attrs = member.attributes;
+  if (attrs && typeof attrs === 'object') {
+    for (const f of REMOVED_FIELDS) delete (attrs as Record<string, unknown>)[f];
+  }
+  return member;
+}
+
 // The exact category strings written to the audit trail. Exported so downstream
 // consumers (reporting, the append-only hardening, regulator tooling) share one
 // contract and typos can't drift in.

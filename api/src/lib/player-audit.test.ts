@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { summarizePlayerAccess } from './player-audit.js';
+import { summarizePlayerAccess, stripRemovedPlayerFields } from './player-audit.js';
 
 describe('summarizePlayerAccess', () => {
   it('prefers userId, falls back to memberId, else null', () => {
@@ -38,5 +38,46 @@ describe('summarizePlayerAccess', () => {
     const serialized = JSON.stringify(a);
     expect(serialized).not.toContain('999');
     expect(serialized).not.toContain('secret@x.test');
+  });
+
+  it('does not report a kyc category — KYC was removed from the product', () => {
+    const a = summarizePlayerAccess({ userId: 'u-1', kycStatus: 'verified', kyc: 'verified' });
+    expect(a.accessed).not.toContain('kyc');
+    expect(a.accessed).toEqual([]);
+  });
+});
+
+// This suite is the gate behind "we removed KYC". Without it, the only thing
+// stopping the gateway's value from reaching an agent's browser is the SPA
+// choosing not to render it — and a disclosed value that no longer appears in
+// the read-access categories makes the audit trail understate what was seen.
+describe('stripRemovedPlayerFields', () => {
+  it('removes both KYC spellings, top level and nested under attributes', () => {
+    const member: Record<string, unknown> = {
+      userId: 'u-1',
+      kycStatus: 'verified',
+      kyc: 'pending',
+      attributes: { kycStatus: 'verified', kyc: 'pending', amlRiskLevel: '3' },
+    };
+    stripRemovedPlayerFields(member);
+    expect(JSON.stringify(member)).not.toMatch(/kyc/i);
+  });
+
+  it('leaves everything else untouched, including the AML level', () => {
+    const member: Record<string, unknown> = {
+      userId: 'u-1', balance: 120.5, vipLevel: 'gold', kycStatus: 'verified',
+      attributes: { amlRiskLevel: '3' },
+    };
+    stripRemovedPlayerFields(member);
+    expect(member).toEqual({
+      userId: 'u-1', balance: 120.5, vipLevel: 'gold',
+      attributes: { amlRiskLevel: '3' },
+    });
+  });
+
+  it('tolerates a missing or non-object attributes bag', () => {
+    expect(() => stripRemovedPlayerFields({ userId: 'u' })).not.toThrow();
+    expect(() => stripRemovedPlayerFields({ userId: 'u', attributes: null })).not.toThrow();
+    expect(() => stripRemovedPlayerFields({ userId: 'u', attributes: 'nope' })).not.toThrow();
   });
 });

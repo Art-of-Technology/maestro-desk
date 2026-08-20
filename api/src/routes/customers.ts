@@ -322,11 +322,17 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 
 // Backfillable columns — email is NOT here by design (see above); custom-field
 // values were a client-only flourish and are dropped from the server merge.
-// Journal rows are permanent history and predate this list: rows written before
-// KYC was removed still name kyc_status. performUnmerge treats any column not
-// listed here as "skipped" rather than "kept", so a stale name is visible in the
-// audit instead of masquerading as a deliberate decision not to revert.
-const BACKFILL_COLS = ['mobile', 'username', 'brand', 'vip_tier', 'jurisdiction', 'since', 'backoffice_url'] as const;
+// kyc_status stays in this list even though Phase 4 removed KYC from the
+// product. The column still exists and still holds values, and this list drives
+// BOTH the merge backfill and the unmerge revert — delisting it while the data
+// is live would strand a merged-away subject's value on the survivor with no way
+// to revert it, which POST /:id/erase depends on (it unmerges first precisely so
+// the survivor keeps nothing). It comes out with the drop-column migration.
+//
+// performUnmerge treats any column NOT listed here as "skipped" rather than
+// "kept", so once a name does leave, stale journal rows say so in the audit
+// instead of masquerading as a deliberate decision not to revert.
+const BACKFILL_COLS = ['mobile', 'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
 
 customers.post('/:id/merge', async (c) => {
   const denied = await requireDeletePermission(c);
@@ -353,10 +359,10 @@ customers.post('/:id/merge', async (c) => {
     const [a, b] = [sourceId, primaryId].sort();
     const rows = await tx<{ id: string; display_id: string; first_name: string | null; last_name: string | null; email: string | null;
       mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null;
-      since: string | null; backoffice_url: string | null;
+      kyc_status: string | null; since: string | null; backoffice_url: string | null;
       merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
-             jurisdiction, since::text as since, backoffice_url, merged_into_customer_id, erased_at
+             jurisdiction, kyc_status, since::text as since, backoffice_url, merged_into_customer_id, erased_at
       from customers
       where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
       order by id
@@ -613,6 +619,7 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
         primary_notes: primaryNotes,
         fields_reverted: audit.reverted,
         fields_kept_due_to_edit: audit.kept,
+        fields_skipped: audit.skipped,
       },
     };
   });
@@ -639,7 +646,7 @@ customers.post('/:id/unmerge', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: sourceId,
-      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept },
+      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept, fields_skipped: audit.skipped },
     });
   }
   return c.json(body, status as 200);
@@ -734,7 +741,7 @@ customers.post('/:id/erase', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: customerId,
-      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, reason: 'pre-erasure' },
+      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, fields_reverted: un.audit.reverted, fields_kept_due_to_edit: un.audit.kept, fields_skipped: un.audit.skipped, reason: 'pre-erasure' },
     });
   }
 

@@ -62,8 +62,8 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${wsId}, ${agent.userId}, ${roRole.id}, true)`;
 
     const [cust] = await sql<{ id: string }[]>`
-      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, jurisdiction, backoffice_url, brand)
-      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'MT', 'https://bo.example/p/1', 'Acme')
+      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, kyc_status, jurisdiction, backoffice_url, brand)
+      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT', 'https://bo.example/p/1', 'Acme')
       returning id
     `;
     ctx.customerId = cust.id;
@@ -123,6 +123,9 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(cust.last_name).toBeNull();
     expect(cust.email).toBeNull();
     expect(cust.mobile).toBeNull();
+    // Still asserted after Phase 4 removed KYC from the product: the column
+    // survives until its drop migration, so erasure must keep nulling it.
+    expect(cust.kyc_status).toBeNull();
     expect(cust.jurisdiction).toBeNull();
     expect(cust.erased_at).not.toBeNull();
     expect(cust.brand).toBe('Acme'); // non-identifying, retained

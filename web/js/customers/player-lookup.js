@@ -211,19 +211,29 @@ function renderPlayerCard(p) {
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
   // explicitly, so nothing the gateway returned is hidden.
   //
-  // 'kycStatus' stays in this set on purpose. Respovia dropped KYC in Phase 4, so
-  // it has no row above any more — but the gateway still returns it, and removing
-  // it from here would push the value straight back onto the page in the
-  // catch-all dump below. Suppressing it is what "removed" means here.
+  // The KYC names stay in this set on purpose. Respovia dropped KYC in Phase 4,
+  // so there is no row for it above any more — but this dump is a catch-all, so
+  // dropping the names here would push the gateway's value straight back onto the
+  // page and quietly undo the removal. The API strips these too (routes/
+  // maestro.ts); this is the second line of defence, and the one that still holds
+  // if a future field arrives under a new spelling. Both spellings are listed
+  // because the code this replaced probed `kycStatus` and bare `kyc`.
+  //
+  // Nested keys are matched as `attributes.kycStatus`, since the flattener below
+  // emits `${k}.${k2}` — checking only the top-level `k` would let anything
+  // nested under `attributes` through, and that is where the gateway puts
+  // compliance fields.
   const mapped = new Set(['userId', 'memberId', 'id', 'firstName', 'lastName', 'username', 'email',
-    'mobile', 'vipLevel', 'kycStatus', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
-    'success', 'errorCode', 'errorDesc']);
+    'mobile', 'vipLevel', 'kycStatus', 'kyc', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
+    'success', 'errorCode', 'errorDesc',
+    'attributes.kycStatus', 'attributes.kyc']);
   const extra = [];
   for (const [k, v] of Object.entries(p._raw || {})) {
     if (mapped.has(k)) continue;
     if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') extra.push([k, String(v)]);
     else if (v && typeof v === 'object') {
       for (const [k2, v2] of Object.entries(v)) {
+        if (mapped.has(`${k}.${k2}`)) continue;
         if (typeof v2 === 'string' || typeof v2 === 'number' || typeof v2 === 'boolean') extra.push([`${k}.${k2}`, String(v2)]);
       }
     }

@@ -17,9 +17,16 @@ import { sendOpsAlert } from './alert.js';
 const ERASED = '[erased]';
 
 // The customers columns this nulls — recorded verbatim in gdpr_erasures.fields_erased.
+//
+// kyc_status stays here even though Phase 4 removed KYC from the product. The
+// COLUMN still exists and every row created before that change still carries a
+// value, so it is still personal data we hold. Erasure is idempotent (it
+// short-circuits on erased_at), so a subject erased while it was omitted would
+// keep that value forever — a later re-run would not clean it up. It comes out
+// of this list in the same change that drops the column.
 const CUSTOMER_PII_FIELDS = [
   'first_name', 'last_name', 'username', 'email', 'mobile',
-  'backoffice_url', 'jurisdiction',
+  'backoffice_url', 'kyc_status', 'jurisdiction',
 ] as const;
 
 export interface EraseResult {
@@ -142,7 +149,7 @@ export async function eraseCustomer(args: {
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
-        mobile = null, backoffice_url = null, jurisdiction = null,
+        mobile = null, backoffice_url = null, kyc_status = null, jurisdiction = null,
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
