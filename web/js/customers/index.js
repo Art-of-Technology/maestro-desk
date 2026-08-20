@@ -1068,7 +1068,14 @@ function renderCustomerDetail(custId) {
     // and interpolate Object.prototype's member — a FUNCTION, which stringifies
     // into the page as its own source ("function toString() { [native code] }").
     // Same guard core/router.js uses on its own name-keyed page registry.
-    const parts = row.filter(k => Object.hasOwn(areas, k)).map(k => areas[k]);
+    // Warn rather than drop in silence: a card that just stops appearing, with
+    // nothing in the console, is close to undebuggable. Same treatment
+    // core/router.js gives an unknown page key.
+    const parts = row.filter(k => {
+      if (Object.hasOwn(areas, k)) return true;
+      console.warn(`[customers] unknown profile area "${k}" — skipped`);
+      return false;
+    }).map(k => areas[k]);
     // A row with nothing in it emits nothing. Returning the grid wrapper for an
     // all-empty row would leave a stray margin-bottom gap on the page.
     if (parts.every(p => !p)) return '';
