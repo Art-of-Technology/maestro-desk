@@ -1058,7 +1058,13 @@ function renderCustomerDetail(custId) {
     // rather than losing one block. Keying by name only buys resilience if the
     // unknown name is actually handled, so handle it here rather than leaving
     // the guarantee to the PR that introduces stored config.
-    const parts = row.filter(k => areas[k]).map(k => areas[k]());
+    //
+    // Object.hasOwn, not a truthiness check: a stored name like 'constructor' or
+    // 'toString' resolves through the prototype chain, so `areas[k]` would be
+    // truthy and `areas[k]()` would return a non-string that renders as
+    // "[object Object]" in the page. Same guard core/router.js uses on its own
+    // name-keyed page registry.
+    const parts = row.filter(k => Object.hasOwn(areas, k)).map(k => areas[k]());
     // A row with nothing in it emits nothing. Returning the grid wrapper for an
     // all-empty row would leave a stray margin-bottom gap on the page.
     if (parts.every(p => !p)) return '';
