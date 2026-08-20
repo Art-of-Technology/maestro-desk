@@ -58,7 +58,6 @@ function custCellValue(c, colId) {
   if(colId==='vip') return `<td><span class="vip-badge vip-${c.vip.toLowerCase()}">${window.escHtml(c.vip)}</span></td>`;
   if(colId==='jurisdiction') return `<td style="font-family:'DM Mono',monospace;font-size:11px">${window.escHtml(c.jurisdiction)}</td>`;
   if(colId==='consent') return `<td><span class="tag ${c.consent?'tag-resolved':'tag-gdpr'}">${c.consent?'Yes':'No'}</span></td>`;
-  if(colId==='kyc') return `<td><span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}">${window.escHtml(c.kyc)}</span></td>`;
   if(colId.startsWith('cf_')) { const cfId=colId.slice(3); return `<td style="font-size:12px;color:var(--ink2)">${window.escHtml(c.custom?.[cfId]||'—')}</td>`; }
   return '<td>—</td>';
 }
@@ -172,7 +171,6 @@ function applyCustFilters() {
   if (CUST_VIEW_FILTER === 'merged') list = list.filter(c => c.mergedInto);
   else                               list = list.filter(c => !c.mergedInto);
   if (CUST_VIEW_FILTER === 'premium')         list = list.filter(c => c.vip === 'Platinum' || c.vip === 'Gold');
-  else if (CUST_VIEW_FILTER === 'kyc-pending') list = list.filter(c => c.kyc !== 'Verified');
   else if (CUST_VIEW_FILTER === 'no-consent')  list = list.filter(c => !c.consent);
   else if (CUST_VIEW_FILTER === 'at-risk')     { const ids = atRiskCustomerIdSet(); list = list.filter(c => ids.has(c.id)); }
   if (CUST_QUERY.trim()) {
@@ -273,8 +271,8 @@ function bulkDeleteCustomers() {
 
 function exportCustomerList() {
   const list = applyCustFilters();
-  const headers = ['ID','First','Last','Username','Email','Mobile','Brand','VIP','Jurisdiction','Consent','KYC','Since'];
-  const rows = list.map(c => [c.id, c.first, c.last, c.username, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.kyc, c.since]);
+  const headers = ['ID','First','Last','Username','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
+  const rows = list.map(c => [c.id, c.first, c.last, c.username, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.since]);
   const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -393,14 +391,12 @@ export function renderCustomers() {
   const consentRate = total ? Math.round(CUSTOMERS.filter(c => c.consent).length / total * 100) : 0;
 
   // View chip counts
-  const kycPendingN = CUSTOMERS.filter(c => c.kyc !== 'Verified').length;
   const noConsentN  = CUSTOMERS.filter(c => !c.consent).length;
   const atRiskN     = (() => { const ids = atRiskCustomerIdSet(); return CUSTOMERS.filter(c => ids.has(c.id)).length; })();
   const mergedN = CUSTOMERS.filter(c => c.mergedInto).length;
   const views = [
     { k: 'all',         l: 'All',                         active: CUST_VIEW_FILTER === 'all' },
     { k: 'premium',     l: `Premium · ${premium}`,        active: CUST_VIEW_FILTER === 'premium' },
-    { k: 'kyc-pending', l: `KYC pending · ${kycPendingN}`, active: CUST_VIEW_FILTER === 'kyc-pending' },
     { k: 'no-consent',  l: `No consent · ${noConsentN}`,  active: CUST_VIEW_FILTER === 'no-consent' },
     { k: 'at-risk',     l: `At risk · ${atRiskN}`,        active: CUST_VIEW_FILTER === 'at-risk' },
     { k: 'merged',      l: `Merged · ${mergedN}`,         active: CUST_VIEW_FILTER === 'merged' },
@@ -506,7 +502,6 @@ export function renderCustomers() {
             <option value="vip"          ${CUST_GROUP_BY==='vip'?'selected':''}>Group by VIP</option>
             <option value="brand"        ${CUST_GROUP_BY==='brand'?'selected':''}>Group by brand</option>
             <option value="jurisdiction" ${CUST_GROUP_BY==='jurisdiction'?'selected':''}>Group by jurisdiction</option>
-            <option value="kyc"          ${CUST_GROUP_BY==='kyc'?'selected':''}>Group by KYC</option>
             <option value="consent"      ${CUST_GROUP_BY==='consent'?'selected':''}>Group by consent</option>
           </select>
         </div>
@@ -561,7 +556,6 @@ function getCustomerRisk(c) {
   if (escalated > 0) flags.push({ level: 'high', text: `${escalated} escalated` });
   if (tickets.filter(t => t.status === 'gdpr').length > 0) flags.push({ level: 'high', text: 'Active GDPR request' });
   if (!c.consent) flags.push({ level: 'medium', text: 'No marketing consent' });
-  if (c.kyc !== 'Verified') flags.push({ level: 'medium', text: `KYC ${c.kyc}` });
   return flags;
 }
 
@@ -662,7 +656,7 @@ function showMergeCustomerModal(custId) {
 
 // Server column names → client view-model keys, for applying merge/unmerge
 // responses locally (the rest of the backfill columns share their names).
-const MERGE_COL_MAP = { vip_tier: 'vip', kyc_status: 'kyc', backoffice_url: 'bo' };
+const MERGE_COL_MAP = { vip_tier: 'vip', backoffice_url: 'bo' };
 
 // Side-by-side confirmation between picking a survivor and actually merging —
 // the spec's safety gate (the old picker merged on a single mousedown).
@@ -690,7 +684,7 @@ function showMergeConfirm(srcId, primaryId) {
       </div>
       <div style="font-size:11px;color:var(--ink2);line-height:1.7">
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.email || '—')}</div>
-        <div>${esc(c.vip || '—')} · KYC ${esc(c.kyc || '—')}</div>
+        <div>${esc(c.vip || '—')}</div>
         <div>${TICKETS.filter(t => t.customerId === c.id).length} loaded ticket${TICKETS.filter(t => t.customerId === c.id).length === 1 ? '' : 's'} · ${(c.notes || []).length} notes</div>
         <div>Since ${esc(c.since || '—')}</div>
       </div>
@@ -771,7 +765,7 @@ async function mergeCustomers(srcId, primaryId) {
   // was instead of leaving it carrying the source's data forever.
   primary._mergeBackfilled = primary._mergeBackfilled || {};
   primary._mergeBackfilled[srcId] = { fields: [], custom: [] };
-  ['email','mobile','username','brand','vip','jurisdiction','kyc','since','bo'].forEach(f => {
+  ['email','mobile','username','brand','vip','jurisdiction','since','bo'].forEach(f => {
     if (!primary[f] && src[f]) {
       primary[f] = src[f];
       primary._mergeBackfilled[srcId].fields.push(f);
@@ -1009,7 +1003,7 @@ function renderCustomerDetail(custId) {
               <span style="font-family:'DM Mono',monospace">${window.escHtml(c.jurisdiction)}</span>
             </div>
           </div>
-          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${window.escHtml(c.mergedInto)}</span>` : `<span class="tag ${c.kyc==='Verified'?'tag-resolved':'tag-pending'}" style="flex-shrink:0">${window.escHtml(c.kyc)}</span>`}
+          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${window.escHtml(c.mergedInto)}</span>` : ''}
         </div>
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
@@ -1056,7 +1050,6 @@ function renderCustomerDetail(custId) {
             ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>` : ''}
             ${isFieldVisible('customer','vip')          ? `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>` : ''}
             ${isFieldVisible('customer','jurisdiction') ? `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>` : ''}
-            ${isFieldVisible('customer','kyc')          ? `<div class="ts-row"><span class="ts-key">KYC</span><span class="ts-val">${window.escHtml(c.kyc)}</span></div>` : ''}
             ${isFieldVisible('customer','since')        ? `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>` : ''}
           </div>
           <div class="card">

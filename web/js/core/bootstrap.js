@@ -256,7 +256,6 @@ export async function loadWorkspaceData() {
     vip:          c.vip_tier || '',
     jurisdiction: c.jurisdiction || '',
     consent:      Boolean(c.consent),
-    kyc:          c.kyc_status || '',
     since:        c.since || '',
     bo:           c.backoffice_url || '',
     custom:       customByEntity[c.id] || {},

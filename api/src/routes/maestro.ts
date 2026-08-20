@@ -280,7 +280,7 @@ maestro.get('/players', requireAuthOnly, async (c) => {
     }
     // Read-access audit: record WHO viewed WHICH player's sensitive data (the
     // "who looked at this account" trail regulators expect). Logs the stable
-    // player id + the categories exposed (balance/kyc/…) — never the values.
+    // player id + the categories exposed (balance/vip/…) — never the values.
     // Fall back to the looked-up value so the audit row always names a subject,
     // even if the gateway record lacks userId/memberId.
     const access = summarizePlayerAccess(member, Object.values(key)[0]);

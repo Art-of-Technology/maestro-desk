@@ -1,7 +1,7 @@
 // Player-context enrichment for the headless AI-draft pipeline (capability B).
 //
 // When the triage worker drafts a reply, it can pull the customer's live player
-// record from Maestro — balance, VIP tier, KYC/RG status, recent bonuses — so
+// record from Maestro — balance, VIP tier, country — so
 // the draft is grounded in real account state instead of guessing. This runs
 // with the app's `mh_live_*` API token (no signed-in user) + X-Brand-Id, via
 // lib/maestro.ts workerFetch.
@@ -60,7 +60,6 @@ export async function buildPlayerContext(lookup: PlayerLookup): Promise<string |
 
   const lines: string[] = [];
   const vip = pick(member, 'vipLevel', 'vipTier', 'tier');
-  const kyc = pick(member, 'kycStatus', 'kyc');
   const country = pick(member, 'country');
   const bal = str(member.balance);
   const balCy = pick(member, 'balanceCy', 'currency');
@@ -68,7 +67,6 @@ export async function buildPlayerContext(lookup: PlayerLookup): Promise<string |
 
   if (vip) lines.push(`VIP level: ${vip}`);
   if (balance) lines.push(`Balance: ${balance}`);
-  if (kyc) lines.push(`KYC: ${kyc}`);
   if (country) lines.push(`Country: ${country}`);
   // NOTE: AML risk level (attributes.amlRiskLevel) is deliberately NOT sent to
   // the LLM — it's a higher-tier compliance signal pending a data-handling/DPA

@@ -91,7 +91,6 @@ function normalizePlayer(m) {
     name, first, last, username, email,
     mobile: m.mobile ?? '',
     vip: m.vipLevel ?? '',
-    kyc: m.kycStatus ?? '',
     country: m.country ?? '',
     balance: m.balance,
     balanceCy: m.balanceCy ?? '',
@@ -201,7 +200,6 @@ function renderPlayerCard(p) {
     ['Username', p.username],
     ['Mobile', p.mobile],
     ['VIP level', p.vip],
-    ['KYC', p.kyc],
     ['Country', p.country],
     ['Balance', balance],
     ['Date of birth', p.dob],
@@ -212,6 +210,11 @@ function renderPlayerCard(p) {
 
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
   // explicitly, so nothing the gateway returned is hidden.
+  //
+  // 'kycStatus' stays in this set on purpose. Respovia dropped KYC in Phase 4, so
+  // it has no row above any more — but the gateway still returns it, and removing
+  // it from here would push the value straight back onto the page in the
+  // catch-all dump below. Suppressing it is what "removed" means here.
   const mapped = new Set(['userId', 'memberId', 'id', 'firstName', 'lastName', 'username', 'email',
     'mobile', 'vipLevel', 'kycStatus', 'country', 'balance', 'balanceCy', 'dob', 'sex', 'city',
     'success', 'errorCode', 'errorDesc']);

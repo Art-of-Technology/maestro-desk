@@ -19,7 +19,7 @@ const ERASED = '[erased]';
 // The customers columns this nulls — recorded verbatim in gdpr_erasures.fields_erased.
 const CUSTOMER_PII_FIELDS = [
   'first_name', 'last_name', 'username', 'email', 'mobile',
-  'backoffice_url', 'kyc_status', 'jurisdiction',
+  'backoffice_url', 'jurisdiction',
 ] as const;
 
 export interface EraseResult {
@@ -142,7 +142,7 @@ export async function eraseCustomer(args: {
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
-        mobile = null, backoffice_url = null, kyc_status = null, jurisdiction = null,
+        mobile = null, backoffice_url = null, jurisdiction = null,
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;

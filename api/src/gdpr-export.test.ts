@@ -52,8 +52,8 @@ runDbTests('GDPR export (DB-backed)', () => {
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${wsId}, ${agent.userId}, ${roRole.id}, true)`;
 
     const [cust] = await sql<{ id: string }[]>`
-      insert into customers (workspace_id, display_id, first_name, last_name, email, mobile, kyc_status, jurisdiction)
-      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT')
+      insert into customers (workspace_id, display_id, first_name, last_name, email, mobile, jurisdiction)
+      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', ${'jane-' + slug + '@player.test'}, '+15551234', 'MT')
       returning id
     `;
     ctx.customerId = cust.id;

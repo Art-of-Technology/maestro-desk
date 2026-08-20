@@ -35,7 +35,7 @@ const SettingsBody = z.object({
   portal_intro:   z.string().max(1000).nullable().optional(),
   portal_footer:  z.string().max(500).nullable().optional(),
   portal_custom_domain: z.string().regex(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i, 'Invalid hostname').max(253).nullable().optional(),
-  // Opt-in to sending live player account data (balance/KYC/VIP/country) to the
+  // Opt-in to sending live player account data (balance/VIP/country) to the
   // LLM during triage. Default is false (data-minimising). AML is always excluded.
   ai_player_enrichment: z.boolean().optional(),
   // Data-retention window in days: resolved tickets older than this are purged.

@@ -281,7 +281,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
 
   // Enrich with live Maestro player data ONLY when the workspace has opted in
   // (ai_player_enrichment). Default is off — the data-minimising posture: no
-  // balance/KYC/country/VIP reaches the LLM unless a brand explicitly enables
+  // balance/country/VIP reaches the LLM unless a brand explicitly enables
   // it (AML is excluded regardless). Best-effort even when on: any failure or
   // missing config yields null and the prompt is unchanged.
   const playerContext = lookups.aiPlayerEnrichment

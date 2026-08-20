@@ -10,7 +10,9 @@ import { str } from './maestro.js';
 // The exact category strings written to the audit trail. Exported so downstream
 // consumers (reporting, the append-only hardening, regulator tooling) share one
 // contract and typos can't drift in.
-export const PLAYER_ACCESS_CATEGORIES = ['balance', 'kyc', 'vip', 'contact'] as const;
+// NOTE: historic audit rows still carry 'kyc' (dropped in Phase 4) — this union
+// is the set written from now on, never a closed set for reading history back.
+export const PLAYER_ACCESS_CATEGORIES = ['balance', 'vip', 'contact'] as const;
 export type PlayerAccessCategory = (typeof PLAYER_ACCESS_CATEGORIES)[number];
 
 export interface PlayerAccessSummary {
@@ -32,7 +34,6 @@ export function summarizePlayerAccess(member: Member, fallbackId?: string | null
 
   const accessed: PlayerAccessCategory[] = [];
   if (str(member.balance) || str((member as { balanceCy?: unknown }).balanceCy)) accessed.push('balance');
-  if (str(member.kycStatus) || str((member as { kyc?: unknown }).kyc)) accessed.push('kyc');
   if (str(member.vipLevel) || str((member as { vipTier?: unknown }).vipTier)) accessed.push('vip');
   if (
     str(member.email) || str(member.mobile) || str(member.dob) ||

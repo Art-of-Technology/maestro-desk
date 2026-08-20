@@ -34,7 +34,7 @@ export async function exportCustomer(args: {
 
   const [customer] = await sql<Record<string, unknown>[]>`
     select id, display_id, first_name, last_name, username, email, mobile, brand,
-           vip_tier, jurisdiction, consent, kyc_status, since, backoffice_url,
+           vip_tier, jurisdiction, consent, since, backoffice_url,
            created_at, updated_at, erased_at
     from customers
     where id = ${customerId} and workspace_id = ${workspaceId}

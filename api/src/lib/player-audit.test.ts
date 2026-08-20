@@ -16,16 +16,16 @@ describe('summarizePlayerAccess', () => {
 
   it('reports the sensitive categories present', () => {
     const a = summarizePlayerAccess({
-      userId: 'u-1', balance: 120.5, balanceCy: 'EUR', kycStatus: 'verified',
+      userId: 'u-1', balance: 120.5, balanceCy: 'EUR',
       vipLevel: 'gold', email: 'jane@x.test', country: 'MT',
     });
-    expect(a.accessed.sort()).toEqual(['balance', 'contact', 'kyc', 'vip']);
+    expect(a.accessed.sort()).toEqual(['balance', 'contact', 'vip']);
   });
 
   it('omits categories that are absent or blank', () => {
     expect(summarizePlayerAccess({ userId: 'u-1' }).accessed).toEqual([]);
     // whitespace-only strings are treated as absent by str()
-    expect(summarizePlayerAccess({ userId: 'u-1', kycStatus: '   ' }).accessed).toEqual([]);
+    expect(summarizePlayerAccess({ userId: 'u-1', vipLevel: '   ' }).accessed).toEqual([]);
   });
 
   it('detects balance from currency alone, and contact from mobile alone', () => {

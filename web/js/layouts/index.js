@@ -41,7 +41,6 @@ const FIELD_LAYOUTS = {
     { key:'brand',        label:'Brand',          locked:false, required:false, visible:true },
     { key:'vip',          label:'VIP tier',       locked:false, required:false, visible:true },
     { key:'jurisdiction', label:'Jurisdiction',   locked:false, required:false, visible:true },
-    { key:'kyc',          label:'KYC status',     locked:false, required:false, visible:true },
     { key:'since',        label:'Customer since', locked:false, required:false, visible:true },
   ],
 };
