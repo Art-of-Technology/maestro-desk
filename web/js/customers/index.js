@@ -1050,13 +1050,28 @@ function renderCustomerDetail(custId) {
     ['tickets'],
   ];
 
-  const areasHtml = areaRows.map(row => (
-    row.length === 1
-      ? areas[row[0]]()
-      : `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-          ${row.map(k => areas[k]()).join('\n          ')}
-        </div>`
-  )).join('\n        ');
+  const areasHtml = areaRows.map(row => {
+    // Drop names the registry doesn't know. areaRows is a literal today so this
+    // never fires, but admin-configurable order (a later PR) can carry the name
+    // of an area since renamed or removed — and `areas[k]()` on a missing key
+    // throws a TypeError out of renderCustomerDetail, blanking the whole profile
+    // rather than losing one block. Keying by name only buys resilience if the
+    // unknown name is actually handled, so handle it here rather than leaving
+    // the guarantee to the PR that introduces stored config.
+    const parts = row.filter(k => areas[k]).map(k => areas[k]());
+    // A row with nothing in it emits nothing. Returning the grid wrapper for an
+    // all-empty row would leave a stray margin-bottom gap on the page.
+    if (parts.every(p => !p)) return '';
+    if (parts.length === 1) return parts[0];
+    // Columns follow the row's length instead of assuming two, so a three-area
+    // row does not silently wrap into a 2-column grid. Spelled out as
+    // '1fr 1fr ...' rather than repeat(n,1fr) so the two-area case stays
+    // byte-identical to the markup this replaced.
+    const cols = Array(parts.length).fill('1fr').join(' ');
+    return `<div style="display:grid;grid-template-columns:${cols};gap:16px;margin-bottom:16px">
+          ${parts.join('\n          ')}
+        </div>`;
+  }).join('\n        ');
 
   return `
     <div class="page">
