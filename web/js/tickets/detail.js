@@ -54,7 +54,6 @@ import {
   refreshTicketKbSuggestions,
 } from '../kb-integration/index.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
-import { isFieldVisible, isFieldRequired } from '../layouts/index.js';
 import { ticketCSATBlock } from './csat.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';

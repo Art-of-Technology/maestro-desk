@@ -17,6 +17,7 @@
 
 import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, KB_ARTICLES, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from './data.js';
 import { apiGet } from './api-client.js';
+import { hydrateLayouts } from '../layouts/index.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
 // "Load more" button (and any future infinite scroll) pulls the next.
@@ -184,7 +185,7 @@ export function mapCustomerNote(n) {
 }
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes] = await Promise.all([
+  const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes, layoutsRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
@@ -208,6 +209,12 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/customers/notes').catch((err) => {
       console.warn('[bootstrap] customer notes load failed:', err?.message || err);
       return { notes: [] };
+    }),
+    // Same web-ahead-of-api tolerance as notes: an old API 404s this endpoint
+    // and code defaults are the correct fallback anyway.
+    apiGet('/api/v1/workspace/layouts').catch((err) => {
+      console.warn('[bootstrap] layouts load failed:', err?.message || err);
+      return { layouts: [] };
     }),
   ]);
 
@@ -483,6 +490,12 @@ export async function loadWorkspaceData() {
   // the admin Categories settings tab can show + re-enable them; the
   // New-Ticket dropdown filters to is_active.
   replaceInPlace(CATEGORIES, (catsRes.categories || []));
+
+  // ─── LAYOUTS ────────────────────────────────────────────────────────────
+  // Overlay persisted field-layout rows onto the code defaults (resets to
+  // defaults first, so a workspace with no rows can't inherit the previous
+  // workspace's layout). Empty array = every scope falls back to code order.
+  hydrateLayouts(layoutsRes.layouts || []);
 }
 
 // Role-name → {id, isAdmin, canManageCF, canDelete} lookup populated by
