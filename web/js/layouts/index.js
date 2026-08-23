@@ -21,10 +21,10 @@
 // External reaches (interim, via window): isAdmin, escAttr, escHtml —
 // all still in app.js.
 
-import { LAYOUTS_TAB, setLayoutsTab } from '../core/state.js';
+import { CURRENT_PAGE, LAYOUTS_TAB, setLayoutsTab } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
-import { apiPut, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiGet, apiPut, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
 
 // Entity ↔ server scope mapping — mirrors the route comment block in
@@ -63,13 +63,24 @@ const FIELD_DEFAULTS = Object.fromEntries(
   Object.entries(FIELD_LAYOUTS).map(([entity, fields]) => [entity, fields.map(f => ({ ...f }))]),
 );
 
+// True only while the server's persisted layout state is KNOWN — set by a
+// successful GET (including the old-API 404 fallback, where "no rows" is the
+// truth). While false, admin toggles stay local-only: a PUT fired without
+// knowing the server state would replace the workspace's real saved layout
+// with whatever this browser happens to be showing (code defaults, usually).
+let LAYOUTS_PERSISTABLE = false;
+
 // Overlay persisted rows (from GET /api/v1/workspace/layouts) onto the code
-// defaults. Resolution rule, per scope: if any rows exist, order by
-// sort_order and append code keys with no row after max(sort_order) in code
-// order; otherwise pure code order + code defaults. Locked fields keep their
-// code flags regardless of what the DB says — the schema depends on them.
-// Arrays are mutated in place so importers' live bindings see the result.
+// defaults; pass null to mean "server state unknown / signed out", which
+// resets to code defaults AND blocks persistence until the next real hydrate.
+// Resolution rule, per scope: if any rows exist, order by sort_order and
+// append code keys with no row after max(sort_order) in code order; otherwise
+// pure code order + code defaults. Locked fields keep their code flags
+// regardless of what the DB says — the schema depends on them. Each entity
+// array is reset from the immutable FIELD_DEFAULTS snapshot first, so a
+// workspace switch can't inherit the previous workspace's layout.
 export function hydrateLayouts(rows) {
+  LAYOUTS_PERSISTABLE = Array.isArray(rows);
   for (const [entity, scope] of Object.entries(SCOPE_FOR_ENTITY)) {
     const fields = FIELD_LAYOUTS[entity];
     const defaults = FIELD_DEFAULTS[entity];
@@ -93,23 +104,49 @@ export function hydrateLayouts(rows) {
 }
 
 // Write one entity's FULL desired set to the server (dense-set replace —
-// same contract as the Maestro manifest families). Fire-and-forget with a
-// rollback: the toggle already re-rendered optimistically; on failure the
-// changed field reverts to `prev` so the UI shows server truth. Demo persona
-// (no JWT/workspace) skips the write entirely — session decides, never a
-// field value (Phase-3 lesson).
-function persistLayoutScope(entity, changedField, prev) {
+// same contract as the Maestro manifest families). Demo persona (no JWT/
+// workspace) skips the write entirely — session decides, never a field value
+// (Phase-3 lesson).
+//
+// PUTs are SERIALIZED per scope through a promise chain, and the element set
+// is snapshotted at SEND time, not queue time — so rapid toggles can't
+// reorder in flight (last write genuinely carries the latest state, and a
+// duplicate set from a coalesced earlier toggle is harmless). On failure the
+// UI re-syncs from server truth with a fresh GET rather than reverting a
+// captured field object — a re-hydrate (workspace switch) may have orphaned
+// that object, and a revert would silently disagree with the server anyway.
+const PENDING_PUTS = {};   // scope → tail of that scope's write chain
+function persistLayoutScope(entity) {
   if (!(getJwt() && getWorkspaceId())) return;
-  const elements = FIELD_LAYOUTS[entity].map(f => ({
-    element_key: f.key,
-    visible:     !!f.visible,
-    required:    !!f.required,
-  }));
-  apiPut(`/api/v1/workspace/layouts/${SCOPE_FOR_ENTITY[entity]}`, { elements }).catch(err => {
-    changedField.visible = prev.visible;
-    changedField.required = prev.required;
-    renderPage('layouts');
-    showToast(`Couldn't save the layout: ${err?.message || err}`, 'error');
+  if (!LAYOUTS_PERSISTABLE) {
+    showToast("Layouts couldn't be loaded from the server, so this change is local-only until you reload.", 'warn');
+    return;
+  }
+  const scope = SCOPE_FOR_ENTITY[entity];
+  const wsAtQueue = getWorkspaceId();
+  PENDING_PUTS[scope] = (PENDING_PUTS[scope] || Promise.resolve()).then(async () => {
+    // Workspace switched while this write was queued — the snapshot below
+    // would read the NEW workspace's arrays and the header would target it.
+    if (getWorkspaceId() !== wsAtQueue) return;
+    const elements = FIELD_LAYOUTS[entity].map(f => ({
+      element_key: f.key,
+      visible:     !!f.visible,
+      required:    !!f.required,
+    }));
+    try {
+      await apiPut(`/api/v1/workspace/layouts/${scope}`, { elements });
+    } catch (err) {
+      showToast(`Couldn't save the layout: ${err?.message || err}`, 'error');
+      try {
+        const res = await apiGet('/api/v1/workspace/layouts');
+        if (getWorkspaceId() !== wsAtQueue) return;
+        hydrateLayouts(res.layouts || []);
+        if (CURRENT_PAGE === 'layouts') renderPage('layouts');
+      } catch {
+        // Server unreachable — keep the optimistic local state; the next
+        // successful bootstrap re-hydrates from truth.
+      }
+    }
   });
 }
 
@@ -130,7 +167,6 @@ export function isFieldRequired(entity, key) {
 function setLayoutFieldFlag(entity, key, flag, val) {
   const f = getLayoutField(entity, key);
   if (!f || f.locked) return;
-  const prev = { visible: f.visible, required: f.required };
   // Locked fields must stay required + visible; non-locked fields can flip
   // both flags freely. Marking a field invisible also implies non-required —
   // a hidden field can't be required without a way for the agent to fill it.
@@ -139,7 +175,7 @@ function setLayoutFieldFlag(entity, key, flag, val) {
   if (flag === 'visible' && !f.visible) f.required = false;
   if (flag === 'required' && f.required) f.visible = true;
   renderPage('layouts');
-  persistLayoutScope(entity, f, prev);
+  persistLayoutScope(entity);
 }
 
 export function renderLayouts() {

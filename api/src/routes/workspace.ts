@@ -263,12 +263,23 @@ workspace.put('/layouts/:scope', async (c) => {
     sort_order:   i,
   }));
 
-  await sql.begin(async (tx) => {
-    await tx`delete from workspace_layouts where workspace_id = ${workspaceId} and scope = ${scope}`;
-    if (rows.length) {
-      await tx`insert into workspace_layouts ${tx(rows, 'workspace_id', 'scope', 'element_key', 'visible', 'required', 'sort_order')}`;
+  try {
+    await sql.begin(async (tx) => {
+      // Serialize concurrent writers per (workspace, scope): under READ
+      // COMMITTED, a delete+insert interleave can miss the other txn's fresh
+      // rows and collide on the unique index instead of replacing them.
+      await tx`select pg_advisory_xact_lock(hashtext(${`${workspaceId}:${scope}`}))`;
+      await tx`delete from workspace_layouts where workspace_id = ${workspaceId} and scope = ${scope}`;
+      if (rows.length) {
+        await tx`insert into workspace_layouts ${tx(rows, 'workspace_id', 'scope', 'element_key', 'visible', 'required', 'sort_order')}`;
+      }
+    });
+  } catch (err) {
+    if ((err as any)?.code === '23505') {
+      return c.json({ error: 'The layout was changed by another request — retry' }, 409);
     }
-  });
+    throw err;
+  }
 
   return c.json({ ok: true, count: rows.length });
 });

@@ -38,6 +38,7 @@ import { startListSync, stopListSync } from './tickets/list-sync.js';
 import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
+import { hydrateLayouts } from './layouts/index.js';
 
 // Demo personas call login(role, name, initials); real-auth boot paths pass
 // the identity/capability extras in `opts` (an options object rather than a
@@ -152,6 +153,10 @@ function logout() {
   resetTaglineSdk();
   setSession(null);
   resetWorkspaceBrand();
+  // Drop the workspace's hydrated field layouts back to code defaults and
+  // block persistence — a demo persona (or the next login, before its own
+  // hydrate) must not inherit this workspace's layout.
+  hydrateLayouts(null);
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
   // demo personas (which never stored anything) and load-bearing for real-
   // auth users (so the next page-load doesn't auto-resume).

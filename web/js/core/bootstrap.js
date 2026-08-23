@@ -210,11 +210,15 @@ export async function loadWorkspaceData() {
       console.warn('[bootstrap] customer notes load failed:', err?.message || err);
       return { notes: [] };
     }),
-    // Same web-ahead-of-api tolerance as notes: an old API 404s this endpoint
-    // and code defaults are the correct fallback anyway.
+    // Web-ahead-of-api tolerance is a 404 ONLY — there the endpoint doesn't
+    // exist yet and "no rows" is the truth. Any OTHER failure (500, network)
+    // means the workspace's real layout is UNKNOWN: signal that with null so
+    // the layouts module blocks persistence — a later admin toggle would
+    // otherwise PUT code defaults over the workspace's saved layout.
     apiGet('/api/v1/workspace/layouts').catch((err) => {
+      if (err?.status === 404) return { layouts: [] };
       console.warn('[bootstrap] layouts load failed:', err?.message || err);
-      return { layouts: [] };
+      return { layouts: null };
     }),
   ]);
 
@@ -494,8 +498,9 @@ export async function loadWorkspaceData() {
   // ─── LAYOUTS ────────────────────────────────────────────────────────────
   // Overlay persisted field-layout rows onto the code defaults (resets to
   // defaults first, so a workspace with no rows can't inherit the previous
-  // workspace's layout). Empty array = every scope falls back to code order.
-  hydrateLayouts(layoutsRes.layouts || []);
+  // workspace's layout). Empty array = every scope falls back to code order;
+  // null (load failed above) = defaults too, but with persistence blocked.
+  hydrateLayouts(layoutsRes.layouts);
 }
 
 // Role-name → {id, isAdmin, canManageCF, canDelete} lookup populated by

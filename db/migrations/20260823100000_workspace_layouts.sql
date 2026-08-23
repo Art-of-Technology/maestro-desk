@@ -26,6 +26,8 @@ create table workspace_layouts (
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
   unique (workspace_id, scope, element_key),
+  -- a hidden element can never be required (mirrors the API's zod invariant)
+  check (visible or not required),
   -- 'required' is meaningless for whole page areas
   check (scope <> 'customer_areas' or required = false)
 );
