@@ -182,6 +182,111 @@ workspace.post('/domain/verify', async (c) => {
   return c.json({ verified: true });
 });
 
+// ─── Layouts (Phase 4, PR 3) ────────────────────────────────────────────
+//
+// Persists the admin Layouts screen (field visibility/required + order).
+// This comment block is THE scope ↔ client-entity mapping — the client's
+// SCOPE_FOR_ENTITY in web/js/layouts/index.js mirrors it:
+//   ticket_form     ↔ FIELD_LAYOUTS.ticket   (new-ticket form fields)
+//   customer_fields ↔ FIELD_LAYOUTS.customer (customer profile card fields)
+//   customer_areas  ↔ profile page AREAS     (reserved for the area-reorder PR)
+//
+// Rows are DENSE per scope: PUT replaces the scope's full desired set (same
+// reasoning as the Maestro manifest families — partial arrays are where
+// hand-rolled diffing goes wrong). An empty `elements` array clears the scope
+// back to code defaults. sort_order is the array index, so order is exactly
+// what the client sent. Element keys are NOT validated against the client's
+// code list — the server doesn't know it, and unknown keys reading as visible
+// is the client's documented fallback for fields added later.
+const LAYOUT_SCOPES = ['ticket_form', 'customer_fields', 'customer_areas'] as const;
+type LayoutScope = (typeof LAYOUT_SCOPES)[number];
+
+const LayoutElement = z.object({
+  element_key: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_-]+$/, 'element_key must be alphanumeric/_/-'),
+  visible:     z.boolean(),
+  required:    z.boolean(),
+}).strict()
+  // The Layouts screen's invariant pair ("hiding clears required, requiring
+  // forces visible") collapses server-side to one rule: a hidden element can
+  // never be required. Held here so it's true regardless of client.
+  .refine((e) => e.visible || !e.required, { message: 'A hidden element cannot be required' });
+
+const LayoutsBody = z.object({
+  elements: z.array(LayoutElement).max(200),
+}).strict().superRefine((body, ctx) => {
+  const seen = new Set<string>();
+  for (const e of body.elements) {
+    if (seen.has(e.element_key)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate element_key: ${e.element_key}` });
+    }
+    seen.add(e.element_key);
+  }
+});
+
+// Any authenticated member — agents need the layout to render forms.
+workspace.get('/layouts', async (c) => {
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const layouts = await sql`
+    select scope, element_key, visible, required, sort_order
+    from workspace_layouts
+    where workspace_id = ${workspaceId}
+    order by scope, sort_order
+  `;
+  return c.json({ layouts });
+});
+
+workspace.put('/layouts/:scope', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+
+  const scopeParam = c.req.param('scope');
+  if (!(LAYOUT_SCOPES as readonly string[]).includes(scopeParam)) {
+    return c.json({ error: 'Unknown layout scope' }, 404);
+  }
+  const scope = scopeParam as LayoutScope;   // earned: membership checked above
+
+  const reqBody = await c.req.json().catch(() => null);
+  const parsed = LayoutsBody.safeParse(reqBody);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  // Mirrors the table's check constraint — page areas have no input to fill,
+  // so 'required' is meaningless for them.
+  if (scope === 'customer_areas' && parsed.data.elements.some((e) => e.required)) {
+    return c.json({ error: "'required' is not valid for customer_areas elements" }, 400);
+  }
+
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const rows = parsed.data.elements.map((e, i) => ({
+    workspace_id: workspaceId,
+    scope,
+    element_key:  e.element_key,
+    visible:      e.visible,
+    required:     e.required,
+    sort_order:   i,
+  }));
+
+  try {
+    await sql.begin(async (tx) => {
+      // Serialize concurrent writers per (workspace, scope): under READ
+      // COMMITTED, a delete+insert interleave can miss the other txn's fresh
+      // rows and collide on the unique index instead of replacing them.
+      await tx`select pg_advisory_xact_lock(hashtext(${`${workspaceId}:${scope}`}))`;
+      await tx`delete from workspace_layouts where workspace_id = ${workspaceId} and scope = ${scope}`;
+      if (rows.length) {
+        await tx`insert into workspace_layouts ${tx(rows, 'workspace_id', 'scope', 'element_key', 'visible', 'required', 'sort_order')}`;
+      }
+    });
+  } catch (err) {
+    if ((err as any)?.code === '23505') {
+      return c.json({ error: 'The layout was changed by another request — retry' }, 409);
+    }
+    throw err;
+  }
+
+  return c.json({ ok: true, count: rows.length });
+});
+
 function generateDomainToken(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
