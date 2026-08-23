@@ -124,7 +124,10 @@ function persistLayoutScope(entity) {
   }
   const scope = SCOPE_FOR_ENTITY[entity];
   const wsAtQueue = getWorkspaceId();
-  PENDING_PUTS[scope] = (PENDING_PUTS[scope] || Promise.resolve()).then(async () => {
+  // The .catch(() => {}) is the chain's wedge-guard: the async body below
+  // handles its own failures, but if a link ever rejected anyway, every
+  // later toggle for this scope would silently stop persisting.
+  PENDING_PUTS[scope] = (PENDING_PUTS[scope] || Promise.resolve()).catch(() => {}).then(async () => {
     // Workspace switched while this write was queued — the snapshot below
     // would read the NEW workspace's arrays and the header would target it.
     if (getWorkspaceId() !== wsAtQueue) return;
@@ -231,7 +234,7 @@ export function renderLayouts() {
           <thead><tr><th>Field</th><th style="text-align:center;width:120px">Required</th><th style="text-align:center;width:120px">Visible</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Hidden fields are dropped from the new-${tab} form and the ${tab === 'ticket' ? 'ticket sidebar' : 'customer profile card'}. Required fields validate on submit. Marking a field hidden also clears its required flag — a hidden field with no input path would be unfillable.</div>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Hidden fields are dropped from the new-${tab} form${tab === 'ticket' ? '' : ' and the customer profile card'}. Required fields validate on submit. Marking a field hidden also clears its required flag — a hidden field with no input path would be unfillable.</div>
       </div>
     </div>`;
 }

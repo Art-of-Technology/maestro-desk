@@ -240,8 +240,11 @@ workspace.put('/layouts/:scope', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
 
-  const scope = c.req.param('scope') as LayoutScope;
-  if (!LAYOUT_SCOPES.includes(scope)) return c.json({ error: 'Unknown layout scope' }, 404);
+  const scopeParam = c.req.param('scope');
+  if (!(LAYOUT_SCOPES as readonly string[]).includes(scopeParam)) {
+    return c.json({ error: 'Unknown layout scope' }, 404);
+  }
+  const scope = scopeParam as LayoutScope;   // earned: membership checked above
 
   const reqBody = await c.req.json().catch(() => null);
   const parsed = LayoutsBody.safeParse(reqBody);
