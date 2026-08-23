@@ -980,6 +980,116 @@ function renderCustomerDetail(custId) {
       `).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No notes yet — share context with the team by adding one.</div>'}
     </div>`;
 
+  // ── Areas ────────────────────────────────────────────────────────────────
+  // The four blocks above plus the four below are the profile's AREAS: the
+  // reorderable units. Everything between the breadcrumb and the first area
+  // (avatar header, merged banner, merged-duplicates card, quick actions) is
+  // fixed chrome — it identifies the record or acts on it, so it stays put.
+  //
+  // These were inline in the return template until the area registry below
+  // needed to own their order. Their internal indentation is deliberately the
+  // indentation they had inline, so the rendered bytes are unchanged.
+  const kpisBlock = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+          <div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
+          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>
+          <div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
+          <div class="r-tile" style="border-color:${c.consent?'var(--green-bd)':'var(--red-bd)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
+        </div>`;
+
+  const detailsBlock = `<div class="card">
+            <div class="card-title">Profile</div>
+            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>` : ''}
+            ${isFieldVisible('customer','mobile')       ? `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>` : ''}
+            ${isFieldVisible('customer','username')     ? `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>` : ''}
+            ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>` : ''}
+            ${isFieldVisible('customer','vip')          ? `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>` : ''}
+            ${isFieldVisible('customer','jurisdiction') ? `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>` : ''}
+            ${isFieldVisible('customer','since')        ? `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>` : ''}
+          </div>`;
+
+  const customFieldsBlock = `<div class="card">
+            <div class="card-title">Custom fields</div>
+            ${customFields}
+          </div>`;
+
+  const ticketsBlock = `<div class="card">
+          <div class="card-title">Tickets</div>
+          ${s.tickets.length ? `
+            <table class="tbl">
+              <thead><tr><th>ID</th><th>Subject</th><th>Status</th><th>Priority</th><th>Agent</th><th>SLA</th><th>Updated</th></tr></thead>
+              <tbody>${ticketRows}</tbody>
+            </table>
+          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets</div><div class="empty-line"></div></div>`}
+        </div>`;
+
+  // Keyed by NAME, never by position. core/collapsible.js keys its sections
+  // positionally (`customers:filter-bar:0`) and documents at length how that
+  // forced it to carry a SECTION_MIGRATIONS list; a stored layout referring to
+  // "area 3" breaks the moment an area is inserted, whereas a name survives.
+  // Values, not thunks: every block above is already built by the time we get
+  // here, so a thunk would defer nothing and only imply laziness that isn't
+  // there. If hiding areas ever makes it worth not building them, the blocks
+  // move inside — that is a real change, not this one.
+  const areas = {
+    risk:         riskPanel,
+    kpis:         kpisBlock,
+    tags:         tagsBlock,
+    details:      detailsBlock,
+    customFields: customFieldsBlock,
+    timeline:     timelineBlock,
+    notes:        notesBlock,
+    tickets:      ticketsBlock,
+  };
+
+  // Rows, in order. A row of two areas shares one 2-column grid — that pairing
+  // is why this is a list of rows rather than a flat list of areas: `details`
+  // and `customFields` are side by side, not stacked, and so are `timeline` and
+  // `notes`. Admin-configurable order (a later PR) reorders THIS.
+  const areaRows = [
+    ['risk'],
+    ['kpis'],
+    ['tags'],
+    ['details', 'customFields'],
+    ['timeline', 'notes'],
+    ['tickets'],
+  ];
+
+  const areasHtml = areaRows.map(row => {
+    // Drop names the registry doesn't know. areaRows is a literal today so this
+    // never fires, but admin-configurable order (a later PR) can carry the name
+    // of an area since renamed or removed — and `areas[k]` on a missing key is
+    // undefined, which interpolates into the page as the literal text
+    // "undefined" where a card should be. Keying by name only buys resilience if
+    // the unknown name is actually handled, so handle it here rather than leaving
+    // the guarantee to the PR that introduces stored config.
+    //
+    // Object.hasOwn, not a truthiness check: a stored name like 'constructor' or
+    // 'toString' resolves through the prototype chain, so the row would keep it
+    // and interpolate Object.prototype's member — a FUNCTION, which stringifies
+    // into the page as its own source ("function toString() { [native code] }").
+    // Same guard core/router.js uses on its own name-keyed page registry.
+    // Warn rather than drop in silence: a card that just stops appearing, with
+    // nothing in the console, is close to undebuggable. Same treatment
+    // core/router.js gives an unknown page key.
+    const parts = row.filter(k => {
+      if (Object.hasOwn(areas, k)) return true;
+      console.warn(`[customers] unknown profile area "${k}" — skipped`);
+      return false;
+    }).map(k => areas[k]);
+    // A row with nothing in it emits nothing. Returning the grid wrapper for an
+    // all-empty row would leave a stray margin-bottom gap on the page.
+    if (parts.every(p => !p)) return '';
+    if (parts.length === 1) return parts[0];
+    // Columns follow the row's length instead of assuming two, so a three-area
+    // row does not silently wrap into a 2-column grid. Spelled out as
+    // '1fr 1fr ...' rather than repeat(n,1fr) so the two-area case stays
+    // byte-identical to the markup this replaced.
+    const cols = Array(parts.length).fill('1fr').join(' ');
+    return `<div style="display:grid;grid-template-columns:${cols};gap:16px;margin-bottom:16px">
+          ${parts.join('\n          ')}
+        </div>`;
+  }).join('\n        ');
+
   return `
     <div class="page">
       <div class="topbar">
@@ -1034,43 +1144,7 @@ function renderCustomerDetail(custId) {
           ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
-        ${riskPanel}
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-          <div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
-          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>
-          <div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
-          <div class="r-tile" style="border-color:${c.consent?'var(--green-bd)':'var(--red-bd)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
-        </div>
-        ${tagsBlock}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-          <div class="card">
-            <div class="card-title">Profile</div>
-            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>` : ''}
-            ${isFieldVisible('customer','mobile')       ? `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>` : ''}
-            ${isFieldVisible('customer','username')     ? `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>` : ''}
-            ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>` : ''}
-            ${isFieldVisible('customer','vip')          ? `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>` : ''}
-            ${isFieldVisible('customer','jurisdiction') ? `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>` : ''}
-            ${isFieldVisible('customer','since')        ? `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>` : ''}
-          </div>
-          <div class="card">
-            <div class="card-title">Custom fields</div>
-            ${customFields}
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-          ${timelineBlock}
-          ${notesBlock}
-        </div>
-        <div class="card">
-          <div class="card-title">Tickets</div>
-          ${s.tickets.length ? `
-            <table class="tbl">
-              <thead><tr><th>ID</th><th>Subject</th><th>Status</th><th>Priority</th><th>Agent</th><th>SLA</th><th>Updated</th></tr></thead>
-              <tbody>${ticketRows}</tbody>
-            </table>
-          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets</div><div class="empty-line"></div></div>`}
-        </div>
+        ${areasHtml}
       </div>
     </div>`;
 }
