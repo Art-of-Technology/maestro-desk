@@ -476,6 +476,9 @@ function _dragAreaRow(e) { return e.target.closest?.('.layout-area-row[draggable
 document.addEventListener('dragstart', e => {
   const row = _dragAreaRow(e); if (!row || e.target !== row) return;
   AREA_DRAG_KEY = row.dataset.areaKey || null;
+  // Firefox refuses to initiate a drag unless dragstart sets SOME payload;
+  // the drop handler still reads AREA_DRAG_KEY, never this data.
+  e.dataTransfer?.setData('text/plain', AREA_DRAG_KEY || '');
 });
 document.addEventListener('dragend', () => { AREA_DRAG_KEY = null; });
 document.addEventListener('dragover', e => {

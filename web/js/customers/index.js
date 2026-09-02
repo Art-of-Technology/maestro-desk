@@ -1024,7 +1024,7 @@ function renderCustomerDetail(custId) {
   const detailsBlock = `<div class="card">
             <div class="card-title">Profile</div>
             ${getLayoutFields('customer')
-              .filter(f => !f.headerOwned && f.visible !== false && Object.hasOwn(FIELD_ROW_RENDERERS, f.key))
+              .filter(f => !f.headerOwned && isFieldVisible('customer', f.key) && Object.hasOwn(FIELD_ROW_RENDERERS, f.key))
               .map(f => FIELD_ROW_RENDERERS[f.key]())
               .join('\n            ')}
           </div>`;
