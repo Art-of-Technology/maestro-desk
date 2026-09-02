@@ -29,6 +29,7 @@ import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiPost, apiPatch, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
+import { matchesContact } from '../customers/contacts.js';
 import { saveDraft } from './drafts.js';
 import { showToast } from '../core/toast.js';
 
@@ -262,7 +263,7 @@ function matchCustomers(q) {
   return CUSTOMERS.filter(c => !c.mergedInto && (
     (c.id || '').toLowerCase().includes(needle) ||
     `${c.first} ${c.last}`.toLowerCase().includes(needle) ||
-    (c.email || '').toLowerCase().includes(needle) ||
+    matchesContact(c, needle) ||
     (c.username || '').toLowerCase().includes(needle)
   )).slice(0, 8);
 }

@@ -20,6 +20,7 @@ import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
+import { contactValues } from '../customers/contacts.js';
 import { isAgentOOO } from '../tickets/assignment-rules.js';
 import { navTo } from '../core/keybindings.js';
 import { SEARCH_PAGES } from '../global-search/index.js';
@@ -63,7 +64,7 @@ function quickSwitcherSearch(rawQ) {
     sub: `${t.id} · ${t.status} · ${t.priority}${t.agent ? ' · ' + t.agent : ''}`,
     payload: { ticketId: t.id },
   }));
-  const customers = CUSTOMERS.filter(c => match(c.first + ' ' + c.last) || match(c.id) || match(c.email) || match(c.brand)).slice(0, 8).map(c => ({
+  const customers = CUSTOMERS.filter(c => match(c.first + ' ' + c.last) || match(c.id) || contactValues(c).some(match) || match(c.brand)).slice(0, 8).map(c => ({
     kind: 'customer',
     label: `${c.first} ${c.last}`,
     sub: `${c.id} · ${c.brand || ''} · ${c.email || ''}`.replace(/\s·\s$/, ''),

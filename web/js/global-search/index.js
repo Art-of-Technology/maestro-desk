@@ -27,6 +27,7 @@ import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { openCustomerModal } from '../customers/modals.js';
+import { matchesContact } from '../customers/contacts.js';
 import {
   registerActions, registerMousedownActions, registerInputActions,
 } from '../core/event-delegation.js';
@@ -84,7 +85,7 @@ function globalSearch(q) {
     c.id.toLowerCase().includes(ql)
     || (c.first + ' ' + c.last).toLowerCase().includes(ql)
     || c.username.toLowerCase().includes(ql)
-    || c.email.toLowerCase().includes(ql)
+    || matchesContact(c, ql)
     || c.brand.toLowerCase().includes(ql)
   ).slice(0, 5);
 
@@ -208,7 +209,7 @@ export function renderSearchResults() {
     c.id.toLowerCase().includes(ql)
     || (c.first + ' ' + c.last).toLowerCase().includes(ql)
     || c.username.toLowerCase().includes(ql)
-    || c.email.toLowerCase().includes(ql)
+    || matchesContact(c, ql)
     || c.brand.toLowerCase().includes(ql)
   ) : [];
   const agents = ql ? AGENTS.filter(a => a.name.toLowerCase().includes(ql) || a.role.toLowerCase().includes(ql)) : [];

@@ -106,6 +106,12 @@ runDbTests('GDPR erasure (DB-backed)', () => {
   });
 
   it('erases all PII surfaces and writes the audit row', async () => {
+    // Contacts model: a primary + a secondary address on the profile.
+    await sql`
+      insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values
+        (${ctx.wsId}, ${ctx.customerId}, 'email', ${'jane-' + slug + '@player.test'}, true),
+        (${ctx.wsId}, ${ctx.customerId}, 'email', ${'jane-alt-' + slug + '@player.test'}, false)
+    `;
     const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, {
       method: 'POST',
       body: JSON.stringify({ reason: 'DSAR #1' }),
@@ -145,6 +151,10 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     const notes = await sql<any[]>`select count(*)::int as n from customer_notes where customer_id = ${ctx.customerId}`;
     expect(notes[0].n).toBe(0);
 
+    // Contact rows are HARD-deleted (a soft-deleted row would keep the address).
+    const contacts = await sql<any[]>`select count(*)::int as n from customer_contacts where customer_id = ${ctx.customerId}`;
+    expect(contacts[0].n).toBe(0);
+
     const inbox = await sql<any[]>`select from_email, body, subject from inbox_messages where converted_ticket_id = ${ctx.ticketId}`;
     expect(inbox[0].from_email).toBeNull();
     expect(inbox[0].body).toBeNull();
@@ -154,6 +164,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(era.length).toBe(1);
     expect(era[0].reason).toBe('DSAR #1');
     expect(era[0].fields_erased).toContain('email');
+    expect(era[0].fields_erased).toContain('contacts');
     expect(era[0].completed_at).not.toBeNull();
   });
 

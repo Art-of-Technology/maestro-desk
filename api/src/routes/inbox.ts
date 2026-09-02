@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
+import { resolveCustomerByContact } from '../lib/customer-contacts.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const inbox = new Hono();
@@ -92,10 +93,16 @@ inbox.post('/:id/convert', async (c) => {
 
   // Match the sender against customers by email — required (defense-in-depth;
   // the front-end blocks the button when there's no match).
-  const [customer] = await sql`
-    select id, first_name, last_name from customers
-    where workspace_id = ${workspaceId} and email = ${msg.from_email} and deleted_at is null
-  `;
+  // Phase 4 contacts model: any address the profile holds matches, and a
+  // merged-away duplicate resolves to its survivor (single hop, like inbound)
+  // — the ticket must land on the profile agents actually see.
+  const holder = await resolveCustomerByContact(sql, workspaceId, 'email', msg.from_email);
+  const [customer] = holder
+    ? await sql`
+        select id, first_name, last_name from customers
+        where id = ${holder.merged_into_customer_id || holder.id} and workspace_id = ${workspaceId} and deleted_at is null
+      `
+    : [];
   if (!customer) {
     return c.json({
       error: 'No customer matches the sender email; add the customer first.',

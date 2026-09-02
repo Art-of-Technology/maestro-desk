@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
+import { resolveCustomerByContact, ensurePrimaryContacts } from '../lib/customer-contacts.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
@@ -132,10 +133,9 @@ publicRoutes.post('/:slug/tickets', async (c) => {
 
   // Match-or-create customer.
   let customerId: string;
-  const [existing] = await sql<{ id: string; merged_into_customer_id: string | null }[]>`
-    select id, merged_into_customer_id from customers
-    where workspace_id = ${ws.id} and email = ${email} and deleted_at is null
-  `;
+  // Any address the customer holds — primary or secondary — resolves to their
+  // profile (Phase 4 contacts model); `heal` backfills a legacy scalar-only row.
+  const existing = await resolveCustomerByContact(sql, ws.id, 'email', email, { heal: true });
 
   if (existing) {
     // Merged-away duplicates keep their email; new portal tickets belong on
@@ -145,21 +145,24 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     const [first, ...rest] = input.name.trim().split(/\s+/);
     const last = rest.join(' ') || null;
     try {
-      const custDisplayId = await nextDisplayId(sql, ws.id, 'customer');
-      const [created] = await sql<{ id: string }[]>`
-        insert into customers (workspace_id, display_id, first_name, last_name, email)
-        values (${ws.id}, ${custDisplayId}, ${first}, ${last}, ${email})
-        returning id
-      `;
-      customerId = created.id;
-    } catch (err: any) {
-      // Race recovery — same shape as the Postmark inbound handler.
-      if (err?.code === '23505') {
-        const [winner] = await sql<{ id: string }[]>`
-          select id from customers where workspace_id = ${ws.id} and email = ${email}
+      // Customer row + primary email contact together (mirror invariant).
+      customerId = await sql.begin(async (tx) => {
+        const custDisplayId = await nextDisplayId(tx, ws.id, 'customer');
+        const [created] = await tx<{ id: string }[]>`
+          insert into customers (workspace_id, display_id, first_name, last_name, email)
+          values (${ws.id}, ${custDisplayId}, ${first}, ${last}, ${email})
+          returning id
         `;
+        await ensurePrimaryContacts(tx, { workspaceId: ws.id, customerId: created.id, email }, { strict: true });
+        return created.id;
+      });
+    } catch (err: any) {
+      // Race recovery — same shape as the Postmark inbound handler: resolve
+      // the winner by contact (scalar fallback + heal), LIVE rows only.
+      if (err?.code === '23505') {
+        const winner = await resolveCustomerByContact(sql, ws.id, 'email', email, { heal: true });
         if (!winner) return c.json({ error: 'Customer race recovery failed' }, 500);
-        customerId = winner.id;
+        customerId = winner.merged_into_customer_id || winner.id;
       } else {
         throw err;
       }
@@ -275,10 +278,17 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   const emailLimited = await enforceRateLimit(c, { name: 'portal-auth-request-email', by: email, max: 5, windowSeconds: 900, failClosed: true });
   if (emailLimited) return emailLimited;
 
-  const [customer] = await sql<{ id: string; first_name: string | null; merged_into_customer_id: string | null }[]>`
-    select id, first_name, merged_into_customer_id from customers
-    where workspace_id = ${ws.id} and email = ${email} and deleted_at is null
-  `;
+  // Any LIVE contact email of a profile may authenticate it (Phase 4 contacts
+  // model — an auth surface, so the rule is explicit: a soft-deleted address
+  // may not; resolveCustomerByContact only matches live rows). Read path, no
+  // heal.
+  const holder = await resolveCustomerByContact(sql, ws.id, 'email', email);
+  const [customer] = holder
+    ? await sql<{ id: string; first_name: string | null; merged_into_customer_id: string | null }[]>`
+        select id, first_name, merged_into_customer_id from customers
+        where id = ${holder.id} and workspace_id = ${ws.id} and deleted_at is null
+      `
+    : [];
 
   const genericOk = { ok: true, message: 'If that email is on file, a sign-in link is on the way.' };
   if (!customer) return c.json(genericOk);

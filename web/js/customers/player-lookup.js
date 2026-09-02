@@ -25,6 +25,7 @@ import { apiGet, apiPost, getBrandId } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
 import { setCustomerSelected } from '../core/state.js';
 import { CUSTOMERS } from '../core/data.js';
+import { hasContact } from './contacts.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
 import { openTicket } from '../tickets/detail.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
@@ -107,7 +108,8 @@ function normalizePlayer(m) {
 function localMatchFor(player) {
   if (!player?.email) return null;
   const e = player.email.toLowerCase();
-  return CUSTOMERS.find(c => (c.email || '').toLowerCase() === e) || null;
+  // Any address the local profile holds (primary or secondary) counts.
+  return CUSTOMERS.find(c => hasContact(c, 'email', e)) || null;
 }
 
 // ─── Start a conversation ─────────────────────────────────────────────────────
@@ -278,7 +280,7 @@ function renderPlayerCard(p) {
 
 function openLocalCustomer(email) {
   const e = (email || '').toLowerCase();
-  const local = CUSTOMERS.find(c => (c.email || '').toLowerCase() === e);
+  const local = CUSTOMERS.find(c => hasContact(c, 'email', e));
   if (!local) return;
   resetPlayerLookup();
   setCustomerSelected(local.id);

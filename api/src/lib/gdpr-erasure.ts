@@ -12,6 +12,7 @@
 import { getDb } from './db.js';
 import { deleteKeys } from './r2.js';
 import { sendOpsAlert } from './alert.js';
+import { inboxFromThisCustomer, repairCustomerContacts } from './customer-contacts.js';
 
 // Marker for NOT NULL text columns we can't null (subject, message body).
 const ERASED = '[erased]';
@@ -28,6 +29,11 @@ const CUSTOMER_PII_FIELDS = [
   'first_name', 'last_name', 'username', 'email', 'mobile',
   'backoffice_url', 'kyc_status', 'jurisdiction',
 ] as const;
+
+// What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
+// — the customer_contacts rows (Phase 4 contacts model), which are a table,
+// not a column, and are hard-deleted below.
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -82,7 +88,8 @@ export async function eraseCustomer(args: {
     if (cust.erased_at) {
       return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0, attachmentsDeleted: 0 };
     }
-    // Capture the email BEFORE nulling — needed to match un-converted inbox mail.
+    // The scalar is captured BEFORE nulling — the inbox match below also uses
+    // it for a legacy profile with no contact rows.
     const email = cust.email;
 
     const ticketRows = await sql<{ id: string }[]>`
@@ -131,20 +138,39 @@ export async function eraseCustomer(args: {
       attachmentsDeleted = attachmentKeys.length;
     }
 
-    // Un-converted inbound mail still in the inbox, matched by sender address.
-    if (email) {
-      const inbMail = await sql`
-        update inbox_messages set
-          from_name = null, from_email = null, subject = null, body = null, body_html = null, raw = null
-        where workspace_id = ${workspaceId} and from_email = ${email}
-      `;
-      inboxRedacted += inbMail.count;
-    }
+    // Un-converted inbound mail still in the inbox, matched by sender address —
+    // EVERY address the subject held, each within its own lifetime, so mail a
+    // later holder of a released address sent is not this subject's
+    // (inboxFromThisCustomer). Runs BEFORE the contact rows are deleted below.
+    const inbMail = await sql`
+      update inbox_messages set
+        from_name = null, from_email = null, subject = null, body = null, body_html = null, raw = null
+      where workspace_id = ${workspaceId} and ${inboxFromThisCustomer(sql, workspaceId, customerId, email)}
+    `;
+    inboxRedacted += inbMail.count;
 
     const notes = await sql`
       delete from customer_notes where workspace_id = ${workspaceId} and customer_id = ${customerId}
     `;
     const notesDeleted = notes.count;
+
+    // Contact rows are HARD-deleted: a soft-deleted row would keep the address
+    // as personal data forever (same treatment notes get). The erase route
+    // un-merges a merged-away source first, so its rows are back on it here.
+    // …including rows a merge re-homed onto a survivor (stamped with this
+    // subject's id). The erase route un-merges a LIVE merged-away source first,
+    // but a source soft-deleted after its merge can't be un-merged, and its
+    // addresses are still the subject's data. Survivors that held them get
+    // their primaries and mirror repaired.
+    const goneRows = await sql<{ customer_id: string }[]>`
+      delete from customer_contacts
+      where workspace_id = ${workspaceId}
+        and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
+      returning customer_id
+    `;
+    for (const holderId of new Set(goneRows.map((r) => r.customer_id).filter((id) => id !== customerId))) {
+      await repairCustomerContacts(sql, workspaceId, holderId);
+    }
 
     await sql`
       update customers set
@@ -156,7 +182,7 @@ export async function eraseCustomer(args: {
 
     const [era] = await sql<{ id: string }[]>`
       insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...CUSTOMER_PII_FIELDS]}, ${reason ?? null})
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...FIELDS_ERASED]}, ${reason ?? null})
       returning id
     `;
     erasureId = era.id;
@@ -164,7 +190,7 @@ export async function eraseCustomer(args: {
     return {
       erased: true,
       alreadyErased: false,
-      fieldsErased: [...CUSTOMER_PII_FIELDS],
+      fieldsErased: [...FIELDS_ERASED],
       ticketsAffected,
       notesDeleted,
       messagesRedacted,

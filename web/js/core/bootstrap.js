@@ -261,8 +261,10 @@ export async function loadWorkspaceData() {
     first:        c.first_name || '',
     last:         c.last_name || '',
     username:     c.username || '',
-    email:        c.email || '',
+    email:        c.email || '',   // primary mirror (server-derived for merged-away rows)
     mobile:       c.mobile || '',
+    emails:       Array.isArray(c.emails)  ? c.emails  : [],   // Phase 4 contacts model
+    mobiles:      Array.isArray(c.mobiles) ? c.mobiles : [],
     brand:        c.brand || '',
     vip:          c.vip_tier || '',
     jurisdiction: c.jurisdiction || '',

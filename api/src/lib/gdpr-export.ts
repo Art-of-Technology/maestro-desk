@@ -9,6 +9,7 @@
 // carries the predicate.
 
 import { getDb } from './db.js';
+import { inboxFromThisCustomer } from './customer-contacts.js';
 
 export interface CustomerExport {
   exported_at: string;
@@ -21,6 +22,8 @@ export interface CustomerExport {
   erased: boolean;
   customer: Record<string, unknown>;
   notes: Array<{ text: string; created_at: string }>;
+  // Every address the subject holds (Phase 4 contacts model), primary flagged.
+  contacts: Array<{ kind: string; value: string; is_primary: boolean; created_at: string }>;
   tickets: Array<Record<string, unknown> & { messages: Array<Record<string, unknown>> }>;
   inbox_messages: Array<Record<string, unknown>>;
 }
@@ -49,6 +52,20 @@ export async function exportCustomer(args: {
     select text, created_at from customer_notes
     where workspace_id = ${workspaceId} and customer_id = ${customerId}
     order by created_at asc
+  `;
+
+  // Contact rows — including any a merge re-homed onto a survivor (stamped
+  // merged_from_customer_id = this customer): still this person's data, with
+  // the primary flag they held before the merge.
+  const contacts = await sql<{ kind: string; value: string; is_primary: boolean; created_at: string }[]>`
+    select kind, value::text as value,
+           case when merged_from_customer_id = ${customerId} then primary_before_merge else is_primary end as is_primary,
+           created_at
+    from customer_contacts
+    where workspace_id = ${workspaceId}
+      and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
+      and (deleted_at is null or merged_from_customer_id = ${customerId})
+    order by kind, created_at asc
   `;
 
   const tickets = await sql<Record<string, unknown>[]>`
@@ -84,15 +101,18 @@ export async function exportCustomer(args: {
   });
 
   // Inbound mail tied to this customer: converted into one of their tickets, or
-  // sent from their email address (still in the inbox).
-  const email = customer.email as string | null;
+  // sent from ANY email address they held at the time (still in the inbox) —
+  // the contacts model accepts inbound from secondaries, a merged-away source's
+  // scalar is null while its addresses live on the survivor, and an address
+  // released here and adopted elsewhere must not leak the new holder's mail
+  // into this bundle (inboxFromThisCustomer).
   const inbox = await sql<Record<string, unknown>[]>`
     select from_name, from_email, subject, body, received_at, status
     from inbox_messages
     where workspace_id = ${workspaceId}
       and (
         (${ticketIds.length ? sql`converted_ticket_id in ${sql(ticketIds)}` : sql`false`})
-        or (${email ? sql`from_email = ${email}` : sql`false`})
+        or ${inboxFromThisCustomer(sql, workspaceId, customerId, customer.email as string | null)}
       )
     order by received_at asc
   `;
@@ -107,6 +127,7 @@ export async function exportCustomer(args: {
     erased: Boolean(customer.erased_at),
     customer: customerOut,
     notes,
+    contacts,
     tickets: ticketsWithMessages,
     inbox_messages: inbox,
   };

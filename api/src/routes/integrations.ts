@@ -265,6 +265,14 @@ integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
     returning id, email_bounce_state
   `;
   if (!data) return c.json({ error: 'Customer not found' }, 404);
+  // The customer-level summary describes the PRIMARY address, so reset that
+  // contact row too (Phase 4 contacts model) — and ONLY that one: a bounced
+  // secondary keeps its own per-address state.
+  await sql`
+    update customer_contacts
+    set bounce_state = 'none', bounce_last_type = null, bounce_last_at = null, bounce_count = 0
+    where workspace_id = ${workspaceId} and customer_id = ${customerId} and kind = 'email' and is_primary and deleted_at is null
+  `;
   return c.json({ ok: true, customer: data });
 });
 

@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
@@ -10,6 +11,11 @@ import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { writeAudit } from '../middleware/platform-admin.js';
+import {
+  ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
+  ensurePrimaryContacts, moveContactsForMerge, restoreContactsForUnmerge,
+  listWorkspaceContacts, buildCustomerContacts, contactsFor, repairCustomerContacts,
+} from '../lib/customer-contacts.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
@@ -81,23 +87,38 @@ customers.post('/from-player', async (c) => {
   const email = str(m.email);
   if (!email) return c.json({ error: 'Player has no email on file; cannot start a conversation.' }, 422);
 
-  const existing = await sql<{ id: string }[]>`
-    select id from customers
-    where workspace_id = ${workspaceId} and email = ${email} and deleted_at is null
-    limit 1
-  `;
-  if (existing.length) return c.json({ customer: { id: existing[0].id }, created: false });
+  // Any address the local profile holds matches (Phase 4 contacts model), and
+  // a merged-away duplicate resolves to its survivor — the same single hop
+  // inbound mail applies.
+  const existing = await resolveCustomerByContact(sql, workspaceId, 'email', email, { heal: true });
+  if (existing) return c.json({ customer: { id: existing.merged_into_customer_id || existing.id }, created: false });
 
-  const displayId = await nextDisplayId(sql, workspaceId, 'customer');
-  const [created] = await sql<{ id: string }[]>`
-    insert into customers
-      (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction)
-    values
-      (${workspaceId}, ${displayId}, ${str(m.firstName)}, ${str(m.lastName)}, ${str(m.username)},
-       ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)})
-    returning id
-  `;
-  return c.json({ customer: { id: created.id }, created: true }, 201);
+  try {
+    // Customer row + its primary contacts land together (mirror invariant).
+    const createdId = await sql.begin(async (tx) => {
+      const displayId = await nextDisplayId(tx, workspaceId, 'customer');
+      const [created] = await tx<{ id: string }[]>`
+        insert into customers
+          (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction)
+        values
+          (${workspaceId}, ${displayId}, ${str(m.firstName)}, ${str(m.lastName)}, ${str(m.username)},
+           ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)})
+        returning id
+      `;
+      await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email, mobile: str(m.mobile) }, { strict: true });
+      return created.id;
+    });
+    return c.json({ customer: { id: createdId }, created: true }, 201);
+  } catch (err) {
+    // Two agents starting a conversation with the same new player at once:
+    // the loser's insert trips a unique index — hand back the winner instead
+    // of a 500 (the recovery this route never had).
+    if ((err as { code?: string })?.code === '23505') {
+      const winner = await resolveCustomerByContact(sql, workspaceId, 'email', email, { heal: true });
+      if (winner) return c.json({ customer: { id: winner.merged_into_customer_id || winner.id }, created: false });
+    }
+    throw err;
+  }
 });
 
 // List customers in the active workspace. Returns the raw DB shape; the SPA
@@ -106,7 +127,10 @@ customers.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
-  const rows = await sql`
+  const rows = await sql<Array<Record<string, unknown> & {
+    id: string; merged_into_customer_id: string | null; email: string | null; mobile: string | null;
+    email_bounce_state: string | null; email_bounce_count: number | null; email_last_bounce_at: string | null;
+  }>>`
     select id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
            jurisdiction, consent, since, backoffice_url, erased_at, created_at,
            merged_into_customer_id, merged_at,
@@ -115,7 +139,12 @@ customers.get('/', async (c) => {
     where workspace_id = ${workspaceId} and deleted_at is null
     order by display_id asc
   `;
-  return c.json({ customers: rows });
+  // Phase 4 contacts model: `emails` / `mobiles` ride alongside the scalar
+  // mirror (which stays the primary), and a merged-away duplicate's addresses
+  // — physically on its survivor now — are derived back onto it so the Merged
+  // view keeps showing them.
+  const idx = await listWorkspaceContacts(sql, workspaceId);
+  return c.json({ customers: rows.map((r) => ({ ...r, ...buildCustomerContacts(r, idx) })) });
 });
 
 // ─── Customer notes ─────────────────────────────────────────────────────────
@@ -278,6 +307,13 @@ customers.delete('/:id', async (c) => {
     `;
     await tx`delete from portal_sessions where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
     await tx`delete from portal_magic_links where workspace_id = ${workspaceId} and customer_id = ${customerId}`;
+    // Contacts model: free the addresses (soft, like the profile — recoverable).
+    // The contacts email index can't see customers.deleted_at, so this has to
+    // happen here, in the same transaction.
+    await tx`
+      update customer_contacts set deleted_at = now()
+      where workspace_id = ${workspaceId} and customer_id = ${customerId} and deleted_at is null
+    `;
     await tx`
       update customers set deleted_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
@@ -321,8 +357,15 @@ customers.delete('/:id', async (c) => {
 
 const MergeBody = z.object({ into_id: z.string().uuid() });
 
-// Backfillable columns — email is NOT here by design (see above); custom-field
-// values were a client-only flourish and are dropped from the server merge.
+// Backfillable columns — email is NOT here by design (see above), and since the
+// Phase 4 contacts model neither is mobile: both now MOVE as contact rows
+// (lib/customer-contacts.ts moveContactsForMerge — the survivor's own primary
+// wins, the source's arrive as secondaries, and a survivor with no mobile gets
+// the source's promoted, which is the outcome this backfill used to produce).
+// Old journal rows naming `mobile` (pre-contacts merges) are reverted THROUGH
+// the contacts model on unmerge — see the `mobile` branch in performUnmerge —
+// not skipped. Custom-field values were a client-only flourish and are dropped
+// from the server merge.
 // kyc_status stays in this list even though Phase 4 removed KYC from the
 // product. The column still exists and still holds values, and this list drives
 // BOTH the merge backfill and the unmerge revert — delisting it while the data
@@ -333,7 +376,7 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 // performUnmerge treats any column NOT listed here as "skipped" rather than
 // "kept", so once a name does leave, stale journal rows say so in the audit
 // instead of masquerading as a deliberate decision not to revert.
-const BACKFILL_COLS = ['mobile', 'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
+const BACKFILL_COLS = ['username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
 
 customers.post('/:id/merge', async (c) => {
   const denied = await requireDeletePermission(c);
@@ -352,7 +395,7 @@ customers.post('/:id/merge', async (c) => {
   if (primaryId === sourceId) return c.json({ error: 'Cannot merge a customer into themselves' }, 400);
 
   let outcome: { status: number; body: unknown };
-  const audit: { tickets: number; notes: number; backfilled: string[] } = { tickets: 0, notes: 0, backfilled: [] };
+  const audit: { tickets: number; notes: number; contacts: number; backfilled: string[] } = { tickets: 0, notes: 0, contacts: 0, backfilled: [] };
 
   await sql.begin(async (tx) => {
     // Lock both rows in deterministic id order so two concurrent merges of
@@ -429,6 +472,16 @@ customers.post('/:id/merge', async (c) => {
     `;
     audit.notes = movedNotes.length;
 
+    // 3b. Contacts MOVE to the survivor, stamped for unmerge (Phase 4 contacts
+    // model — lib/customer-contacts.ts). The survivor's own primary wins and
+    // the source's rows arrive as secondaries, unless the survivor had none of
+    // that kind (then the source's primary is promoted — the same outcome the
+    // old scalar backfill of `mobile` produced). Both mirrors recompute, so
+    // the source's customers.email/mobile go NULL here; GET /customers derives
+    // its display addresses back from the stamped rows.
+    const movedContacts = await moveContactsForMerge(tx, workspaceId, source, primary);
+    audit.contacts = movedContacts.moved;
+
     // 4. The spec-required merge note on the survivor. merged_from stays NULL
     // so it survives a later unmerge as history. Deliberately identifies the
     // source by display id ONLY — no name/email — so a later GDPR erasure of
@@ -477,14 +530,20 @@ customers.post('/:id/merge', async (c) => {
       where n.workspace_id = ${workspaceId} and n.customer_id = ${primaryId} and n.deleted_at is null
       order by n.created_at desc
     `;
+    // Contacts after the move — server truth for the SPA (mirror scalars +
+    // arrays) for both sides.
+    const [sourceContacts, primaryContacts] = await Promise.all([
+      contactsFor(tx, workspaceId, sourceId), contactsFor(tx, workspaceId, primaryId),
+    ]);
     outcome = {
       status: 200,
       body: {
-        source: { id: sourceId, display_id: source.display_id, merged_at: stamped.merged_at },
-        primary: { id: primaryId, display_id: primary.display_id },
+        source: { id: sourceId, display_id: source.display_id, merged_at: stamped.merged_at, ...sourceContacts },
+        primary: { id: primaryId, display_id: primary.display_id, ...primaryContacts },
         tickets_moved_ids: moved.map((m) => m.id),
         notes,
         backfilled_fields: backfilled,
+        contacts_moved: movedContacts.moved,
       },
     };
   });
@@ -496,7 +555,7 @@ customers.post('/:id/merge', async (c) => {
       action: 'customer.merged',
       targetType: 'customer',
       targetId: sourceId,
-      metadata: { into: primaryId, tickets_moved: audit.tickets, notes_moved: audit.notes, backfilled: audit.backfilled },
+      metadata: { into: primaryId, tickets_moved: audit.tickets, notes_moved: audit.notes, contacts_moved: audit.contacts, backfilled: audit.backfilled },
     });
   }
   return c.json(outcome!.body as Record<string, unknown>, outcome!.status as 200);
@@ -510,11 +569,11 @@ customers.post('/:id/merge', async (c) => {
 // the copied value (survivor edits win), clears the merge pointers, and
 // stamps the journal row (kept as history).
 async function performUnmerge(workspaceId: string, userId: string, sourceId: string):
-  Promise<{ status: number; body: Record<string, unknown>; audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[]; skipped: string[] } }> {
+  Promise<{ status: number; body: Record<string, unknown>; audit: { from: string | null; tickets: number; notes: number; contacts: number; reverted: string[]; kept: string[]; skipped: string[] } }> {
   const sql = getDb();
   let outcome: { status: number; body: Record<string, unknown> };
-  const audit: { from: string | null; tickets: number; notes: number; reverted: string[]; kept: string[]; skipped: string[] } =
-    { from: null, tickets: 0, notes: 0, reverted: [], kept: [], skipped: [] };
+  const audit: { from: string | null; tickets: number; notes: number; contacts: number; reverted: string[]; kept: string[]; skipped: string[] } =
+    { from: null, tickets: 0, notes: 0, contacts: 0, reverted: [], kept: [], skipped: [] };
 
   await sql.begin(async (tx) => {
     // Peek (no lock) to learn the survivor, then lock BOTH rows in sorted-id
@@ -559,6 +618,12 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
     `;
     audit.notes = notesBack.length;
 
+    // Contacts stamped with this source go back with the primary flag they
+    // held; both mirrors recompute (survivor first — it may be releasing an
+    // address the source is about to reclaim).
+    const restoredContacts = await restoreContactsForUnmerge(tx, workspaceId, sourceId, primaryId);
+    audit.contacts = restoredContacts.restored;
+
     // Conditional backfill revert from the journal.
     const [journal] = await tx<{ id: string; backfilled_fields: Record<string, string> }[]>`
       select id, backfilled_fields from customer_merges
@@ -572,6 +637,23 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
       // Identifier safety, and history tolerance: a journal row may name a
       // column that no longer backfills (kyc_status, removed in Phase 4). Record
       // it as skipped — lumping it in with `kept` would read as a decision.
+      if (col === 'mobile') {
+        // Pre-contacts merges journalled the copied mobile as a scalar, and the
+        // contacts backfill turned that copy into the survivor's own (unstamped)
+        // primary mobile row. Revert it through the contacts model: retire the
+        // survivor's unstamped row still carrying the journalled value (a later
+        // edit wins, same rule as the scalars), then repair primaries + mirror.
+        // Post-contacts merges never journal mobile — rows move instead.
+        const res = await tx`
+          update customer_contacts set deleted_at = now()
+          where workspace_id = ${workspaceId} and customer_id = ${primaryId} and kind = 'mobile'
+            and merged_from_customer_id is null and deleted_at is null and value = ${copied}
+          returning id
+        `;
+        if (res.length) await repairCustomerContacts(tx, workspaceId, primaryId);
+        (res.length ? audit.reverted : audit.kept).push(col);
+        continue;
+      }
       if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
       const res = await tx`
         update customers set ${tx({ [col]: null })}
@@ -608,14 +690,17 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
       where n.workspace_id = ${workspaceId} and n.customer_id = ${custId} and n.deleted_at is null
       order by n.created_at desc
     `;
-    const [sourceNotes, primaryNotes] = await Promise.all([notesFor(sourceId), notesFor(primaryId)]);
+    const [sourceNotes, primaryNotes, sourceContacts, primaryContacts] = await Promise.all([
+      notesFor(sourceId), notesFor(primaryId), contactsFor(tx, workspaceId, sourceId), contactsFor(tx, workspaceId, primaryId),
+    ]);
 
     outcome = {
       status: 200,
       body: {
-        source: { id: sourceId, display_id: source.display_id },
-        primary: { id: primaryId },
+        source: { id: sourceId, display_id: source.display_id, ...sourceContacts },
+        primary: { id: primaryId, ...primaryContacts },
         tickets_restored_ids: restored.map((r) => r.id),
+        contacts_restored: audit.contacts,
         source_notes: sourceNotes,
         primary_notes: primaryNotes,
         fields_reverted: audit.reverted,
@@ -647,10 +732,103 @@ customers.post('/:id/unmerge', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: sourceId,
-      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept, fields_skipped: audit.skipped },
+      metadata: { from: audit.from, tickets_restored: audit.tickets, notes_restored: audit.notes, contacts_restored: audit.contacts, fields_reverted: audit.reverted, fields_kept_due_to_edit: audit.kept, fields_skipped: audit.skipped },
     });
   }
   return c.json(body, status as 200);
+});
+
+// ─── Contacts — multiple emails / mobiles per customer ──────────────────────
+// Phase 4 contacts model. lib/customer-contacts.ts owns every rule (one
+// primary per kind, the customers.email/mobile mirror, the removal guards,
+// the 23505 → 409 mapping); these routes only validate, call, and audit.
+// Member-level like custom-field edits: removing an address is a profile
+// edit, not a record delete, so it does not ride can_delete. Audit rows
+// deliberately carry NO address value — audit_events is append-only and
+// outside GDPR erasure (same rule as the merge auto-note).
+const ContactBody = z.object({
+  kind: z.enum(['email', 'mobile']),
+  value: z.string().trim().min(1).max(254),
+  primary: z.boolean().optional(),
+}).strict().superRefine((b, ctx) => {
+  if (b.kind === 'email' && !z.string().email().safeParse(b.value).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['value'], message: 'Invalid email address' });
+  }
+});
+
+function contactErrorResponse(c: Context, err: unknown) {
+  if (err instanceof ContactError) {
+    return c.json({ error: err.message, code: err.code, ...err.extra }, err.status as 409);
+  }
+  throw err;
+}
+
+customers.post('/:id/contacts', async (c) => {
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const raw = await c.req.json().catch(() => null);
+  const parsed = ContactBody.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+
+  try {
+    const result = await addContact(getDb(), { workspaceId, customerId, ...parsed.data });
+    await writeAudit({
+      workspaceId,
+      actorUserId: c.get('userId'),
+      action: 'customer.contact_added',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: { customer_id: customerId, kind: parsed.data.kind, contact_id: result.contact.id, primary: result.contact.is_primary },
+    });
+    return c.json(result, 201);
+  } catch (err) {
+    return contactErrorResponse(c, err);
+  }
+});
+
+customers.delete('/:id/contacts/:contactId', async (c) => {
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  const contactId = c.req.param('contactId');
+  if (!UUID_RE.test(customerId) || !UUID_RE.test(contactId)) return c.json({ error: 'Contact not found' }, 404);
+
+  try {
+    const result = await removeContact(getDb(), { workspaceId, customerId, contactId });
+    await writeAudit({
+      workspaceId,
+      actorUserId: c.get('userId'),
+      action: 'customer.contact_removed',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: { customer_id: customerId, kind: result.removed.kind, contact_id: result.removed.id },
+    });
+    return c.json(result);
+  } catch (err) {
+    return contactErrorResponse(c, err);
+  }
+});
+
+customers.post('/:id/contacts/:contactId/primary', async (c) => {
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  const contactId = c.req.param('contactId');
+  if (!UUID_RE.test(customerId) || !UUID_RE.test(contactId)) return c.json({ error: 'Contact not found' }, 404);
+
+  try {
+    const result = await setPrimaryContact(getDb(), { workspaceId, customerId, contactId });
+    await writeAudit({
+      workspaceId,
+      actorUserId: c.get('userId'),
+      action: 'customer.contact_primary_changed',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: { customer_id: customerId, kind: result.contact.kind, contact_id: result.contact.id },
+    });
+    return c.json(result);
+  } catch (err) {
+    return contactErrorResponse(c, err);
+  }
 });
 
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
@@ -791,7 +969,7 @@ customers.post('/:id/erase', async (c) => {
       action: 'customer.unmerged',
       targetType: 'customer',
       targetId: customerId,
-      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, fields_reverted: un.audit.reverted, fields_kept_due_to_edit: un.audit.kept, fields_skipped: un.audit.skipped, reason: 'pre-erasure' },
+      metadata: { from: un.audit.from, tickets_restored: un.audit.tickets, notes_restored: un.audit.notes, contacts_restored: un.audit.contacts, fields_reverted: un.audit.reverted, fields_kept_due_to_edit: un.audit.kept, fields_skipped: un.audit.skipped, reason: 'pre-erasure' },
     });
   }
 

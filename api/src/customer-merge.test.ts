@@ -109,9 +109,23 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.tickets_moved_ids).toContain(t1);
-    expect(body.backfilled_fields.mobile).toBe('+4477001');
+    // Contacts model: mobile is no longer a scalar backfill — it MOVED as a
+    // contact row and, the survivor having no mobile, was promoted to primary
+    // (so the survivor's mirror still gains it, exactly as the backfill did).
+    expect(body.backfilled_fields.mobile).toBeUndefined();
     expect(body.backfilled_fields.vip_tier).toBe('Gold');
     expect(body.backfilled_fields.email).toBeUndefined();
+    expect(body.contacts_moved).toBe(2); // the source's email + mobile
+    expect(body.primary.mobile).toBe('+4477001');
+    expect(body.primary.email).toBe(`cm-pri-${RUN}@cust.test`);          // survivor's own primary wins
+    const movedEmail = body.primary.emails.find((e: any) => e.value === `cm-src-${RUN}@cust.test`);
+    expect(movedEmail.is_primary).toBe(false);                             // arrives as a secondary
+    expect(movedEmail.merged_from_customer_id).toBe(src);
+    expect(body.primary.mobiles.find((m: any) => m.value === '+4477001').is_primary).toBe(true);
+    // The merged-away source still DISPLAYS its addresses (derived from the
+    // stamped rows now living on the survivor) even though its DB mirror is null.
+    expect(body.source.email).toBe(`cm-src-${RUN}@cust.test`);
+    expect(body.source.emails[0].on_survivor).toBe(true);
     // DATE column rides as plain YYYY-MM-DD (since::text), never a TZ-shifted
     // ISO timestamp — the journal's unmerge equality depends on it.
     expect(body.backfilled_fields.since).toBe('2020-03-15');
@@ -146,14 +160,24 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(autoNote!.text).not.toContain('@cust.test');
     expect(autoNote!.text).not.toContain('C src');
 
-    // Source stamped; survivor keeps its OWN email; journal + audit rows exist.
-    const [srcRow] = await sql<{ merged_into_customer_id: string; email: string }[]>`
+    // Source stamped and its mirror released (its rows live on the survivor);
+    // survivor keeps its OWN email; journal + audit rows exist. Both profiles
+    // were inserted WITHOUT contact rows, so this also proves the self-heal:
+    // a contact-less pair merges without nulling the survivor's mirror.
+    const [srcRow] = await sql<{ merged_into_customer_id: string; email: string | null }[]>`
       select merged_into_customer_id, email from customers where id = ${src}
     `;
     expect(srcRow.merged_into_customer_id).toBe(pri);
+    expect(srcRow.email).toBeNull();
     const [priRow] = await sql<{ email: string; mobile: string }[]>`select email, mobile from customers where id = ${pri}`;
     expect(priRow.email).toBe(`cm-pri-${RUN}@cust.test`);
     expect(priRow.mobile).toBe('+4477001');
+    const srcRows = await sql<{ customer_id: string; merged_from_customer_id: string | null; primary_before_merge: boolean }[]>`
+      select customer_id, merged_from_customer_id, primary_before_merge from customer_contacts
+      where workspace_id = ${ctx.ws} and merged_from_customer_id = ${src} and deleted_at is null
+    `;
+    expect(srcRows.length).toBe(2);
+    for (const r of srcRows) { expect(r.customer_id).toBe(pri); expect(r.primary_before_merge).toBe(true); }
     const [journal] = await sql<{ tickets_moved: number; notes_moved: number }[]>`
       select tickets_moved, notes_moved from customer_merges
       where workspace_id = ${ctx.ws} and source_customer_id = ${src} and unmerged_at is null
@@ -286,15 +310,17 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
   // revert it". The name used here is not a real column, which also pins the
   // identifier safety: if it were ever interpolated, the statement would fail.
   it('unmerge reports a journalled column that is no longer backfillable as skipped', async () => {
-    const a = await mkCustomer('skip-a', { mobile: '+4477009' });
-    const b = await mkCustomer('skip-b', { mobile: null });
+    const a = await mkCustomer('skip-a', { vip_tier: 'Gold' });
+    const b = await mkCustomer('skip-b', { vip_tier: null });
     expect((await as(admin.token, ctx.ws, `/api/v1/customers/${a}/merge`,
       { method: 'POST', body: JSON.stringify({ into_id: b }) })).status).toBe(200);
 
-    // Rewrite the journal as if a since-removed column had been backfilled.
+    // Rewrite the journal as if since-removed columns had been backfilled.
+    // `mobile` is the real-world case now: pre-contacts merges journalled it,
+    // and it left BACKFILL_COLS when contacts started moving as rows.
     await sql`
       update customer_merges
-      set backfilled_fields = ${sql.json({ mobile: '+4477009', legacy_removed_col: 'x' })}
+      set backfilled_fields = ${sql.json({ vip_tier: 'Gold', mobile: '+4477009', legacy_removed_col: 'x' })}
       where workspace_id = ${ctx.ws} and source_customer_id = ${a} and unmerged_at is null
     `;
 
@@ -302,12 +328,15 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.fields_skipped).toEqual(['legacy_removed_col']);
-    expect(body.fields_reverted).toContain('mobile');
+    expect(body.fields_reverted).toContain('vip_tier');
+    // A journalled `mobile` is handled through the contacts model, not skipped:
+    // the survivor here never carried that number, so it reads as "kept".
+    expect(body.fields_kept_due_to_edit).toContain('mobile');
     expect(body.fields_kept_due_to_edit).not.toContain('legacy_removed_col');
 
     // The real column still reverted, and the audit row carries the skip.
-    const [pri] = await sql<{ mobile: string | null }[]>`select mobile from customers where id = ${b}`;
-    expect(pri.mobile).toBeNull();
+    const [pri] = await sql<{ vip_tier: string | null }[]>`select vip_tier from customers where id = ${b}`;
+    expect(pri.vip_tier).toBeNull();
     const [audit] = await sql<{ metadata: Record<string, unknown> }[]>`
       select metadata from audit_events
       where workspace_id = ${ctx.ws} and action = 'customer.unmerged' and target_id = ${a}
@@ -317,7 +346,8 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
   });
 
   it('unmerges: stamped tickets/notes return, post-merge tickets stay, backfill reverts only untouched fields, journal stamped, audit', async () => {
-    // Survivor edits the backfilled vip_tier post-merge; mobile stays copied.
+    // Survivor edits the backfilled vip_tier post-merge; the moved mobile
+    // contact is still on the survivor (promoted primary → mirror '+4477001').
     await sql`update customers set vip_tier = 'Platinum' where id = ${ctx.pri}`;
     // A ticket born on the survivor AFTER the merge must not move on unmerge.
     const postMergeTicket = await mkTicket(ctx.pri, 'born on survivor');
@@ -327,8 +357,16 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     const body = await res.json() as any;
     expect(body.tickets_restored_ids).toContain(ctx.movedTicket);
     expect(body.tickets_restored_ids).not.toContain(postMergeTicket);
-    expect(body.fields_reverted).toContain('mobile');
+    expect(body.fields_reverted).not.toContain('mobile'); // no longer journalled — it returns as a contact row
     expect(body.fields_kept_due_to_edit).toContain('vip_tier');
+    expect(body.contacts_restored).toBe(2);
+    // Both sides' contacts ride back: the source reclaims its email + mobile
+    // as primaries (primary_before_merge), the survivor's mobile mirror empties.
+    expect(body.source.email).toBe(`cm-src-${RUN}@cust.test`);
+    expect(body.source.mobile).toBe('+4477001');
+    expect(body.source.emails[0].on_survivor).toBe(false);
+    expect(body.primary.mobile).toBeNull();
+    expect(body.primary.emails.some((e: any) => e.value === `cm-src-${RUN}@cust.test`)).toBe(false);
     // Both sides' notes ride back as server truth for the SPA.
     expect(body.source_notes.some((n: any) => n.text === 'source note')).toBe(true);
     expect(body.primary_notes.some((n: any) => n.text.startsWith('Unmerged M-src'))).toBe(true);
@@ -351,10 +389,16 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     const [priRow] = await sql<{ mobile: string | null; vip_tier: string | null; merged_into_customer_id: string | null }[]>`
       select mobile, vip_tier, merged_into_customer_id from customers where id = ${ctx.pri}
     `;
-    expect(priRow.mobile).toBeNull();          // reverted (untouched copy)
+    expect(priRow.mobile).toBeNull();          // the moved contact went home → mirror recomputed
     expect(priRow.vip_tier).toBe('Platinum');  // kept (survivor edit wins)
-    const [srcRow] = await sql<{ merged_into_customer_id: string | null }[]>`select merged_into_customer_id from customers where id = ${ctx.src}`;
+    const [srcRow] = await sql<{ merged_into_customer_id: string | null; email: string | null; mobile: string | null }[]>`
+      select merged_into_customer_id, email, mobile from customers where id = ${ctx.src}
+    `;
     expect(srcRow.merged_into_customer_id).toBeNull();
+    expect(srcRow.email).toBe(`cm-src-${RUN}@cust.test`);   // mirror restored
+    expect(srcRow.mobile).toBe('+4477001');
+    const stale = await sql`select 1 from customer_contacts where workspace_id = ${ctx.ws} and merged_from_customer_id = ${ctx.src}`;
+    expect(stale.length).toBe(0);                             // stamps cleared
 
     const [journal] = await sql<{ unmerged_at: string | null }[]>`
       select unmerged_at from customer_merges where workspace_id = ${ctx.ws} and source_customer_id = ${ctx.src}
