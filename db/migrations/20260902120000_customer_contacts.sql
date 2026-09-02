@@ -102,7 +102,8 @@ insert into customer_contacts
    bounce_state, bounce_last_type, bounce_last_at, bounce_count,
    created_at, deleted_at)
 select c.workspace_id, c.id, 'email', c.email, true,
-       c.email_bounce_state, c.email_last_bounce_type, c.email_last_bounce_at, c.email_bounce_count,
+       coalesce(c.email_bounce_state, 'none'), c.email_last_bounce_type, c.email_last_bounce_at,
+       coalesce(c.email_bounce_count, 0),
        c.created_at, c.deleted_at
 from customers c
 where nullif(trim(c.email::text), '') is not null
@@ -121,9 +122,11 @@ where nullif(trim(c.mobile), '') is not null
   )
 order by c.created_at, c.id;
 
--- GDPR erasure and the subject-access export both filter inbox_messages by
--- from_email, which has no index today (sequential scan per request). PR 7
--- widens both to every address the customer has held, so give them an index
--- now rather than after the fact.
-create index if not exists inbox_messages_ws_from_email
-  on inbox_messages (workspace_id, from_email);
+-- GDPR erasure and the subject-access export match un-converted inbox mail by
+-- sender address — now EVERY address the customer has held, via
+-- `lower(from_email::text) = any(<addresses>)` (lower() on both sides keeps the
+-- comparison case-insensitive regardless of how the text[] parameter is
+-- typed). from_email had no index at all (sequential scan per request); this
+-- expression index matches that predicate exactly.
+create index if not exists inbox_messages_ws_from_email_lower
+  on inbox_messages (workspace_id, lower(from_email::text));

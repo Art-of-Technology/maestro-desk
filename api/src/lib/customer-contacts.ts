@@ -188,7 +188,8 @@ export async function ensurePrimaryContacts(
         (workspace_id, customer_id, kind, value, is_primary,
          bounce_state, bounce_last_type, bounce_last_at, bounce_count)
       select c.workspace_id, c.id, 'email', ${email}, true,
-             c.email_bounce_state, c.email_last_bounce_type, c.email_last_bounce_at, c.email_bounce_count
+             coalesce(c.email_bounce_state, 'none'), c.email_last_bounce_type, c.email_last_bounce_at,
+             coalesce(c.email_bounce_count, 0)
       from customers c
       where c.id = ${customerId} and c.workspace_id = ${workspaceId}
         and c.deleted_at is null and c.erased_at is null

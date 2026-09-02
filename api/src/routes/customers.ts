@@ -362,9 +362,10 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 // (lib/customer-contacts.ts moveContactsForMerge — the survivor's own primary
 // wins, the source's arrive as secondaries, and a survivor with no mobile gets
 // the source's promoted, which is the outcome this backfill used to produce).
-// Old journal rows naming `mobile` read as `skipped` on unmerge, per the
-// tolerance rule below. Custom-field values were a client-only flourish and are
-// dropped from the server merge.
+// Old journal rows naming `mobile` (pre-contacts merges) are reverted THROUGH
+// the contacts model on unmerge — see the `mobile` branch in performUnmerge —
+// not skipped. Custom-field values were a client-only flourish and are dropped
+// from the server merge.
 // kyc_status stays in this list even though Phase 4 removed KYC from the
 // product. The column still exists and still holds values, and this list drives
 // BOTH the merge backfill and the unmerge revert — delisting it while the data
