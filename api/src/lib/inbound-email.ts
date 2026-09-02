@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
+import { linkCustomerToPlayer } from './player-identity.js';
 import {
   extractInReplyTo,
   extractMessageId,
@@ -303,6 +304,12 @@ export async function processInboundEmail(args: {
       }
     }
   }
+
+  // 1b. Attach the contact to its Maestro player (ids + username; fills blank
+  //     VIP / country). Fire-and-forget and self-contained — it resolves an
+  //     outcome instead of throwing, skips already-linked contacts, and no-ops
+  //     for workspaces that aren't a Maestro brand (lib/player-identity.ts).
+  void linkCustomerToPlayer({ workspaceId, customerId, reason: 'inbound_email' });
 
   // 2. Create the ticket. Priority/category come from the channel's defaults
   //    ONLY when the To: address actually matched it — the oldest-active

@@ -8,11 +8,16 @@
 //
 //   node --import tsx src/cron-run.ts webhook-retry
 //   node --import tsx src/cron-run.ts retention
+//   node --import tsx src/cron-run.ts player-identity-backfill   # run-once; repeat until remaining = 0
 import { runRetentionJob, runWebhookRetryJob } from './lib/cron-jobs.js';
+import { runPlayerIdentityBackfillJob } from './lib/player-identity.js';
 
 const jobs: Record<string, () => Promise<unknown>> = {
   'webhook-retry': runWebhookRetryJob,
   retention: runRetentionJob,
+  // Not scheduled — an operator runs it once after the maestro-ids migration
+  // to link pre-existing contacts. New contacts link themselves on creation.
+  'player-identity-backfill': () => runPlayerIdentityBackfillJob(),
 };
 
 const name = process.argv[2] ?? '';

@@ -261,6 +261,8 @@ export async function loadWorkspaceData() {
     first:        c.first_name || '',
     last:         c.last_name || '',
     username:     c.username || '',
+    maestroUserId: c.maestro_user_id || '',   // Maestro global player id (auto-linked, read-only)
+    memberId:      c.maestro_member_id || '', // per-brand member number
     email:        c.email || '',   // primary mirror (server-derived for merged-away rows)
     mobile:       c.mobile || '',
     emails:       Array.isArray(c.emails)  ? c.emails  : [],   // Phase 4 contacts model

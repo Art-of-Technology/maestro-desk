@@ -5,6 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from '../lib/customer-contacts.js';
+import { linkCustomerToPlayer } from '../lib/player-identity.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
@@ -168,6 +169,10 @@ publicRoutes.post('/:slug/tickets', async (c) => {
       }
     }
   }
+
+  // Attach the contact to its Maestro player — same fire-and-forget hook as
+  // the inbound-email path (lib/player-identity.ts); never blocks the submit.
+  void linkCustomerToPlayer({ workspaceId: ws.id, customerId, reason: 'portal' });
 
   // Create the ticket + its first message atomically. A bare ticket with
   // no opening message is a broken record (the agent view would render an

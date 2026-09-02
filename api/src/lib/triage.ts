@@ -125,6 +125,10 @@ interface WorkspaceLookups {
   workspaceName: string;
   autoReply: WorkspaceAutoReplyConfig;
   aiPlayerEnrichment: boolean;
+  // The Maestro brand this workspace projects (null for non-Maestro tenants).
+  // Scopes the player lookup to the right brand instead of the single global
+  // MAESTRO_BRAND_ID fallback, which is wrong for multi-brand installs.
+  maestroBrandId: string | null;
 }
 
 function buildWorkspaceContext(lookups: WorkspaceLookups): string {
@@ -285,7 +289,11 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   // it (AML is excluded regardless). Best-effort even when on: any failure or
   // missing config yields null and the prompt is unchanged.
   const playerContext = lookups.aiPlayerEnrichment
-    ? await buildPlayerContext({ email: ticketRes.customer_email, username: ticketRes.customer_username })
+    ? await buildPlayerContext({
+        email: ticketRes.customer_email,
+        username: ticketRes.customer_username,
+        brandId: lookups.maestroBrandId,
+      })
     : null;
   const userMessage = buildUserMessage(ticketRes, playerContext, lookups.aiPlayerEnrichment);
 
@@ -516,8 +524,8 @@ async function loadWorkspaceLookups(
     sql<{ key: string; label: string }[]>`select key, label from ticket_categories where workspace_id = ${workspaceId} and is_active = true order by label`,
     sql<{ key: string; label: string }[]>`select key, label from ticket_priorities where workspace_id = ${workspaceId} order by sort_order`,
     sql<{ key: string; label: string }[]>`select key, label from ticket_statuses where workspace_id = ${workspaceId} order by sort_order`,
-    sql<{ name: string; auto_reply_min_confidence: number | null; auto_reply_categories: string[] | null; ai_player_enrichment: boolean | null }[]>`
-      select name, auto_reply_min_confidence, auto_reply_categories, ai_player_enrichment from workspaces where id = ${workspaceId}`,
+    sql<{ name: string; auto_reply_min_confidence: number | null; auto_reply_categories: string[] | null; ai_player_enrichment: boolean | null; maestro_brand_id: string | null }[]>`
+      select name, auto_reply_min_confidence, auto_reply_categories, ai_player_enrichment, maestro_brand_id from workspaces where id = ${workspaceId}`,
   ]);
   const ws = wsRows[0];
   return {
@@ -531,6 +539,7 @@ async function loadWorkspaceLookups(
       name: ws?.name ?? 'Support',
     },
     aiPlayerEnrichment: ws?.ai_player_enrichment === true,
+    maestroBrandId: ws?.maestro_brand_id ?? null,
   };
 }
 
