@@ -29,6 +29,11 @@ const CUSTOMER_PII_FIELDS = [
   'backoffice_url', 'kyc_status', 'jurisdiction',
 ] as const;
 
+// What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
+// — the customer_contacts rows (Phase 4 contacts model), which are a table,
+// not a column, and are hard-deleted below.
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts'] as const;
+
 export interface EraseResult {
   erased: boolean;
   alreadyErased: boolean;
@@ -146,6 +151,13 @@ export async function eraseCustomer(args: {
     `;
     const notesDeleted = notes.count;
 
+    // Contact rows are HARD-deleted: a soft-deleted row would keep the address
+    // as personal data forever (same treatment notes get). The erase route
+    // un-merges a merged-away source first, so its rows are back on it here.
+    await sql`
+      delete from customer_contacts where workspace_id = ${workspaceId} and customer_id = ${customerId}
+    `;
+
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
@@ -156,7 +168,7 @@ export async function eraseCustomer(args: {
 
     const [era] = await sql<{ id: string }[]>`
       insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...CUSTOMER_PII_FIELDS]}, ${reason ?? null})
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...FIELDS_ERASED]}, ${reason ?? null})
       returning id
     `;
     erasureId = era.id;
@@ -164,7 +176,7 @@ export async function eraseCustomer(args: {
     return {
       erased: true,
       alreadyErased: false,
-      fieldsErased: [...CUSTOMER_PII_FIELDS],
+      fieldsErased: [...FIELDS_ERASED],
       ticketsAffected,
       notesDeleted,
       messagesRedacted,

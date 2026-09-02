@@ -8,7 +8,7 @@ export const AGENTS = [
 ];
 
 export const CUSTOMERS = [
-  {id:'M001',first:'Sarah',last:'Mitchell',username:'smitchell',email:'sarah.m@acme.com',mobile:'+44 7700 100001',brand:'Acme Corp',vip:'Gold',jurisdiction:'UK',consent:true,since:'2023-01-15',bo:'https://backoffice.example.com/M001',custom:{}},
+  {id:'M001',first:'Sarah',last:'Mitchell',username:'smitchell',email:'sarah.m@acme.com',mobile:'+44 7700 100001',emails:[{id:null,value:'sarah.m@acme.com',is_primary:true},{id:null,value:'sarah.mitchell@gmail.com',is_primary:false}],brand:'Acme Corp',vip:'Gold',jurisdiction:'UK',consent:true,since:'2023-01-15',bo:'https://backoffice.example.com/M001',custom:{}},
   {id:'M002',first:'James',last:'Reed',username:'jreed',email:'james.r@globex.io',mobile:'+44 7700 100002',brand:'Globex',vip:'Silver',jurisdiction:'IE',consent:true,since:'2022-11-03',bo:'https://backoffice.example.com/M002',custom:{}},
   {id:'M003',first:'Nina',last:'Kowalski',username:'nina_k',email:'nina@initech.com',mobile:'+49 151 20000003',brand:'Initech',vip:'Platinum',jurisdiction:'DE',consent:false,since:'2021-06-20',bo:'https://backoffice.example.com/M003',custom:{}},
   {id:'M004',first:'Tom',last:'Brewer',username:'tbrewer',email:'tom@umbrella.co',mobile:'+44 7700 100004',brand:'Umbrella',vip:'Bronze',jurisdiction:'UK',consent:true,since:'2023-08-11',bo:'https://backoffice.example.com/M004',custom:{}},

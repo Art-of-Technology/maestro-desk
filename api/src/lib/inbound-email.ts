@@ -1,5 +1,6 @@
 import { getDb } from './db.js';
 import { nextDisplayId } from './display-id.js';
+import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
 import {
   extractInReplyTo,
   extractMessageId,
@@ -249,10 +250,10 @@ export async function processInboundEmail(args: {
   // 1. Match-or-create the customer.
   let customerId: string;
   let isNewCustomer = false;
-  const [existingCustomer] = await sql<{ id: string; merged_into_customer_id: string | null }[]>`
-    select id, merged_into_customer_id from customers
-    where workspace_id = ${workspaceId} and email = ${email} and deleted_at is null
-  `;
+  // Any address the customer holds — primary or secondary — resolves to them
+  // (Phase 4 contacts model; lib/customer-contacts.ts). `heal` backfills the
+  // contact rows of a legacy profile that only has the scalar.
+  const existingCustomer = await resolveCustomerByContact(sql, workspaceId, 'email', email, { heal: true });
 
   if (existingCustomer) {
     // A merged-away duplicate deliberately keeps its email address (the merge
@@ -274,23 +275,28 @@ export async function processInboundEmail(args: {
     const [firstName, ...rest] = (name ?? email.split('@')[0]).split(/\s+/);
     const lastName = rest.join(' ') || null;
     try {
-      const custDisplayId = await nextDisplayId(sql, workspaceId, 'customer');
-      const [created] = await sql<{ id: string }[]>`
-        insert into customers (workspace_id, display_id, first_name, last_name, email)
-        values (${workspaceId}, ${custDisplayId}, ${firstName}, ${lastName}, ${email})
-        returning id
-      `;
-      customerId = created.id;
+      // Customer row + its primary email contact land together (the contacts
+      // model's mirror invariant), so a crash can't leave a scalar-only row.
+      customerId = await sql.begin(async (tx) => {
+        const custDisplayId = await nextDisplayId(tx, workspaceId, 'customer');
+        const [created] = await tx<{ id: string }[]>`
+          insert into customers (workspace_id, display_id, first_name, last_name, email)
+          values (${workspaceId}, ${custDisplayId}, ${firstName}, ${lastName}, ${email})
+          returning id
+        `;
+        await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email });
+        return created.id;
+      });
       isNewCustomer = true;
     } catch (err) {
-      // (workspace_id, email) unique violation → a concurrent retry won the
-      // race; re-query for the winner's row rather than failing the webhook.
+      // Unique violation → a concurrent retry won the race (the customers
+      // scalar index or the contacts email index, whichever fires first).
+      // Resolve the winner by contact — falling back to the scalar and healing
+      // a legacy row — rather than failing the webhook.
       if ((err as any)?.code === '23505') {
-        const [winner] = await sql<{ id: string }[]>`
-          select id from customers where workspace_id = ${workspaceId} and email = ${email} and deleted_at is null
-        `;
+        const winner = await resolveCustomerByContact(sql, workspaceId, 'email', email, { heal: true });
         if (!winner) throw new Error('Customer race recovery failed: row not visible after unique violation');
-        customerId = winner.id;
+        customerId = winner.merged_into_customer_id || winner.id;
         // isNewCustomer stays false — the other request created it.
       } else {
         throw new Error(`Customer create failed: ${err instanceof Error ? err.message : String(err)}`);

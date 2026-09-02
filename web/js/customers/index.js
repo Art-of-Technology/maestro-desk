@@ -33,6 +33,7 @@ import { openTicket } from '../tickets/detail.js';
 import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
+import { matchesContact } from './contacts.js';
 import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
 import { showToast } from '../core/toast.js';
@@ -176,7 +177,8 @@ function applyCustFilters() {
   else if (CUST_VIEW_FILTER === 'at-risk')     { const ids = atRiskCustomerIdSet(); list = list.filter(c => ids.has(c.id)); }
   if (CUST_QUERY.trim()) {
     const q = CUST_QUERY.toLowerCase();
-    list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.email+' '+c.brand).toLowerCase().includes(q));
+    // Every address (primary + secondaries, email + mobile) is searchable.
+    list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.brand).toLowerCase().includes(q) || matchesContact(c, q));
   }
   if (CUST_VIP_FILTER !== 'all')   list = list.filter(c => c.vip === CUST_VIP_FILTER);
   if (CUST_BRAND_FILTER !== 'all') list = list.filter(c => c.brand === CUST_BRAND_FILTER);
@@ -698,10 +700,22 @@ function showMergeConfirm(srcId, primaryId) {
         <div style="align-self:center;color:var(--ink3);font-size:16px;flex-shrink:0">→</div>
         ${card(primary, 'Survivor', 'var(--green)')}
       </div>
-      <div style="font-size:12px;color:var(--ink2);line-height:1.6">Every ticket this duplicate has ever had and its ${nCount} note${nCount===1?'':'s'} move to the survivor, blank survivor details fill in from the duplicate, and the duplicate is hidden as merged. The survivor keeps its own email address. Reversible with Un-merge.</div>`,
+      <div style="font-size:12px;color:var(--ink2);line-height:1.6">Every ticket this duplicate has ever had and its ${nCount} note${nCount===1?'':'s'} move to the survivor, blank survivor details fill in from the duplicate, its email and mobile addresses move across as secondaries (the survivor keeps its own as primary), and the duplicate is hidden as merged. Reversible with Un-merge.</div>`,
     confirmLabel: 'Merge profiles',
     onConfirm: () => { closeModal(); mergeCustomers(srcId, primaryId); },
   });
+}
+
+// Apply a merge/unmerge response's contact fields onto a local row: the
+// email/mobile mirror (server-derived for a merged-away duplicate) plus the
+// emails/mobiles arrays. Server truth beats local bookkeeping here — the
+// source's addresses physically move to the survivor as secondaries.
+function applyContacts(row, srv) {
+  if (!row || !srv || !Array.isArray(srv.emails)) return;
+  row.email = srv.email || '';
+  row.mobile = srv.mobile || '';
+  row.emails = srv.emails;
+  row.mobiles = Array.isArray(srv.mobiles) ? srv.mobiles : [];
 }
 
 async function mergeCustomers(srcId, primaryId) {
@@ -737,6 +751,8 @@ async function mergeCustomers(srcId, primaryId) {
     }));
     src.notes = [];
     Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[MERGE_COL_MAP[col] || col] = val; });
+    applyContacts(primary, res.primary);
+    applyContacts(src, res.source);
     src.mergedInto = primaryId;
     src.mergedAt = String(res.source?.merged_at || '').slice(0, 10);
     primary.mergedFrom = primary.mergedFrom || [];
@@ -818,6 +834,8 @@ async function unmergeCustomer(srcId) {
     src.notes = mapNotes(res.source_notes);
     if (primary) primary.notes = mapNotes(res.primary_notes);
     (res.fields_reverted || []).forEach(col => { if (primary) primary[MERGE_COL_MAP[col] || col] = ''; });
+    applyContacts(src, res.source);
+    applyContacts(primary, res.primary);
     if (primary && primary.mergedFrom) primary.mergedFrom = primary.mergedFrom.filter(x => x !== srcId);
     delete src.mergedInto;
     delete src.mergedAt;

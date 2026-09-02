@@ -66,6 +66,12 @@ runDbTests('GDPR export (DB-backed)', () => {
     ctx.ticketId = tk.id;
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'customer', 'Jane Doe', 'Where is my withdrawal?')`;
     await sql`insert into customer_notes (workspace_id, customer_id, text) values (${wsId}, ${cust.id}, 'Patient VIP')`;
+    // Contacts model: primary + secondary address — both belong in the bundle.
+    await sql`
+      insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values
+        (${wsId}, ${cust.id}, 'email', ${'jane-' + slug + '@player.test'}, true),
+        (${wsId}, ${cust.id}, 'email', ${'jane-alt-' + slug + '@player.test'}, false)
+    `;
 
     const [ch] = await sql<{ id: string }[]>`insert into channels (workspace_id, display_id, name, type) values (${wsId}, ${'CH-' + slug}, 'Inbox', 'email') returning id`;
     await sql`
@@ -104,6 +110,10 @@ runDbTests('GDPR export (DB-backed)', () => {
 
     expect(body.notes.length).toBe(1);
     expect(body.notes[0].text).toBe('Patient VIP');
+
+    expect(body.contacts.length).toBe(2);
+    expect(body.contacts.find((c: any) => c.is_primary).value).toBe(`jane-${slug}@player.test`);
+    expect(body.contacts.map((c: any) => c.value)).toContain(`jane-alt-${slug}@player.test`);
 
     expect(body.tickets.length).toBe(1);
     expect(body.tickets[0].subject).toBe('Withdrawal help');
