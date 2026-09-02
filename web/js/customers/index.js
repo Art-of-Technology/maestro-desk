@@ -27,7 +27,7 @@ import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, 
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
-import { isFieldVisible, getLayoutFields, getProfileAreaRows } from '../layouts/index.js';
+import { isFieldVisible, getLayoutFields, getProfileAreaRows, areaIsHalf } from '../layouts/index.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { showNewTicketModal } from '../tickets/new-ticket.js';
@@ -1005,10 +1005,13 @@ function renderCustomerDetail(custId) {
         </div>`;
 
   // The details card renders its rows from the admin-configured field order
-  // (getLayoutFields), not a hardcoded sequence. Keys with no renderer here
-  // are skipped without error: `first`/`last` are headerOwned (the name
-  // header above already shows them), and `consent`/`backoffice_url` render
-  // elsewhere on the page until the contacts/card PRs move them in.
+  // (getLayoutFields), not a hardcoded sequence. Two DISTINCT exclusion
+  // rules, each the authority for its own reason — don't collapse them:
+  // headerOwned means "the name header renders this, permanently" (first/
+  // last must never gain a renderer here without clearing the flag, or the
+  // name would double up); a missing renderer means "renders elsewhere on
+  // the page FOR NOW" (consent/backoffice_url, until the contacts/card PRs
+  // move them in — adding the renderer is exactly how they migrate).
   const FIELD_ROW_RENDERERS = {
     email:        () => `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>`,
     mobile:       () => `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>`,
@@ -1083,15 +1086,21 @@ function renderCustomerDetail(custId) {
     // Warn rather than drop in silence: a card that just stops appearing, with
     // nothing in the console, is close to undebuggable. Same treatment
     // core/router.js gives an unknown page key.
-    const parts = row.filter(k => {
+    const kept = row.filter(k => {
       if (Object.hasOwn(areas, k)) return true;
       console.warn(`[customers] unknown profile area "${k}" — skipped`);
       return false;
-    }).map(k => areas[k]);
+    });
+    const parts = kept.map(k => areas[k]);
     // A row with nothing in it emits nothing. Returning the grid wrapper for an
     // all-empty row would leave a stray margin-bottom gap on the page.
     if (parts.every(p => !p)) return '';
-    if (parts.length === 1) return parts[0];
+    // A lone FULL-width area renders bare — those blocks carry their own
+    // bottom margins, and double-wrapping would double the gap. A lone
+    // HALF-width area (partner hidden, or the pair split by a reorder) keeps
+    // the grid wrapper: the card blocks have no margin of their own, so the
+    // wrapper is what spaces the row.
+    if (parts.length === 1 && !areaIsHalf(kept[0])) return parts[0];
     // Columns follow the row's length instead of assuming two, so a three-area
     // row does not silently wrap into a 2-column grid. Spelled out as
     // '1fr 1fr ...' rather than repeat(n,1fr) so the two-area case stays

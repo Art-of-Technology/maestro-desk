@@ -61,9 +61,13 @@ const FIELD_LAYOUTS = {
     // Rendered outside the details card until the contacts/card PRs move
     // them in (consent = the KPI tile, backoffice_url = the quick-action
     // button) — but they're real profile fields, so they're admin-toggleable
-    // now and hold their place in the field order.
-    { key:'consent',        label:'Marketing consent', locked:false, required:false, visible:true },
-    { key:'backoffice_url', label:'Backoffice link',   locked:false, required:false, visible:true },
+    // now and hold their place in the field order. `note` names the render
+    // home in the admin table so the toggle's reach is explicit (hiding the
+    // Stats tiles AREA also hides the consent tile, whatever this says);
+    // `requiredNA` drops the Required toggle — neither is a form input yet,
+    // so a required flag would persist without anything consuming it.
+    { key:'consent',        label:'Marketing consent', locked:false, required:false, visible:true, requiredNA:true, note:'shown in the Stats tiles area' },
+    { key:'backoffice_url', label:'Backoffice link',   locked:false, required:false, visible:true, requiredNA:true, note:'shown in Quick actions' },
   ],
 };
 
@@ -135,21 +139,24 @@ export function hydrateLayouts(rows) {
   }
 
   // Same treatment for the profile AREAS (scope customer_areas): reset from
-  // defaults, then overlay visibility + order. A pinned area keeps its code
-  // flags and its front position regardless of what the DB says.
+  // defaults, then overlay visibility + order. No pinned special cases here —
+  // normalizeAreas() is the single authority that re-asserts the pinned
+  // invariant (front position, always visible) after every mutation,
+  // whatever the DB rows said.
   AREA_LAYOUTS.length = 0;
   for (const d of AREA_DEFAULTS) AREA_LAYOUTS.push({ ...d });
   const areaRows = (rows || []).filter(r => r.scope === AREAS_SCOPE);
   if (areaRows.length) {
     const byKey = Object.fromEntries(areaRows.map(r => [r.element_key, r]));
     for (const a of AREA_LAYOUTS) {
-      if (!byKey[a.key] || a.pinned) continue;
+      if (!byKey[a.key]) continue;
       a.visible = byKey[a.key].visible !== false;
     }
     const maxSort = Math.max(...areaRows.map(r => r.sort_order || 0));
-    const pos = new Map(AREA_LAYOUTS.map((a, i) => [a.key, a.pinned ? -1 : (byKey[a.key] ? byKey[a.key].sort_order : maxSort + 1 + i)]));
+    const pos = new Map(AREA_LAYOUTS.map((a, i) => [a.key, byKey[a.key] ? byKey[a.key].sort_order : maxSort + 1 + i]));
     AREA_LAYOUTS.sort((a, b) => pos.get(a.key) - pos.get(b.key));
   }
+  normalizeAreas();
 }
 
 // Write one entity's FULL desired set to the server (dense-set replace —
@@ -258,21 +265,46 @@ export function getProfileAreaRows() {
   return rows;
 }
 
+// Whether an area is half-width — the profile renderer needs it for a half
+// area widowed into its own row (partner hidden or pair split): the card
+// blocks carry no bottom margin of their own, so a widowed half still needs
+// the grid wrapper for row spacing, while full-width blocks bring their own
+// margins and render bare, as they always have.
+export function areaIsHalf(key) {
+  return AREA_LAYOUTS.find(a => a.key === key)?.width === 'half';
+}
+
+// The pinned invariant (front position, always visible), applied as a
+// single post-mutation pass so every write path — hydrate, drop, reset, and
+// whatever the profile-card PR adds — ends in a valid state without each
+// carrying its own guards. The UI-level checks (disabled toggle, no
+// draggable) remain, but only as mirrors of `pinned`; this is the authority.
+// sort() is spec-stable, so non-pinned areas keep their relative order.
+function normalizeAreas() {
+  for (const a of AREA_LAYOUTS) if (a.pinned) a.visible = true;
+  AREA_LAYOUTS.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+}
+
 function setAreaVisible(key, val) {
   const a = AREA_LAYOUTS.find(x => x.key === key);
   if (!a || a.pinned) return;
   a.visible = !!val;
+  normalizeAreas();
   renderPage('layouts');
   persistAreas();
 }
 
-function dropAreaRow(targetIdx) {
-  const src = AREA_LAYOUTS[AREA_DRAG_IDX];
-  const tgt = AREA_LAYOUTS[targetIdx];
-  AREA_DRAG_IDX = null;
+function dropAreaRow(targetKey) {
+  const src = AREA_LAYOUTS.find(x => x.key === AREA_DRAG_KEY);
+  const tgt = AREA_LAYOUTS.find(x => x.key === targetKey);
+  AREA_DRAG_KEY = null;
   if (!src || !tgt || src === tgt || src.pinned || tgt.pinned) return;
-  AREA_LAYOUTS.splice(AREA_LAYOUTS.indexOf(src), 1);
-  AREA_LAYOUTS.splice(targetIdx, 0, src);
+  // Same insert semantics as customers/index.js dropCustCol: target index
+  // taken before the removal.
+  const si = AREA_LAYOUTS.indexOf(src), ti = AREA_LAYOUTS.indexOf(tgt);
+  AREA_LAYOUTS.splice(si, 1);
+  AREA_LAYOUTS.splice(ti, 0, src);
+  normalizeAreas();
   renderPage('layouts');
   persistAreas();
 }
@@ -280,6 +312,7 @@ function dropAreaRow(targetIdx) {
 function resetAreas() {
   AREA_LAYOUTS.length = 0;
   for (const d of AREA_DEFAULTS) AREA_LAYOUTS.push({ ...d });
+  normalizeAreas();
   renderPage('layouts');
   persistAreas({ empty: true });
 }
@@ -287,6 +320,7 @@ function resetAreas() {
 function setLayoutFieldFlag(entity, key, flag, val) {
   const f = getLayoutField(entity, key);
   if (!f || f.locked) return;
+  if (flag === 'required' && f.requiredNA) return;   // no Required toggle exists for these
   // Locked fields must stay required + visible; non-locked fields can flip
   // both flags freely. Marking a field invisible also implies non-required —
   // a hidden field can't be required without a way for the agent to fill it.
@@ -312,13 +346,13 @@ export function renderLayouts() {
       <td>
         <strong style="color:var(--ink)">${window.escHtml(f.label)}</strong>
         ${f.locked ? '<span style="margin-left:8px;font-family:\'DM Mono\',monospace;font-size:10px;color:var(--ink3);background:var(--off2);padding:1px 6px;border-radius:3px">key</span>' : ''}
-        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${window.escHtml(f.key)}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:2px">${window.escHtml(f.key)}${f.note ? ` · <span style="font-style:italic">${window.escHtml(f.note)}</span>` : ''}</div>
       </td>
       <td style="text-align:center">
-        <label class="toggle">
+        ${f.requiredNA ? '<span style="color:var(--ink4)" title="Not a form input — required does not apply">—</span>' : `<label class="toggle">
           <input type="checkbox" ${f.required?'checked':''} ${(!admin || f.locked)?'disabled':''} data-change-action="layouts.setFieldFlag" data-tab="${window.escAttr(tab)}" data-key="${window.escAttr(f.key)}" data-flag="required">
           <span class="toggle-slider"></span>
-        </label>
+        </label>`}
         ${f.locked ? '<div style="font-size:10px;color:var(--ink3);margin-top:2px;font-style:italic">locked</div>' : ''}
       </td>
       <td style="text-align:center">
@@ -369,8 +403,8 @@ function layoutsTabBar(tab) {
 // apply again. The pinned details area is neither draggable nor hideable.
 function renderAreasTab(admin) {
   const visN = AREA_LAYOUTS.filter(a => a.visible).length;
-  const rows = AREA_LAYOUTS.map((a, i) => `
-    <div class="card layout-area-row"${admin && !a.pinned ? ' draggable="true"' : ''} data-area-idx="${i}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:8px;max-width:620px${admin && !a.pinned ? ';cursor:grab' : ''}" title="${admin && !a.pinned ? 'Drag to reorder' : ''}">
+  const rows = AREA_LAYOUTS.map(a => `
+    <div class="card layout-area-row"${admin && !a.pinned ? ' draggable="true"' : ''} data-area-key="${window.escAttr(a.key)}" style="display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:8px;max-width:620px${admin && !a.pinned ? ';cursor:grab' : ''}" title="${admin && !a.pinned ? 'Drag to reorder' : ''}">
       <span style="opacity:.35;font-size:13px;user-select:none">${a.pinned ? '&#128204;' : '&#10303;'}</span>
       <span>
         <strong style="color:var(--ink);font-size:13px">${window.escHtml(a.label)}</strong>
@@ -394,13 +428,13 @@ function renderAreasTab(admin) {
         <div class="kpi"><div class="kpi-n">${AREA_LAYOUTS.length}</div><div class="kpi-l">Areas</div></div>
         <div class="kpi"><div class="kpi-n c-blue">${visN}</div><div class="kpi-l">Visible</div></div>
         <div class="kpi"><div class="kpi-n c-amber">${AREA_LAYOUTS.length - visN}</div><div class="kpi-l">Hidden</div></div>
-        <div class="kpi"><div class="kpi-n">1</div><div class="kpi-l">Pinned</div></div>
+        <div class="kpi"><div class="kpi-n">${AREA_LAYOUTS.filter(a => a.pinned).length}</div><div class="kpi-l">Pinned</div></div>
       </div>
       ${layoutsTabBar('areas')}
       <div class="page-scroll">
         ${rows}
         ${admin ? `<button class="btn btn-sm" style="margin-top:6px" data-action="layouts.resetAreas">&#8634; Reset to default</button>` : ''}
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Half-width areas share a row when they sit next to each other; a full-width area between them splits the pair. The avatar header, merged banner and quick actions are fixed and never move. Hiding an area is display-only — the data stays, and Reset to default brings everything back.</div>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Half-width areas share a row when they sit next to each other; a full-width area between them splits the pair. The avatar header, merged banner and quick-actions bar keep their place at the top (individual buttons can still follow their own field toggles, like Backoffice). Hiding an area is display-only — the data stays, and Reset to default brings everything back.</div>
       </div>
     </div>`;
 }
@@ -419,17 +453,37 @@ registerChangeActions({
 // Same document-level pattern as customers/index.js's column drag; the
 // selector `.layout-area-row[draggable="true"]` disambiguates from that
 // module's `th[draggable="true"]` and widget-shell's
-// `.widget[draggable="true"]`, so all three coexist.
-let AREA_DRAG_IDX = null;
-function _dragAreaRow(e) { return e.target.closest('.layout-area-row[draggable="true"]'); }
+// `.widget[draggable="true"]`, so all three coexist. (A shared
+// registerDragActions in core/event-delegation.js is the noted follow-up —
+// this is the third copy of the pattern.)
+//
+// Guards, in order of appearance:
+// - dragstart requires e.target === row: when the row itself is dragged the
+//   browser targets the draggable element, but a text-selection drag started
+//   inside the row targets the inner node — without the check it would arm
+//   a reorder.
+// - State is the dragged area's KEY, not its index: a re-render or
+//   re-hydrate between dragstart and drop (e.g. a failed PUT's recovery
+//   path) re-sorts AREA_LAYOUTS, and a stale index would move the wrong
+//   area. Names survive; positions don't — the module's own design rule.
+// - dragover/drop respond only while a row drag is armed, so an OS file (or
+//   any foreign drag) is never advertised as droppable here and can't
+//   trigger the browser's default file-open navigation.
+// - dragend always clears the key, so an aborted drag can't leave a stale
+//   armed state for a later unrelated drop.
+let AREA_DRAG_KEY = null;
+function _dragAreaRow(e) { return e.target.closest?.('.layout-area-row[draggable="true"]'); }
 document.addEventListener('dragstart', e => {
-  const row = _dragAreaRow(e); if (!row) return;
-  AREA_DRAG_IDX = parseInt(row.dataset.areaIdx, 10);
+  const row = _dragAreaRow(e); if (!row || e.target !== row) return;
+  AREA_DRAG_KEY = row.dataset.areaKey || null;
 });
+document.addEventListener('dragend', () => { AREA_DRAG_KEY = null; });
 document.addEventListener('dragover', e => {
-  if (_dragAreaRow(e)) e.preventDefault();
+  if (AREA_DRAG_KEY !== null && _dragAreaRow(e)) e.preventDefault();
 });
 document.addEventListener('drop', e => {
+  if (AREA_DRAG_KEY === null) return;
   const row = _dragAreaRow(e); if (!row) return;
-  dropAreaRow(parseInt(row.dataset.areaIdx, 10));
+  e.preventDefault();
+  dropAreaRow(row.dataset.areaKey);
 });
