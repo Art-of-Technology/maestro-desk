@@ -417,6 +417,21 @@ async function attachReplyToTicket(args: {
   if (!replyMessage) throw new Error('Reply attach failed');
   void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
 
+  // Same Maestro link attempt as the new-ticket path, so a contact whose first
+  // lookup failed (gateway outage) or was throttled gets retried on replies
+  // too, not only when a NEW ticket arrives. Guarded: the thread's customer is
+  // linked only when the SENDER's address is one of that customer's own — a
+  // colleague or third party replying on the thread must never bind the
+  // customer to *their* player record. Resolution failures are swallowed.
+  try {
+    const sender = await resolveCustomerByContact(sql, workspaceId, 'email', email);
+    if (sender && (sender.merged_into_customer_id || sender.id) === customerId) {
+      scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
+    }
+  } catch (err) {
+    console.warn('[inbound-email] player-link sender check failed on thread-attach:', err instanceof Error ? err.message : err);
+  }
+
   // Customer reply un-resolves the ticket so agents see it back in the open
   // queue — the same rule the portal reply path (routes/public.ts) applies,
   // which was always documented as mirroring this path. Clearing resolved_at
