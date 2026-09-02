@@ -27,7 +27,7 @@ import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, 
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
-import { isFieldVisible } from '../layouts/index.js';
+import { isFieldVisible, getLayoutFields, getProfileAreaRows } from '../layouts/index.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { showNewTicketModal } from '../tickets/new-ticket.js';
@@ -989,22 +989,41 @@ function renderCustomerDetail(custId) {
   // These were inline in the return template until the area registry below
   // needed to own their order. Their internal indentation is deliberately the
   // indentation they had inline, so the rendered bytes are unchanged.
-  const kpisBlock = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-          <div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
-          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>
-          <div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
-          <div class="r-tile" style="border-color:${c.consent?'var(--green-bd)':'var(--red-bd)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>
+  // Column count derives from the tile list so hiding the consent tile (a
+  // layout field toggle, ahead of its move into the details card) can't
+  // leave a one-tile-wide hole in a hardcoded 4-column grid.
+  const kpiTiles = [
+    `<div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>`,
+    `<div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>`,
+    `<div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>`,
+    ...(isFieldVisible('customer','consent') ? [
+      `<div class="r-tile" style="border-color:${c.consent?'var(--green-bd)':'var(--red-bd)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>`,
+    ] : []),
+  ];
+  const kpisBlock = `<div style="display:grid;grid-template-columns:repeat(${kpiTiles.length},1fr);gap:10px;margin-bottom:20px">
+          ${kpiTiles.join('\n          ')}
         </div>`;
 
+  // The details card renders its rows from the admin-configured field order
+  // (getLayoutFields), not a hardcoded sequence. Keys with no renderer here
+  // are skipped without error: `first`/`last` are headerOwned (the name
+  // header above already shows them), and `consent`/`backoffice_url` render
+  // elsewhere on the page until the contacts/card PRs move them in.
+  const FIELD_ROW_RENDERERS = {
+    email:        () => `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>`,
+    mobile:       () => `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>`,
+    username:     () => `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>`,
+    brand:        () => `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>`,
+    vip:          () => `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>`,
+    jurisdiction: () => `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>`,
+    since:        () => `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>`,
+  };
   const detailsBlock = `<div class="card">
             <div class="card-title">Profile</div>
-            ${isFieldVisible('customer','email')        ? `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>` : ''}
-            ${isFieldVisible('customer','mobile')       ? `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>` : ''}
-            ${isFieldVisible('customer','username')     ? `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>` : ''}
-            ${isFieldVisible('customer','brand')        ? `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>` : ''}
-            ${isFieldVisible('customer','vip')          ? `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>` : ''}
-            ${isFieldVisible('customer','jurisdiction') ? `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>` : ''}
-            ${isFieldVisible('customer','since')        ? `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>` : ''}
+            ${getLayoutFields('customer')
+              .filter(f => !f.headerOwned && f.visible !== false && Object.hasOwn(FIELD_ROW_RENDERERS, f.key))
+              .map(f => FIELD_ROW_RENDERERS[f.key]())
+              .join('\n            ')}
           </div>`;
 
   const customFieldsBlock = `<div class="card">
@@ -1041,18 +1060,11 @@ function renderCustomerDetail(custId) {
     tickets:      ticketsBlock,
   };
 
-  // Rows, in order. A row of two areas shares one 2-column grid — that pairing
-  // is why this is a list of rows rather than a flat list of areas: `details`
-  // and `customFields` are side by side, not stacked, and so are `timeline` and
-  // `notes`. Admin-configurable order (a later PR) reorders THIS.
-  const areaRows = [
-    ['risk'],
-    ['kpis'],
-    ['tags'],
-    ['details', 'customFields'],
-    ['timeline', 'notes'],
-    ['tickets'],
-  ];
+  // Rows, in order, from the admin-configured area layout (Layouts → Profile
+  // areas). getProfileAreaRows applies the pairing rule — neighbouring
+  // half-width areas share one 2-column grid row (`details`+`customFields`
+  // and `timeline`+`notes` in the default order) — and drops hidden areas.
+  const areaRows = getProfileAreaRows();
 
   const areasHtml = areaRows.map(row => {
     // Drop names the registry doesn't know. areaRows is a literal today so this
@@ -1140,7 +1152,7 @@ function renderCustomerDetail(custId) {
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${!c.mergedInto ? `<button class="btn btn-sm" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}">✉ New ticket</button>` : ''}
-          ${c.bo ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
+          ${c.bo && isFieldVisible('customer','backoffice_url') ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
           ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
