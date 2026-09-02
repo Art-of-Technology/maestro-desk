@@ -12,7 +12,7 @@
 import { getDb } from './db.js';
 import { deleteKeys } from './r2.js';
 import { sendOpsAlert } from './alert.js';
-import { emailAddressesHeldBy, repairCustomerContacts } from './customer-contacts.js';
+import { inboxFromThisCustomer, repairCustomerContacts } from './customer-contacts.js';
 
 // Marker for NOT NULL text columns we can't null (subject, message body).
 const ERASED = '[erased]';
@@ -88,11 +88,9 @@ export async function eraseCustomer(args: {
     if (cust.erased_at) {
       return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0, attachmentsDeleted: 0 };
     }
-    // Capture EVERY address the subject has held BEFORE anything is nulled or
-    // deleted — un-converted inbox mail is matched by sender address, and with
-    // the contacts model that can be any of their emails (inbound is accepted
-    // from secondaries), including rows a merge re-homed onto a survivor.
-    const addresses = await emailAddressesHeldBy(sql, workspaceId, customerId);
+    // The scalar is captured BEFORE nulling — the inbox match below also uses
+    // it for a legacy profile with no contact rows.
+    const email = cust.email;
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
@@ -140,16 +138,16 @@ export async function eraseCustomer(args: {
       attachmentsDeleted = attachmentKeys.length;
     }
 
-    // Un-converted inbound mail still in the inbox, matched by sender address
-    // — EVERY address, not just the primary.
-    if (addresses.length) {
-      const inbMail = await sql`
-        update inbox_messages set
-          from_name = null, from_email = null, subject = null, body = null, body_html = null, raw = null
-        where workspace_id = ${workspaceId} and lower(from_email::text) = any(${addresses})
-      `;
-      inboxRedacted += inbMail.count;
-    }
+    // Un-converted inbound mail still in the inbox, matched by sender address —
+    // EVERY address the subject held, each within its own lifetime, so mail a
+    // later holder of a released address sent is not this subject's
+    // (inboxFromThisCustomer). Runs BEFORE the contact rows are deleted below.
+    const inbMail = await sql`
+      update inbox_messages set
+        from_name = null, from_email = null, subject = null, body = null, body_html = null, raw = null
+      where workspace_id = ${workspaceId} and ${inboxFromThisCustomer(sql, workspaceId, customerId, email)}
+    `;
+    inboxRedacted += inbMail.count;
 
     const notes = await sql`
       delete from customer_notes where workspace_id = ${workspaceId} and customer_id = ${customerId}

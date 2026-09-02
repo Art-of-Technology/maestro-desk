@@ -527,6 +527,49 @@ runDbTests('customer contacts (DB-backed)', () => {
     expect((await scalars(d)).email).toBe(emailOf('ad-d'));
   });
 
+  it('erasure/export match an address only for the time this profile held it — a later holder\'s mail is untouched', async () => {
+    const a = await mkCustomer('win-a');
+    const b = await mkCustomer('win-b');
+    const shared = emailOf('win-shared');
+    const [ch] = await sql<{ id: string }[]>`
+      insert into channels (workspace_id, display_id, name, type) values (${ctx.ws}, ${'CH-win-' + RUN}, 'Inbox', 'email') returning id
+    `;
+    const mail = async (subject: string) => (await sql<{ id: string }[]>`
+      insert into inbox_messages (workspace_id, channel_id, from_name, from_email, subject, body, received_at)
+      values (${ctx.ws}, ${ch.id}, 'C', ${shared}, ${subject}, 'body', now()) returning id
+    `)[0].id;
+    // A holds the address, mail arrives, A releases it, B adopts it, mail arrives again.
+    const added = (await (await addEmail(a, shared)).json()) as any;
+    const whileA = await mail('while A held it');
+    expect((await del(agent.token, `${contactsUrl(a)}/${added.contact.id}`)).status).toBe(200);
+    expect((await addEmail(b, shared)).status).toBe(201);
+    const whileB = await mail('after B adopted it');
+
+    // A's export sees only the first message; B's only the second.
+    const exA = (await (await as(admin.token, `/api/v1/customers/${a}/export`)).json()) as any;
+    expect(exA.inbox_messages.map((m: any) => m.subject)).toEqual(['while A held it']);
+    const exB = (await (await as(admin.token, `/api/v1/customers/${b}/export`)).json()) as any;
+    expect(exB.inbox_messages.map((m: any) => m.subject)).toEqual(['after B adopted it']);
+
+    // Erasing A redacts only A's message.
+    expect((await post(admin.token, `/api/v1/customers/${a}/erase`, {})).status).toBe(200);
+    const rows = await sql<{ id: string; body: string | null }[]>`select id, body from inbox_messages where id in (${whileA}, ${whileB})`;
+    expect(rows.find((r) => r.id === whileA)!.body).toBeNull();
+    expect(rows.find((r) => r.id === whileB)!.body).toBe('body');
+  });
+
+  it('adopting an address onto a survivor with no email of its own promotes it to primary', async () => {
+    const d = await mkCustomer('nop-d');
+    const s = await mkCustomer('nop-s', { email: null });
+    await sql`update customers set merged_into_customer_id = ${s}, merged_at = now() where id = ${d}`;
+    await sql`insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values (${ctx.ws}, ${d}, 'email', ${emailOf('nop-d')}, true)`;
+    const r = await addEmail(s, emailOf('nop-d'));
+    expect(r.status).toBe(201);
+    expect(((await r.json()) as any).contact.is_primary).toBe(true);
+    expect((await scalars(s)).email).toBe(emailOf('nop-d'));
+    expect((await rowsFor(s)).filter((x) => x.kind === 'email' && x.is_primary && !x.deleted_at).length).toBe(1);
+  });
+
   it('a row that came from a merged duplicate becomes removable once that duplicate is soft-deleted', async () => {
     const s = await mkCustomer('or-s');
     const p = await mkCustomer('or-p');

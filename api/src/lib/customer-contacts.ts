@@ -183,13 +183,16 @@ export async function ensurePrimaryContacts(
   const email = normalizeContactValue('email', args.email);
   const mobile = normalizeContactValue('mobile', args.mobile);
   if (email) {
+    // created_at = the customer's own created_at, like the backfill: a healed
+    // legacy row must cover the mail the profile received before the heal
+    // (inboxFromThisCustomer matches per row lifetime).
     const insert = sql`
       insert into customer_contacts
         (workspace_id, customer_id, kind, value, is_primary,
-         bounce_state, bounce_last_type, bounce_last_at, bounce_count)
+         bounce_state, bounce_last_type, bounce_last_at, bounce_count, created_at)
       select c.workspace_id, c.id, 'email', ${email}, true,
              coalesce(c.email_bounce_state, 'none'), c.email_last_bounce_type, c.email_last_bounce_at,
-             coalesce(c.email_bounce_count, 0)
+             coalesce(c.email_bounce_count, 0), c.created_at
       from customers c
       where c.id = ${customerId} and c.workspace_id = ${workspaceId}
         and c.deleted_at is null and c.erased_at is null
@@ -207,8 +210,8 @@ export async function ensurePrimaryContacts(
   }
   if (mobile) {
     await sql`
-      insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary)
-      select c.workspace_id, c.id, 'mobile', ${mobile}, true
+      insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary, created_at)
+      select c.workspace_id, c.id, 'mobile', ${mobile}, true, c.created_at
       from customers c
       where c.id = ${customerId} and c.workspace_id = ${workspaceId}
         and c.deleted_at is null and c.erased_at is null
@@ -260,19 +263,29 @@ export async function repairCustomerContacts(sql: Db, workspaceId: string, custo
   await syncPrimaryMirror(sql, workspaceId, customerId);
 }
 
-/** Every email address this customer has held — live and soft-deleted rows,
- *  rows a merge re-homed onto a survivor, and the scalar — for the GDPR paths
- *  that must span ALL of them (inbox redaction, the subject-access bundle). */
-export async function emailAddressesHeldBy(sql: Db, workspaceId: string, customerId: string): Promise<string[]> {
-  const rows = await sql<{ value: string }[]>`
-    select distinct lower(value::text) as value from customer_contacts
-    where workspace_id = ${workspaceId} and kind = 'email'
-      and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
-    union
-    select lower(email::text) from customers
-    where id = ${customerId} and workspace_id = ${workspaceId} and email is not null
-  `;
-  return rows.map((r) => r.value);
+/** SQL predicate on an `inbox_messages` row: "sent from an address this
+ *  customer held AT THE TIME it was received". Every contact row counts —
+ *  live, soft-deleted, or re-homed onto a merge survivor — but each only for
+ *  mail received within its own lifetime (created_at .. deleted_at). That keeps
+ *  the GDPR match set per data subject: an address this profile released and
+ *  another profile later adopted must not pull the other person's mail into
+ *  this subject's erasure or export. The scalar clause covers a legacy profile
+ *  with no contact rows (today's behaviour, unchanged). Used by gdpr-erasure
+ *  (before the rows are deleted) and gdpr-export; the expression index
+ *  inbox_messages_ws_from_email_lower serves the lower() join. */
+export function inboxFromThisCustomer(sql: Db, workspaceId: string, customerId: string, scalarEmail: string | null) {
+  const scalar = normalizeContactValue('email', scalarEmail);
+  return sql`(
+    exists (
+      select 1 from customer_contacts cc
+      where cc.workspace_id = ${workspaceId} and cc.kind = 'email'
+        and (cc.customer_id = ${customerId} or cc.merged_from_customer_id = ${customerId})
+        and lower(cc.value::text) = lower(inbox_messages.from_email::text)
+        and inbox_messages.received_at >= cc.created_at
+        and inbox_messages.received_at <= coalesce(cc.deleted_at, now())
+    )
+    or ${scalar ? sql`lower(inbox_messages.from_email::text) = ${scalar}` : sql`false`}
+  )`;
 }
 
 /** If the customer has live rows of `kind` but no primary, promote the oldest. */
@@ -414,8 +427,13 @@ export async function addContact(
             await tx`update customer_contacts set is_primary = true where id = ${row.id}`;
             row.is_primary = true;
           }
+          // The survivor may have had no email at all (a pre-contacts merge
+          // never copied one): the adopted row is then its only address and
+          // must become the primary, or the mirror stays null.
+          await ensureOnePrimary(tx, workspaceId, customerId, 'email');
           await syncPrimaryMirror(tx, workspaceId, customerId);
-          return row;
+          const [fresh] = await tx<ContactRow[]>`select ${tx.unsafe(CONTACT_COLS)} from customer_contacts where id = ${row.id}`;
+          return fresh ?? row;
         }
         if (holder && holder.id !== customerId) {
           const [owner] = await tx<{ display_id: string }[]>`
