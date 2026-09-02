@@ -9,6 +9,7 @@
 // carries the predicate.
 
 import { getDb } from './db.js';
+import { emailAddressesHeldBy } from './customer-contacts.js';
 
 export interface CustomerExport {
   exported_at: string;
@@ -100,15 +101,17 @@ export async function exportCustomer(args: {
   });
 
   // Inbound mail tied to this customer: converted into one of their tickets, or
-  // sent from their email address (still in the inbox).
-  const email = customer.email as string | null;
+  // sent from ANY email address they have held (still in the inbox) — the
+  // contacts model accepts inbound from secondaries, and a merged-away source's
+  // scalar is null while its addresses live on the survivor.
+  const addresses = await emailAddressesHeldBy(sql, workspaceId, customerId);
   const inbox = await sql<Record<string, unknown>[]>`
     select from_name, from_email, subject, body, received_at, status
     from inbox_messages
     where workspace_id = ${workspaceId}
       and (
         (${ticketIds.length ? sql`converted_ticket_id in ${sql(ticketIds)}` : sql`false`})
-        or (${email ? sql`from_email = ${email}` : sql`false`})
+        or (${addresses.length ? sql`lower(from_email::text) = any(${addresses})` : sql`false`})
       )
     order by received_at asc
   `;

@@ -12,6 +12,7 @@
 import { getDb } from './db.js';
 import { deleteKeys } from './r2.js';
 import { sendOpsAlert } from './alert.js';
+import { emailAddressesHeldBy, repairCustomerContacts } from './customer-contacts.js';
 
 // Marker for NOT NULL text columns we can't null (subject, message body).
 const ERASED = '[erased]';
@@ -87,8 +88,11 @@ export async function eraseCustomer(args: {
     if (cust.erased_at) {
       return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0, attachmentsDeleted: 0 };
     }
-    // Capture the email BEFORE nulling — needed to match un-converted inbox mail.
-    const email = cust.email;
+    // Capture EVERY address the subject has held BEFORE anything is nulled or
+    // deleted — un-converted inbox mail is matched by sender address, and with
+    // the contacts model that can be any of their emails (inbound is accepted
+    // from secondaries), including rows a merge re-homed onto a survivor.
+    const addresses = await emailAddressesHeldBy(sql, workspaceId, customerId);
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
@@ -136,12 +140,13 @@ export async function eraseCustomer(args: {
       attachmentsDeleted = attachmentKeys.length;
     }
 
-    // Un-converted inbound mail still in the inbox, matched by sender address.
-    if (email) {
+    // Un-converted inbound mail still in the inbox, matched by sender address
+    // — EVERY address, not just the primary.
+    if (addresses.length) {
       const inbMail = await sql`
         update inbox_messages set
           from_name = null, from_email = null, subject = null, body = null, body_html = null, raw = null
-        where workspace_id = ${workspaceId} and from_email = ${email}
+        where workspace_id = ${workspaceId} and lower(from_email::text) = any(${addresses})
       `;
       inboxRedacted += inbMail.count;
     }
@@ -154,9 +159,20 @@ export async function eraseCustomer(args: {
     // Contact rows are HARD-deleted: a soft-deleted row would keep the address
     // as personal data forever (same treatment notes get). The erase route
     // un-merges a merged-away source first, so its rows are back on it here.
-    await sql`
-      delete from customer_contacts where workspace_id = ${workspaceId} and customer_id = ${customerId}
+    // …including rows a merge re-homed onto a survivor (stamped with this
+    // subject's id). The erase route un-merges a LIVE merged-away source first,
+    // but a source soft-deleted after its merge can't be un-merged, and its
+    // addresses are still the subject's data. Survivors that held them get
+    // their primaries and mirror repaired.
+    const goneRows = await sql<{ customer_id: string }[]>`
+      delete from customer_contacts
+      where workspace_id = ${workspaceId}
+        and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
+      returning customer_id
     `;
+    for (const holderId of new Set(goneRows.map((r) => r.customer_id).filter((id) => id !== customerId))) {
+      await repairCustomerContacts(sql, workspaceId, holderId);
+    }
 
     await sql`
       update customers set

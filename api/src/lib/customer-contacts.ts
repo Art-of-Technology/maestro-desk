@@ -162,20 +162,28 @@ export async function resolveCustomerByContact(
 /**
  * Give a customer its primary contact rows from its scalars IF it has no live
  * row of that kind. Idempotent; safe inside or outside a transaction. Skips
- * soft-deleted and erased profiles (their rows must not occupy the unique
- * indexes). Bounce state is carried across from the scalars, as the backfill
- * does. An email already live on ANOTHER profile is left alone — that profile
- * owns it (`on conflict … do nothing` on the email index).
+ * soft-deleted, erased and MERGED-AWAY profiles (their rows must not occupy
+ * the unique indexes; a merged-away profile's addresses live on its survivor —
+ * without this guard a heal racing a merge could land an unstamped row on the
+ * just-merged source and break its unmerge). Bounce state is carried across
+ * from the scalars, as the backfill does.
+ *
+ * `strict` (the three customer CREATE paths): an email already live on another
+ * profile raises 23505 so the caller's transaction rolls back and its race
+ * recovery resolves the winner. Default (heals of existing rows): the conflict
+ * is swallowed — that profile owns the address. `allowMerged` is for unmerge
+ * only: the source is still stamped merged-away while its rows come home.
  */
 export async function ensurePrimaryContacts(
   sql: Db,
   args: { workspaceId: string; customerId: string; email?: string | null; mobile?: string | null },
+  opts: { strict?: boolean; allowMerged?: boolean } = {},
 ): Promise<void> {
   const { workspaceId, customerId } = args;
   const email = normalizeContactValue('email', args.email);
   const mobile = normalizeContactValue('mobile', args.mobile);
   if (email) {
-    await sql`
+    const insert = sql`
       insert into customer_contacts
         (workspace_id, customer_id, kind, value, is_primary,
          bounce_state, bounce_last_type, bounce_last_at, bounce_count)
@@ -184,12 +192,17 @@ export async function ensurePrimaryContacts(
       from customers c
       where c.id = ${customerId} and c.workspace_id = ${workspaceId}
         and c.deleted_at is null and c.erased_at is null
+        and (c.merged_into_customer_id is null or ${Boolean(opts.allowMerged)})
         and not exists (
           select 1 from customer_contacts x
           where x.customer_id = c.id and x.kind = 'email' and x.deleted_at is null
         )
-      on conflict (workspace_id, value) where kind = 'email' and deleted_at is null do nothing
     `;
+    if (opts.strict) {
+      await insert;
+    } else {
+      await sql`${insert} on conflict (workspace_id, value) where kind = 'email' and deleted_at is null do nothing`;
+    }
   }
   if (mobile) {
     await sql`
@@ -198,6 +211,7 @@ export async function ensurePrimaryContacts(
       from customers c
       where c.id = ${customerId} and c.workspace_id = ${workspaceId}
         and c.deleted_at is null and c.erased_at is null
+        and (c.merged_into_customer_id is null or ${Boolean(opts.allowMerged)})
         and not exists (
           select 1 from customer_contacts x
           where x.customer_id = c.id and x.kind = 'mobile' and x.deleted_at is null
@@ -209,19 +223,55 @@ export async function ensurePrimaryContacts(
 
 // ─── Mirror + primary maintenance (transaction-internal) ─────────────────────
 
-/** customers.email / mobile := the primary row's value (null when none). Never
- *  writes PII back onto an erased profile. Callers MUST have healed first. */
+/** customers.email / mobile := the primary row's value (null when none), and
+ *  customers.email_bounce_* := the primary EMAIL row's bounce state — the
+ *  customer-level summary describes the primary address, so when the primary
+ *  changes (set-primary, merge promotion) the suppression flag agent-reply,
+ *  CSAT and the suppression list read must follow it. Never writes PII back
+ *  onto an erased profile. Callers MUST have healed first. */
 export async function syncPrimaryMirror(sql: Db, workspaceId: string, customerId: string): Promise<void> {
   await sql`
     update customers c set
-      email = (select x.value from customer_contacts x
-               where x.customer_id = c.id and x.kind = 'email' and x.is_primary and x.deleted_at is null
-               limit 1),
+      email = p.value,
       mobile = (select x.value::text from customer_contacts x
                 where x.customer_id = c.id and x.kind = 'mobile' and x.is_primary and x.deleted_at is null
-                limit 1)
-    where c.id = ${customerId} and c.workspace_id = ${workspaceId} and c.erased_at is null
+                limit 1),
+      email_bounce_state     = coalesce(p.bounce_state, 'none'),
+      email_last_bounce_type = p.bounce_last_type,
+      email_last_bounce_at   = p.bounce_last_at,
+      email_bounce_count     = coalesce(p.bounce_count, 0)
+    from (
+      select c2.id as customer_id, x.value, x.bounce_state, x.bounce_last_type, x.bounce_last_at, x.bounce_count
+      from customers c2
+      left join customer_contacts x
+        on x.customer_id = c2.id and x.kind = 'email' and x.is_primary and x.deleted_at is null
+      where c2.id = ${customerId}
+    ) p
+    where c.id = p.customer_id and c.workspace_id = ${workspaceId} and c.erased_at is null
   `;
+}
+
+/** Re-establish one primary per kind (oldest row wins) and resync the mirror —
+ *  for callers that removed rows outside the normal endpoints (erasure of a
+ *  merged source's stamped rows, the legacy-mobile revert on unmerge). */
+export async function repairCustomerContacts(sql: Db, workspaceId: string, customerId: string): Promise<void> {
+  for (const kind of CONTACT_KINDS) await ensureOnePrimary(sql, workspaceId, customerId, kind);
+  await syncPrimaryMirror(sql, workspaceId, customerId);
+}
+
+/** Every email address this customer has held — live and soft-deleted rows,
+ *  rows a merge re-homed onto a survivor, and the scalar — for the GDPR paths
+ *  that must span ALL of them (inbox redaction, the subject-access bundle). */
+export async function emailAddressesHeldBy(sql: Db, workspaceId: string, customerId: string): Promise<string[]> {
+  const rows = await sql<{ value: string }[]>`
+    select distinct lower(value::text) as value from customer_contacts
+    where workspace_id = ${workspaceId} and kind = 'email'
+      and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
+    union
+    select lower(email::text) from customers
+    where id = ${customerId} and workspace_id = ${workspaceId} and email is not null
+  `;
+  return rows.map((r) => r.value);
 }
 
 /** If the customer has live rows of `kind` but no primary, promote the oldest. */
@@ -314,15 +364,57 @@ export async function addContact(
       await lockCustomerForContacts(tx, workspaceId, customerId);
       if (kind === 'email') {
         // Cross-profile check that also sees a LEGACY holder (scalar, no row
-        // yet): resolve heals it, so the unique index below then backstops
-        // the race. Without this, adding another profile's not-yet-healed
-        // address as a secondary would succeed and leave two holders.
-        const holder = await resolveCustomerByContact(tx, workspaceId, 'email', value, { heal: true });
+        // yet) via the scalar fallback. No heal here: healing ANOTHER profile
+        // while holding this one's row lock would invert the merge's sorted-id
+        // lock order (FK key-share on the other customers row) — the unique
+        // index below backstops the race instead.
+        const holder = await resolveCustomerByContact(tx, workspaceId, 'email', value);
         // Same profile → contact_exists here, deterministically: a same-profile
         // duplicate also violates the workspace-wide email index, and Postgres
         // may report that one first, which would read as another profile's.
         if (holder && holder.id === customerId) {
           throw new ContactError(409, 'contact_exists', 'This address is already on this profile');
+        }
+        if (holder && holder.id !== customerId && holder.merged_into_customer_id === customerId) {
+          // The holder is a duplicate ALREADY merged into this profile (a
+          // pre-contacts merge never copied email, so the source kept the
+          // address). "Merge the profiles instead" would be a dead end — adopt
+          // the row onto the survivor exactly as a post-contacts merge would
+          // have: stamped, so unmerge still gives it back.
+          const [adopted] = await tx<ContactRow[]>`
+            update customer_contacts set
+              customer_id = ${customerId},
+              merged_from_customer_id = ${holder.id},
+              primary_before_merge = is_primary,
+              is_primary = false
+            where workspace_id = ${workspaceId} and customer_id = ${holder.id} and kind = 'email'
+              and value = ${value} and deleted_at is null
+            returning ${tx.unsafe(CONTACT_COLS)}
+          `;
+          // Scalar-only duplicate (never healed): create the stamped row here.
+          const row = adopted ?? (await tx<ContactRow[]>`
+            insert into customer_contacts
+              (workspace_id, customer_id, kind, value, is_primary, merged_from_customer_id, primary_before_merge)
+            values (${workspaceId}, ${customerId}, 'email', ${value}, false, ${holder.id}, true)
+            returning ${tx.unsafe(CONTACT_COLS)}
+          `)[0];
+          // The duplicate's scalar (a pre-contacts merge left it in place) would
+          // collide with this profile's mirror on a later set-primary — release
+          // it; the duplicate's display now derives from the stamped row.
+          await tx`
+            update customers set email = null
+            where id = ${holder.id} and workspace_id = ${workspaceId} and email = ${value}
+          `;
+          if (args.primary) {
+            await tx`
+              update customer_contacts set is_primary = false
+              where customer_id = ${customerId} and kind = 'email' and is_primary and deleted_at is null
+            `;
+            await tx`update customer_contacts set is_primary = true where id = ${row.id}`;
+            row.is_primary = true;
+          }
+          await syncPrimaryMirror(tx, workspaceId, customerId);
+          return row;
         }
         if (holder && holder.id !== customerId) {
           const [owner] = await tx<{ display_id: string }[]>`
@@ -369,8 +461,17 @@ export async function removeContact(
       for update
     `;
     if (!row) throw new ContactError(404, 'contact_not_found', 'Contact not found');
-    // A row that arrived via merge must stay live so unmerge can restore it.
-    if (row.merged_from_customer_id) {
+    // A row that arrived via merge must stay live so unmerge can restore it —
+    // unless its source has since been soft-deleted (allowed by DELETE
+    // /customers/:id), which makes unmerge impossible: the row is then simply
+    // the survivor's own and must be removable, or the address is stuck forever.
+    const liveSources = new Set((await tx<{ id: string }[]>`
+      select s.id from customers s
+      join customer_contacts x on x.merged_from_customer_id = s.id
+      where x.customer_id = ${customerId} and x.workspace_id = ${workspaceId} and s.deleted_at is null
+    `).map((s) => s.id));
+    const orphaned = (mergedFrom: string | null) => mergedFrom !== null && !liveSources.has(mergedFrom);
+    if (row.merged_from_customer_id && !orphaned(row.merged_from_customer_id)) {
       throw new ContactError(409, 'unmerge_first', 'This address came from a merged duplicate — un-merge to remove it');
     }
     const siblings = await tx<{ id: string; merged_from_customer_id: string | null }[]>`
@@ -383,8 +484,10 @@ export async function removeContact(
     }
     // Email is the identity key (inbound, portal, CSAT, Maestro lookup). A
     // profile must keep at least one email it OWNS — a duplicate's address
-    // parked on a survivor doesn't count, or unmerge would leave it with none.
-    if (row.kind === 'email' && !siblings.some((s) => !s.merged_from_customer_id)) {
+    // parked on a survivor doesn't count (unmerge would leave it with none),
+    // unless that duplicate is gone for good (orphaned, see above).
+    const owned = (s: { merged_from_customer_id: string | null }) => !s.merged_from_customer_id || orphaned(s.merged_from_customer_id);
+    if (row.kind === 'email' && !siblings.some(owned)) {
       throw new ContactError(409, 'last_email', 'A profile must keep at least one email address');
     }
     await tx`update customer_contacts set deleted_at = now() where id = ${row.id}`;
@@ -505,7 +608,7 @@ export async function restoreContactsForUnmerge(
     where id in (${sourceId}, ${primaryId}) and workspace_id = ${workspaceId}
   `;
   for (const c of both) {
-    await ensurePrimaryContacts(tx, { workspaceId, customerId: c.id, email: c.email, mobile: c.mobile });
+    await ensurePrimaryContacts(tx, { workspaceId, customerId: c.id, email: c.email, mobile: c.mobile }, { allowMerged: true });
   }
   const rows = await tx<{ id: string }[]>`
     update customer_contacts set

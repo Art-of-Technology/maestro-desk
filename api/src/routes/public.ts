@@ -153,7 +153,7 @@ publicRoutes.post('/:slug/tickets', async (c) => {
           values (${ws.id}, ${custDisplayId}, ${first}, ${last}, ${email})
           returning id
         `;
-        await ensurePrimaryContacts(tx, { workspaceId: ws.id, customerId: created.id, email });
+        await ensurePrimaryContacts(tx, { workspaceId: ws.id, customerId: created.id, email }, { strict: true });
         return created.id;
       });
     } catch (err: any) {

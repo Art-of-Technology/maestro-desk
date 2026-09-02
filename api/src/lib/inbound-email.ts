@@ -284,7 +284,7 @@ export async function processInboundEmail(args: {
           values (${workspaceId}, ${custDisplayId}, ${firstName}, ${lastName}, ${email})
           returning id
         `;
-        await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email });
+        await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email }, { strict: true });
         return created.id;
       });
       isNewCustomer = true;

@@ -14,7 +14,7 @@ import { writeAudit } from '../middleware/platform-admin.js';
 import {
   ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
   ensurePrimaryContacts, moveContactsForMerge, restoreContactsForUnmerge,
-  listWorkspaceContacts, buildCustomerContacts, contactsFor,
+  listWorkspaceContacts, buildCustomerContacts, contactsFor, repairCustomerContacts,
 } from '../lib/customer-contacts.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -105,7 +105,7 @@ customers.post('/from-player', async (c) => {
            ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)})
         returning id
       `;
-      await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email, mobile: str(m.mobile) });
+      await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email, mobile: str(m.mobile) }, { strict: true });
       return created.id;
     });
     return c.json({ customer: { id: createdId }, created: true }, 201);
@@ -636,6 +636,23 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
       // Identifier safety, and history tolerance: a journal row may name a
       // column that no longer backfills (kyc_status, removed in Phase 4). Record
       // it as skipped — lumping it in with `kept` would read as a decision.
+      if (col === 'mobile') {
+        // Pre-contacts merges journalled the copied mobile as a scalar, and the
+        // contacts backfill turned that copy into the survivor's own (unstamped)
+        // primary mobile row. Revert it through the contacts model: retire the
+        // survivor's unstamped row still carrying the journalled value (a later
+        // edit wins, same rule as the scalars), then repair primaries + mirror.
+        // Post-contacts merges never journal mobile — rows move instead.
+        const res = await tx`
+          update customer_contacts set deleted_at = now()
+          where workspace_id = ${workspaceId} and customer_id = ${primaryId} and kind = 'mobile'
+            and merged_from_customer_id is null and deleted_at is null and value = ${copied}
+          returning id
+        `;
+        if (res.length) await repairCustomerContacts(tx, workspaceId, primaryId);
+        (res.length ? audit.reverted : audit.kept).push(col);
+        continue;
+      }
       if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
       const res = await tx`
         update customers set ${tx({ [col]: null })}

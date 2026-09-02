@@ -327,9 +327,11 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     const res = await as(admin.token, ctx.ws, `/api/v1/customers/${a}/unmerge`, { method: 'POST' });
     expect(res.status).toBe(200);
     const body = await res.json() as any;
-    expect(body.fields_skipped.length).toBe(2);
-    expect(body.fields_skipped).toEqual(expect.arrayContaining(['mobile', 'legacy_removed_col']));
+    expect(body.fields_skipped).toEqual(['legacy_removed_col']);
     expect(body.fields_reverted).toContain('vip_tier');
+    // A journalled `mobile` is handled through the contacts model, not skipped:
+    // the survivor here never carried that number, so it reads as "kept".
+    expect(body.fields_kept_due_to_edit).toContain('mobile');
     expect(body.fields_kept_due_to_edit).not.toContain('legacy_removed_col');
 
     // The real column still reverted, and the audit row carries the skip.
@@ -340,7 +342,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
       where workspace_id = ${ctx.ws} and action = 'customer.unmerged' and target_id = ${a}
       order by created_at desc limit 1
     `;
-    expect(audit.metadata.fields_skipped).toEqual(expect.arrayContaining(['mobile', 'legacy_removed_col']));
+    expect(audit.metadata.fields_skipped).toEqual(['legacy_removed_col']);
   });
 
   it('unmerges: stamped tickets/notes return, post-merge tickets stay, backfill reverts only untouched fields, journal stamped, audit', async () => {

@@ -439,4 +439,103 @@ runDbTests('customer contacts (DB-backed)', () => {
     expect(await scalars(a)).toMatchObject({ email: emailOf('heal-a'), mobile: '+4477010011' });
     expect(await scalars(b)).toMatchObject({ email: emailOf('heal-b'), mobile: null });
   });
+
+  // ─── Review-driven cases ──────────────────────────────────────────────────
+
+  it("set-primary carries the primary row's bounce state onto the customer summary", async () => {
+    const { processBounceEvent } = await import('./lib/postmark-bounce.js');
+    const cid = await mkCustomer('bmirror');
+    const alt = emailOf('bmirror-alt');
+    const added = (await (await addEmail(cid, alt)).json()) as any;
+    await processBounceEvent({
+      payload: { RecordType: 'Bounce', Type: 'HardBounce', Email: alt, From: `support@${DOMAIN}`, BouncedAt: new Date().toISOString() },
+      fromDomain: DOMAIN,
+    });
+    expect((await scalars(cid)).email_bounce_state).toBe('none');           // secondary bounced — summary still describes the primary
+    expect((await post(agent.token, `${contactsUrl(cid)}/${added.contact.id}/primary`)).status).toBe(200);
+    expect(await scalars(cid)).toMatchObject({ email: alt, email_bounce_state: 'hard', email_bounce_count: 1 });
+  });
+
+  it('erasure redacts inbox mail from EVERY address and removes rows re-homed onto a survivor when the source was soft-deleted', async () => {
+    // (a) un-converted inbox mail sent from a SECONDARY address.
+    const cid = await mkCustomer('er2');
+    const alt = emailOf('er2-alt');
+    expect((await addEmail(cid, alt)).status).toBe(201);
+    const [ch] = await sql<{ id: string }[]>`
+      insert into channels (workspace_id, display_id, name, type) values (${ctx.ws}, ${'CH-er2-' + RUN}, 'Inbox', 'email') returning id
+    `;
+    const [msg] = await sql<{ id: string }[]>`
+      insert into inbox_messages (workspace_id, channel_id, from_name, from_email, subject, body, received_at)
+      values (${ctx.ws}, ${ch.id}, 'C', ${alt.toUpperCase()}, 'from my other address', 'secret', now()) returning id
+    `;
+    expect((await post(admin.token, `/api/v1/customers/${cid}/erase`, {})).status).toBe(200);
+    const [after] = await sql<{ from_email: string | null; body: string | null }[]>`select from_email, body from inbox_messages where id = ${msg.id}`;
+    expect(after.from_email).toBeNull();
+    expect(after.body).toBeNull();
+
+    // (b) merged-away source, then soft-deleted (unmerge impossible), then erased:
+    // its stamped rows on the survivor must go too, and the survivor is repaired.
+    const s = await mkCustomer('er-src');
+    const p = await mkCustomer('er-pri');
+    expect((await post(admin.token, `/api/v1/customers/${s}/merge`, { into_id: p })).status).toBe(200);
+    expect((await del(admin.token, `/api/v1/customers/${s}`)).status).toBe(204);
+    expect((await post(admin.token, `/api/v1/customers/${s}/erase`, {})).status).toBe(200);
+    expect((await sql`select 1 from customer_contacts where workspace_id = ${ctx.ws} and merged_from_customer_id = ${s}`).length).toBe(0);
+    expect(await scalars(p)).toMatchObject({ email: emailOf('er-pri') });
+    const reuse = await mkCustomer('er-reuse');
+    expect((await addEmail(reuse, emailOf('er-src'))).status).toBe(201);      // the erased address is free again
+  });
+
+  it('unmerge reverts a PRE-contacts journalled mobile through the contacts model', async () => {
+    // Pre-deploy state: the old scalar backfill copied S's mobile onto P and
+    // journalled it; the migration then gave BOTH an unstamped primary row.
+    const s = await mkCustomer('lm-s', { mobile: '+4477010021' });
+    const p = await mkCustomer('lm-p', { mobile: '+4477010021' });
+    await sql`update customers set merged_into_customer_id = ${p}, merged_at = now() where id = ${s}`;
+    await sql`
+      insert into customer_merges (workspace_id, source_customer_id, primary_customer_id, backfilled_fields)
+      values (${ctx.ws}, ${s}, ${p}, ${sql.json({ mobile: '+4477010021' })})
+    `;
+    const res = await post(admin.token, `/api/v1/customers/${s}/unmerge`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.fields_reverted).toContain('mobile');
+    expect(await scalars(p)).toMatchObject({ email: emailOf('lm-p'), mobile: null });
+    expect(await scalars(s)).toMatchObject({ email: emailOf('lm-s'), mobile: '+4477010021' });
+  });
+
+  it('adding an address held by a duplicate ALREADY merged into this profile adopts the row (stamped) instead of a dead-end 409', async () => {
+    const d = await mkCustomer('ad-d');
+    const s = await mkCustomer('ad-s');
+    // A pre-contacts merge: d kept its email scalar and the backfill gave it a live row.
+    await sql`update customers set merged_into_customer_id = ${s}, merged_at = now() where id = ${d}`;
+    await sql`insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values (${ctx.ws}, ${d}, 'email', ${emailOf('ad-d')}, true)`;
+    const r = await addEmail(s, emailOf('ad-d'));
+    expect(r.status).toBe(201);
+    const b = (await r.json()) as any;
+    expect(b.contact.merged_from_customer_id).toBe(d);
+    expect(b.contact.is_primary).toBe(false);
+    expect(b.contacts.emails.map((e: any) => e.value).sort()).toEqual([emailOf('ad-d'), emailOf('ad-s')].sort());
+    expect((await scalars(d)).email).toBeNull();                              // scalar released
+    // Scalar-only duplicate (never healed) works too.
+    const d2 = await mkCustomer('ad-d2');
+    await sql`update customers set merged_into_customer_id = ${s}, merged_at = now() where id = ${d2}`;
+    expect((await addEmail(s, emailOf('ad-d2'))).status).toBe(201);
+    // Unmerge still gives the address back.
+    expect((await post(admin.token, `/api/v1/customers/${d}/unmerge`)).status).toBe(200);
+    expect((await rowsFor(d)).filter((x) => !x.deleted_at && x.kind === 'email').map((x) => x.value)).toEqual([emailOf('ad-d')]);
+    expect((await scalars(d)).email).toBe(emailOf('ad-d'));
+  });
+
+  it('a row that came from a merged duplicate becomes removable once that duplicate is soft-deleted', async () => {
+    const s = await mkCustomer('or-s');
+    const p = await mkCustomer('or-p');
+    expect((await post(admin.token, `/api/v1/customers/${s}/merge`, { into_id: p })).status).toBe(200);
+    const moved = (await rowsFor(p)).find((r) => r.merged_from_customer_id === s && r.kind === 'email')!;
+    expect((await del(agent.token, `${contactsUrl(p)}/${moved.id}`)).status).toBe(409);
+    expect((await del(admin.token, `/api/v1/customers/${s}`)).status).toBe(204);
+    expect((await del(agent.token, `${contactsUrl(p)}/${moved.id}`)).status).toBe(200);
+    const reuse = await mkCustomer('or-reuse');
+    expect((await addEmail(reuse, emailOf('or-s'))).status).toBe(201);
+  });
 });
