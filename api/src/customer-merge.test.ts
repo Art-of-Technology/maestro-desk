@@ -295,6 +295,25 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(priRow.erased_at).toBeNull();
   });
 
+  it('refuses to merge two profiles linked to different Maestro players (409 different_players)', async () => {
+    const a = await mkCustomer('player-a', { maestro_user_id: 'mu-A', maestro_member_id: '1' });
+    const b = await mkCustomer('player-b', { maestro_user_id: 'mu-B', maestro_member_id: '2' });
+    const res = await as(admin.token, ctx.ws, `/api/v1/customers/${a}/merge`, { method: 'POST', body: JSON.stringify({ into_id: b }) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).code).toBe('different_players');
+    const [pri] = await sql<{ maestro_user_id: string; maestro_member_id: string; merged_into_customer_id: string | null }[]>`
+      select maestro_user_id, maestro_member_id, merged_into_customer_id from customers where id = ${b}`;
+    expect(pri.maestro_user_id).toBe('mu-B');
+    expect(pri.maestro_member_id).toBe('2');
+    const [src] = await sql<{ merged_into_customer_id: string | null }[]>`select merged_into_customer_id from customers where id = ${a}`;
+    expect(src.merged_into_customer_id).toBeNull();
+
+    // Same player on both sides is a genuine duplicate and merges normally.
+    const c = await mkCustomer('player-a2', { maestro_user_id: 'mu-A', maestro_member_id: null });
+    const ok = await as(admin.token, ctx.ws, `/api/v1/customers/${c}/merge`, { method: 'POST', body: JSON.stringify({ into_id: a }) });
+    expect(ok.status).toBe(200);
+  });
+
   it('a non-admin role with can_delete may merge and unmerge', async () => {
     await sql`update workspace_members set role_id = ${ctx.cleanerRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
     const a = await mkCustomer('cap-a');

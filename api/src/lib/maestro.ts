@@ -47,6 +47,15 @@ export function str(v: unknown): string | null {
   return null;
 }
 
+/**
+ * The member lookup signals "no such member" with an HTTP 200 envelope
+ * `{ success:false, errorCode:101 }`, not a 404. One predicate for every
+ * consumer (player-context, player-identity, routes/maestro, /from-player).
+ */
+export function memberNotFound(res: Record<string, unknown> | null | undefined): boolean {
+  return !res || res.success === false || res.errorCode === 101;
+}
+
 interface FetchOpts {
   /** Bearer token: the user's Maestro access token, or the worker API token. */
   token: string;

@@ -5,7 +5,7 @@ import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from '../lib/customer-contacts.js';
-import { linkCustomerToPlayer } from '../lib/player-identity.js';
+import { scheduleLink } from '../lib/player-identity.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { suggestKbForQuestion } from '../lib/kb-suggest.js';
 import { createMagicLink, verifyMagicLink, customerForSession } from '../lib/portal-auth.js';
@@ -170,10 +170,6 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     }
   }
 
-  // Attach the contact to its Maestro player — same fire-and-forget hook as
-  // the inbound-email path (lib/player-identity.ts); never blocks the submit.
-  void linkCustomerToPlayer({ workspaceId: ws.id, customerId, reason: 'portal' });
-
   // Create the ticket + its first message atomically. A bare ticket with
   // no opening message is a broken record (the agent view would render an
   // empty thread), so they land together or not at all — if the message
@@ -193,6 +189,11 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     `;
     return t;
   }) as { id: string; display_id: string };
+
+  // Attach the contact to its Maestro player — same fire-and-forget hook as
+  // the inbound-email path (lib/player-identity.ts), after the ticket has
+  // committed; never blocks the submit. `email` = the address that submitted.
+  scheduleLink({ workspaceId: ws.id, customerId, email, reason: 'portal' });
 
   // Audit row so the agent UI can show "submitted via portal" if it ever
   // cares about the channel. Best-effort: the ticket is already committed,

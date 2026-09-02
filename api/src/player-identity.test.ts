@@ -226,6 +226,67 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect((await row(id)).maestro_user_id).toBeNull();
   });
 
+  it('links on the address that wrote in, not only the primary mirror', async () => {
+    // Casino login is a SECONDARY address; the primary has no Maestro account.
+    const primary = `primary-${RUN}@example.test`;
+    const secondary = `login-${RUN}@example.test`;
+    stubGateway({ ...PLAYER, email: secondary });
+    const id = await mkCustomer(ws, primary);
+    await sql`insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values (${ws}, ${id}, 'email', ${secondary}, false)`;
+
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, email: secondary, reason: 'inbound_email' })).toBe('linked');
+    expect(calls[0].url).toContain(encodeURIComponent(secondary));
+    expect((await row(id)).maestro_user_id).toBe(PLAYER.userId);
+  });
+
+  it('a member record without a userId is unlinkable: stamped, nothing written, no audit', async () => {
+    const email = `nouid-${RUN}@example.test`;
+    const { userId: _omit, ...noId } = PLAYER;
+    stubGateway({ ...noId, email });
+    const id = await mkCustomer(ws, email);
+
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, reason: 'inbound_email' })).toBe('no_player_id');
+    const r = await row(id);
+    expect(r.maestro_user_id).toBeNull();
+    expect(r.maestro_member_id).toBeNull();
+    expect(r.username).toBeNull();
+    expect(r.player_lookup_at).not.toBeNull();
+    const [{ n }] = await sql<{ n: number }[]>`select count(*)::int as n from audit_events where action = 'customer.player_linked' and target_id = ${id}`;
+    expect(n).toBe(0);
+  });
+
+  it('applyPlayerToCustomer never re-points a contact that is already linked to another player', async () => {
+    const id = await mkCustomer(ws, `repoint-${RUN}@example.test`, { maestro_user_id: 'player-A', maestro_member_id: '1', vip_tier: null });
+    const other = { ...PLAYER, userId: 'player-B', memberId: 2, email: `repoint-${RUN}@example.test` };
+    expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: other })).toBe(false);
+    const r = await row(id);
+    expect(r.maestro_user_id).toBe('player-A');
+    expect(r.maestro_member_id).toBe('1');
+    expect(r.vip_tier).toBeNull();   // not even blanks are filled from the wrong player
+  });
+
+  it('backfill aborts (throws) after consecutive gateway failures instead of looping on a dead token', async () => {
+    stubGateway({ error: 'gateway down' }, 503);
+    const ids: string[] = [];
+    for (let i = 0; i < lib.BACKFILL_ABORT_AFTER_FAILURES + 1; i++) ids.push(await mkCustomer(ws, `dead-${i}-${RUN}@example.test`));
+
+    // NOTE: not `expect(promise).rejects` — under bun:test that matcher stalls
+    // the socket I/O the job's own DB queries need (the run never completes).
+    // Await it in a try/catch instead.
+    let thrown: unknown = null;
+    try {
+      await lib.runPlayerIdentityBackfillJob({ concurrency: 2 });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toMatch(/consecutive gateway failures/);
+    // Nothing stamped — a fixed token makes the next run pick them all up again.
+    for (const id of ids) expect((await row(id)).player_lookup_at).toBeNull();
+    // Clean up so the convergence test below starts from a known state.
+    await sql`delete from customers where id in ${sql(ids)}`;
+  });
+
   it('backfill walks only brand workspaces, links what it can, and converges to remaining = 0', async () => {
     // Fresh candidates: everything above is linked or stamped, so it is out of
     // scope for the backfill by construction. Add three new ones.

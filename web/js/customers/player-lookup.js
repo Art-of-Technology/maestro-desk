@@ -115,7 +115,9 @@ function localMatchFor(player) {
   // first — that survives the player writing in from a different address.
   const uid = String(player.userId || '');
   if (uid) {
-    const byId = CUSTOMERS.find(c => c.maestroUserId && String(c.maestroUserId) === uid);
+    // Skip merged-away shells: after a merge both source and survivor carry
+    // the id, but the tickets live on the survivor (same rule as the merge picker).
+    const byId = CUSTOMERS.find(c => !c._mergedIntoUuid && c.maestroUserId && String(c.maestroUserId) === uid);
     if (byId) return byId;
   }
   if (!player.email) return null;

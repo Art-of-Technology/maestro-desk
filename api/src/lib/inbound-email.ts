@@ -1,7 +1,7 @@
 import { getDb } from './db.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
-import { linkCustomerToPlayer } from './player-identity.js';
+import { scheduleLink } from './player-identity.js';
 import {
   extractInReplyTo,
   extractMessageId,
@@ -305,12 +305,6 @@ export async function processInboundEmail(args: {
     }
   }
 
-  // 1b. Attach the contact to its Maestro player (ids + username; fills blank
-  //     VIP / country). Fire-and-forget and self-contained — it resolves an
-  //     outcome instead of throwing, skips already-linked contacts, and no-ops
-  //     for workspaces that aren't a Maestro brand (lib/player-identity.ts).
-  void linkCustomerToPlayer({ workspaceId, customerId, reason: 'inbound_email' });
-
   // 2. Create the ticket. Priority/category come from the channel's defaults
   //    ONLY when the To: address actually matched it — the oldest-active
   //    fallback attributes the inbox row but must not lend its urgency to
@@ -339,6 +333,15 @@ export async function processInboundEmail(args: {
   `;
   if (!newMessage) throw new Error('Message create failed');
   void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
+
+  // 3a. Attach the contact to its Maestro player (ids + username; fills blank
+  //     VIP / country). Runs AFTER the ticket + message land so it never
+  //     competes with them for the pool on the webhook hot path. Self-contained
+  //     — resolves an outcome instead of throwing, skips already-linked
+  //     contacts, no-ops for non-Maestro workspaces (lib/player-identity.ts).
+  //     `email` is the address that wrote in: a casino login held as a
+  //     SECONDARY address would never match on the primary mirror.
+  scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
 
   // 3b. Audit row in the inbox view, attributed to the channel resolved
   //     above. Failures are logged but don't fail the webhook — the

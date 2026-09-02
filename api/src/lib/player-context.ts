@@ -10,7 +10,7 @@
 // player can't be resolved, or any call fails, we return null and triage
 // proceeds exactly as before. Player data must never block a support reply.
 
-import { workerFetch, workerMaestroConfigured, MaestroError, str } from './maestro.js';
+import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str } from './maestro.js';
 
 interface PlayerLookup {
   email?: string | null;
@@ -49,7 +49,7 @@ export async function buildPlayerContext(lookup: PlayerLookup): Promise<string |
       query: { email: lookup.email ?? lookup.username ?? undefined },
     });
     // Not-found is HTTP 200 with { success:false, errorCode:101 } — treat as no data.
-    member = res && res.success !== false && res.errorCode !== 101 ? res : null;
+    member = memberNotFound(res) ? null : res;
   } catch (err) {
     if (err instanceof MaestroError && err.status !== 404) {
       console.warn('[player-context] member lookup failed:', err.status, err.message);

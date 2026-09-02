@@ -288,7 +288,10 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   // balance/country/VIP reaches the LLM unless a brand explicitly enables
   // it (AML is excluded regardless). Best-effort even when on: any failure or
   // missing config yields null and the prompt is unchanged.
-  const playerContext = lookups.aiPlayerEnrichment
+  // Also requires the workspace to BE a Maestro brand: with no brand id the
+  // worker would fall back to the global MAESTRO_BRAND_ID and enrich this
+  // tenant's ticket with some OTHER brand's player record.
+  const playerContext = lookups.aiPlayerEnrichment && lookups.maestroBrandId
     ? await buildPlayerContext({
         email: ticketRes.customer_email,
         username: ticketRes.customer_username,
