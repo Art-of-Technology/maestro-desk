@@ -103,6 +103,12 @@ export interface LinkArgs {
    * (which only knows the row) falls back to customers.email.
    */
   email?: string | null;
+  /**
+   * The signed-in agent whose action triggered the link (adding / promoting an
+   * address). Recorded as the audit actor; omitted for headless paths (inbound
+   * mail, portal, backfill), which audit as the system actor.
+   */
+  actorUserId?: string | null;
 }
 
 /**
@@ -199,10 +205,11 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   if (!linked) return 'skipped';   // a concurrent link won, or the row changed under us
 
   // Same shape as 'player.viewed' (routes/maestro.ts): categories, never
-  // values. System actor — no signed-in user drives this.
+  // values. Actor = the agent whose contact edit triggered this, else the
+  // system (inbound mail / portal / backfill have no signed-in user).
   await writeAudit({
     workspaceId: args.workspaceId,
-    actorUserId: null,
+    actorUserId: args.actorUserId ?? null,
     action: 'customer.player_linked',
     targetType: 'customer',
     targetId: args.customerId,

@@ -34,6 +34,7 @@ runDbTests('player identity linking (DB-backed)', () => {
   const brand = randomUUID();
   let ws = '';        // a Maestro-brand workspace
   let wsNoBrand = ''; // a legacy / non-Maestro workspace
+  const createdUserIds: string[] = [];
   const realFetch = globalThis.fetch;
 
   // Every stubbed gateway call is recorded (url + X-Brand-Id) so tests can
@@ -97,6 +98,7 @@ runDbTests('player identity linking (DB-backed)', () => {
       await sql`delete from customers where workspace_id = ${id}`;
       await sql`delete from workspaces where id = ${id}`;
     }
+    if (createdUserIds.length) await sql`delete from users where id in ${sql(createdUserIds)}`;
   });
 
   it('links ids, fills blank username/VIP/country, scopes the lookup to the workspace brand, and audits as system', async () => {
@@ -224,6 +226,25 @@ runDbTests('player identity linking (DB-backed)', () => {
     const id = await mkCustomer(ws, null, { erased_at: new Date() });
     expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: PLAYER })).toBe(false);
     expect((await row(id)).maestro_user_id).toBeNull();
+  });
+
+  it('records the triggering agent as the audit actor when one is given (contact edits)', async () => {
+    const { auth } = await import('./lib/auth.js');
+    const r: any = await auth.api.signUpEmail({ body: { email: `pi-agent-${RUN}@t.test`, password: 'password-12345', name: 'A' }, returnHeaders: true });
+    const agentId: string = r.response.user.id;
+    createdUserIds.push(agentId);
+
+    const email = `actor-${RUN}@example.test`;
+    stubGateway({ ...PLAYER, email });
+    const id = await mkCustomer(ws, email);
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, email, actorUserId: agentId, reason: 'contact_edit' })).toBe('linked');
+
+    const [audit] = await sql<{ actor_user_id: string | null; metadata: Record<string, unknown> }[]>`
+      select actor_user_id, metadata from audit_events
+      where workspace_id = ${ws} and action = 'customer.player_linked' and target_id = ${id}
+    `;
+    expect(audit.actor_user_id).toBe(agentId);
+    expect(audit.metadata.reason).toBe('contact_edit');
   });
 
   it('links on the address that wrote in, not only the primary mirror', async () => {

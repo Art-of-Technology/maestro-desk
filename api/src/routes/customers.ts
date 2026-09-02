@@ -821,7 +821,7 @@ customers.post('/:id/contacts', async (c) => {
       metadata: { customer_id: customerId, kind: parsed.data.kind, contact_id: result.contact.id, primary: result.contact.is_primary },
     });
     // A newly added address may be the casino login — try to link on it.
-    if (parsed.data.kind === 'email') scheduleLink({ workspaceId, customerId, email: parsed.data.value, reason: 'contact_edit' });
+    if (parsed.data.kind === 'email') scheduleLink({ workspaceId, customerId, email: parsed.data.value, actorUserId: c.get('userId'), reason: 'contact_edit' });
     return c.json(result, 201);
   } catch (err) {
     return contactErrorResponse(c, err);
@@ -868,7 +868,7 @@ customers.post('/:id/contacts/:contactId/primary', async (c) => {
     });
     // syncPrimaryMirror cleared the lookup stamp when the primary email
     // changed; probe the new address right away rather than on the next email.
-    if (result.contact.kind === 'email') scheduleLink({ workspaceId, customerId, email: result.contact.value, reason: 'contact_edit' });
+    if (result.contact.kind === 'email') scheduleLink({ workspaceId, customerId, email: result.contact.value, actorUserId: c.get('userId'), reason: 'contact_edit' });
     return c.json(result);
   } catch (err) {
     return contactErrorResponse(c, err);
