@@ -4,8 +4,9 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
-import { workerFetch, workerMaestroConfigured, MaestroError, str } from '../lib/maestro.js';
+import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str } from '../lib/maestro.js';
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
+import { applyPlayerToCustomer, linkedCategories, scheduleLink } from '../lib/player-identity.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
 import { eraseCustomer } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
@@ -80,7 +81,7 @@ customers.post('/from-player', async (c) => {
     }
     return c.json({ error: 'Could not reach Maestro to resolve the player.' }, 502);
   }
-  if (!m || m.success === false || m.errorCode === 101) {
+  if (memberNotFound(m)) {
     return c.json({ error: 'No matching player found.' }, 404);
   }
 
@@ -91,7 +92,26 @@ customers.post('/from-player', async (c) => {
   // a merged-away duplicate resolves to its survivor — the same single hop
   // inbound mail applies.
   const existing = await resolveCustomerByContact(sql, workspaceId, 'email', email, { heal: true });
-  if (existing) return c.json({ customer: { id: existing.merged_into_customer_id || existing.id }, created: false });
+  if (existing) {
+    const existingId = existing.merged_into_customer_id || existing.id;
+    // A stub contact (created by inbound mail before any lookup) gains the
+    // player's ids now — we already hold the authoritative record, and this
+    // is the same write the automatic linker performs: UNLINKED rows only (a
+    // contact already tied to a player is never re-pointed), blanks only for
+    // username / VIP / country. Audited like the linker, but as the agent.
+    const linked = await applyPlayerToCustomer(sql, { workspaceId, customerId: existingId, member: m });
+    if (linked) {
+      await writeAudit({
+        workspaceId,
+        actorUserId: c.get('userId'),
+        action: 'customer.player_linked',
+        targetType: 'customer',
+        targetId: existingId,
+        metadata: { brand_id: brandId, reason: 'from_player', accessed: linkedCategories(m) },
+      });
+    }
+    return c.json({ customer: { id: existingId }, created: false });
+  }
 
   try {
     // Customer row + its primary contacts land together (mirror invariant).
@@ -99,10 +119,12 @@ customers.post('/from-player', async (c) => {
       const displayId = await nextDisplayId(tx, workspaceId, 'customer');
       const [created] = await tx<{ id: string }[]>`
         insert into customers
-          (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction)
+          (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction,
+           maestro_user_id, maestro_member_id, player_lookup_at)
         values
           (${workspaceId}, ${displayId}, ${str(m.firstName)}, ${str(m.lastName)}, ${str(m.username)},
-           ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)})
+           ${email}, ${str(m.mobile)}, ${str(m.vipLevel)}, ${str(m.country)},
+           ${str(m.userId)}, ${str(m.userId) ? str(m.memberId) : null}, now())
         returning id
       `;
       await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email, mobile: str(m.mobile) }, { strict: true });
@@ -133,6 +155,7 @@ customers.get('/', async (c) => {
   }>>`
     select id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
            jurisdiction, consent, since, backoffice_url, erased_at, created_at,
+           maestro_user_id, maestro_member_id,
            merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count
     from customers
@@ -376,7 +399,11 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 // performUnmerge treats any column NOT listed here as "skipped" rather than
 // "kept", so once a name does leave, stale journal rows say so in the audit
 // instead of masquerading as a deliberate decision not to revert.
-const BACKFILL_COLS = ['username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url'] as const;
+const BACKFILL_COLS = [
+  'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url',
+  // Maestro player ids (text columns — see the 20260903100000 migration).
+  'maestro_user_id', 'maestro_member_id',
+] as const;
 
 customers.post('/:id/merge', async (c) => {
   const denied = await requireDeletePermission(c);
@@ -404,9 +431,11 @@ customers.post('/:id/merge', async (c) => {
     const rows = await tx<{ id: string; display_id: string; first_name: string | null; last_name: string | null; email: string | null;
       mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null;
       kyc_status: string | null; since: string | null; backoffice_url: string | null;
+      maestro_user_id: string | null; maestro_member_id: string | null;
       merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
-             jurisdiction, kyc_status, since::text as since, backoffice_url, merged_into_customer_id, erased_at
+             jurisdiction, kyc_status, since::text as since, backoffice_url,
+             maestro_user_id, maestro_member_id, merged_into_customer_id, erased_at
       from customers
       where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
       order by id
@@ -423,6 +452,13 @@ customers.post('/:id/merge', async (c) => {
     if (source.merged_into_customer_id)  { outcome = { status: 409, body: { error: 'This profile is already merged' } }; return; }
     if (primary.merged_into_customer_id) { outcome = { status: 409, body: { error: 'The chosen survivor is itself a merged duplicate — pick the chain primary instead' } }; return; }
     if (source.erased_at || primary.erased_at) { outcome = { status: 409, body: { error: 'Erased profiles cannot be merged' } }; return; }
+    // Two profiles linked to DIFFERENT Maestro players are two people, not a
+    // duplicate — and the column-wise backfill below would otherwise leave the
+    // survivor with one player's user id next to the other's member number.
+    if (source.maestro_user_id && primary.maestro_user_id && source.maestro_user_id !== primary.maestro_user_id) {
+      outcome = { status: 409, body: { error: 'These profiles are linked to different Maestro players and cannot be merged', code: 'different_players' } };
+      return;
+    }
 
     // A source that is itself a merge SURVIVOR can't be merged away: step 1
     // below would overwrite its children's pre_merge/merged_from stamps
@@ -655,8 +691,11 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
         continue;
       }
       if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
+      // Reverting the Maestro link also clears the lookup stamp, so the
+      // survivor is re-probed on its next email instead of waiting out the TTL.
+      const revert = col === 'maestro_user_id' ? { [col]: null, player_lookup_at: null } : { [col]: null };
       const res = await tx`
-        update customers set ${tx({ [col]: null })}
+        update customers set ${tx(revert)}
         where id = ${primaryId} and workspace_id = ${workspaceId} and ${tx(col)} = ${copied}
         returning id
       `;
@@ -781,6 +820,8 @@ customers.post('/:id/contacts', async (c) => {
       targetId: customerId,
       metadata: { customer_id: customerId, kind: parsed.data.kind, contact_id: result.contact.id, primary: result.contact.is_primary },
     });
+    // A newly added address may be the casino login — try to link on it.
+    if (parsed.data.kind === 'email') scheduleLink({ workspaceId, customerId, email: parsed.data.value, actorUserId: c.get('userId'), reason: 'contact_edit' });
     return c.json(result, 201);
   } catch (err) {
     return contactErrorResponse(c, err);
@@ -825,6 +866,9 @@ customers.post('/:id/contacts/:contactId/primary', async (c) => {
       targetId: customerId,
       metadata: { customer_id: customerId, kind: result.contact.kind, contact_id: result.contact.id },
     });
+    // syncPrimaryMirror cleared the lookup stamp when the primary email
+    // changed; probe the new address right away rather than on the next email.
+    if (result.contact.kind === 'email') scheduleLink({ workspaceId, customerId, email: result.contact.value, actorUserId: c.get('userId'), reason: 'contact_edit' });
     return c.json(result);
   } catch (err) {
     return contactErrorResponse(c, err);

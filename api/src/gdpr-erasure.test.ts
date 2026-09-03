@@ -62,8 +62,10 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${wsId}, ${agent.userId}, ${roRole.id}, true)`;
 
     const [cust] = await sql<{ id: string }[]>`
-      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, kyc_status, jurisdiction, backoffice_url, brand)
-      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT', 'https://bo.example/p/1', 'Acme')
+      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, kyc_status, jurisdiction, backoffice_url, brand,
+                             maestro_user_id, maestro_member_id, player_lookup_at)
+      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT', 'https://bo.example/p/1', 'Acme',
+              'mu-jane-0001', '4711', now())
       returning id
     `;
     ctx.customerId = cust.id;
@@ -133,6 +135,11 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     // survives until its drop migration, so erasure must keep nulling it.
     expect(cust.kyc_status).toBeNull();
     expect(cust.jurisdiction).toBeNull();
+    // Maestro player ids name the subject's casino account — erased too, and
+    // the lookup stamp goes with them so nothing re-links an erased profile.
+    expect(cust.maestro_user_id).toBeNull();
+    expect(cust.maestro_member_id).toBeNull();
+    expect(cust.player_lookup_at).toBeNull();
     expect(cust.erased_at).not.toBeNull();
     expect(cust.brand).toBe('Acme'); // non-identifying, retained
 
@@ -165,6 +172,8 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(era[0].reason).toBe('DSAR #1');
     expect(era[0].fields_erased).toContain('email');
     expect(era[0].fields_erased).toContain('contacts');
+    expect(era[0].fields_erased).toContain('maestro_user_id');
+    expect(era[0].fields_erased).toContain('maestro_member_id');
     expect(era[0].completed_at).not.toBeNull();
   });
 

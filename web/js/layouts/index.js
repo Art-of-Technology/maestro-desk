@@ -54,6 +54,10 @@ const FIELD_LAYOUTS = {
     { key:'email',        label:'Email',          locked:false, required:true,  visible:true },
     { key:'mobile',       label:'Mobile',         locked:false, required:false, visible:true },
     { key:'username',     label:'Username',       locked:false, required:false, visible:true },
+    // Maestro player identity — written by the server's auto-link (never by
+    // an agent), so there's no input to require: requiredNA like consent.
+    { key:'maestroUserId', label:'Maestro user ID', locked:false, required:false, visible:true, requiredNA:true, note:'linked automatically from Maestro' },
+    { key:'memberId',      label:'Member ID',       locked:false, required:false, visible:true, requiredNA:true, note:'linked automatically from Maestro' },
     { key:'brand',        label:'Brand',          locked:false, required:false, visible:true },
     { key:'vip',          label:'VIP tier',       locked:false, required:false, visible:true },
     { key:'jurisdiction', label:'Jurisdiction',   locked:false, required:false, visible:true },

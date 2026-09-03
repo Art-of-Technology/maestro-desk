@@ -13,6 +13,7 @@ import {
   workerFetch,
   workerMaestroConfigured,
   MaestroError,
+  memberNotFound,
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
@@ -275,7 +276,7 @@ maestro.get('/players', requireAuthOnly, async (c) => {
     });
     // The gateway answers HTTP 200 with { success:false, errorCode:101 } when no
     // member matches — surface that as a clean 404 the SPA can show as "not found".
-    if (!member || member.success === false || member.errorCode === 101) {
+    if (memberNotFound(member)) {
       return c.json({ found: false }, 404);
     }
     // Read-access audit: record WHO viewed WHICH player's sensitive data (the

@@ -274,8 +274,8 @@ function bulkDeleteCustomers() {
 
 function exportCustomerList() {
   const list = applyCustFilters();
-  const headers = ['ID','First','Last','Username','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
-  const rows = list.map(c => [c.id, c.first, c.last, c.username, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.since]);
+  const headers = ['ID','First','Last','Username','Maestro user ID','Member ID','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
+  const rows = list.map(c => [c.id, c.first, c.last, c.username, c.maestroUserId, c.memberId, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.since]);
   const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -659,7 +659,7 @@ function showMergeCustomerModal(custId) {
 
 // Server column names → client view-model keys, for applying merge/unmerge
 // responses locally (the rest of the backfill columns share their names).
-const MERGE_COL_MAP = { vip_tier: 'vip', backoffice_url: 'bo' };
+const MERGE_COL_MAP = { vip_tier: 'vip', backoffice_url: 'bo', maestro_user_id: 'maestroUserId', maestro_member_id: 'memberId' };
 
 // Side-by-side confirmation between picking a survivor and actually merging —
 // the spec's safety gate (the old picker merged on a single mousedown).
@@ -782,7 +782,7 @@ async function mergeCustomers(srcId, primaryId) {
   // was instead of leaving it carrying the source's data forever.
   primary._mergeBackfilled = primary._mergeBackfilled || {};
   primary._mergeBackfilled[srcId] = { fields: [], custom: [] };
-  ['email','mobile','username','brand','vip','jurisdiction','since','bo'].forEach(f => {
+  ['email','mobile','username','maestroUserId','memberId','brand','vip','jurisdiction','since','bo'].forEach(f => {
     if (!primary[f] && src[f]) {
       primary[f] = src[f];
       primary._mergeBackfilled[srcId].fields.push(f);
@@ -1034,6 +1034,10 @@ function renderCustomerDetail(custId) {
     email:        () => `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>`,
     mobile:       () => `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>`,
     username:     () => `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>`,
+    // Maestro identity — server-written by the auto-link, read-only here. An
+    // unlinked contact says so rather than showing a blank cell.
+    maestroUserId: () => `<div class="ts-row"><span class="ts-key">Maestro user ID</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.maestroUserId ? window.escHtml(c.maestroUserId) : '<span style="color:var(--ink3);font-family:inherit">Not linked</span>'}</span></div>`,
+    memberId:      () => `<div class="ts-row"><span class="ts-key">Member ID</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.memberId ? window.escHtml(c.memberId) : '<span style="color:var(--ink3)">—</span>'}</span></div>`,
     brand:        () => `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>`,
     vip:          () => `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>`,
     jurisdiction: () => `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>`,

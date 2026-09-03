@@ -4,7 +4,8 @@
 > **shared spec** for erasure, data-subject export, and retention — enumerate every
 > column that holds personal data of a *player/customer* (the data subject) once, so
 > each of those features covers the same surfaces and none is missed.
-> Grounded in `db/migrations/` as of 2026-06-22. Update when a new PII column lands.
+> Grounded in `db/migrations/` as of 2026-06-22; last updated 2026-09-02 (Maestro player
+> ids on `customers`). Update when a new PII column lands.
 
 A "data subject" here is a **customer** (player). Agent/operator accounts are users and
 out of scope for customer erasure. The design intent (`20260520121300_gdpr.sql`): keep the
@@ -15,7 +16,7 @@ redact the personal data** and stamp `customers.erased_at`.
 
 | Table | PII column(s) | Handling on erasure | Notes |
 |---|---|---|---|
-| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `kyc_status`, `jurisdiction` | **null**; set `erased_at = now()` | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `kyc_status` is no longer surfaced anywhere in the product (removed in Phase 4) but the column still exists and still holds values, so it stays on the erasure list until the drop migration lands — erasure is idempotent, so a subject erased while it was omitted would keep that value permanently. |
+| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `kyc_status`, `jurisdiction`, `maestro_user_id`, `maestro_member_id` | **null**; set `erased_at = now()` (also nulls `player_lookup_at`, the linker's throttle stamp, so nothing re-links an erased profile) | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `maestro_user_id` / `maestro_member_id` (20260903100000) are the player's Maestro account identifiers, written by `lib/player-identity.ts` — direct identifiers, so erased and exported like `username`. `kyc_status` is no longer surfaced anywhere in the product (removed in Phase 4) but the column still exists and still holds values, so it stays on the erasure list until the drop migration lands — erasure is idempotent, so a subject erased while it was omitted would keep that value permanently. |
 | `customer_contacts` | `value` (every email / mobile the customer holds, incl. secondaries) | **delete rows** for the customer | Phase 4 contacts model. Hard-deleted (not soft) so no address survives as PII; `customers.email`/`mobile` are a mirror of the primary row and are nulled above. A merged-away source is un-merged first (erase route), so its rows are back on it when this runs. Profile soft-delete (`DELETE /customers/:id`) soft-deletes these rows instead, freeing the address for reuse. |
 | `customer_notes` | `text` (NOT NULL) | **delete rows** for the customer | Internal agent notes *about* the data subject — removed entirely. |
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason` | `subject → '[erased]'`; `csat_comment`, `snooze_reason → null` | Row kept; status/category/timestamps retained for analytics. |
@@ -30,8 +31,10 @@ redact the personal data** and stamp `customers.erased_at`.
 - **`events` / `audit_events`** — the activity/audit log; it references the anonymized
   customer, not their content. Player-data **reads** are now logged here too (a
   `player.viewed` audit event on every successful live player lookup — `routes/maestro.ts`
-  + `lib/player-audit.ts`, categories not values). Still pending: append-only /
-  tamper-evident hardening of `audit_events` (a follow-up).
+  + `lib/player-audit.ts`, categories not values), as is every automatic or agent-driven
+  contact ↔ player link (`customer.player_linked` — `lib/player-identity.ts`; the brand id
+  and data categories persisted, never the values or the player ids themselves). Still
+  pending: append-only / tamper-evident hardening of `audit_events` (a follow-up).
 
 ## Attachments — `ticket_attachments` + the R2 objects
 

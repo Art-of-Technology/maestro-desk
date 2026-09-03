@@ -28,6 +28,8 @@ const ERASED = '[erased]';
 const CUSTOMER_PII_FIELDS = [
   'first_name', 'last_name', 'username', 'email', 'mobile',
   'backoffice_url', 'kyc_status', 'jurisdiction',
+  // Maestro player ids name the subject's casino account — direct identifiers.
+  'maestro_user_id', 'maestro_member_id',
 ] as const;
 
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
@@ -176,6 +178,7 @@ export async function eraseCustomer(args: {
       update customers set
         first_name = null, last_name = null, username = null, email = null,
         mobile = null, backoffice_url = null, kyc_status = null, jurisdiction = null,
+        maestro_user_id = null, maestro_member_id = null, player_lookup_at = null,
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;

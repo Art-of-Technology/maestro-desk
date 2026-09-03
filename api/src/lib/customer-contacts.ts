@@ -237,6 +237,11 @@ export async function syncPrimaryMirror(sql: Db, workspaceId: string, customerId
   await sql`
     update customers c set
       email = p.value,
+      -- A changed primary address invalidates a not-found verdict (typo fixed,
+      -- different login) — clear the Maestro lookup stamp so the linker
+      -- re-probes instead of waiting out the TTL. Link ids themselves stay:
+      -- an agent correcting an address doesn't change who the player is.
+      player_lookup_at = case when c.email is distinct from p.value then null else c.player_lookup_at end,
       mobile = (select x.value::text from customer_contacts x
                 where x.customer_id = c.id and x.kind = 'mobile' and x.is_primary and x.deleted_at is null
                 limit 1),

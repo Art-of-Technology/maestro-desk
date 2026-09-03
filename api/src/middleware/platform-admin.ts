@@ -47,7 +47,9 @@ export const requirePlatformAdmin: MiddlewareHandler = async (c, next) => {
 // at the SIEM layer; a 500 to the operator is not.
 export async function writeAudit(args: {
   workspaceId: string;
-  actorUserId: string;
+  // null = system actor (automated paths such as player-identity linking);
+  // the column is nullable and the tamper-evident chain hashes null fine.
+  actorUserId: string | null;
   action: string;
   targetType?: string | null;
   targetId?: string | null;

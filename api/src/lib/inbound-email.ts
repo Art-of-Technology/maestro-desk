@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
+import { scheduleLink } from './player-identity.js';
 import {
   extractInReplyTo,
   extractMessageId,
@@ -333,6 +334,15 @@ export async function processInboundEmail(args: {
   if (!newMessage) throw new Error('Message create failed');
   void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
+  // 3a. Attach the contact to its Maestro player (ids + username; fills blank
+  //     VIP / country). Runs AFTER the ticket + message land so it never
+  //     competes with them for the pool on the webhook hot path. Self-contained
+  //     — resolves an outcome instead of throwing, skips already-linked
+  //     contacts, no-ops for non-Maestro workspaces (lib/player-identity.ts).
+  //     `email` is the address that wrote in: a casino login held as a
+  //     SECONDARY address would never match on the primary mirror.
+  scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
+
   // 3b. Audit row in the inbox view, attributed to the channel resolved
   //     above. Failures are logged but don't fail the webhook — the
   //     customer-facing ticket has already been created.
@@ -406,6 +416,21 @@ async function attachReplyToTicket(args: {
   `;
   if (!replyMessage) throw new Error('Reply attach failed');
   void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
+
+  // Same Maestro link attempt as the new-ticket path, so a contact whose first
+  // lookup failed (gateway outage) or was throttled gets retried on replies
+  // too, not only when a NEW ticket arrives. Guarded: the thread's customer is
+  // linked only when the SENDER's address is one of that customer's own — a
+  // colleague or third party replying on the thread must never bind the
+  // customer to *their* player record. Resolution failures are swallowed.
+  try {
+    const sender = await resolveCustomerByContact(sql, workspaceId, 'email', email);
+    if (sender && (sender.merged_into_customer_id || sender.id) === customerId) {
+      scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
+    }
+  } catch (err) {
+    console.warn('[inbound-email] player-link sender check failed on thread-attach:', err instanceof Error ? err.message : err);
+  }
 
   // Customer reply un-resolves the ticket so agents see it back in the open
   // queue — the same rule the portal reply path (routes/public.ts) applies,

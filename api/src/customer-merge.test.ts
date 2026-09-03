@@ -91,7 +91,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
   }, 15000);
 
   it('merges: tickets move stamped, messages untouched, notes move, auto note, backfill (never email), journal + audit', async () => {
-    const src = await mkCustomer('src', { mobile: '+4477001', vip_tier: 'Gold', since: '2020-03-15' });
+    const src = await mkCustomer('src', { mobile: '+4477001', vip_tier: 'Gold', since: '2020-03-15', maestro_user_id: 'mu-src-0001', maestro_member_id: '4711' });
     const pri = await mkCustomer('pri', { mobile: null, vip_tier: null });
     ctx.src = src; ctx.pri = pri;
 
@@ -114,6 +114,9 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     // (so the survivor's mirror still gains it, exactly as the backfill did).
     expect(body.backfilled_fields.mobile).toBeUndefined();
     expect(body.backfilled_fields.vip_tier).toBe('Gold');
+    // Maestro ids are backfillable text columns like the rest.
+    expect(body.backfilled_fields.maestro_user_id).toBe('mu-src-0001');
+    expect(body.backfilled_fields.maestro_member_id).toBe('4711');
     expect(body.backfilled_fields.email).toBeUndefined();
     expect(body.contacts_moved).toBe(2); // the source's email + mobile
     expect(body.primary.mobile).toBe('+4477001');
@@ -292,6 +295,25 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(priRow.erased_at).toBeNull();
   });
 
+  it('refuses to merge two profiles linked to different Maestro players (409 different_players)', async () => {
+    const a = await mkCustomer('player-a', { maestro_user_id: 'mu-A', maestro_member_id: '1' });
+    const b = await mkCustomer('player-b', { maestro_user_id: 'mu-B', maestro_member_id: '2' });
+    const res = await as(admin.token, ctx.ws, `/api/v1/customers/${a}/merge`, { method: 'POST', body: JSON.stringify({ into_id: b }) });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).code).toBe('different_players');
+    const [pri] = await sql<{ maestro_user_id: string; maestro_member_id: string; merged_into_customer_id: string | null }[]>`
+      select maestro_user_id, maestro_member_id, merged_into_customer_id from customers where id = ${b}`;
+    expect(pri.maestro_user_id).toBe('mu-B');
+    expect(pri.maestro_member_id).toBe('2');
+    const [src] = await sql<{ merged_into_customer_id: string | null }[]>`select merged_into_customer_id from customers where id = ${a}`;
+    expect(src.merged_into_customer_id).toBeNull();
+
+    // Same player on both sides is a genuine duplicate and merges normally.
+    const c = await mkCustomer('player-a2', { maestro_user_id: 'mu-A', maestro_member_id: null });
+    const ok = await as(admin.token, ctx.ws, `/api/v1/customers/${c}/merge`, { method: 'POST', body: JSON.stringify({ into_id: a }) });
+    expect(ok.status).toBe(200);
+  });
+
   it('a non-admin role with can_delete may merge and unmerge', async () => {
     await sql`update workspace_members set role_id = ${ctx.cleanerRoleId} where workspace_id = ${ctx.ws} and user_id = ${agent.userId}`;
     const a = await mkCustomer('cap-a');
@@ -359,6 +381,9 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(body.tickets_restored_ids).not.toContain(postMergeTicket);
     expect(body.fields_reverted).not.toContain('mobile'); // no longer journalled — it returns as a contact row
     expect(body.fields_kept_due_to_edit).toContain('vip_tier');
+    // Untouched since the merge → reverted like any other backfilled column.
+    expect(body.fields_reverted).toContain('maestro_user_id');
+    expect(body.fields_reverted).toContain('maestro_member_id');
     expect(body.contacts_restored).toBe(2);
     // Both sides' contacts ride back: the source reclaims its email + mobile
     // as primaries (primary_before_merge), the survivor's mobile mirror empties.

@@ -88,7 +88,11 @@ function normalizePlayer(m) {
   const email = m.email ?? '';
   const name = `${first} ${last}`.trim() || username || email || '(unnamed player)';
   return {
+    // Header chip: whichever id the gateway gave. The two rows below keep them
+    // distinct — userId is the GLOBAL Maestro id, memberId the per-brand number.
     id: m.userId ?? m.memberId ?? m.id ?? '',
+    userId: m.userId ?? '',
+    memberId: m.memberId ?? '',
     name, first, last, username, email,
     mobile: m.mobile ?? '',
     vip: m.vipLevel ?? '',
@@ -106,7 +110,17 @@ function normalizePlayer(m) {
 // CUSTOMERS list — match on email (case-insensitive) to offer a jump to their
 // ticket history.
 function localMatchFor(player) {
-  if (!player?.email) return null;
+  if (!player) return null;
+  // A contact the server has already linked matches on the stable Maestro id
+  // first — that survives the player writing in from a different address.
+  const uid = String(player.userId || '');
+  if (uid) {
+    // Skip merged-away shells: after a merge both source and survivor carry
+    // the id, but the tickets live on the survivor (same rule as the merge picker).
+    const byId = CUSTOMERS.find(c => !c._mergedIntoUuid && c.maestroUserId && String(c.maestroUserId) === uid);
+    if (byId) return byId;
+  }
+  if (!player.email) return null;
   const e = player.email.toLowerCase();
   // Any address the local profile holds (primary or secondary) counts.
   return CUSTOMERS.find(c => hasContact(c, 'email', e)) || null;
@@ -207,7 +221,8 @@ function renderPlayerCard(p) {
     ['Date of birth', p.dob],
     ['Sex', p.sex],
     ['City', p.city],
-    ['Player ID', p.id],
+    ['Maestro user ID', p.userId],
+    ['Member ID', p.memberId],
   ].filter(([, v]) => v !== '' && v != null);
 
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
@@ -258,7 +273,7 @@ function renderPlayerCard(p) {
       ? `<div class="card" style="margin-bottom:16px;border-color:var(--purple);background:var(--purple-lt)">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <span style="font-size:12px;color:var(--purple);font-weight:600">This player has contacted support before.</span>
-            <button class="btn btn-sm" style="margin-left:auto" data-action="players.openLocal" data-email="${window.escAttr(p.email)}">View support history →</button>
+            <button class="btn btn-sm" style="margin-left:auto" data-action="players.openLocal" data-cust-id="${window.escAttr(local.id)}">View support history →</button>
           </div>
         </div>`
       : `<div class="card" style="margin-bottom:16px">
@@ -278,9 +293,10 @@ function renderPlayerCard(p) {
       </div>` : ''}`;
 }
 
-function openLocalCustomer(email) {
-  const e = (email || '').toLowerCase();
-  const local = CUSTOMERS.find(c => hasContact(c, 'email', e));
+// Takes the matched contact's display id (not the email) so a match made on
+// the Maestro id — where the emails may differ — still opens the right profile.
+function openLocalCustomer(custId) {
+  const local = CUSTOMERS.find(c => c.id === custId);
   if (!local) return;
   resetPlayerLookup();
   setCustomerSelected(local.id);
@@ -292,7 +308,7 @@ registerActions({
   'players.lookup':    () => { LOOKUP_OPEN = true; renderPage('customers'); },
   'players.run':       () => runLookup(),
   'players.startConvo':() => startConversation(),
-  'players.openLocal': (ds) => openLocalCustomer(ds.email),
+  'players.openLocal': (ds) => openLocalCustomer(ds.custId),
   'players.close':     () => { resetPlayerLookup(); renderPage('customers'); },
 });
 

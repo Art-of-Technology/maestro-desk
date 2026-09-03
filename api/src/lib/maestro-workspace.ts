@@ -135,6 +135,21 @@ export async function agentBrandWorkspaceId(userId: string, brandId: string): Pr
   return row?.id ?? null;
 }
 
+/**
+ * Reverse of findByBrand: the Maestro brand a workspace projects, or null for
+ * a non-Maestro workspace (legacy tenant, the unrouted inbound bucket). Used
+ * by headless paths that have a workspace id but no signed-in agent and
+ * therefore no X-Brand-Id header (player-identity linking; triage reads the
+ * same column inside its own workspace-lookups query).
+ */
+export async function maestroBrandIdForWorkspace(workspaceId: string): Promise<string | null> {
+  const sql = getDb();
+  const [row] = await sql<{ maestro_brand_id: string | null }[]>`
+    select maestro_brand_id from workspaces where id = ${workspaceId} and deleted_at is null
+  `;
+  return row?.maestro_brand_id ?? null;
+}
+
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {
   const sql = getDb();
   const [row] = await sql<WorkspaceRow[]>`
