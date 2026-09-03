@@ -37,6 +37,7 @@ export type LinkOutcome =
   | 'linked'          // ids written (and blanks filled)
   | 'not_found'       // gateway knows no player with this email; lookup stamped
   | 'email_mismatch'  // gateway matched a USERNAME, not the email; stamped, nothing written
+  | 'rejected'        // gateway refused THIS address (400/422); stamped, nothing written
   | 'no_player_id'    // member record carries no userId — nothing stable to link to; stamped
   | 'unconfigured'    // no MAESTRO_API_TOKEN
   | 'no_brand'        // workspace is not a Maestro brand (unrouted bucket, legacy tenant)
@@ -168,11 +169,12 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   // Lookup is by ONE exact key. Not-found is a 200 envelope (memberNotFound);
   // a 404 from the gateway is treated the same way. A deterministic per-contact
   // rejection (400/422 — the gateway won't accept THIS address, e.g. malformed
-  // or over-long) is also treated as not-found and stamped: retrying it every
-  // run would pin `remaining` above zero forever and, five in a row, abort
-  // the backfill for every brand after it. Everything else — 401/403 (token /
-  // brand grant), 429, 5xx, network — propagates to the outer catch as
-  // 'failed' WITHOUT stamping, so a transient outage gets retried on the
+  // or over-long) is stamped too, as its own outcome: retrying it every run
+  // would pin `remaining` above zero forever, while a RUN of rejections is
+  // something the backfill still aborts on (a changed API contract would
+  // otherwise stamp every contact as checked). Everything else — 401/403
+  // (token / brand grant), 429, 5xx, network — propagates to the outer catch
+  // as 'failed' WITHOUT stamping, so a transient outage gets retried on the
   // contact's next email rather than waiting a day.
   let member: Member | null;
   try {
@@ -182,8 +184,11 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
     });
     member = memberNotFound(res) ? null : res;
   } catch (err) {
-    if (err instanceof MaestroError && (err.status === 404 || err.status === 400 || err.status === 422)) member = null;
-    else throw err;
+    if (err instanceof MaestroError && err.status === 404) member = null;
+    else if (err instanceof MaestroError && (err.status === 400 || err.status === 422)) {
+      await stampLookup(sql, args);
+      return 'rejected';
+    } else throw err;
   }
 
   if (!member) {
@@ -238,6 +243,8 @@ export interface PlayerIdentityBackfillResult {
   linked: number;
   notFound: number;
   mismatched: number;
+  /** Gateway refused the address itself (400/422) — stamped, see LinkOutcome. */
+  rejected: number;
   noPlayerId: number;
   skipped: number;
   failed: number;
@@ -249,6 +256,12 @@ export interface PlayerIdentityBackfillResult {
  *  brand the app isn't installed on fails EVERY lookup, and hammering the
  *  gateway 500 more times won't change that. */
 export const BACKFILL_ABORT_AFTER_FAILURES = 5;
+
+/** Consecutive 'rejected' (400/422) outcomes that abort a run. A handful of
+ *  genuinely malformed addresses is normal and gets stamped; twenty in a row
+ *  means the gateway is refusing the REQUEST shape (contract change), and
+ *  stamping every contact as "checked" would hide that for a day. */
+export const BACKFILL_ABORT_AFTER_REJECTIONS = 20;
 
 /**
  * The job's own, operator-facing abort: carries the partial counts and a hint
@@ -322,12 +335,17 @@ export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): 
     try {
       return await runBackfillInner(sql, opts);
     } finally {
-      // Never let an unlock hiccup replace the job's own error: the lock is
-      // session-scoped, so releasing the connection below frees it anyway.
+      // Never let an unlock hiccup replace the job's own error. Note that
+      // release() hands the connection BACK TO THE POOL (the session lives on,
+      // and so would a lock still held on it), so on failure try the blunt
+      // form once more; if the connection itself is broken — the realistic
+      // cause — postgres.js drops it from the pool and the session-scoped
+      // lock dies with it.
       try {
         await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
       } catch (err) {
-        console.warn('[player-identity] advisory unlock failed (released with the connection):', err instanceof Error ? err.message : err);
+        console.warn('[player-identity] advisory unlock failed, retrying with unlock_all:', err instanceof Error ? err.message : err);
+        try { await conn`select pg_advisory_unlock_all()`; } catch { /* connection is gone — lock gone with it */ }
       }
     }
   } finally {
@@ -340,7 +358,7 @@ async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerI
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const maxAttempts = opts.maxAttempts ?? Number.POSITIVE_INFINITY;
   const result: PlayerIdentityBackfillResult = {
-    workspaces: 0, attempted: 0, linked: 0, notFound: 0, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
+    workspaces: 0, attempted: 0, linked: 0, notFound: 0, mismatched: 0, rejected: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
   };
 
   if (!workerMaestroConfigured()) {
@@ -362,6 +380,7 @@ async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerI
   const outOfTime = (): boolean => Date.now() - startedAt >= deadlineMs;
 
   let consecutiveFailures = 0;
+  let consecutiveRejections = 0;
   for (const ws of workspaces) {
     const budget = maxAttempts - result.attempted;
     if (budget <= 0 || outOfTime()) break;
@@ -385,16 +404,27 @@ async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerI
         if (o === 'linked') result.linked++;
         else if (o === 'not_found') result.notFound++;
         else if (o === 'email_mismatch') result.mismatched++;
+        else if (o === 'rejected') result.rejected++;
         else if (o === 'no_player_id') result.noPlayerId++;
         else if (o === 'failed') result.failed++;
         else result.skipped++;
         consecutiveFailures = o === 'failed' ? consecutiveFailures + 1 : 0;
+        consecutiveRejections = o === 'rejected' ? consecutiveRejections + 1 : 0;
       }
       if (consecutiveFailures >= BACKFILL_ABORT_AFTER_FAILURES) {
         result.remaining = await countRemaining(sql);
         throw new BackfillAbortError(
           `player-identity backfill aborted after ${consecutiveFailures} consecutive gateway failures ` +
           `(check MAESTRO_API_TOKEN / brand installation / gateway health): ${JSON.stringify(result)}`,
+          result,
+          'gateway_failures',
+        );
+      }
+      if (consecutiveRejections >= BACKFILL_ABORT_AFTER_REJECTIONS) {
+        result.remaining = await countRemaining(sql);
+        throw new BackfillAbortError(
+          `player-identity backfill aborted after ${consecutiveRejections} consecutive gateway rejections (400/422) ` +
+          `— the lookup request shape is probably no longer accepted; check the member-lookup contract: ${JSON.stringify(result)}`,
           result,
           'gateway_failures',
         );

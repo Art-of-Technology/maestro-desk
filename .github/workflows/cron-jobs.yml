@@ -59,10 +59,13 @@ on:
 permissions:
   contents: read
 
-# One group PER JOB: a manual backfill loop must never cancel a pending nightly
-# retention run (GitHub keeps one running + one pending run per group and
-# cancels the older pending one when another arrives, whatever
-# cancel-in-progress says). Same-job runs still serialise.
+# One group per TRIGGER+JOB: a manual backfill loop must never cancel a pending
+# nightly retention run (GitHub keeps one running + one pending run per group
+# and cancels the older pending one when another arrives, whatever
+# cancel-in-progress says). Repeated manual runs of the same job queue behind
+# each other; a manual run and a scheduled run of the same job are separate
+# groups and may overlap — every job is idempotent, and the backfill is
+# additionally single-flight server-side (409), so that is harmless.
 concurrency:
   group: prod-cron-${{ github.event_name == 'workflow_dispatch' && inputs.job || format('scheduled-{0}', github.event.schedule) }}
   cancel-in-progress: false
@@ -119,7 +122,7 @@ jobs:
           # Public repo: print a whitelisted summary, never the raw body (it can
           # carry tenant ids on a tampered audit chain, or a Cloudflare error page).
           if jq -e . "$body" >/dev/null 2>&1; then
-            jq -c '{ok, error, processed, purgedTickets, tampered: (.audit.tampered // .tamperedCount), attempted, linked, notFound, mismatched, noPlayerId, failed, remaining} | with_entries(select(.value != null))' "$body"
+            jq -c '{ok, error, processed, purgedTickets, tampered: (.audit.tampered // .tamperedCount), attempted, linked, notFound, mismatched, rejected, noPlayerId, failed, remaining} | with_entries(select(.value != null))' "$body"
           else
             echo "(non-JSON response body, $(wc -c < "$body") bytes — not printed)"
           fi

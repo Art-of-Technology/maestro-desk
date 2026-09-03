@@ -50,7 +50,7 @@ mock.module('../lib/audit-verify.js', () => ({
 const realCronJobs = await import('../lib/cron-jobs.js');
 const { BackfillAbortError, BackfillBusyError } = await import('../lib/player-identity.js');
 const OK_RESULT = {
-  workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
+  workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, rejected: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
 };
 let backfillImpl: (opts?: { maxAttempts?: number }) => Promise<typeof OK_RESULT> = async () => OK_RESULT;
 mock.module('../lib/cron-jobs.js', () => ({
