@@ -75,7 +75,6 @@ cron.get('/audit-verify', async (c) => {
     // array. A failure to RUN the check is a different signal — HTTP 500 below.
     return c.json({ ok: tampered.length === 0, checked, tamperedCount: tampered.length, tampered });
   } catch (err) {
-    console.error('[cron] audit-verify failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('audit-verify', err);
     return c.json({ ok: false, error: 'audit-verify failed' }, 500);
   }
@@ -91,25 +90,24 @@ cron.get('/audit-verify', async (c) => {
 //
 // Bounded per call: api.respovia.com sits behind Cloudflare, which cuts any
 // response past ~100 s (HTTP 524) while the handler keeps running blind. The
-// default batch (100 contacts per brand, 4-wide gateway calls) finishes well
-// inside that; `?perWorkspace=` may raise it to 500. The job is single-flight
-// per process — a caller re-running after an edge timeout gets 409 instead of
-// doubling the gateway load.
+// cap is on contacts attempted per CALL across all brands (`?limit=`, default
+// 100, max 500) — 4-wide gateway lookups with a 15 s ceiling each keep the
+// default comfortably inside the window whatever the brand count. The job is
+// single-flight (Postgres advisory lock) — a caller re-running after an edge
+// timeout gets 409 instead of doubling the gateway load.
 //
 // Error policy: the job's own abort (dead token / consecutive gateway
 // failures) is operator-facing — counts + hint, never values — and is
 // forwarded. Anything else (DB down, schema mismatch) is logged + alerted
 // inside runPlayerIdentityBackfill and surfaces as a FIXED string, like the
 // sibling handlers: the workflow prints this body into a public Actions log.
-const BACKFILL_DEFAULT_PER_WORKSPACE = 100;
-const BACKFILL_MAX_PER_WORKSPACE = 500;
+const BACKFILL_DEFAULT_LIMIT = 100;
+const BACKFILL_MAX_LIMIT = 500;
 cron.get('/player-identity-backfill', async (c) => {
-  const raw = Number(c.req.query('perWorkspace') ?? BACKFILL_DEFAULT_PER_WORKSPACE);
-  const perWorkspace = Number.isInteger(raw) && raw > 0
-    ? Math.min(raw, BACKFILL_MAX_PER_WORKSPACE)
-    : BACKFILL_DEFAULT_PER_WORKSPACE;
+  const raw = Number(c.req.query('limit') ?? BACKFILL_DEFAULT_LIMIT);
+  const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, BACKFILL_MAX_LIMIT) : BACKFILL_DEFAULT_LIMIT;
   try {
-    return c.json({ ok: true, perWorkspace, ...(await runPlayerIdentityBackfill({ perWorkspace })) });
+    return c.json({ ok: true, limit, ...(await runPlayerIdentityBackfill({ maxAttempts: limit })) });
   } catch (err) {
     if (err instanceof BackfillBusyError) return c.json({ ok: false, error: err.message }, 409);
     if (err instanceof BackfillAbortError) return c.json({ ok: false, error: err.message, ...err.result }, 500);

@@ -52,11 +52,11 @@ const { BackfillAbortError, BackfillBusyError } = await import('../lib/player-id
 const OK_RESULT = {
   workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
 };
-let backfillImpl: (opts?: { perWorkspace?: number }) => Promise<typeof OK_RESULT> = async () => OK_RESULT;
+let backfillImpl: (opts?: { maxAttempts?: number }) => Promise<typeof OK_RESULT> = async () => OK_RESULT;
 mock.module('../lib/cron-jobs.js', () => ({
   ...realCronJobs,
   alertCronFailure: async () => {},
-  runPlayerIdentityBackfill: (opts?: { perWorkspace?: number }) => backfillImpl(opts),
+  runPlayerIdentityBackfill: (opts?: { maxAttempts?: number }) => backfillImpl(opts),
 }));
 
 const { cron } = await import('./cron.js');
@@ -119,33 +119,33 @@ describe('cron endpoints — player-identity-backfill', () => {
     expect(res.status).toBe(401);
   });
 
-  it('runs the backfill with the bounded default batch and returns its counts (200)', async () => {
+  it('runs the backfill with the bounded default per-call limit and returns its counts (200)', async () => {
     let seen: number | undefined;
-    backfillImpl = async (opts) => { seen = opts?.perWorkspace; return OK_RESULT; };
+    backfillImpl = async (opts) => { seen = opts?.maxAttempts; return OK_RESULT; };
     const res = await cron.request('/player-identity-backfill', auth);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; perWorkspace: number; linked: number; remaining: number };
+    const body = (await res.json()) as { ok: boolean; limit: number; linked: number; remaining: number };
     expect(body.ok).toBe(true);
-    expect(body.perWorkspace).toBe(100);
+    expect(body.limit).toBe(100);
     expect(seen).toBe(100);
     expect(body.linked).toBe(1);
     expect(body.remaining).toBe(0);
   });
 
-  it('clamps ?perWorkspace to the maximum and ignores garbage', async () => {
+  it('clamps ?limit to the maximum and ignores garbage', async () => {
     const seen: (number | undefined)[] = [];
-    backfillImpl = async (opts) => { seen.push(opts?.perWorkspace); return OK_RESULT; };
-    expect((await cron.request('/player-identity-backfill?perWorkspace=5000', auth)).status).toBe(200);
-    expect((await cron.request('/player-identity-backfill?perWorkspace=abc', auth)).status).toBe(200);
-    expect((await cron.request('/player-identity-backfill?perWorkspace=-3', auth)).status).toBe(200);
-    expect((await cron.request('/player-identity-backfill?perWorkspace=250', auth)).status).toBe(200);
+    backfillImpl = async (opts) => { seen.push(opts?.maxAttempts); return OK_RESULT; };
+    expect((await cron.request('/player-identity-backfill?limit=5000', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?limit=abc', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?limit=-3', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?limit=250', auth)).status).toBe(200);
     expect(seen).toEqual([500, 100, 100, 250]);
   });
 
   it("forwards the job's own abort message with its counts (500)", async () => {
     const partial = { ...OK_RESULT, attempted: 5, failed: 5, remaining: 12 };
     backfillImpl = async () => {
-      throw new BackfillAbortError('player-identity backfill aborted after 5 consecutive gateway failures (check MAESTRO_API_TOKEN / brand installation)', partial);
+      throw new BackfillAbortError('player-identity backfill aborted after 5 consecutive gateway failures (check MAESTRO_API_TOKEN / brand installation)', partial, 'gateway_failures');
     };
     const res = await cron.request('/player-identity-backfill', auth);
     expect(res.status).toBe(500);

@@ -1,10 +1,14 @@
-// CLI entry for scheduled jobs on self-hosted deploys. The Dokploy schedules
-// exec this INSIDE the running API container (same env, same DB) instead of
-// curling the HTTP endpoints — no CRON_SECRET round-trip, and a long retention
-// sweep can't be severed by an HTTP idle/request timeout. Vercel keeps using
-// the HTTP endpoints (routes/cron.ts); both call the same lib/cron-jobs.ts
-// implementations. Exit code is the scheduler's failure signal; job failures
-// additionally fire ops alerts inside the job (alertCronFailure).
+// CLI entry for the scheduled jobs — exec'd INSIDE the API container (same
+// env, same DB). Designed for the Dokploy application schedules
+// (deploy/dokploy/provision-schedules.mjs), which have been FAILING since late
+// August 2026 ("Container not found for application …" — the panel cannot
+// exec into the container). The scheduler of record is therefore the GitHub
+// Actions workflow .github/workflows/cron-jobs.yml, which calls the
+// CRON_SECRET-gated HTTP endpoints in routes/cron.ts; this CLI remains for
+// operators with a container shell and for when Dokploy exec is repaired. Both
+// paths call the same lib/cron-jobs.ts implementations, so both log and fire
+// ops alerts on failure (alertCronFailure); here the exit code is the extra
+// signal. See PROD_SETUP.md → Scheduled jobs.
 //
 //   node --import tsx src/cron-run.ts webhook-retry
 //   node --import tsx src/cron-run.ts retention

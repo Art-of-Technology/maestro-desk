@@ -166,9 +166,14 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   if (!brandId) return 'no_brand';
 
   // Lookup is by ONE exact key. Not-found is a 200 envelope (memberNotFound);
-  // a 404 from the gateway is treated the same way. Anything else propagates
-  // to the outer catch as 'failed' WITHOUT stamping, so a transient outage
-  // gets retried on the contact's next email rather than waiting a day.
+  // a 404 from the gateway is treated the same way. A deterministic per-contact
+  // rejection (400/422 — the gateway won't accept THIS address, e.g. malformed
+  // or over-long) is also treated as not-found and stamped: retrying it every
+  // run would pin `remaining` above zero forever and, five in a row, abort
+  // the backfill for every brand after it. Everything else — 401/403 (token /
+  // brand grant), 429, 5xx, network — propagates to the outer catch as
+  // 'failed' WITHOUT stamping, so a transient outage gets retried on the
+  // contact's next email rather than waiting a day.
   let member: Member | null;
   try {
     const res = await workerFetch<Member>('/api/v1/proxy/member/lookup', {
@@ -177,7 +182,7 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
     });
     member = memberNotFound(res) ? null : res;
   } catch (err) {
-    if (err instanceof MaestroError && err.status === 404) member = null;
+    if (err instanceof MaestroError && (err.status === 404 || err.status === 400 || err.status === 422)) member = null;
     else throw err;
   }
 
@@ -251,13 +256,18 @@ export const BACKFILL_ABORT_AFTER_FAILURES = 5;
  * verbatim; any OTHER error (DB down, schema mismatch) must stay generic.
  */
 export class BackfillAbortError extends Error {
-  constructor(message: string, public readonly result: PlayerIdentityBackfillResult) {
+  constructor(
+    message: string,
+    public readonly result: PlayerIdentityBackfillResult,
+    /** 'unconfigured' = pre-flight config gap (no page); 'gateway_failures' = the run itself died. */
+    public readonly kind: 'unconfigured' | 'gateway_failures',
+  ) {
     super(message);
     this.name = 'BackfillAbortError';
   }
 }
 
-/** A second backfill was requested while one is still running in this process. */
+/** A second backfill was requested while one is still running (any process). */
 export class BackfillBusyError extends Error {
   constructor() {
     super('player-identity backfill is already running — wait for it to finish, then re-run');
@@ -265,14 +275,14 @@ export class BackfillBusyError extends Error {
   }
 }
 
-// Single-flight guard. Two overlapping runs would select the same un-stamped
-// candidates (the stamp lands only after each lookup) and double the gateway
-// load — an HTTP caller looping "until remaining is 0" can easily do that if
-// the previous call timed out at the edge while the job kept running.
-let backfillInFlight = false;
-export function isBackfillRunning(): boolean {
-  return backfillInFlight;
-}
+// Single-flight guard, held in POSTGRES (session advisory lock on a reserved
+// connection) so it spans every entry point — the HTTP route, the CLI in the
+// container, a second replica, a redeploy overlap — not just this process.
+// Two overlapping runs would select the same un-stamped candidates (the stamp
+// lands only after each lookup) and double the gateway load; an HTTP caller
+// looping "until remaining is 0" can easily do that when the previous call
+// timed out at the edge while the job kept running.
+const BACKFILL_LOCK_KEY = 'player-identity-backfill';
 
 /**
  * Walk every Maestro-brand workspace and link its unlinked, never-checked
@@ -282,24 +292,44 @@ export function isBackfillRunning(): boolean {
  * of consecutive failures THROWS (cron-run exits 1) with the partial counts,
  * so an operator "repeating until remaining = 0" can't loop on a broken token.
  */
-export async function runPlayerIdentityBackfillJob(
-  opts: { perWorkspace?: number; concurrency?: number } = {},
-): Promise<PlayerIdentityBackfillResult> {
-  if (backfillInFlight) throw new BackfillBusyError();
-  backfillInFlight = true;
+export interface BackfillOptions {
+  /** Candidates selected per brand workspace per run (page size). */
+  perWorkspace?: number;
+  /** Parallel gateway lookups. */
+  concurrency?: number;
+  /**
+   * Hard cap on contacts attempted per CALL, across all brands — the knob
+   * that bounds an HTTP invocation's wall-clock (Cloudflare cuts responses
+   * at ~100 s). The run stops cleanly at the cap and reports `remaining`.
+   */
+  maxAttempts?: number;
+}
+
+export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): Promise<PlayerIdentityBackfillResult> {
+  const sql = getDb();
+  // Session-level advisory lock on a RESERVED connection (pg_try_advisory_lock
+  // is per session; through the pool a later query could land elsewhere).
+  const conn = await sql.reserve();
   try {
-    return await runBackfillInner(opts);
+    const [{ locked }] = await conn<{ locked: boolean }[]>`select pg_try_advisory_lock(hashtext(${BACKFILL_LOCK_KEY})) as locked`;
+    if (!locked) throw new BackfillBusyError();
+    try {
+      return await runBackfillInner(sql, opts);
+    } finally {
+      await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
+    }
   } finally {
-    backfillInFlight = false;
+    conn.release();
   }
 }
 
 async function runBackfillInner(
-  opts: { perWorkspace?: number; concurrency?: number },
+  sql: postgres.Sql<{}>,
+  opts: BackfillOptions,
 ): Promise<PlayerIdentityBackfillResult> {
   const perWorkspace = opts.perWorkspace ?? 500;
   const concurrency = Math.max(1, opts.concurrency ?? 4);
-  const sql = getDb();
+  const maxAttempts = opts.maxAttempts ?? Number.POSITIVE_INFINITY;
   const result: PlayerIdentityBackfillResult = {
     workspaces: 0, attempted: 0, linked: 0, notFound: 0, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
   };
@@ -309,6 +339,7 @@ async function runBackfillInner(
     throw new BackfillAbortError(
       `player-identity backfill: MAESTRO_API_TOKEN is not configured (${result.remaining} contacts waiting)`,
       result,
+      'unconfigured',
     );
   }
 
@@ -319,13 +350,15 @@ async function runBackfillInner(
 
   let consecutiveFailures = 0;
   for (const ws of workspaces) {
+    const budget = maxAttempts - result.attempted;
+    if (budget <= 0) break;
     const candidates = await sql<{ id: string }[]>`
       select id from customers
       where workspace_id = ${ws.id}
         and maestro_user_id is null and email is not null and player_lookup_at is null
         and erased_at is null and deleted_at is null and merged_into_customer_id is null
       order by created_at asc
-      limit ${perWorkspace}
+      limit ${Math.min(perWorkspace, budget)}
     `;
     for (let i = 0; i < candidates.length; i += concurrency) {
       const outcomes = await Promise.all(
@@ -347,8 +380,9 @@ async function runBackfillInner(
         result.remaining = await countRemaining(sql);
         throw new BackfillAbortError(
           `player-identity backfill aborted after ${consecutiveFailures} consecutive gateway failures ` +
-          `(check MAESTRO_API_TOKEN / brand installation): ${JSON.stringify(result)}`,
+          `(check MAESTRO_API_TOKEN / brand installation / gateway health): ${JSON.stringify(result)}`,
           result,
+          'gateway_failures',
         );
       }
     }
