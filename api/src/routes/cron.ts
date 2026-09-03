@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { env } from '../lib/env.js';
 import { verifyAuditChainsFull } from '../lib/audit-verify.js';
 import { alertCronFailure, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
+import { runPlayerIdentityBackfillJob } from '../lib/player-identity.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -72,5 +73,25 @@ cron.get('/audit-verify', async (c) => {
     console.error('[cron] audit-verify failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('audit-verify', err);
     return c.json({ ok: false, error: 'audit-verify failed' }, 500);
+  }
+});
+
+// One-off Maestro player-identity backfill (lib/player-identity.ts). The
+// same job as `cron-run.ts player-identity-backfill`, exposed over HTTP for
+// hosts where Dokploy can't exec into the API container (its schedules fail
+// with "Container not found" — see PROD_SETUP.md → Scheduled jobs). Not on a
+// timer: an operator calls it with the CRON_SECRET bearer and repeats until
+// `remaining` is 0. Idempotent — every contact it touches is linked or
+// stamped. The job THROWS on a dead token / consecutive gateway failures so a
+// caller looping on `remaining` can't spin forever; that surfaces as 500 with
+// the job's own message (counts + hint, never values).
+cron.get('/player-identity-backfill', async (c) => {
+  try {
+    return c.json({ ok: true, ...(await runPlayerIdentityBackfillJob()) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[cron] player-identity-backfill failed:', message);
+    await alertCronFailure('player-identity-backfill', err);
+    return c.json({ ok: false, error: message }, 500);
   }
 });

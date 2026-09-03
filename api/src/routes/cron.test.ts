@@ -41,6 +41,15 @@ mock.module('../lib/audit-verify.js', () => ({
   verifyAuditChainsFull: async () => auditResult,
 }));
 
+// Player-identity backfill: swapped per-test between a normal result and the
+// job's own abort error (dead token / consecutive gateway failures).
+let backfillImpl: () => Promise<Record<string, unknown>> = async () => ({
+  workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
+});
+mock.module('../lib/player-identity.js', () => ({
+  runPlayerIdentityBackfillJob: () => backfillImpl(),
+}));
+
 const { cron } = await import('./cron.js');
 
 afterAll(() => mock.restore());
@@ -89,5 +98,34 @@ describe('cron endpoints — CRON_SECRET guard', () => {
     expect(res.status).toBe(200); // the check ran successfully…
     // …but ok:false signals the audit is unhealthy (tamper detected).
     expect(await res.json()).toEqual({ ok: false, checked: 3, tamperedCount: 1, tampered });
+  });
+});
+
+describe('cron endpoints — player-identity-backfill', () => {
+  it('rejects a request with no bearer (401)', async () => {
+    const res = await cron.request('/player-identity-backfill');
+    expect(res.status).toBe(401);
+  });
+
+  it('runs the backfill and returns its counts (200)', async () => {
+    const res = await cron.request('/player-identity-backfill', {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; linked: number; remaining: number };
+    expect(body.ok).toBe(true);
+    expect(body.linked).toBe(1);
+    expect(body.remaining).toBe(0);
+  });
+
+  it("surfaces the job's abort as a 500 carrying its message", async () => {
+    backfillImpl = async () => { throw new Error('player-identity backfill aborted after 5 consecutive gateway failures (check MAESTRO_API_TOKEN / brand installation): {"remaining":12}'); };
+    const res = await cron.request('/player-identity-backfill', {
+      headers: { Authorization: `Bearer ${CRON_SECRET}` },
+    });
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { ok: boolean; error: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatch(/consecutive gateway failures/);
   });
 });

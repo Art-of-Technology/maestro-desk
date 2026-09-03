@@ -9,6 +9,13 @@
 //
 // The commands exec INSIDE the API container (scheduleType: application), so
 // they need no CRON_SECRET and no HTTP — see api/src/cron-run.ts.
+//
+// STATUS 2026-09-03: these schedules have failed every run since late August
+// ("Container not found for application … make sure the service is running" —
+// the panel cannot exec into the container). The scheduler of record is now
+// .github/workflows/cron-jobs.yml, which calls the same jobs over the
+// CRON_SECRET-gated HTTP endpoints. Keep this file as the desired Dokploy
+// state for when an owner fixes the panel; both mechanisms are idempotent.
 
 const BASE = process.env.DOKPLOY_URL;
 const TOKEN = process.env.DOKPLOY_TOKEN;

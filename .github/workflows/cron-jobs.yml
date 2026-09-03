@@ -1,0 +1,97 @@
+name: Scheduled jobs (prod)
+
+# Runs the API's scheduled jobs by calling its CRON_SECRET-gated HTTP endpoints
+# (api/src/routes/cron.ts) on production. This is the scheduler of record for
+# the self-hosted deployment: the Dokploy application schedules (which exec
+# inside the API container) have failed with "Container not found" since late
+# August 2026 — Dokploy cannot reach the container from the panel — so the
+# nightly sweeps were silently not running. The same job bodies back both
+# paths (api/src/lib/cron-jobs.ts), and every job is idempotent, so a Dokploy
+# schedule coming back to life alongside this workflow is harmless.
+#
+# A failed call fails the workflow run → GitHub notifies the repo owner. The
+# job also fires its own ops alert (alertCronFailure) server-side.
+#
+# Manual use (Actions → "Scheduled jobs (prod)" → Run workflow): pick a job.
+# `player-identity-backfill` is the one-off Maestro contact linker — run it,
+# read `remaining` in the step output, repeat until it is 0.
+#
+# Secrets: PROD_CRON_SECRET = the API's CRON_SECRET (Dokploy → respovia-api →
+# Environment). Rotate both together.
+
+on:
+  schedule:
+    # Same UTC slots the Dokploy schedules used (deploy/dokploy/provision-schedules.mjs).
+    - cron: '0 3 * * *'   # webhook-retry
+    - cron: '0 4 * * *'   # retention (+ audit-verify, GDPR object retry, email-domain sweep)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run
+        required: true
+        type: choice
+        default: webhook-retry
+        options:
+          - webhook-retry
+          - retention
+          - audit-verify
+          - player-identity-backfill
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-cron-jobs
+  cancel-in-progress: false
+
+env:
+  API_BASE: https://api.respovia.com
+
+jobs:
+  run:
+    name: call the job endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Pick the job for this trigger
+        id: pick
+        run: |
+          set -u
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            job="${{ inputs.job }}"
+          elif [ "${{ github.event.schedule }}" = "0 3 * * *" ]; then
+            job="webhook-retry"
+          else
+            job="retention"
+          fi
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+          echo "Running: $job"
+
+      - name: Call the endpoint
+        env:
+          CRON_SECRET: ${{ secrets.PROD_CRON_SECRET }}
+          JOB: ${{ steps.pick.outputs.job }}
+        run: |
+          set -u
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::PROD_CRON_SECRET is not set — add the API's CRON_SECRET as a repository secret."
+            exit 1
+          fi
+          body="$(mktemp)"
+          # Retention can take a while on a large purge; the API answers when done.
+          code="$(curl -sS --max-time 600 -o "$body" -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$API_BASE/api/v1/cron/$JOB")" || code="000"
+          echo "HTTP $code"
+          cat "$body"; echo
+          case "$code" in
+            200) ;;
+            401) echo "::error::Unauthorized — PROD_CRON_SECRET does not match the API's CRON_SECRET."; exit 1 ;;
+            000) echo "::error::Could not reach $API_BASE (network / tunnel down)."; exit 1 ;;
+            *)   echo "::error::$JOB failed with HTTP $code — see the response above."; exit 1 ;;
+          esac
+          # /audit-verify returns ok:false (with HTTP 200) when the chain is tampered.
+          if grep -q '"ok":false' "$body"; then
+            echo "::error::$JOB reported ok:false."
+            exit 1
+          fi
