@@ -103,11 +103,19 @@ cron.get('/audit-verify', async (c) => {
 // sibling handlers: the workflow prints this body into a public Actions log.
 const BACKFILL_DEFAULT_LIMIT = 100;
 const BACKFILL_MAX_LIMIT = 500;
+// Second half of the bound: however slow the gateway is, stop dispatching new
+// lookups after this long and answer with `remaining` — well inside the edge
+// window even with one in-flight 15 s chunk still to drain.
+const BACKFILL_DEADLINE_MS = 60_000;
 cron.get('/player-identity-backfill', async (c) => {
   const raw = Number(c.req.query('limit') ?? BACKFILL_DEFAULT_LIMIT);
   const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, BACKFILL_MAX_LIMIT) : BACKFILL_DEFAULT_LIMIT;
   try {
-    return c.json({ ok: true, limit, ...(await runPlayerIdentityBackfill({ maxAttempts: limit })) });
+    return c.json({
+      ok: true,
+      limit,
+      ...(await runPlayerIdentityBackfill({ maxAttempts: limit, deadlineMs: BACKFILL_DEADLINE_MS })),
+    });
   } catch (err) {
     if (err instanceof BackfillBusyError) return c.json({ ok: false, error: err.message }, 409);
     if (err instanceof BackfillAbortError) return c.json({ ok: false, error: err.message, ...err.result }, 500);

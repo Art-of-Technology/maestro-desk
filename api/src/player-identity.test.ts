@@ -335,6 +335,17 @@ runDbTests('player identity linking (DB-backed)', () => {
     await sql`delete from customers where id in ${sql([first, ...others])}`;
   });
 
+  it('backfill stops at its deadline without touching anything and reports remaining', async () => {
+    stubGateway(PLAYER);
+    const id = await mkCustomer(ws, `deadline-${RUN}@example.test`);
+    const r = await lib.runPlayerIdentityBackfillJob({ deadlineMs: 0, concurrency: 1 });
+    expect(r.attempted).toBe(0);
+    expect(r.remaining).toBeGreaterThanOrEqual(1);
+    expect(calls).toHaveLength(0);
+    expect((await row(id)).player_lookup_at).toBeNull();
+    await sql`delete from customers where id = ${id}`;
+  });
+
   it('a second backfill while one is running is rejected (advisory lock, any process)', async () => {
     // Slow gateway: hold the first run open long enough to start a second.
     let release!: () => void;

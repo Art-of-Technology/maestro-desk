@@ -303,6 +303,12 @@ export interface BackfillOptions {
    * at ~100 s). The run stops cleanly at the cap and reports `remaining`.
    */
   maxAttempts?: number;
+  /**
+   * Wall-clock deadline for this call. Checked between chunks: once elapsed,
+   * the run stops cleanly and reports `remaining` — the second half of the
+   * HTTP bound (a 4-wide chunk of slow lookups can take a while each).
+   */
+  deadlineMs?: number;
 }
 
 export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): Promise<PlayerIdentityBackfillResult> {
@@ -316,17 +322,20 @@ export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): 
     try {
       return await runBackfillInner(sql, opts);
     } finally {
-      await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
+      // Never let an unlock hiccup replace the job's own error: the lock is
+      // session-scoped, so releasing the connection below frees it anyway.
+      try {
+        await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
+      } catch (err) {
+        console.warn('[player-identity] advisory unlock failed (released with the connection):', err instanceof Error ? err.message : err);
+      }
     }
   } finally {
     conn.release();
   }
 }
 
-async function runBackfillInner(
-  sql: postgres.Sql<{}>,
-  opts: BackfillOptions,
-): Promise<PlayerIdentityBackfillResult> {
+async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerIdentityBackfillResult> {
   const perWorkspace = opts.perWorkspace ?? 500;
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const maxAttempts = opts.maxAttempts ?? Number.POSITIVE_INFINITY;
@@ -348,10 +357,14 @@ async function runBackfillInner(
   `;
   result.workspaces = workspaces.length;
 
+  const startedAt = Date.now();
+  const deadlineMs = opts.deadlineMs ?? Number.POSITIVE_INFINITY;
+  const outOfTime = (): boolean => Date.now() - startedAt >= deadlineMs;
+
   let consecutiveFailures = 0;
   for (const ws of workspaces) {
     const budget = maxAttempts - result.attempted;
-    if (budget <= 0) break;
+    if (budget <= 0 || outOfTime()) break;
     const candidates = await sql<{ id: string }[]>`
       select id from customers
       where workspace_id = ${ws.id}
@@ -361,6 +374,7 @@ async function runBackfillInner(
       limit ${Math.min(perWorkspace, budget)}
     `;
     for (let i = 0; i < candidates.length; i += concurrency) {
+      if (outOfTime()) break;
       const outcomes = await Promise.all(
         candidates.slice(i, i + concurrency).map((c) =>
           linkCustomerToPlayer({ workspaceId: ws.id, customerId: c.id, reason: 'backfill' }),

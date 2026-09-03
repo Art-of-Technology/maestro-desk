@@ -11,7 +11,8 @@ import { verifyAuditChains } from './audit-verify.js';
 import { sweepEmailDomains } from './email-domains.js';
 import { sendOpsAlert } from './alert.js';
 import {
-  BackfillAbortError, BackfillBusyError, runPlayerIdentityBackfillJob, type PlayerIdentityBackfillResult,
+  BackfillAbortError, BackfillBusyError, runPlayerIdentityBackfillJob,
+  type BackfillOptions, type PlayerIdentityBackfillResult,
 } from './player-identity.js';
 
 // One-off Maestro player-identity backfill (lib/player-identity.ts), wrapped
@@ -21,9 +22,7 @@ import {
 // configured" abort are operator signals, not failures — no critical page (a
 // page there would also burn the 1 h dedup cooldown that a REAL dead-token
 // abort needs). Everything else alerts.
-export async function runPlayerIdentityBackfill(
-  opts: { perWorkspace?: number; concurrency?: number; maxAttempts?: number } = {},
-): Promise<PlayerIdentityBackfillResult> {
+export async function runPlayerIdentityBackfill(opts: BackfillOptions = {}): Promise<PlayerIdentityBackfillResult> {
   try {
     return await runPlayerIdentityBackfillJob(opts);
   } catch (err) {
