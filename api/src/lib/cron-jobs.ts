@@ -10,11 +10,39 @@ import { retryPendingObjectDeletions } from './gdpr-erasure.js';
 import { verifyAuditChains } from './audit-verify.js';
 import { sweepEmailDomains } from './email-domains.js';
 import { sendOpsAlert } from './alert.js';
+import {
+  BackfillAbortError, BackfillBusyError, runPlayerIdentityBackfillJob,
+  type BackfillOptions, type PlayerIdentityBackfillResult,
+} from './player-identity.js';
+
+// One-off Maestro player-identity backfill (lib/player-identity.ts), wrapped
+// with the same log + ops-alert + rethrow shape as the jobs below so BOTH
+// entry points (CLI cron-run.ts and the HTTP route) page on a dead token.
+// A "busy" rejection (already running) and the pre-flight "token not
+// configured" abort are operator signals, not failures — no critical page (a
+// page there would also burn the 1 h dedup cooldown that a REAL dead-token
+// abort needs). Everything else alerts.
+export async function runPlayerIdentityBackfill(opts: BackfillOptions = {}): Promise<PlayerIdentityBackfillResult> {
+  try {
+    return await runPlayerIdentityBackfillJob(opts);
+  } catch (err) {
+    if (err instanceof BackfillBusyError) throw err;
+    if (err instanceof BackfillAbortError && err.kind === 'unconfigured') {
+      console.warn('[cron] player-identity-backfill:', err.message);
+      throw err;
+    }
+    await alertCronFailure('player-identity-backfill', err);
+    throw err;
+  }
+}
 
 // A cron job failed to run cleanly — fire a live alert (no-op until a channel
 // is configured) so a silently-broken scheduled task surfaces. Signature is per
 // job, so one alert per job per cooldown.
 export async function alertCronFailure(job: string, err: unknown): Promise<void> {
+  // One log line per failure lives HERE (not at every call site) so the
+  // message shape — and any future redaction of raw error text — is decided once.
+  console.error(`[cron] ${job} failed:`, err instanceof Error ? err.message : err);
   await sendOpsAlert({
     signature: `cron:${job}:fail`,
     severity: 'critical',
@@ -32,7 +60,6 @@ export async function runWebhookRetryJob(): Promise<{ processed: number }> {
   try {
     ({ processed } = await processPendingDeliveries());
   } catch (err) {
-    console.error('[cron] webhook-retry failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('webhook-retry', err);
     throw err;
   }
@@ -62,7 +89,6 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
   try {
     ({ purgedTickets } = await purgeExpiredTickets());
   } catch (err) {
-    console.error('[cron] retention purge failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('retention', err);
     throw err;
   }
@@ -80,7 +106,6 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
     const { checked, tampered } = await verifyAuditChains({ resetFirst: full });
     result.audit = { checked, tampered: tampered.length, full };
   } catch (err) {
-    console.error('[cron] audit-verify (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('audit-verify', err);
   }
   // Piggyback the GDPR-erasure object-deletion retry sweep (finishes any R2
@@ -90,7 +115,6 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
     const { swept, cleared } = await retryPendingObjectDeletions();
     result.objectRetry = { swept, cleared };
   } catch (err) {
-    console.error('[cron] gdpr object-deletion retry (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('gdpr-object-retry', err);
   }
   // Piggyback the sender-domain sweep (same Hobby cron-cap reasoning): verify
@@ -100,7 +124,6 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
   try {
     result.emailDomains = await sweepEmailDomains();
   } catch (err) {
-    console.error('[cron] email-domain sweep (via retention) failed:', err instanceof Error ? err.message : err);
     await alertCronFailure('email-domain-sweep', err);
   }
   return result;

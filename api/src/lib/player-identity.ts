@@ -37,6 +37,7 @@ export type LinkOutcome =
   | 'linked'          // ids written (and blanks filled)
   | 'not_found'       // gateway knows no player with this email; lookup stamped
   | 'email_mismatch'  // gateway matched a USERNAME, not the email; stamped, nothing written
+  | 'rejected'        // gateway refused THIS address (400/422); stamped, nothing written
   | 'no_player_id'    // member record carries no userId — nothing stable to link to; stamped
   | 'unconfigured'    // no MAESTRO_API_TOKEN
   | 'no_brand'        // workspace is not a Maestro brand (unrouted bucket, legacy tenant)
@@ -166,9 +167,15 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   if (!brandId) return 'no_brand';
 
   // Lookup is by ONE exact key. Not-found is a 200 envelope (memberNotFound);
-  // a 404 from the gateway is treated the same way. Anything else propagates
-  // to the outer catch as 'failed' WITHOUT stamping, so a transient outage
-  // gets retried on the contact's next email rather than waiting a day.
+  // a 404 from the gateway is treated the same way. A deterministic per-contact
+  // rejection (400/422 — the gateway won't accept THIS address, e.g. malformed
+  // or over-long) is stamped too, as its own outcome: retrying it every run
+  // would pin `remaining` above zero forever, while a RUN of rejections is
+  // something the backfill still aborts on (a changed API contract would
+  // otherwise stamp every contact as checked). Everything else — 401/403
+  // (token / brand grant), 429, 5xx, network — propagates to the outer catch
+  // as 'failed' WITHOUT stamping, so a transient outage gets retried on the
+  // contact's next email rather than waiting a day.
   let member: Member | null;
   try {
     const res = await workerFetch<Member>('/api/v1/proxy/member/lookup', {
@@ -178,7 +185,10 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
     member = memberNotFound(res) ? null : res;
   } catch (err) {
     if (err instanceof MaestroError && err.status === 404) member = null;
-    else throw err;
+    else if (err instanceof MaestroError && (err.status === 400 || err.status === 422)) {
+      await stampLookup(sql, args);
+      return 'rejected';
+    } else throw err;
   }
 
   if (!member) {
@@ -233,6 +243,8 @@ export interface PlayerIdentityBackfillResult {
   linked: number;
   notFound: number;
   mismatched: number;
+  /** Gateway refused the address itself (400/422) — stamped, see LinkOutcome. */
+  rejected: number;
   noPlayerId: number;
   skipped: number;
   failed: number;
@@ -245,6 +257,46 @@ export interface PlayerIdentityBackfillResult {
  *  gateway 500 more times won't change that. */
 export const BACKFILL_ABORT_AFTER_FAILURES = 5;
 
+/** Consecutive 'rejected' (400/422) outcomes that abort a run. A handful of
+ *  genuinely malformed addresses is normal and gets stamped; twenty in a row
+ *  means the gateway is refusing the REQUEST shape (contract change), and
+ *  stamping every contact as "checked" would hide that for a day. */
+export const BACKFILL_ABORT_AFTER_REJECTIONS = 20;
+
+/**
+ * The job's own, operator-facing abort: carries the partial counts and a hint
+ * (never values, never DB error text). HTTP callers may forward `.message`
+ * verbatim; any OTHER error (DB down, schema mismatch) must stay generic.
+ */
+export class BackfillAbortError extends Error {
+  constructor(
+    message: string,
+    public readonly result: PlayerIdentityBackfillResult,
+    /** 'unconfigured' = pre-flight config gap (no page); 'gateway_failures' = the run itself died. */
+    public readonly kind: 'unconfigured' | 'gateway_failures',
+  ) {
+    super(message);
+    this.name = 'BackfillAbortError';
+  }
+}
+
+/** A second backfill was requested while one is still running (any process). */
+export class BackfillBusyError extends Error {
+  constructor() {
+    super('player-identity backfill is already running — wait for it to finish, then re-run');
+    this.name = 'BackfillBusyError';
+  }
+}
+
+// Single-flight guard, held in POSTGRES (session advisory lock on a reserved
+// connection) so it spans every entry point — the HTTP route, the CLI in the
+// container, a second replica, a redeploy overlap — not just this process.
+// Two overlapping runs would select the same un-stamped candidates (the stamp
+// lands only after each lookup) and double the gateway load; an HTTP caller
+// looping "until remaining is 0" can easily do that when the previous call
+// timed out at the edge while the job kept running.
+const BACKFILL_LOCK_KEY = 'player-identity-backfill';
+
 /**
  * Walk every Maestro-brand workspace and link its unlinked, never-checked
  * contacts, `perWorkspace` at a time with bounded concurrency. Idempotent:
@@ -253,19 +305,69 @@ export const BACKFILL_ABORT_AFTER_FAILURES = 5;
  * of consecutive failures THROWS (cron-run exits 1) with the partial counts,
  * so an operator "repeating until remaining = 0" can't loop on a broken token.
  */
-export async function runPlayerIdentityBackfillJob(
-  opts: { perWorkspace?: number; concurrency?: number } = {},
-): Promise<PlayerIdentityBackfillResult> {
+export interface BackfillOptions {
+  /** Candidates selected per brand workspace per run (page size). */
+  perWorkspace?: number;
+  /** Parallel gateway lookups. */
+  concurrency?: number;
+  /**
+   * Hard cap on contacts attempted per CALL, across all brands — the knob
+   * that bounds an HTTP invocation's wall-clock (Cloudflare cuts responses
+   * at ~100 s). The run stops cleanly at the cap and reports `remaining`.
+   */
+  maxAttempts?: number;
+  /**
+   * Wall-clock deadline for this call. Checked between chunks: once elapsed,
+   * the run stops cleanly and reports `remaining` — the second half of the
+   * HTTP bound (a 4-wide chunk of slow lookups can take a while each).
+   */
+  deadlineMs?: number;
+}
+
+export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): Promise<PlayerIdentityBackfillResult> {
+  const sql = getDb();
+  // Session-level advisory lock on a RESERVED connection (pg_try_advisory_lock
+  // is per session; through the pool a later query could land elsewhere).
+  const conn = await sql.reserve();
+  try {
+    const [{ locked }] = await conn<{ locked: boolean }[]>`select pg_try_advisory_lock(hashtext(${BACKFILL_LOCK_KEY})) as locked`;
+    if (!locked) throw new BackfillBusyError();
+    try {
+      return await runBackfillInner(sql, opts);
+    } finally {
+      // Never let an unlock hiccup replace the job's own error. Note that
+      // release() hands the connection BACK TO THE POOL (the session lives on,
+      // and so would a lock still held on it), so on failure try the blunt
+      // form once more; if the connection itself is broken — the realistic
+      // cause — postgres.js drops it from the pool and the session-scoped
+      // lock dies with it.
+      try {
+        await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
+      } catch (err) {
+        console.warn('[player-identity] advisory unlock failed, retrying with unlock_all:', err instanceof Error ? err.message : err);
+        try { await conn`select pg_advisory_unlock_all()`; } catch { /* connection is gone — lock gone with it */ }
+      }
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerIdentityBackfillResult> {
   const perWorkspace = opts.perWorkspace ?? 500;
   const concurrency = Math.max(1, opts.concurrency ?? 4);
-  const sql = getDb();
+  const maxAttempts = opts.maxAttempts ?? Number.POSITIVE_INFINITY;
   const result: PlayerIdentityBackfillResult = {
-    workspaces: 0, attempted: 0, linked: 0, notFound: 0, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
+    workspaces: 0, attempted: 0, linked: 0, notFound: 0, mismatched: 0, rejected: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
   };
 
   if (!workerMaestroConfigured()) {
     result.remaining = await countRemaining(sql);
-    throw new Error(`player-identity backfill: MAESTRO_API_TOKEN is not configured (${result.remaining} contacts waiting)`);
+    throw new BackfillAbortError(
+      `player-identity backfill: MAESTRO_API_TOKEN is not configured (${result.remaining} contacts waiting)`,
+      result,
+      'unconfigured',
+    );
   }
 
   const workspaces = await sql<{ id: string }[]>`
@@ -273,17 +375,25 @@ export async function runPlayerIdentityBackfillJob(
   `;
   result.workspaces = workspaces.length;
 
+  const startedAt = Date.now();
+  const deadlineMs = opts.deadlineMs ?? Number.POSITIVE_INFINITY;
+  const outOfTime = (): boolean => Date.now() - startedAt >= deadlineMs;
+
   let consecutiveFailures = 0;
+  let consecutiveRejections = 0;
   for (const ws of workspaces) {
+    const budget = maxAttempts - result.attempted;
+    if (budget <= 0 || outOfTime()) break;
     const candidates = await sql<{ id: string }[]>`
       select id from customers
       where workspace_id = ${ws.id}
         and maestro_user_id is null and email is not null and player_lookup_at is null
         and erased_at is null and deleted_at is null and merged_into_customer_id is null
       order by created_at asc
-      limit ${perWorkspace}
+      limit ${Math.min(perWorkspace, budget)}
     `;
     for (let i = 0; i < candidates.length; i += concurrency) {
+      if (outOfTime()) break;
       const outcomes = await Promise.all(
         candidates.slice(i, i + concurrency).map((c) =>
           linkCustomerToPlayer({ workspaceId: ws.id, customerId: c.id, reason: 'backfill' }),
@@ -294,16 +404,29 @@ export async function runPlayerIdentityBackfillJob(
         if (o === 'linked') result.linked++;
         else if (o === 'not_found') result.notFound++;
         else if (o === 'email_mismatch') result.mismatched++;
+        else if (o === 'rejected') result.rejected++;
         else if (o === 'no_player_id') result.noPlayerId++;
         else if (o === 'failed') result.failed++;
         else result.skipped++;
         consecutiveFailures = o === 'failed' ? consecutiveFailures + 1 : 0;
+        consecutiveRejections = o === 'rejected' ? consecutiveRejections + 1 : 0;
       }
       if (consecutiveFailures >= BACKFILL_ABORT_AFTER_FAILURES) {
         result.remaining = await countRemaining(sql);
-        throw new Error(
+        throw new BackfillAbortError(
           `player-identity backfill aborted after ${consecutiveFailures} consecutive gateway failures ` +
-          `(check MAESTRO_API_TOKEN / brand installation): ${JSON.stringify(result)}`,
+          `(check MAESTRO_API_TOKEN / brand installation / gateway health): ${JSON.stringify(result)}`,
+          result,
+          'gateway_failures',
+        );
+      }
+      if (consecutiveRejections >= BACKFILL_ABORT_AFTER_REJECTIONS) {
+        result.remaining = await countRemaining(sql);
+        throw new BackfillAbortError(
+          `player-identity backfill aborted after ${consecutiveRejections} consecutive gateway rejections (400/422) ` +
+          `— the lookup request shape is probably no longer accepted; check the member-lookup contract: ${JSON.stringify(result)}`,
+          result,
+          'gateway_failures',
         );
       }
     }

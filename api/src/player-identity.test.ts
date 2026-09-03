@@ -308,6 +308,69 @@ runDbTests('player identity linking (DB-backed)', () => {
     await sql`delete from customers where id in ${sql(ids)}`;
   });
 
+  it('backfill honours the per-call maxAttempts cap and reports the rest as remaining', async () => {
+    const email = `cap-${RUN}@example.test`;
+    stubGateway({ ...PLAYER, email });   // only `first` matches; the others mismatch → stamped
+    const first = await mkCustomer(ws, email);
+    const others: string[] = [];
+    for (let i = 0; i < 4; i++) others.push(await mkCustomer(ws, `cap-${i}-${RUN}@example.test`));
+
+    // Earlier tests leave a few unlinked, un-stamped rows behind (e.g. the
+    // 'failed' outage contact, by design), so assert relative to the live count.
+    const [{ before }] = await sql<{ before: number }[]>`
+      select count(*)::int as before from customers
+      where workspace_id = ${ws} and maestro_user_id is null and email is not null and player_lookup_at is null
+        and erased_at is null and deleted_at is null and merged_into_customer_id is null`;
+    expect(before).toBeGreaterThanOrEqual(5);
+
+    const r = await lib.runPlayerIdentityBackfillJob({ maxAttempts: 2, concurrency: 1 });
+    expect(r.attempted).toBe(2);
+    expect(r.remaining).toBe(before - 2);
+
+    // Drain the rest so the convergence test below starts clean.
+    const r2 = await lib.runPlayerIdentityBackfillJob({ maxAttempts: 500, concurrency: 2 });
+    expect(r2.attempted).toBe(before - 2);
+    expect(r2.remaining).toBe(0);
+    expect((await row(first)).maestro_user_id).toBe(PLAYER.userId);
+    await sql`delete from customers where id in ${sql([first, ...others])}`;
+  });
+
+  it('backfill stops at its deadline without touching anything and reports remaining', async () => {
+    stubGateway(PLAYER);
+    const id = await mkCustomer(ws, `deadline-${RUN}@example.test`);
+    const r = await lib.runPlayerIdentityBackfillJob({ deadlineMs: 0, concurrency: 1 });
+    expect(r.attempted).toBe(0);
+    expect(r.remaining).toBeGreaterThanOrEqual(1);
+    expect(calls).toHaveLength(0);
+    expect((await row(id)).player_lookup_at).toBeNull();
+    await sql`delete from customers where id = ${id}`;
+  });
+
+  it('a second backfill while one is running is rejected (advisory lock, any process)', async () => {
+    // Slow gateway: hold the first run open long enough to start a second.
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    globalThis.fetch = (async () => {
+      await gate;
+      return new Response(JSON.stringify({ success: false, errorCode: 101 }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof fetch;
+    const id = await mkCustomer(ws, `lock-${RUN}@example.test`);
+
+    const running = lib.runPlayerIdentityBackfillJob({ concurrency: 1 });
+    await new Promise((r) => setTimeout(r, 150));   // let it take the lock and reach the gateway
+    let busy: unknown = null;
+    try { await lib.runPlayerIdentityBackfillJob({ concurrency: 1 }); } catch (err) { busy = err; }
+    expect(busy).toBeInstanceOf(lib.BackfillBusyError);
+
+    release();
+    const done = await running;
+    expect(done.notFound).toBeGreaterThanOrEqual(1);
+    // Lock released → a third run is accepted again.
+    const again = await lib.runPlayerIdentityBackfillJob({ concurrency: 1 });
+    expect(again.attempted).toBe(0);
+    await sql`delete from customers where id = ${id}`;
+  });
+
   it('backfill walks only brand workspaces, links what it can, and converges to remaining = 0', async () => {
     // Fresh candidates: everything above is linked or stamped, so it is out of
     // scope for the backfill by construction. Add three new ones.

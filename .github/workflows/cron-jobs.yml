@@ -1,0 +1,143 @@
+name: Scheduled jobs (prod)
+
+# Runs the API's scheduled jobs by calling its CRON_SECRET-gated HTTP endpoints
+# (api/src/routes/cron.ts) on production. This is the scheduler of record for
+# the self-hosted deployment: the Dokploy application schedules (which exec
+# inside the API container) have failed with "Container not found" since late
+# August 2026 — Dokploy cannot reach the container from the panel — so the
+# nightly sweeps were silently not running. The same job bodies back both
+# paths (api/src/lib/cron-jobs.ts), and every job is idempotent, so a Dokploy
+# schedule coming back to life alongside this workflow is harmless (the
+# backfill is additionally single-flight via a Postgres advisory lock).
+#
+# Failure signals: a non-200 response, `ok:false`, or a non-zero audit
+# `tampered` count fails the run → GitHub notifies the repo owner; the job
+# also fires its own ops alert (alertCronFailure) server-side.
+#
+# Known limits (accepted, see PROD_SETUP.md → Scheduled jobs):
+# - api.respovia.com is behind Cloudflare, which cuts responses after ~100 s
+#   (HTTP 524) while the API keeps running the job. A 52x here means "the edge
+#   gave up, the job probably finished" — check the API logs / ops alerts
+#   before assuming the job itself failed. The backfill endpoint is capped per
+#   call for this reason.
+# - GitHub disables `schedule:` triggers in a repo with no commits for 60 days.
+#   If the project goes quiet, re-enable it under Actions (one-click).
+# - GitHub schedules can fire minutes late under load; nothing here is
+#   time-critical to the minute.
+# - This is a PUBLIC repo: the step prints only a whitelisted summary of the
+#   response (status + counts), never the raw body.
+#
+# Manual use (Actions → "Scheduled jobs (prod)" → Run workflow): pick a job.
+# `player-identity-backfill` is the one-off Maestro contact linker — run it,
+# read `remaining` in the step output, repeat until it is 0 (each run handles
+# up to 100 contacts; a 409 means the previous run is still going).
+#
+# Secrets: PROD_CRON_SECRET = the API's CRON_SECRET (Dokploy → respovia-api →
+# Environment). Rotate both together.
+
+on:
+  schedule:
+    # Same UTC slots the Dokploy schedules used (deploy/dokploy/provision-schedules.mjs).
+    # Each expression MUST have a matching arm in the "Pick the job" step below —
+    # an unmapped expression fails the run rather than silently running the
+    # wrong job.
+    - cron: '0 3 * * *'   # webhook-retry
+    - cron: '0 4 * * *'   # retention (+ audit-verify, GDPR object retry, email-domain sweep)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run
+        required: true
+        type: choice
+        default: webhook-retry
+        options:
+          - webhook-retry
+          - retention
+          - audit-verify
+          - player-identity-backfill
+
+permissions:
+  contents: read
+
+# One group per TRIGGER+JOB: a manual backfill loop must never cancel a pending
+# nightly retention run (GitHub keeps one running + one pending run per group
+# and cancels the older pending one when another arrives, whatever
+# cancel-in-progress says). Repeated manual runs of the same job queue behind
+# each other; a manual run and a scheduled run of the same job are separate
+# groups and may overlap — every job is idempotent, and the backfill is
+# additionally single-flight server-side (409), so that is harmless.
+concurrency:
+  group: prod-cron-${{ github.event_name == 'workflow_dispatch' && inputs.job || format('scheduled-{0}', github.event.schedule) }}
+  cancel-in-progress: false
+
+env:
+  API_BASE: https://api.respovia.com
+
+jobs:
+  run:
+    name: call the job endpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Pick the job for this trigger
+        id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_JOB: ${{ inputs.job }}
+        run: |
+          set -u
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            job="$INPUT_JOB"
+          else
+            case "$SCHEDULE" in
+              "0 3 * * *") job="webhook-retry" ;;
+              "0 4 * * *") job="retention" ;;
+              *) echo "::error::Unmapped schedule '$SCHEDULE' — add it to the case in this step AND the schedule list."; exit 1 ;;
+            esac
+          fi
+          echo "job=$job" >> "$GITHUB_OUTPUT"
+          echo "Running: $job"
+
+      - name: Call the endpoint
+        env:
+          CRON_SECRET: ${{ secrets.PROD_CRON_SECRET }}
+          JOB: ${{ steps.pick.outputs.job }}
+        run: |
+          set -u
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::PROD_CRON_SECRET is not set — add the API's CRON_SECRET as a repository secret."
+            exit 1
+          fi
+          body="$(mktemp)"
+          # -w prints the status even when curl exits non-zero (e.g. the socket
+          # dropped mid-body after a 200); only an EMPTY status means no
+          # response at all. Never `|| code=000` — that would overwrite a real code.
+          code="$(curl -sS --max-time 150 -o "$body" -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$API_BASE/api/v1/cron/$JOB")" || true
+          [ -n "$code" ] || code="000"
+          echo "HTTP $code"
+
+          # Public repo: print a whitelisted summary, never the raw body (it can
+          # carry tenant ids on a tampered audit chain, or a Cloudflare error page).
+          if jq -e . "$body" >/dev/null 2>&1; then
+            jq -c '{ok, error, processed, purgedTickets, tampered: (.audit.tampered // .tamperedCount), attempted, linked, notFound, mismatched, rejected, noPlayerId, failed, remaining} | with_entries(select(.value != null))' "$body"
+          else
+            echo "(non-JSON response body, $(wc -c < "$body") bytes — not printed)"
+          fi
+
+          case "$code" in
+            200) ;;
+            401) echo "::error::Unauthorized — PROD_CRON_SECRET does not match the API's CRON_SECRET (or CRON_SECRET is unset on the API)."; exit 1 ;;
+            409) echo "::error::$JOB is still running from a previous call — wait, then re-run."; exit 1 ;;
+            000) echo "::error::No response from $API_BASE within the time limit (network / tunnel down, or the job outran the client timeout)."; exit 1 ;;
+            52[0-6]|530) echo "::error::Cloudflare edge error $code — the tunnel is down (530) or the job outran the ~100 s edge limit (524) and is likely still running on the API. Check API logs / ops alerts before re-running."; exit 1 ;;
+            *)   echo "::error::$JOB failed with HTTP $code."; exit 1 ;;
+          esac
+          # /audit-verify returns ok:false (with HTTP 200) when the chain is tampered;
+          # /retention reports the daily incremental verify as a COUNT under audit.tampered.
+          if jq -e '(.ok == false) or ((.audit.tampered // 0) > 0) or ((.tamperedCount // 0) > 0)' "$body" >/dev/null; then
+            echo "::error::$JOB reported a problem (ok:false or tampered audit chains) — see the summary above and the ops alert."
+            exit 1
+          fi

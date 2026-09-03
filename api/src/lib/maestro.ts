@@ -56,6 +56,9 @@ export function memberNotFound(res: Record<string, unknown> | null | undefined):
   return !res || res.success === false || res.errorCode === 101;
 }
 
+/** Per-request ceiling for gateway calls — see the fetch() below. */
+const GATEWAY_TIMEOUT_MS = 15_000;
+
 interface FetchOpts {
   /** Bearer token: the user's Maestro access token, or the worker API token. */
   token: string;
@@ -93,6 +96,13 @@ export async function maestroFetch<T = unknown>(path: string, opts: FetchOpts): 
       method: opts.method ?? 'GET',
       headers,
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      // A stalled gateway (TCP accepted, no response) must not hang callers
+      // for undici's multi-minute default: request handlers would hold the
+      // client past the edge timeout, and the backfill's single-flight lock
+      // would stay held for the whole batch. 15 s is generous for these
+      // single-record lookups; the failure lands in the catch below as a
+      // status-0 MaestroError ("could not reach"), which every caller handles.
+      signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
     });
   } catch (err) {
     throw new MaestroError(
