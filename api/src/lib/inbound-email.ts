@@ -89,10 +89,10 @@ async function recordInboundInInbox(args: {
   try {
     await sql`
       insert into inbox_messages
-        (workspace_id, channel_id, external_id, from_name, from_email, subject, body, received_at, status, converted_ticket_id)
+        (workspace_id, channel_id, external_id, from_name, from_email, subject, body, body_html, received_at, status, converted_ticket_id)
       values
         (${workspaceId}, ${channelId}, ${extractMessageId(payload)}, ${name || null}, ${email},
-         ${payload.Subject || null}, ${body}, now(), 'converted', ${ticketId})
+         ${payload.Subject || null}, ${body}, ${payload.HtmlBody?.trim() || null}, now(), 'converted', ${ticketId})
     `;
   } catch (err) {
     // Unique violation on (channel_id, external_id) is expected on Postmark

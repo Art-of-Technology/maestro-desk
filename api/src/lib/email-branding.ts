@@ -15,6 +15,7 @@
 // so stored content is escaped and cannot inject markup into recipients' mail.
 
 import { getDb } from './db.js';
+import { htmlToText } from './html-text.js';
 
 export interface BrandTemplate {
   id: string;
@@ -115,16 +116,16 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   // ── Plain-text assembly ──
   const textParts: string[] = [];
   if (headerText || (template?.header_html && !headerText)) {
-    const ht = headerText ?? stripHtml(template!.header_html!);
+    const ht = headerText ?? htmlToText(template!.header_html!);
     if (ht) textParts.push(ht);
   }
   textParts.push(bodyText);
   if (sigText || (signature?.body_html && !sigText)) {
-    const st = sigText ?? stripHtml(signature!.body_html!);
+    const st = sigText ?? htmlToText(signature!.body_html!);
     if (st) textParts.push(st);
   }
   if (footerText || (template?.footer_html && !footerText)) {
-    const ft = footerText ?? stripHtml(template!.footer_html!);
+    const ft = footerText ?? htmlToText(template!.footer_html!);
     if (ft) textParts.push(ft);
   }
   const text = textParts.join('\n\n');
@@ -241,16 +242,3 @@ export function textToHtml(text: string, linkColor: LinkColor = BODY_LINK_COLOR)
   return linked.replace(/\r?\n/g, '<br>');
 }
 
-// Best-effort HTML → text for the rare case a row only has *_html (no UI writes
-// these yet). Strip tags and collapse whitespace; decode the few entities we
-// emit. Good enough for a plain-text fallback line.
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/[ \t]+\n/g, '\n')
-    .trim();
-}
