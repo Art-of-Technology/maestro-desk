@@ -246,6 +246,35 @@ export interface PlayerIdentityBackfillResult {
 export const BACKFILL_ABORT_AFTER_FAILURES = 5;
 
 /**
+ * The job's own, operator-facing abort: carries the partial counts and a hint
+ * (never values, never DB error text). HTTP callers may forward `.message`
+ * verbatim; any OTHER error (DB down, schema mismatch) must stay generic.
+ */
+export class BackfillAbortError extends Error {
+  constructor(message: string, public readonly result: PlayerIdentityBackfillResult) {
+    super(message);
+    this.name = 'BackfillAbortError';
+  }
+}
+
+/** A second backfill was requested while one is still running in this process. */
+export class BackfillBusyError extends Error {
+  constructor() {
+    super('player-identity backfill is already running — wait for it to finish, then re-run');
+    this.name = 'BackfillBusyError';
+  }
+}
+
+// Single-flight guard. Two overlapping runs would select the same un-stamped
+// candidates (the stamp lands only after each lookup) and double the gateway
+// load — an HTTP caller looping "until remaining is 0" can easily do that if
+// the previous call timed out at the edge while the job kept running.
+let backfillInFlight = false;
+export function isBackfillRunning(): boolean {
+  return backfillInFlight;
+}
+
+/**
  * Walk every Maestro-brand workspace and link its unlinked, never-checked
  * contacts, `perWorkspace` at a time with bounded concurrency. Idempotent:
  * every contact it touches is either linked or stamped, so re-running
@@ -256,6 +285,18 @@ export const BACKFILL_ABORT_AFTER_FAILURES = 5;
 export async function runPlayerIdentityBackfillJob(
   opts: { perWorkspace?: number; concurrency?: number } = {},
 ): Promise<PlayerIdentityBackfillResult> {
+  if (backfillInFlight) throw new BackfillBusyError();
+  backfillInFlight = true;
+  try {
+    return await runBackfillInner(opts);
+  } finally {
+    backfillInFlight = false;
+  }
+}
+
+async function runBackfillInner(
+  opts: { perWorkspace?: number; concurrency?: number },
+): Promise<PlayerIdentityBackfillResult> {
   const perWorkspace = opts.perWorkspace ?? 500;
   const concurrency = Math.max(1, opts.concurrency ?? 4);
   const sql = getDb();
@@ -265,7 +306,10 @@ export async function runPlayerIdentityBackfillJob(
 
   if (!workerMaestroConfigured()) {
     result.remaining = await countRemaining(sql);
-    throw new Error(`player-identity backfill: MAESTRO_API_TOKEN is not configured (${result.remaining} contacts waiting)`);
+    throw new BackfillAbortError(
+      `player-identity backfill: MAESTRO_API_TOKEN is not configured (${result.remaining} contacts waiting)`,
+      result,
+    );
   }
 
   const workspaces = await sql<{ id: string }[]>`
@@ -301,9 +345,10 @@ export async function runPlayerIdentityBackfillJob(
       }
       if (consecutiveFailures >= BACKFILL_ABORT_AFTER_FAILURES) {
         result.remaining = await countRemaining(sql);
-        throw new Error(
+        throw new BackfillAbortError(
           `player-identity backfill aborted after ${consecutiveFailures} consecutive gateway failures ` +
           `(check MAESTRO_API_TOKEN / brand installation): ${JSON.stringify(result)}`,
+          result,
         );
       }
     }

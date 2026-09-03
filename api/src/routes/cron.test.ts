@@ -4,7 +4,7 @@
 // CRON_SECRET so the guard is deterministic regardless of the ambient .env or
 // test-run order.
 
-import { describe, expect, it, mock, afterAll } from 'bun:test';
+import { describe, expect, it, mock, afterAll, beforeEach } from 'bun:test';
 
 // Hermetic env so the real env.ts (pulled in below to derive a complete stub)
 // validates without an api/.env. The DB URL is a placeholder — connections are
@@ -42,12 +42,21 @@ mock.module('../lib/audit-verify.js', () => ({
 }));
 
 // Player-identity backfill: swapped per-test between a normal result and the
-// job's own abort error (dead token / consecutive gateway failures).
-let backfillImpl: () => Promise<Record<string, unknown>> = async () => ({
+// job's own abort error (dead token / consecutive gateway failures). The
+// cron-jobs module is SPREAD so every other export stays real — a partial
+// mock leaks to later test files in bun (the env mock above spreads for the
+// same reason) — and alertCronFailure is stubbed so the abort test can't make
+// a real Postmark call through lib/alert.ts when another file's env leaks in.
+const realCronJobs = await import('../lib/cron-jobs.js');
+const { BackfillAbortError, BackfillBusyError } = await import('../lib/player-identity.js');
+const OK_RESULT = {
   workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
-});
-mock.module('../lib/player-identity.js', () => ({
-  runPlayerIdentityBackfillJob: () => backfillImpl(),
+};
+let backfillImpl: (opts?: { perWorkspace?: number }) => Promise<typeof OK_RESULT> = async () => OK_RESULT;
+mock.module('../lib/cron-jobs.js', () => ({
+  ...realCronJobs,
+  alertCronFailure: async () => {},
+  runPlayerIdentityBackfill: (opts?: { perWorkspace?: number }) => backfillImpl(opts),
 }));
 
 const { cron } = await import('./cron.js');
@@ -102,30 +111,61 @@ describe('cron endpoints — CRON_SECRET guard', () => {
 });
 
 describe('cron endpoints — player-identity-backfill', () => {
+  const auth = { headers: { Authorization: `Bearer ${CRON_SECRET}` } };
+  beforeEach(() => { backfillImpl = async () => OK_RESULT; });
+
   it('rejects a request with no bearer (401)', async () => {
     const res = await cron.request('/player-identity-backfill');
     expect(res.status).toBe(401);
   });
 
-  it('runs the backfill and returns its counts (200)', async () => {
-    const res = await cron.request('/player-identity-backfill', {
-      headers: { Authorization: `Bearer ${CRON_SECRET}` },
-    });
+  it('runs the backfill with the bounded default batch and returns its counts (200)', async () => {
+    let seen: number | undefined;
+    backfillImpl = async (opts) => { seen = opts?.perWorkspace; return OK_RESULT; };
+    const res = await cron.request('/player-identity-backfill', auth);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; linked: number; remaining: number };
+    const body = (await res.json()) as { ok: boolean; perWorkspace: number; linked: number; remaining: number };
     expect(body.ok).toBe(true);
+    expect(body.perWorkspace).toBe(100);
+    expect(seen).toBe(100);
     expect(body.linked).toBe(1);
     expect(body.remaining).toBe(0);
   });
 
-  it("surfaces the job's abort as a 500 carrying its message", async () => {
-    backfillImpl = async () => { throw new Error('player-identity backfill aborted after 5 consecutive gateway failures (check MAESTRO_API_TOKEN / brand installation): {"remaining":12}'); };
-    const res = await cron.request('/player-identity-backfill', {
-      headers: { Authorization: `Bearer ${CRON_SECRET}` },
-    });
+  it('clamps ?perWorkspace to the maximum and ignores garbage', async () => {
+    const seen: (number | undefined)[] = [];
+    backfillImpl = async (opts) => { seen.push(opts?.perWorkspace); return OK_RESULT; };
+    expect((await cron.request('/player-identity-backfill?perWorkspace=5000', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?perWorkspace=abc', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?perWorkspace=-3', auth)).status).toBe(200);
+    expect((await cron.request('/player-identity-backfill?perWorkspace=250', auth)).status).toBe(200);
+    expect(seen).toEqual([500, 100, 100, 250]);
+  });
+
+  it("forwards the job's own abort message with its counts (500)", async () => {
+    const partial = { ...OK_RESULT, attempted: 5, failed: 5, remaining: 12 };
+    backfillImpl = async () => {
+      throw new BackfillAbortError('player-identity backfill aborted after 5 consecutive gateway failures (check MAESTRO_API_TOKEN / brand installation)', partial);
+    };
+    const res = await cron.request('/player-identity-backfill', auth);
     expect(res.status).toBe(500);
-    const body = (await res.json()) as { ok: boolean; error: string };
+    const body = (await res.json()) as { ok: boolean; error: string; remaining: number };
     expect(body.ok).toBe(false);
     expect(body.error).toMatch(/consecutive gateway failures/);
+    expect(body.remaining).toBe(12);
+  });
+
+  it('reports an already-running backfill as 409', async () => {
+    backfillImpl = async () => { throw new BackfillBusyError(); };
+    const res = await cron.request('/player-identity-backfill', auth);
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toMatch(/already running/);
+  });
+
+  it('never leaks an unexpected error message (fixed string, 500)', async () => {
+    backfillImpl = async () => { throw new Error('connect ECONNREFUSED 10.0.0.5:5432'); };
+    const res = await cron.request('/player-identity-backfill', auth);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ ok: false, error: 'player-identity-backfill failed' });
   });
 });

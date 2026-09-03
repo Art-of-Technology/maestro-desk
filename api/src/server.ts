@@ -18,9 +18,10 @@ import { startWebhookWorker, stopWebhookWorker } from './lib/outgoing-webhooks.j
 // awake by ~17k queries/day.
 const RETRY_POLL_MS = 10 * 60 * 1000;
 
-// No CRON_SECRET warning here on purpose: self-hosted schedules exec
-// src/cron-run.ts in-container and don't need the secret — it only gates the
-// HTTP cron endpoints (Vercel Cron / manual curl; routes/cron.ts warns there).
+// CRON_SECRET matters on this host too: the nightly jobs are driven by
+// .github/workflows/cron-jobs.yml calling the HTTP cron endpoints (the Dokploy
+// in-container schedules stopped working — PROD_SETUP.md → Scheduled jobs).
+// routes/cron.ts warns at load when it is unset on any non-local deploy.
 
 const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`respovia API (node) listening on :${info.port} — TRUST_PROXY=${env.TRUST_PROXY}`);

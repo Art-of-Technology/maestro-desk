@@ -9,12 +9,25 @@ name: Scheduled jobs (prod)
 # paths (api/src/lib/cron-jobs.ts), and every job is idempotent, so a Dokploy
 # schedule coming back to life alongside this workflow is harmless.
 #
-# A failed call fails the workflow run → GitHub notifies the repo owner. The
-# job also fires its own ops alert (alertCronFailure) server-side.
+# Failure signals: a non-200 (or ok:false) response fails the run → GitHub
+# notifies the repo owner; the job also fires its own ops alert
+# (alertCronFailure) server-side.
+#
+# Known limits (accepted, see PROD_SETUP.md → Scheduled jobs):
+# - api.respovia.com is behind Cloudflare, which cuts responses after ~100 s
+#   (HTTP 524) while the API keeps running the job. A 52x here means "the edge
+#   gave up, the job probably finished" — check the API logs / ops alerts
+#   before assuming the job itself failed. The backfill endpoint is batch-
+#   bounded for this reason.
+# - GitHub disables `schedule:` triggers in a repo with no commits for 60 days.
+#   If the project goes quiet, re-enable it under Actions (one-click).
+# - GitHub schedules can fire minutes late under load; nothing here is
+#   time-critical to the minute.
 #
 # Manual use (Actions → "Scheduled jobs (prod)" → Run workflow): pick a job.
 # `player-identity-backfill` is the one-off Maestro contact linker — run it,
-# read `remaining` in the step output, repeat until it is 0.
+# read `remaining` in the step output, repeat until it is 0 (each run handles
+# up to 100 contacts per brand; a 409 means the previous run is still going).
 #
 # Secrets: PROD_CRON_SECRET = the API's CRON_SECRET (Dokploy → respovia-api →
 # Environment). Rotate both together.
@@ -22,6 +35,9 @@ name: Scheduled jobs (prod)
 on:
   schedule:
     # Same UTC slots the Dokploy schedules used (deploy/dokploy/provision-schedules.mjs).
+    # Each expression MUST have a matching arm in the "Pick the job" step below —
+    # an unmapped expression fails the run rather than silently running the
+    # wrong job.
     - cron: '0 3 * * *'   # webhook-retry
     - cron: '0 4 * * *'   # retention (+ audit-verify, GDPR object retry, email-domain sweep)
   workflow_dispatch:
@@ -40,8 +56,12 @@ on:
 permissions:
   contents: read
 
+# One group PER JOB: a manual backfill loop must never cancel a pending nightly
+# retention run (GitHub keeps one running + one pending run per group and
+# cancels the older pending one when another arrives, whatever
+# cancel-in-progress says). Same-job runs still serialise.
 concurrency:
-  group: prod-cron-jobs
+  group: prod-cron-${{ github.event_name == 'workflow_dispatch' && inputs.job || format('scheduled-{0}', github.event.schedule) }}
   cancel-in-progress: false
 
 env:
@@ -55,14 +75,20 @@ jobs:
     steps:
       - name: Pick the job for this trigger
         id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_JOB: ${{ inputs.job }}
         run: |
           set -u
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            job="${{ inputs.job }}"
-          elif [ "${{ github.event.schedule }}" = "0 3 * * *" ]; then
-            job="webhook-retry"
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            job="$INPUT_JOB"
           else
-            job="retention"
+            case "$SCHEDULE" in
+              "0 3 * * *") job="webhook-retry" ;;
+              "0 4 * * *") job="retention" ;;
+              *) echo "::error::Unmapped schedule '$SCHEDULE' — add it to the case in this step AND the schedule list."; exit 1 ;;
+            esac
           fi
           echo "job=$job" >> "$GITHUB_OUTPUT"
           echo "Running: $job"
@@ -78,16 +104,17 @@ jobs:
             exit 1
           fi
           body="$(mktemp)"
-          # Retention can take a while on a large purge; the API answers when done.
-          code="$(curl -sS --max-time 600 -o "$body" -w '%{http_code}' \
+          code="$(curl -sS --max-time 150 -o "$body" -w '%{http_code}' \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$API_BASE/api/v1/cron/$JOB")" || code="000"
           echo "HTTP $code"
           cat "$body"; echo
           case "$code" in
             200) ;;
-            401) echo "::error::Unauthorized — PROD_CRON_SECRET does not match the API's CRON_SECRET."; exit 1 ;;
-            000) echo "::error::Could not reach $API_BASE (network / tunnel down)."; exit 1 ;;
+            401) echo "::error::Unauthorized — PROD_CRON_SECRET does not match the API's CRON_SECRET (or CRON_SECRET is unset on the API)."; exit 1 ;;
+            409) echo "::error::$JOB is still running from a previous call — wait, then re-run."; exit 1 ;;
+            000) echo "::error::Could not reach $API_BASE within the time limit (network / tunnel down, or the job outran the client timeout)."; exit 1 ;;
+            52[0-6]|530) echo "::error::Cloudflare edge error $code — the tunnel is down (530) or the job outran the ~100 s edge limit (524) and is likely still running on the API. Check API logs / ops alerts before re-running."; exit 1 ;;
             *)   echo "::error::$JOB failed with HTTP $code — see the response above."; exit 1 ;;
           esac
           # /audit-verify returns ok:false (with HTTP 200) when the chain is tampered.

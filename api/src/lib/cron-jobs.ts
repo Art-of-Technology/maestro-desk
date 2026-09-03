@@ -10,6 +10,27 @@ import { retryPendingObjectDeletions } from './gdpr-erasure.js';
 import { verifyAuditChains } from './audit-verify.js';
 import { sweepEmailDomains } from './email-domains.js';
 import { sendOpsAlert } from './alert.js';
+import {
+  BackfillBusyError, runPlayerIdentityBackfillJob, type PlayerIdentityBackfillResult,
+} from './player-identity.js';
+
+// One-off Maestro player-identity backfill (lib/player-identity.ts), wrapped
+// with the same log + ops-alert + rethrow shape as the jobs below so BOTH
+// entry points (CLI cron-run.ts and the HTTP route) page on a dead token.
+// A "busy" rejection (already running in this process) is an operator
+// signal, not a failure — no alert.
+export async function runPlayerIdentityBackfill(
+  opts: { perWorkspace?: number; concurrency?: number } = {},
+): Promise<PlayerIdentityBackfillResult> {
+  try {
+    return await runPlayerIdentityBackfillJob(opts);
+  } catch (err) {
+    if (err instanceof BackfillBusyError) throw err;
+    console.error('[cron] player-identity-backfill failed:', err instanceof Error ? err.message : err);
+    await alertCronFailure('player-identity-backfill', err);
+    throw err;
+  }
+}
 
 // A cron job failed to run cleanly — fire a live alert (no-op until a channel
 // is configured) so a silently-broken scheduled task surfaces. Signature is per

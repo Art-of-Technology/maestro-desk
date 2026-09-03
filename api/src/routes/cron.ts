@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { env } from '../lib/env.js';
+import { env, isLocalDev } from '../lib/env.js';
 import { verifyAuditChainsFull } from '../lib/audit-verify.js';
-import { alertCronFailure, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
-import { runPlayerIdentityBackfillJob } from '../lib/player-identity.js';
+import { alertCronFailure, runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
+import { BackfillAbortError, BackfillBusyError } from '../lib/player-identity.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -17,10 +17,15 @@ export const cron = new Hono();
 // so the scheduled webhook-retry job would never run with no obvious signal.
 // Warn loudly at boot. (Locally it's expected — the in-process worker does the
 // sweeping and the endpoints stay closed.)
-if (process.env.VERCEL && !env.CRON_SECRET) {
+//
+// Self-hosted prod is gated the same way now: the GitHub Actions scheduler
+// (.github/workflows/cron-jobs.yml) calls these endpoints, so an unset secret
+// there means "every nightly run 401s" — warn on every non-local deploy.
+if (!isLocalDev && !env.CRON_SECRET) {
   console.warn(
-    '[cron] CRON_SECRET is not set on Vercel — all /api/v1/cron/* requests will 401 and the ' +
-      'scheduled jobs (webhook-retry, retention) will NOT run. Set CRON_SECRET in the project env.',
+    '[cron] CRON_SECRET is not set — all /api/v1/cron/* requests will 401 and the ' +
+      'scheduled jobs (webhook-retry, retention) will NOT run. Set CRON_SECRET in the deploy env ' +
+      '(and PROD_CRON_SECRET in the GitHub repo secrets to the same value).',
   );
 }
 
@@ -82,16 +87,32 @@ cron.get('/audit-verify', async (c) => {
 // with "Container not found" — see PROD_SETUP.md → Scheduled jobs). Not on a
 // timer: an operator calls it with the CRON_SECRET bearer and repeats until
 // `remaining` is 0. Idempotent — every contact it touches is linked or
-// stamped. The job THROWS on a dead token / consecutive gateway failures so a
-// caller looping on `remaining` can't spin forever; that surfaces as 500 with
-// the job's own message (counts + hint, never values).
+// stamped.
+//
+// Bounded per call: api.respovia.com sits behind Cloudflare, which cuts any
+// response past ~100 s (HTTP 524) while the handler keeps running blind. The
+// default batch (100 contacts per brand, 4-wide gateway calls) finishes well
+// inside that; `?perWorkspace=` may raise it to 500. The job is single-flight
+// per process — a caller re-running after an edge timeout gets 409 instead of
+// doubling the gateway load.
+//
+// Error policy: the job's own abort (dead token / consecutive gateway
+// failures) is operator-facing — counts + hint, never values — and is
+// forwarded. Anything else (DB down, schema mismatch) is logged + alerted
+// inside runPlayerIdentityBackfill and surfaces as a FIXED string, like the
+// sibling handlers: the workflow prints this body into a public Actions log.
+const BACKFILL_DEFAULT_PER_WORKSPACE = 100;
+const BACKFILL_MAX_PER_WORKSPACE = 500;
 cron.get('/player-identity-backfill', async (c) => {
+  const raw = Number(c.req.query('perWorkspace') ?? BACKFILL_DEFAULT_PER_WORKSPACE);
+  const perWorkspace = Number.isInteger(raw) && raw > 0
+    ? Math.min(raw, BACKFILL_MAX_PER_WORKSPACE)
+    : BACKFILL_DEFAULT_PER_WORKSPACE;
   try {
-    return c.json({ ok: true, ...(await runPlayerIdentityBackfillJob()) });
+    return c.json({ ok: true, perWorkspace, ...(await runPlayerIdentityBackfill({ perWorkspace })) });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[cron] player-identity-backfill failed:', message);
-    await alertCronFailure('player-identity-backfill', err);
-    return c.json({ ok: false, error: message }, 500);
+    if (err instanceof BackfillBusyError) return c.json({ ok: false, error: err.message }, 409);
+    if (err instanceof BackfillAbortError) return c.json({ ok: false, error: err.message, ...err.result }, 500);
+    return c.json({ ok: false, error: 'player-identity-backfill failed' }, 500);
   }
 });
