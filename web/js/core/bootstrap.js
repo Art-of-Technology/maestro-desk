@@ -175,6 +175,35 @@ function mapTicket(t, customerByUuid, userByUuid) {
 // Server customer_note row → the {id, author, ts, text} shape the customers
 // module renders. Exported so the note-create path can map its 201 response
 // exactly like bootstrap's initial load.
+// The server customer row (GET /customers shape — PATCH /customers/:id returns
+// the same columns) → the SPA's camelCase view model, written onto `target`.
+// Bootstrap builds every row through this, and the details card applies a
+// PATCH response through it, so there is exactly one mapping. Only for FULL
+// rows: a contact-endpoint response is partial and goes through
+// customers/contacts.js applyContacts instead.
+export function applyCustomerRow(target, c) {
+  target.first        = c.first_name || '';
+  target.last         = c.last_name || '';
+  target.username     = c.username || '';
+  target.maestroUserId = c.maestro_user_id || '';   // Maestro global player id (auto-linked, read-only)
+  target.memberId      = c.maestro_member_id || ''; // per-brand member number
+  target.email        = c.email || '';   // primary mirror (server-derived for merged-away rows)
+  target.mobile       = c.mobile || '';
+  target.emails       = Array.isArray(c.emails)  ? c.emails  : [];   // Phase 4 contacts model
+  target.mobiles      = Array.isArray(c.mobiles) ? c.mobiles : [];
+  target.brand        = c.brand || '';
+  target.vip          = c.vip_tier || '';
+  target.jurisdiction = c.jurisdiction || '';
+  target.consent      = Boolean(c.consent);
+  target.since        = isoDate(c.since);   // `date` column → YYYY-MM-DD whatever the wire form
+  target.bo           = c.backoffice_url || '';
+  target.erased       = Boolean(c.erased_at);
+  target.emailBounceState = c.email_bounce_state || 'none';
+  target.emailBounceCount = c.email_bounce_count || 0;
+  target.emailLastBounce  = c.email_last_bounce_at || null;
+  return target;
+}
+
 export function mapCustomerNote(n) {
   return {
     id:     n.id,
@@ -255,34 +284,16 @@ export async function loadWorkspaceData() {
   for (const n of custNotesRaw) {
     (notesByCustomer[n.customer_id] ||= []).push(mapCustomerNote(n));
   }
-  const mappedCustomers = customersRaw.map((c) => ({
+  const mappedCustomers = customersRaw.map((c) => applyCustomerRow({
     _uuid:        c.id,           // DB UUID — used by PUT /custom-values/customers/:uuid
     id:           c.display_id,
-    first:        c.first_name || '',
-    last:         c.last_name || '',
-    username:     c.username || '',
-    maestroUserId: c.maestro_user_id || '',   // Maestro global player id (auto-linked, read-only)
-    memberId:      c.maestro_member_id || '', // per-brand member number
-    email:        c.email || '',   // primary mirror (server-derived for merged-away rows)
-    mobile:       c.mobile || '',
-    emails:       Array.isArray(c.emails)  ? c.emails  : [],   // Phase 4 contacts model
-    mobiles:      Array.isArray(c.mobiles) ? c.mobiles : [],
-    brand:        c.brand || '',
-    vip:          c.vip_tier || '',
-    jurisdiction: c.jurisdiction || '',
-    consent:      Boolean(c.consent),
-    since:        c.since || '',
-    bo:           c.backoffice_url || '',
     custom:       customByEntity[c.id] || {},
     notes:        notesByCustomer[c.id] || [],
     _mergedIntoUuid: c.merged_into_customer_id || null,
     mergedInto:   null,          // display id, resolved in the pass below
     mergedAt:     c.merged_at ? isoDate(c.merged_at) : null,
     mergedFrom:   [],
-    emailBounceState: c.email_bounce_state || 'none',
-    emailBounceCount: c.email_bounce_count || 0,
-    emailLastBounce:  c.email_last_bounce_at || null,
-  }));
+  }, c));
   // Resolve customer-merge pointers to display ids (same pass the tickets
   // merge graph gets below) so the existing mergedInto/mergedFrom badges and
   // banners light up from server truth.

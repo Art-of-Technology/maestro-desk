@@ -33,7 +33,10 @@ redact the personal data** and stamp `customers.erased_at`.
   `player.viewed` audit event on every successful live player lookup — `routes/maestro.ts`
   + `lib/player-audit.ts`, categories not values), as is every automatic or agent-driven
   contact ↔ player link (`customer.player_linked` — `lib/player-identity.ts`; the brand id
-  and data categories persisted, never the values or the player ids themselves). Still
+  and data categories persisted, never the values or the player ids themselves). Profile
+  edits from the details card (`customer.updated` — `PATCH /customers/:id`) follow the same
+  rule: before/after values only for the non-identifying columns (`brand`, `vip_tier`, `since`,
+  `consent`); the PII columns that changed are listed by field name alone. Still
   pending: append-only / tamper-evident hardening of `audit_events` (a follow-up).
 
 ## Attachments — `ticket_attachments` + the R2 objects

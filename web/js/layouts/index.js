@@ -62,16 +62,12 @@ const FIELD_LAYOUTS = {
     { key:'vip',          label:'VIP tier',       locked:false, required:false, visible:true },
     { key:'jurisdiction', label:'Jurisdiction',   locked:false, required:false, visible:true },
     { key:'since',        label:'Customer since', locked:false, required:false, visible:true },
-    // Rendered outside the details card until the contacts/card PRs move
-    // them in (consent = the KPI tile, backoffice_url = the quick-action
-    // button) — but they're real profile fields, so they're admin-toggleable
-    // now and hold their place in the field order. `note` names the render
-    // home in the admin table so the toggle's reach is explicit (hiding the
-    // Stats tiles AREA also hides the consent tile, whatever this says);
-    // `requiredNA` drops the Required toggle — neither is a form input yet,
-    // so a required flag would persist without anything consuming it.
-    { key:'consent',        label:'Marketing consent', locked:false, required:false, visible:true, requiredNA:true, note:'shown in the Stats tiles area' },
-    { key:'backoffice_url', label:'Backoffice link',   locked:false, required:false, visible:true, requiredNA:true, note:'shown in Quick actions' },
+    // Rows on the details card like the fields above (they moved in from the
+    // Stats tiles / Quick actions with the pinned-card PR). `requiredNA` drops
+    // the Required toggle — neither is a CREATE-form input, so a required flag
+    // would persist without anything consuming it.
+    { key:'consent',        label:'Marketing consent', locked:false, required:false, visible:true, requiredNA:true, note:'shown on the details card' },
+    { key:'backoffice_url', label:'Backoffice link',   locked:false, required:false, visible:true, requiredNA:true, note:'shown on the details card' },
   ],
 };
 
@@ -81,9 +77,11 @@ const FIELD_LAYOUTS = {
 // drives the pairing rule: neighbouring half-width areas share one grid row;
 // a full-width area between them splits the pair. `pinned` = fixed at
 // position one and always visible (the details area is the record's
-// identity; the profile-card PR builds on it staying put).
+// identity; it renders as the sticky card at the top of the profile, full
+// width so it can stick for the whole scroll — a half-width card could only
+// stick inside its own grid row).
 const AREA_LAYOUTS = [
-  { key:'details',      label:'Profile details',   width:'half', pinned:true,  visible:true },
+  { key:'details',      label:'Profile details',   width:'full', pinned:true,  visible:true },
   { key:'customFields', label:'Custom fields',     width:'half', pinned:false, visible:true },
   { key:'risk',         label:'Risk factors',      width:'full', pinned:false, visible:true },
   { key:'kpis',         label:'Stats tiles',       width:'full', pinned:false, visible:true },
@@ -438,7 +436,7 @@ function renderAreasTab(admin) {
       <div class="page-scroll">
         ${rows}
         ${admin ? `<button class="btn btn-sm" style="margin-top:6px" data-action="layouts.resetAreas">&#8634; Reset to default</button>` : ''}
-        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Half-width areas share a row when they sit next to each other; a full-width area between them splits the pair. The avatar header, merged banner and quick-actions bar keep their place at the top (individual buttons can still follow their own field toggles, like Backoffice). Hiding an area is display-only — the data stays, and Reset to default brings everything back.</div>
+        <div style="margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;padding:0 4px">Half-width areas share a row when they sit next to each other; a full-width area between them splits the pair. The details card, merged banner and quick-actions bar keep their place at the top (the card's rows follow the Customers field toggles). Hiding an area is display-only — the data stays, and Reset to default brings everything back.</div>
       </div>
     </div>`;
 }

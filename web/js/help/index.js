@@ -70,7 +70,7 @@ function helpFAQ() {
     {q:'How are notifications generated?',                 a:'They are derived from current ticket state in real time: SLA breach, escalations, GDPR requests, and SLA warnings. Toggle which types appear in <strong>Settings → Notifications</strong>.'},
     {q:'Does my data sync across devices?',                a:'No — this demo stores state in your browser. Theme, notification preferences, and AI key persist via localStorage. Tickets, customers, and roles reset on reload.'},
     {q:'How do I delete a role?',                          a:'<strong>Roles & Permissions →</strong> click <strong>Delete</strong> next to the role. All agents must be reassigned off the role first. The Admin role is protected and cannot be deleted.'},
-    {q:'Can a Read Only agent edit anything?',             a:'No — Read Only agents see all read-only views (matrix, settings, etc.) but the toggles, edit buttons, and delete actions are hidden or disabled.'},
+    {q:'Can a Read Only agent edit anything?',             a:'"Read Only" is a role name, not a lock. Any workspace member can edit customer details, custom-field values and contact addresses — every edit is written to the audit trail. Admin-only areas (roles, layouts, configuration) and deletes (which need the delete permission) stay hidden or disabled.'},
   ];
   return `
     <div class="card" style="margin-top:16px">
