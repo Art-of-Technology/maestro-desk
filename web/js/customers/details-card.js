@@ -134,15 +134,16 @@ function renderAddressRow(c, kind, locked) {
     <div class="cust-addr">${pills}${empty}${add}</div>`;
 }
 
-function identityMeta(c, { withAddresses = false } = {}) {
+// The primary email / mobile spans are `cust-pin-stuck-only`: hidden at rest
+// (the address rows below show every address) and revealed while the card is
+// stuck and the body is hidden, so the one-line state still carries them.
+function identityMeta(c) {
   const parts = [mono(c.id)];
   if (c.vip) parts.push(`<span class="vip-badge vip-${attr((c.vip || '').toLowerCase())}">${esc(c.vip)}</span>`);
   if (c.brand) parts.push(`<span>${esc(c.brand)}</span>`);
   if (c.jurisdiction) parts.push(mono(c.jurisdiction));
-  if (withAddresses) {
-    if (c.email)  parts.push(`<span>${esc(c.email)}</span>`);
-    if (c.mobile) parts.push(`<span>${esc(c.mobile)}</span>`);
-  }
+  if (c.email)  parts.push(`<span class="cust-pin-stuck-only">${esc(c.email)}</span>`);
+  if (c.mobile) parts.push(`<span class="cust-pin-stuck-only">${esc(c.mobile)}</span>`);
   if (c.mergedInto) parts.push(`<span class="tag" style="background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${esc(c.mergedInto)}</span>`);
   if (c.erased) parts.push('<span class="tag tag-gdpr">Erased</span>');
   return parts.join('');
@@ -167,23 +168,15 @@ export function renderDetailsCard(c) {
   return `
         <div id="cust-pin-sentinel" class="cust-pin-sentinel" aria-hidden="true"></div>
         <div class="card cust-pin" id="cust-pin">
-          <div class="cust-pin-line">
+          <div class="cust-pin-ident">
             <div class="cust-pin-avatar">${esc(initials)}</div>
             <div style="flex:1;min-width:0">
               <div class="cust-pin-name">${esc(c.first)} ${esc(c.last)}</div>
-              <div class="cust-pin-meta">${identityMeta(c, { withAddresses: true })}</div>
+              <div class="cust-pin-meta">${identityMeta(c)}</div>
             </div>
             <div class="cust-pin-actions">${editBtn}</div>
           </div>
           <div class="cust-pin-body">
-            <div class="cust-pin-ident">
-              <div class="cust-pin-avatar">${esc(initials)}</div>
-              <div style="flex:1;min-width:0">
-                <div class="cust-pin-name">${esc(c.first)} ${esc(c.last)}</div>
-                <div class="cust-pin-meta">${identityMeta(c)}</div>
-              </div>
-              <div class="cust-pin-actions">${editBtn}</div>
-            </div>
             ${fields ? `<div class="cust-pin-fields">
         ${fields}
             </div>` : ''}
@@ -202,8 +195,15 @@ export function renderDetailsCard(c) {
 // callback would race the browser's own scroll clamping.
 let _pinObserver = null;
 
-export function attachPinObserver() {
+// Also called by core/router.js when leaving the customers page and by the
+// customers list branch: a live observer keeps its (detached) targets — and
+// through them the whole old profile subtree — reachable for the tab's life.
+export function detachPinObserver() {
   if (_pinObserver) { _pinObserver.disconnect(); _pinObserver = null; }
+}
+
+export function attachPinObserver() {
+  detachPinObserver();
   if (typeof IntersectionObserver === 'undefined' || typeof getComputedStyle !== 'function') return;
   const card = document.getElementById('cust-pin');
   const sentinel = document.getElementById('cust-pin-sentinel');
@@ -228,9 +228,20 @@ export function attachPinObserver() {
 }
 
 // ─── Edit details (two steps) ────────────────────────────────────────────────
-// ED carries the typed values across the form → confirm → back hops. Reset on
-// every fresh open and after a save.
-const ED = { custId: null, values: null };
+// ED carries the typed values across the form → confirm → back hops ONLY:
+// `resume` is set by the Back button (and by a server-validation bounce) right
+// before re-opening, and every other open starts from the card's values. So
+// edits abandoned via Cancel / × / backdrop never resurface pre-filled on the
+// next open — a rejected value must not be one click from being saved.
+const ED = { custId: null, values: null, resume: false };
+
+// Disable the modal's confirm button for the duration of a request so a
+// double-click can't fire the call twice (and close a different modal on the
+// second return). Same idea as new-ticket.js's setBusy.
+function setConfirmBusy(busy) {
+  const btn = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  if (btn) btn.disabled = Boolean(busy);
+}
 
 function editableFields() {
   return getLayoutFields('customer').filter((f) => Object.hasOwn(EDITABLE, f.key) && (f.headerOwned || isFieldVisible('customer', f.key)));
@@ -278,7 +289,9 @@ function readForm(fields) {
 export function showEditDetailsModal(custId) {
   const c = CUSTOMERS.find((x) => x.id === custId);
   if (!c || c.mergedInto || c.erased) return;
-  if (ED.custId !== custId) { ED.custId = custId; ED.values = null; }
+  if (!ED.resume || ED.custId !== custId) ED.values = null;
+  ED.resume = false;
+  ED.custId = custId;
   const fields = editableFields();
 
   showModal(`Edit details — ${c.first} ${c.last}`.trim(), `
@@ -297,14 +310,23 @@ export function showEditDetailsModal(custId) {
       if (to !== from) changes[f.key] = { from, to };
     }
     // Only the fields the agent actually changed are validated: a legacy row
-    // with no first name can still have its OTHER details fixed.
-    for (const key of ['first', 'last']) {
-      if (changes[key] && changes[key].to == null) {
-        document.getElementById('ed-error').textContent = `${EDITABLE[key].label} can't be blank.`;
-        document.getElementById(`ed-${key}`)?.focus();
-        return;
+    // with no first name can still have its OTHER details fixed. "Required"
+    // is the admin's flag from Layouts → Customers (first/last are locked
+    // required), which the HTML attribute alone can't enforce — there is no
+    // <form> submit here.
+    const fail = (key, msg) => {
+      document.getElementById('ed-error').textContent = msg;
+      document.getElementById(`ed-${key}`)?.focus();
+    };
+    for (const f of fields) {
+      if ((f.required || f.headerOwned) && changes[f.key] && changes[f.key].to == null) {
+        return fail(f.key, `${f.label} can't be blank.`);
       }
     }
+    // Same http(s) rule the server and the card's link renderer apply — catch
+    // the common "pasted without the scheme" case before the round-trip.
+    const bo = changes.backoffice_url?.to;
+    if (bo && !/^https?:\/\//i.test(bo)) return fail('backoffice_url', 'Backoffice link must start with http:// or https://.');
     if (!Object.keys(changes).length) {
       ED.values = null;
       closeModal();
@@ -331,11 +353,25 @@ async function saveDetails(c, changes) {
 
   if (c._uuid) {
     let res;
+    setConfirmBusy(true);
     try {
       res = await apiPatch(`/api/v1/customers/${c._uuid}`, body);
     } catch (err) {
+      setConfirmBusy(false);
+      // A validation 400 names the field: bounce back to the form (edits
+      // intact) and say which one, instead of a bare "Invalid body" toast.
+      const issue = err?.status === 400 ? err?.body?.issues?.[0] : null;
+      if (issue) {
+        const key = Object.keys(EDITABLE).find((k) => EDITABLE[k].col === issue.path?.[0]);
+        ED.resume = true;
+        showEditDetailsModal(c.id);
+        const el = document.getElementById('ed-error');
+        if (el) el.textContent = `${key ? EDITABLE[key].label : 'Details'}: ${issue.message || 'invalid value'}`;
+        if (key) document.getElementById(`ed-${key}`)?.focus();
+        return;
+      }
       showToast(`Couldn't save: ${err?.message || err}`, 'error');
-      return;   // modal stays open — Back returns to the form with the edits intact
+      return;   // confirm step stays open — Back returns to the form with the edits intact
     }
     if (res?.customer) applyCustomerRow(c, res.customer);
   } else {
@@ -349,7 +385,7 @@ async function saveDetails(c, changes) {
       }
     }
   }
-  ED.custId = null; ED.values = null;
+  ED.custId = null; ED.values = null; ED.resume = false;
   closeModal();
   renderPage('customers');
   showToast('Details saved', 'success');
@@ -397,11 +433,13 @@ function showAddContactModal(custId, kind) {
 
     if (c._uuid) {
       let res;
+      setConfirmBusy(true);
       try {
         res = await apiPost(contactsUrl(c), { kind, value, primary });
       } catch (err) {
         // 409s name the conflict (same profile, or another profile — a merge
         // candidate, not a typo); surface the server's wording as-is.
+        setConfirmBusy(false);
         errEl.textContent = err?.message || 'Couldn\'t add the address.';
         return;
       }
@@ -433,6 +471,7 @@ function confirmRemoveContact(ds) {
     onConfirm: async () => {
       if (c._uuid) {
         let res;
+        setConfirmBusy(true);
         try {
           res = await apiDelete(`${contactsUrl(c)}/${encodeURIComponent(ds.contactId)}`);
         } catch (err) {
@@ -485,8 +524,9 @@ async function setPrimaryContact(ds) {
 registerActions({
   'cust.editDetails':       (ds) => showEditDetailsModal(ds.custId),
   // Back from the confirm step: re-opens the form with the typed values (ED)
-  // intact. The confirm modal's own Cancel just closes, as everywhere else.
-  'cust.editBack':          () => { if (ED.custId) showEditDetailsModal(ED.custId); },
+  // intact. The confirm modal's own Cancel just closes, as everywhere else —
+  // and the next open then starts clean (see ED.resume).
+  'cust.editBack':          () => { if (ED.custId) { ED.resume = true; showEditDetailsModal(ED.custId); } },
   'cust.addContact':        (ds) => showAddContactModal(ds.custId, ds.kind === 'mobile' ? 'mobile' : 'email'),
   'cust.removeContact':     (ds) => confirmRemoveContact(ds),
   'cust.setPrimaryContact': (ds) => setPrimaryContact(ds),

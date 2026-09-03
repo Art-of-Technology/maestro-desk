@@ -106,6 +106,7 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
     expect((await bad({})).error).toBe('No fields to update');
     expect((await bad({ since: 'yesterday' })).error).toBe('Invalid body');
     expect((await bad({ since: '2024-02-30' })).error).toBe('Invalid body');         // passes the regex, not a real date → 400 not 500
+    expect((await bad({ since: '0000-01-01' })).error).toBe('Invalid body');         // JS Date accepts year 0, Postgres `date` doesn't
     expect((await bad({ backoffice_url: 'javascript:alert(1)' })).error).toBe('Invalid body');
     expect((await bad({ backoffice_url: 'ftp://x.test/a' })).error).toBe('Invalid body');
     expect((await bad({ first_name: '' })).error).toBe('Invalid body');
@@ -135,6 +136,7 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
     const body = await r.json() as { customer: Record<string, any>; changed: Record<string, { from: unknown; to: unknown }> };
     expect(Object.keys(body.changed).sort()).toEqual(['consent', 'first_name', 'jurisdiction', 'vip_tier']);
     expect(body.changed.vip_tier).toEqual({ from: 'Platinum', to: 'Gold' });
+    expect(body.changed.consent).toEqual({ from: false, to: true });   // same `from` the audit row records
     expect(body.customer.first_name).toBe('Ninaqx');
     expect(body.customer.since).toBe('2021-06-20');
     expect(body.customer.consent).toBe(true);

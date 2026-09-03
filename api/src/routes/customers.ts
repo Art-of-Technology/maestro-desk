@@ -8,7 +8,7 @@ import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { applyPlayerToCustomer, linkedCategories, scheduleLink } from '../lib/player-identity.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
-import { eraseCustomer } from '../lib/gdpr-erasure.js';
+import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -894,9 +894,11 @@ const blankToNull = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && !v.trim()) ? null : v, inner.nullable()).optional();
 // The regex admits 2024-02-30; round-tripping through Date rejects it here as
 // a 400 instead of letting Postgres raise 22008 (a 500).
+// Year 0000 round-trips through JS Date but Postgres `date` has no year 0
+// (22008 → a 500), hence the >= 1 check.
 const isRealDate = (s: string) => {
   const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  return !Number.isNaN(d.getTime()) && d.getUTCFullYear() >= 1 && d.toISOString().slice(0, 10) === s;
 };
 const PatchCustomer = z.object({
   first_name:     z.string().trim().min(1).max(100).optional(),
@@ -914,12 +916,15 @@ const PatchCustomer = z.object({
 }).strict();
 type PatchCol = keyof z.infer<typeof PatchCustomer>;
 
-// Which columns may have their VALUES written into the audit row. The rest —
-// names, username, jurisdiction, the backoffice link — are PII per
-// lib/gdpr-erasure.ts; audit_events is append-only and outside erasure, so
-// for those only the field NAME is recorded (same rule the contact audits
-// above follow for addresses).
-const PATCH_AUDIT_VALUE_COLS: ReadonlySet<string> = new Set(['brand', 'vip_tier', 'since', 'consent']);
+// Which columns may have their VALUES written into the audit row: the
+// whitelist minus lib/gdpr-erasure.ts's PII list (names, username,
+// jurisdiction, the backoffice link). audit_events is append-only and outside
+// erasure, so for PII only the field NAME is recorded (same rule the contact
+// audits above follow for addresses). Derived, not copied, so a column added
+// to the PII list can't keep leaking through here.
+const PATCH_AUDIT_VALUE_COLS: ReadonlySet<string> = new Set(
+  Object.keys(PatchCustomer.shape).filter((k) => !(CUSTOMER_PII_FIELDS as readonly string[]).includes(k)),
+);
 
 customers.patch('/:id', async (c) => {
   const sql = getDb();
@@ -952,14 +957,16 @@ customers.patch('/:id', async (c) => {
     }
 
     const updates: Record<string, unknown> = {};
-    const changed: Changed = {};
+    const changed: Changed = {};        // response: every change (the agent just typed them)
+    const audited: Changed = {};        // audit row: values for non-PII columns only
     const changedPii: string[] = [];
     for (const [col, to] of Object.entries(body) as [PatchCol, unknown][]) {
       if (to === undefined) continue;
       const from = col === 'consent' ? Boolean(row.consent) : (row[col] ?? null);
       if (from === to) continue;
       updates[col] = to;
-      if (PATCH_AUDIT_VALUE_COLS.has(col)) changed[col] = { from, to };
+      changed[col] = { from, to };
+      if (PATCH_AUDIT_VALUE_COLS.has(col)) audited[col] = { from, to };
       else changedPii.push(col);
     }
     if (Object.keys(updates).length === 0) {
@@ -970,13 +977,8 @@ customers.patch('/:id', async (c) => {
       where id = ${customerId} and workspace_id = ${workspaceId}
       returning ${tx.unsafe(CUSTOMER_ROW_COLS)}
     `;
-    // The response carries every change (the agent just typed them); the
-    // audit row below carries values for non-PII columns only.
-    const response = {
-      customer: { ...updated, ...(await contactsFor(tx, workspaceId, customerId)) },
-      changed: Object.fromEntries(Object.keys(updates).map((k) => [k, { from: row[k] ?? null, to: updates[k] }])),
-    };
-    return { status: 200, body: response, audit: { changed, changed_pii: changedPii } };
+    const response = { customer: { ...updated, ...(await contactsFor(tx, workspaceId, customerId)) }, changed };
+    return { status: 200, body: response, audit: { changed: audited, changed_pii: changedPii } };
   });
 
   if ('audit' in outcome && outcome.audit) {

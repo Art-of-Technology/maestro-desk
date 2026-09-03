@@ -34,7 +34,7 @@ import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { matchesContact, applyContacts } from './contacts.js';
-import { renderDetailsCard, attachPinObserver } from './details-card.js';
+import { renderDetailsCard, attachPinObserver, detachPinObserver } from './details-card.js';
 import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
 import { showToast } from '../core/toast.js';
@@ -384,6 +384,7 @@ export function renderCustomers() {
   // detail branch; the two selections are mutually exclusive in practice.
   if (playerLookupActive()) return renderPlayerLookupView();
   if (CUSTOMER_SELECTED) return renderCustomerDetail(CUSTOMER_SELECTED);
+  detachPinObserver();   // back on the list: release the profile card's scroll observer
   getCustColumns();
   const filtered = applyCustFilters();
   const total = CUSTOMERS.length;

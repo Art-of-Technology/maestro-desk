@@ -74,9 +74,12 @@ if (typeof globalThis.__setCustomerSelected !== 'function') {
 try {
   globalThis.__setCustomerSelected('M003');
   globalThis.__renderPage('customers');
-  const _landed = document.body.dataset.currentPage;
-  if (_landed !== 'customers') {
-    console.error(`  customer detail (M003) DID NOT RENDER — fell back to '${_landed}'`);
+  // currentPage is 'customers' for BOTH the profile and the list, so it can't
+  // tell them apart; the selection can — renderCustomerDetail nulls it when
+  // it falls back to the list for an unknown id.
+  const _still = globalThis.__customerSelected();
+  if (_still !== 'M003') {
+    console.error(`  customer detail (M003) DID NOT RENDER — selection became '${_still}' (fell back to the list)`);
     process.exit(1);
   }
   console.log('  customer detail (M003) OK');

@@ -25,7 +25,10 @@ const ERASED = '[erased]';
 // short-circuits on erased_at), so a subject erased while it was omitted would
 // keep that value forever — a later re-run would not clean it up. It comes out
 // of this list in the same change that drops the column.
-const CUSTOMER_PII_FIELDS = [
+// Exported so other writers of customer data (routes/customers.ts PATCH audit)
+// derive "which columns may have their VALUES logged" from this one list
+// instead of keeping a second copy that can drift.
+export const CUSTOMER_PII_FIELDS = [
   'first_name', 'last_name', 'username', 'email', 'mobile',
   'backoffice_url', 'kyc_status', 'jurisdiction',
   // Maestro player ids name the subject's casino account — direct identifiers.

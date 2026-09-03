@@ -82,7 +82,9 @@ const FIELD_LAYOUTS = {
 // stick inside its own grid row).
 const AREA_LAYOUTS = [
   { key:'details',      label:'Profile details',   width:'full', pinned:true,  visible:true },
-  { key:'customFields', label:'Custom fields',     width:'half', pinned:false, visible:true },
+  // Full width deliberately: its old partner (details) went full, and a lone
+  // half-width area renders as a one-column grid anyway — so say what it is.
+  { key:'customFields', label:'Custom fields',     width:'full', pinned:false, visible:true },
   { key:'risk',         label:'Risk factors',      width:'full', pinned:false, visible:true },
   { key:'kpis',         label:'Stats tiles',       width:'full', pinned:false, visible:true },
   { key:'tags',         label:'Common topics',     width:'full', pinned:false, visible:true },

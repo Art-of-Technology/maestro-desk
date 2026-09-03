@@ -315,20 +315,23 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
    20px band above the stuck card through which the scrolled content peeks. */
 .cust-pin{position:sticky;top:-20px;z-index:2;background:var(--w);border-color:var(--rule2);box-shadow:0 1px 2px rgba(19,14,48,0.06);margin-bottom:16px;transition:box-shadow .15s}
 .cust-pin.is-stuck{box-shadow:0 10px 28px rgba(19,14,48,0.16)}
-.cust-pin-line{display:none;align-items:center;gap:12px}
-.cust-pin.is-stuck .cust-pin-line{display:flex}
+/* One identity strip serves both states: stuck hides the body, shrinks the
+   strip, drops its separator and reveals the primary email / mobile spans. */
 .cust-pin.is-stuck .cust-pin-body{display:none}
+.cust-pin-stuck-only{display:none}
+.cust-pin.is-stuck .cust-pin-stuck-only{display:inline}
+.cust-pin.is-stuck .cust-pin-ident{padding-bottom:0;border-bottom:0;margin-bottom:0}
 /* The spacer takes the height the card gave up when it condensed, so
    scrollHeight doesn't shrink under the reader (which would clamp scrollTop,
    let the sentinel back in, and make the card flicker between states). */
 .cust-pin-spacer{height:0}
 .cust-pin-ident{display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:1px solid var(--rule);margin-bottom:14px}
 .cust-pin-avatar{width:48px;height:48px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:15px;flex-shrink:0}
-.cust-pin-line .cust-pin-avatar{width:32px;height:32px;font-size:11px}
+.cust-pin.is-stuck .cust-pin-avatar{width:32px;height:32px;font-size:11px}
 .cust-pin-name{font-size:17px;font-weight:600;color:var(--ink)}
-.cust-pin-line .cust-pin-name{font-size:14px}
+.cust-pin.is-stuck .cust-pin-name{font-size:14px}
 .cust-pin-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--ink3);margin-top:3px}
-.cust-pin-line .cust-pin-meta{margin-top:1px}
+.cust-pin.is-stuck .cust-pin-meta{margin-top:1px}
 .cust-pin-actions{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
 .cust-pin-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 18px;margin-bottom:14px}
 .cust-pin-k{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);font-weight:500}
