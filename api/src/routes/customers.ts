@@ -8,7 +8,7 @@ import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { applyPlayerToCustomer, linkedCategories, scheduleLink } from '../lib/player-identity.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
-import { eraseCustomer } from '../lib/gdpr-erasure.js';
+import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -20,6 +20,17 @@ import {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
+
+// The customer row as the SPA sees it — one column list shared by GET / and
+// PATCH /:id so the two can never drift apart (the SPA applies a PATCH
+// response with the same mapper it bootstraps from). `since` is a Postgres
+// `date`; without the ::text cast postgres.js hands back a JS Date that
+// serialises as a midnight-UTC timestamp, which the profile then printed raw.
+const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
+           jurisdiction, consent, since::text as since, backoffice_url, erased_at, created_at,
+           maestro_user_id, maestro_member_id,
+           merged_into_customer_id, merged_at,
+           email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count`;
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const customers = new Hono();
@@ -153,11 +164,7 @@ customers.get('/', async (c) => {
     id: string; merged_into_customer_id: string | null; email: string | null; mobile: string | null;
     email_bounce_state: string | null; email_bounce_count: number | null; email_last_bounce_at: string | null;
   }>>`
-    select id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
-           jurisdiction, consent, since, backoffice_url, erased_at, created_at,
-           maestro_user_id, maestro_member_id,
-           merged_into_customer_id, merged_at,
-           email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count
+    select ${sql.unsafe(CUSTOMER_ROW_COLS)}
     from customers
     where workspace_id = ${workspaceId} and deleted_at is null
     order by display_id asc
@@ -873,6 +880,118 @@ customers.post('/:id/contacts/:contactId/primary', async (c) => {
   } catch (err) {
     return contactErrorResponse(c, err);
   }
+});
+
+// ─── PATCH /:id — edit the profile's core details ───────────────────────────
+// The pinned details card's save (Phase 4, PR 6). Member-level, like custom-
+// field values and contact edits: every save is audited, so the permission can
+// be tightened later without losing history. Email and mobile are NOT here —
+// they are contact rows with their own endpoints above, each its own audited
+// action; the Maestro ids are server-owned (lib/player-identity.ts). A blank
+// input means "clear" (null) for every nullable column; first/last can't be
+// blanked (the layout locks them required).
+const blankToNull = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess((v) => (typeof v === 'string' && !v.trim()) ? null : v, inner.nullable()).optional();
+// The regex admits 2024-02-30; round-tripping through Date rejects it here as
+// a 400 instead of letting Postgres raise 22008 (a 500).
+// Year 0000 round-trips through JS Date but Postgres `date` has no year 0
+// (22008 → a 500), hence the >= 1 check.
+const isRealDate = (s: string) => {
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.getUTCFullYear() >= 1 && d.toISOString().slice(0, 10) === s;
+};
+const PatchCustomer = z.object({
+  first_name:     z.string().trim().min(1).max(100).optional(),
+  last_name:      z.string().trim().min(1).max(100).optional(),
+  username:       blankToNull(z.string().trim().max(100)),
+  brand:          blankToNull(z.string().trim().max(100)),
+  vip_tier:       blankToNull(z.string().trim().max(50)),
+  jurisdiction:   blankToNull(z.string().trim().max(100)),
+  since:          blankToNull(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(isRealDate, 'Invalid date')),
+  backoffice_url: blankToNull(z.string().trim().max(2048).url().refine((u) => /^https?:\/\//i.test(u), 'Must be an http(s) link')),
+  // The column is nullable, but null and false both mean "no consent": the
+  // form only ever sends a boolean and the diff below reads null as false, so
+  // saving an untouched form can't produce a phantom change + audit row.
+  consent:        z.boolean().optional(),
+}).strict();
+type PatchCol = keyof z.infer<typeof PatchCustomer>;
+
+// Which columns may have their VALUES written into the audit row: the
+// whitelist minus lib/gdpr-erasure.ts's PII list (names, username,
+// jurisdiction, the backoffice link). audit_events is append-only and outside
+// erasure, so for PII only the field NAME is recorded (same rule the contact
+// audits above follow for addresses). Derived, not copied, so a column added
+// to the PII list can't keep leaking through here.
+const PATCH_AUDIT_VALUE_COLS: ReadonlySet<string> = new Set(
+  Object.keys(PatchCustomer.shape).filter((k) => !(CUSTOMER_PII_FIELDS as readonly string[]).includes(k)),
+);
+
+customers.patch('/:id', async (c) => {
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+
+  const raw = await c.req.json().catch(() => null);
+  const parsed = PatchCustomer.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  const body = parsed.data;
+  if (Object.keys(body).length === 0) return c.json({ error: 'No fields to update' }, 400);
+
+  type Changed = Record<string, { from: unknown; to: unknown }>;
+  const outcome = await sql.begin(async (tx) => {
+    // Lock the customers row first — the same order lockCustomerForContacts
+    // and the merge transaction use — then read contacts without locks.
+    const [row] = await tx<Record<string, unknown>[]>`
+      select ${tx.unsafe(CUSTOMER_ROW_COLS)} from customers
+      where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+      for update
+    `;
+    if (!row) return { status: 404, body: { error: 'Customer not found' } };
+    // Never write PII back onto an erased profile (Art. 17), and never edit a
+    // merged-away duplicate the UI deliberately hides — its survivor is the
+    // record now.
+    if (row.erased_at) return { status: 409, body: { error: "This customer's personal data has been erased", code: 'erased' } };
+    if (row.merged_into_customer_id) {
+      return { status: 409, body: { error: 'This profile is merged — edit the survivor instead', code: 'merged', merged_into_customer_id: row.merged_into_customer_id } };
+    }
+
+    const updates: Record<string, unknown> = {};
+    const changed: Changed = {};        // response: every change (the agent just typed them)
+    const audited: Changed = {};        // audit row: values for non-PII columns only
+    const changedPii: string[] = [];
+    for (const [col, to] of Object.entries(body) as [PatchCol, unknown][]) {
+      if (to === undefined) continue;
+      const from = col === 'consent' ? Boolean(row.consent) : (row[col] ?? null);
+      if (from === to) continue;
+      updates[col] = to;
+      changed[col] = { from, to };
+      if (PATCH_AUDIT_VALUE_COLS.has(col)) audited[col] = { from, to };
+      else changedPii.push(col);
+    }
+    if (Object.keys(updates).length === 0) {
+      return { status: 200, body: { customer: { ...row, ...(await contactsFor(tx, workspaceId, customerId)) }, changed: {} } };
+    }
+    const [updated] = await tx<Record<string, unknown>[]>`
+      update customers set ${tx(updates)}
+      where id = ${customerId} and workspace_id = ${workspaceId}
+      returning ${tx.unsafe(CUSTOMER_ROW_COLS)}
+    `;
+    const response = { customer: { ...updated, ...(await contactsFor(tx, workspaceId, customerId)) }, changed };
+    return { status: 200, body: response, audit: { changed: audited, changed_pii: changedPii } };
+  });
+
+  if ('audit' in outcome && outcome.audit) {
+    await writeAudit({
+      workspaceId,
+      actorUserId: c.get('userId'),
+      action: 'customer.updated',
+      targetType: 'customer',
+      targetId: customerId,
+      metadata: { customer_id: customerId, changed: outcome.audit.changed, changed_pii: outcome.audit.changed_pii },
+    });
+  }
+  return c.json(outcome.body, outcome.status as 200);
 });
 
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;

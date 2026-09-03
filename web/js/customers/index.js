@@ -27,13 +27,14 @@ import { CUSTOMER_SELECTED, CUSTOMER_SELECTED_IDS, CUST_COLUMNS, CUST_DRAG_COL, 
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
-import { isFieldVisible, getLayoutFields, getProfileAreaRows, areaIsHalf } from '../layouts/index.js';
+import { getProfileAreaRows, areaIsHalf } from '../layouts/index.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { openTicket } from '../tickets/detail.js';
 import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
-import { matchesContact } from './contacts.js';
+import { matchesContact, applyContacts } from './contacts.js';
+import { renderDetailsCard, attachPinObserver, detachPinObserver } from './details-card.js';
 import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
 import { showToast } from '../core/toast.js';
@@ -383,6 +384,7 @@ export function renderCustomers() {
   // detail branch; the two selections are mutually exclusive in practice.
   if (playerLookupActive()) return renderPlayerLookupView();
   if (CUSTOMER_SELECTED) return renderCustomerDetail(CUSTOMER_SELECTED);
+  detachPinObserver();   // back on the list: release the profile card's scroll observer
   getCustColumns();
   const filtered = applyCustFilters();
   const total = CUSTOMERS.length;
@@ -710,14 +712,6 @@ function showMergeConfirm(srcId, primaryId) {
 // email/mobile mirror (server-derived for a merged-away duplicate) plus the
 // emails/mobiles arrays. Server truth beats local bookkeeping here — the
 // source's addresses physically move to the survivor as secondaries.
-function applyContacts(row, srv) {
-  if (!row || !srv || !Array.isArray(srv.emails)) return;
-  row.email = srv.email || '';
-  row.mobile = srv.mobile || '';
-  row.emails = srv.emails;
-  row.mobiles = Array.isArray(srv.mobiles) ? srv.mobiles : [];
-}
-
 async function mergeCustomers(srcId, primaryId) {
   if (!window.canDeleteRecords()) return;
   if (srcId === primaryId) return;
@@ -890,17 +884,6 @@ function showCustomerGDPR(custId) {
   `, null, null);
 }
 
-// Small inline indicator for the email row. Hard / spam bounces are
-// the actionable cases (mail won't deliver) — soft bounces accumulate
-// silently in the count without alarming the agent.
-function renderBounceBadge(c) {
-  const state = c.emailBounceState || 'none';
-  if (state !== 'hard' && state !== 'spam') return '';
-  const label = state === 'spam' ? 'SPAM' : 'BOUNCING';
-  const title = `${state === 'spam' ? 'Marked as spam' : 'Email bouncing'} — ${c.emailBounceCount || 0} event${(c.emailBounceCount || 0) === 1 ? '' : 's'}`;
-  return `<span title="${window.escAttr(title)}" style="margin-left:8px;display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;color:var(--red);background:var(--red-lt);border:1px solid var(--red-bd);border-radius:3px;font-family:'DM Mono',monospace">${label}</span>`;
-}
-
 function renderCustomerDetail(custId) {
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c) { setCustomerSelected(null); return renderCustomers(); }
@@ -999,57 +982,28 @@ function renderCustomerDetail(custId) {
     </div>`;
 
   // ── Areas ────────────────────────────────────────────────────────────────
-  // The four blocks above plus the four below are the profile's AREAS: the
-  // reorderable units. Everything between the breadcrumb and the first area
-  // (avatar header, merged banner, merged-duplicates card, quick actions) is
-  // fixed chrome — it identifies the record or acts on it, so it stays put.
+  // The three blocks above plus the four below are the profile's reorderable
+  // AREAS. The pinned details card (customers/details-card.js) is the `details`
+  // area — always first, always visible, so it is emitted as chrome at the top
+  // of the template with the merged banner, merged-duplicates card and quick
+  // actions, and dropped from the rows below.
   //
   // These were inline in the return template until the area registry below
   // needed to own their order. Their internal indentation is deliberately the
   // indentation they had inline, so the rendered bytes are unchanged.
-  // Column count derives from the tile list so hiding the consent tile (a
-  // layout field toggle, ahead of its move into the details card) can't
-  // leave a one-tile-wide hole in a hardcoded 4-column grid.
+  // Column count derives from the tile list (the Consent tile moved onto the
+  // details card; its layout toggle now governs the card row instead).
   const kpiTiles = [
     `<div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>`,
     `<div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total tickets</div></div>`,
     `<div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>`,
-    ...(isFieldVisible('customer','consent') ? [
-      `<div class="r-tile" style="border-color:${c.consent?'var(--green-bd)':'var(--red-bd)'};background:${c.consent?'var(--green-lt)':'var(--red-lt)'}"><div class="r-tile-n" style="color:${c.consent?'var(--green)':'var(--red)'};font-size:18px;line-height:1.2">${c.consent?'Yes':'No'}</div><div class="r-tile-l" style="color:${c.consent?'var(--green)':'var(--red)'}">Consent</div></div>`,
-    ] : []),
   ];
   const kpisBlock = `<div style="display:grid;grid-template-columns:repeat(${kpiTiles.length},1fr);gap:10px;margin-bottom:20px">
           ${kpiTiles.join('\n          ')}
         </div>`;
 
-  // The details card renders its rows from the admin-configured field order
-  // (getLayoutFields), not a hardcoded sequence. Two DISTINCT exclusion
-  // rules, each the authority for its own reason — don't collapse them:
-  // headerOwned means "the name header renders this, permanently" (first/
-  // last must never gain a renderer here without clearing the flag, or the
-  // name would double up); a missing renderer means "renders elsewhere on
-  // the page FOR NOW" (consent/backoffice_url, until the contacts/card PRs
-  // move them in — adding the renderer is exactly how they migrate).
-  const FIELD_ROW_RENDERERS = {
-    email:        () => `<div class="ts-row"><span class="ts-key">Email</span><span class="ts-val">${window.escHtml(c.email)}${renderBounceBadge(c)}</span></div>`,
-    mobile:       () => `<div class="ts-row"><span class="ts-key">Mobile</span><span class="ts-val">${window.escHtml(c.mobile)}</span></div>`,
-    username:     () => `<div class="ts-row"><span class="ts-key">Username</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${window.escHtml(c.username)}</span></div>`,
-    // Maestro identity — server-written by the auto-link, read-only here. An
-    // unlinked contact says so rather than showing a blank cell.
-    maestroUserId: () => `<div class="ts-row"><span class="ts-key">Maestro user ID</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.maestroUserId ? window.escHtml(c.maestroUserId) : '<span style="color:var(--ink3);font-family:inherit">Not linked</span>'}</span></div>`,
-    memberId:      () => `<div class="ts-row"><span class="ts-key">Member ID</span><span class="ts-val" style="font-family:'DM Mono',monospace;font-size:12px">${c.memberId ? window.escHtml(c.memberId) : '<span style="color:var(--ink3)">—</span>'}</span></div>`,
-    brand:        () => `<div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(c.brand)}</span></div>`,
-    vip:          () => `<div class="ts-row"><span class="ts-key">VIP tier</span><span class="vip-badge vip-${(c.vip||'').toLowerCase()}">${window.escHtml(c.vip)}</span></div>`,
-    jurisdiction: () => `<div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(c.jurisdiction)}</span></div>`,
-    since:        () => `<div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${window.escHtml(c.since)}</span></div>`,
-  };
-  const detailsBlock = `<div class="card">
-            <div class="card-title">Profile</div>
-            ${getLayoutFields('customer')
-              .filter(f => !f.headerOwned && isFieldVisible('customer', f.key) && Object.hasOwn(FIELD_ROW_RENDERERS, f.key))
-              .map(f => FIELD_ROW_RENDERERS[f.key]())
-              .join('\n            ')}
-          </div>`;
+  // The details rows (every profile field, in the admin-configured order, plus
+  // the address pills) render inside the pinned card — see details-card.js.
 
   const customFieldsBlock = `<div class="card">
             <div class="card-title">Custom fields</div>
@@ -1078,7 +1032,6 @@ function renderCustomerDetail(custId) {
     risk:         riskPanel,
     kpis:         kpisBlock,
     tags:         tagsBlock,
-    details:      detailsBlock,
     customFields: customFieldsBlock,
     timeline:     timelineBlock,
     notes:        notesBlock,
@@ -1087,9 +1040,14 @@ function renderCustomerDetail(custId) {
 
   // Rows, in order, from the admin-configured area layout (Layouts → Profile
   // areas). getProfileAreaRows applies the pairing rule — neighbouring
-  // half-width areas share one 2-column grid row (`details`+`customFields`
-  // and `timeline`+`notes` in the default order) — and drops hidden areas.
-  const areaRows = getProfileAreaRows();
+  // half-width areas share one 2-column grid row (`timeline`+`notes` in the
+  // default order) — and drops hidden areas. `details` is pinned at position
+  // one and full width, so it always arrives as its own first row; it is
+  // rendered as chrome above (the sticky card must be a direct child of
+  // .page-scroll to stick for the whole scroll), so it leaves the rows here.
+  // Filtered by name rather than sliced by position so a stored layout that
+  // somehow carries it elsewhere can't render it twice.
+  const areaRows = getProfileAreaRows().map(r => r.filter(k => k !== 'details')).filter(r => r.length);
 
   const areasHtml = areaRows.map(row => {
     // Drop names the registry doesn't know. areaRows is a literal today so this
@@ -1133,6 +1091,12 @@ function renderCustomerDetail(custId) {
         </div>`;
   }).join('\n        ');
 
+  // The sticky card measures itself and arms its scroll observer once the
+  // markup below is in the DOM — renderPage assigns innerHTML synchronously,
+  // so the next frame is the earliest safe moment. No-op in the smoke shim
+  // (no IntersectionObserver there).
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(attachPinObserver);
+
   return `
     <div class="page">
       <div class="topbar">
@@ -1145,20 +1109,7 @@ function renderCustomerDetail(custId) {
           </span>
         </div>
       </div>
-      <div class="page-scroll">
-        <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
-          <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml((c.first||'').charAt(0))}${window.escHtml((c.last||'').charAt(0))}</div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</div>
-            <div style="font-size:12px;color:var(--ink3);margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-              <span style="font-family:'DM Mono',monospace">${c.id}</span>
-              <span class="vip-badge vip-${c.vip.toLowerCase()}">${window.escHtml(c.vip)}</span>
-              <span>${window.escHtml(c.brand)}</span>
-              <span style="font-family:'DM Mono',monospace">${window.escHtml(c.jurisdiction)}</span>
-            </div>
-          </div>
-          ${c.mergedInto ? `<span class="tag" style="flex-shrink:0;background:var(--purple-lt);color:var(--purple);border:1px solid var(--purple)">Merged → ${window.escHtml(c.mergedInto)}</span>` : ''}
-        </div>
+      <div class="page-scroll">${renderDetailsCard(c)}
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
           <span style="color:var(--ink2)">→</span>
@@ -1183,7 +1134,6 @@ function renderCustomerDetail(custId) {
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${!c.mergedInto ? `<button class="btn btn-sm" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}">✉ New ticket</button>` : ''}
-          ${c.bo && isFieldVisible('customer','backoffice_url') ? (/^https?:\/\//.test(c.bo) ? `<a href="${window.escAttr(c.bo)}" target="_blank" rel="noopener" class="btn btn-sm">Backoffice ↗</a>` : `<span class="btn btn-sm">Backoffice ↗</span>`) : ''}
           ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>

@@ -62,3 +62,30 @@ if (_failed > 0) {
   process.exit(1);
 }
 console.log(`\nALL ${_routes.length} routes rendered without throwing.`);
+
+// The customer PROFILE (detail view) is not a route of its own — it's the
+// 'customers' page with a selection — so the loop above never reached it, and
+// PRs that reshaped the profile shipped with zero CI coverage. Render one demo
+// persona's profile explicitly. M003 exists in core/data.js's seed.
+if (typeof globalThis.__setCustomerSelected !== 'function') {
+  console.error('setCustomerSelected was not exposed — entry bundle broken');
+  process.exit(1);
+}
+try {
+  globalThis.__setCustomerSelected('M003');
+  globalThis.__renderPage('customers');
+  // currentPage is 'customers' for BOTH the profile and the list, so it can't
+  // tell them apart; the selection can — renderCustomerDetail nulls it when
+  // it falls back to the list for an unknown id.
+  const _still = globalThis.__customerSelected();
+  if (_still !== 'M003') {
+    console.error(`  customer detail (M003) DID NOT RENDER — selection became '${_still}' (fell back to the list)`);
+    process.exit(1);
+  }
+  console.log('  customer detail (M003) OK');
+} catch (e) {
+  console.error(`  customer detail (M003) FAILED: ${e.message}`);
+  process.exit(1);
+} finally {
+  globalThis.__setCustomerSelected(null);
+}

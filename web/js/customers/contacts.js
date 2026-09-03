@@ -5,7 +5,20 @@
 // display columns and the CSV export keep the primary. Demo rows may carry
 // only the scalars — contactArrays() synthesises the arrays from them so the
 // same predicates work against demo data. The add / remove / set-primary UI
-// lands with the pinned details card (Phase 4, PR 6).
+// lives on the pinned details card (customers/details-card.js).
+
+// Apply a server contacts object ({ email, mobile, emails, mobiles } — the
+// shape every contact endpoint and the merge/unmerge responses return) onto a
+// view-model row. PARTIAL by design: it touches only the address fields, so
+// it's safe to call with a contact-endpoint response; a full GET /-shaped
+// row goes through bootstrap.js applyCustomerRow instead.
+export function applyContacts(row, srv) {
+  if (!row || !srv || !Array.isArray(srv.emails)) return;
+  row.email = srv.email || '';
+  row.mobile = srv.mobile || '';
+  row.emails = srv.emails;
+  row.mobiles = Array.isArray(srv.mobiles) ? srv.mobiles : [];
+}
 
 export function contactArrays(c) {
   const emails  = Array.isArray(c?.emails)  && c.emails.length  ? c.emails

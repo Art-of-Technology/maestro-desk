@@ -22,6 +22,7 @@ import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';
 import { renderCustomers } from '../customers/index.js';
 import { resetPlayerLookup } from '../customers/player-lookup.js';
+import { detachPinObserver } from '../customers/details-card.js';
 import { renderReports } from '../reports/index.js';
 import { renderSLABreach } from '../reports/sla-breach.js';
 import { renderAgents } from '../agents/index.js';
@@ -79,7 +80,9 @@ export function renderPage(page) {
   if (page !== 'roles')     setRolesViewAgents(null);
   if (page !== 'kb')        setKbSelected(null);
   if (page !== 'agents')    setAgentSelected(null);
-  if (page !== 'customers') { setCustomerSelected(null); CUSTOMER_SELECTED_IDS.clear(); resetPlayerLookup(); }
+  // detachPinObserver: the profile card's scroll observer would otherwise
+  // keep the whole detached profile DOM alive for as long as the tab is open.
+  if (page !== 'customers') { setCustomerSelected(null); CUSTOMER_SELECTED_IDS.clear(); resetPlayerLookup(); detachPinObserver(); }
   if (page !== 'tickets')   TICKET_SELECTED_IDS.clear();
   if (page !== 'tags')      { setTagSelected(null); TAG_SELECTED_NAMES.clear(); }
   setCurrentPage(page);
