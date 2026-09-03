@@ -202,16 +202,41 @@ export function detachPinObserver() {
   if (_pinObserver) { _pinObserver.disconnect(); _pinObserver = null; }
 }
 
+// The media query that releases the card to static can flip either way while
+// the profile is open (window resized, devtools docked), and the measured
+// heights go stale with the width — so re-arm on resize, debounced. Bound
+// once per session; it's a no-op whenever no profile card is on the page.
+let _resizeBound = false;
+function bindResize() {
+  if (_resizeBound || typeof addEventListener !== 'function') return;
+  _resizeBound = true;
+  let t = null;
+  addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(() => { if (document.getElementById('cust-pin')) attachPinObserver(); }, 150);
+  });
+}
+
 export function attachPinObserver() {
   detachPinObserver();
   if (typeof IntersectionObserver === 'undefined' || typeof getComputedStyle !== 'function') return;
+  bindResize();
   const card = document.getElementById('cust-pin');
   const sentinel = document.getElementById('cust-pin-sentinel');
   const spacer = document.getElementById('cust-pin-spacer');
   const root = document.querySelector('.page-scroll');
   if (!card || !sentinel || !root) return;
-  // Released to static under the narrow / short media query — nothing to do.
-  if (getComputedStyle(card).position !== 'sticky') return;
+  // Released to static under the narrow / short media query: make sure a
+  // condensed state left over from before the resize is undone (the body
+  // would otherwise stay hidden with nothing to bring it back), then stop.
+  if (getComputedStyle(card).position !== 'sticky') {
+    card.classList.remove('is-stuck');
+    if (spacer) spacer.style.height = '0px';
+    return;
+  }
+  // Re-arming mid-scroll after a resize: measure from the expanded state.
+  card.classList.remove('is-stuck');
+  if (spacer) spacer.style.height = '0px';
 
   const full = card.offsetHeight;
   card.classList.add('is-stuck');
