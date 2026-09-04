@@ -37,9 +37,10 @@ export function htmlToText(html: string): string {
   if (!html) return '';
   let s = html.replace(/\r\n?/g, '\n');
 
-  // Non-content blocks go away WITH their contents.
-  s = s.replace(/<!--[\s\S]*?-->/g, '');
-  s = s.replace(/<(head|style|script|title)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  // Non-content blocks go away WITH their contents. An unclosed block (broken
+  // or truncated mail) is dropped to the end rather than leaking CSS/JS text.
+  s = s.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  s = s.replace(/<(head|style|script|title)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '');
 
   // Block boundaries → line breaks. Gmail wraps each line in a <div>, so a
   // closing div is one newline; paragraph-level closers get a blank line.

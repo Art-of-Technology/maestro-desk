@@ -27,6 +27,11 @@ describe('htmlToText', () => {
     expect(out).not.toContain('Msg');
   });
 
+  it('drops an unclosed <style> or comment to the end instead of leaking it', () => {
+    expect(htmlToText('<p>Visible</p><style>.leak { color: red }')).toBe('Visible');
+    expect(htmlToText('<p>Visible</p><!-- never closed <b>x</b>')).toBe('Visible');
+  });
+
   it('decodes named, decimal and hex entities', () => {
     expect(htmlToText('a&nbsp;b &amp; c&#39;s &#8217;quote&#8217; &#x1F600; &lt;tag&gt;'))
       .toBe("a b & c's ’quote’ 😀 <tag>");
