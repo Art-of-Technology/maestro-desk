@@ -31,6 +31,19 @@ const R2_REGION = 'auto';
 // work a ticket in an open tab; short enough that a leaked URL goes stale.
 export const PRESIGN_DEFAULT_EXPIRES_SECONDS = 6 * 60 * 60;
 
+// Simultaneous DELETEs in deleteKeys — retention can hand it every attachment
+// of a 500-ticket batch, so it must not fan out unbounded.
+const DELETE_CONCURRENCY = 16;
+
+// Thrown by deleteKeys after EVERY key was attempted: `failedKeys` is exactly
+// the set still in the bucket, so callers can retry/park those alone.
+export class R2DeleteError extends Error {
+  constructor(public readonly failedKeys: string[]) {
+    super(`R2 DELETE failed for ${failedKeys.length} object(s)`);
+    this.name = 'R2DeleteError';
+  }
+}
+
 export interface R2StoreConfig {
   accountId: string;
   accessKeyId: string;
@@ -161,25 +174,33 @@ export function createStore(config: R2StoreConfig | (() => R2StoreConfig), share
       return parseListKeysXml(await res.text());
     },
 
-    // Best-effort per-object DELETE (R2 treats DELETE on a missing key as
-    // success), run concurrently. An empty list is a no-op and never touches
-    // config — erasure/retention call this unconditionally.
+    // Per-object DELETE (R2 treats DELETE on a missing key as success) with
+    // bounded concurrency. Every key is attempted even if an earlier one fails;
+    // the failures are reported together as an R2DeleteError so callers can
+    // park exactly the keys that are still there. An empty list is a no-op
+    // and never touches config.
     async deleteKeys(keys) {
       if (keys.length === 0) return;
       const { cfg, client, endpoint } = resolve();
-      await Promise.all(
-        keys.map(async (key) => {
-          // Bounded so a single hung object can't stall the caller indefinitely.
-          const res = await client.fetch(objectUrl(endpoint, cfg.bucket, key), {
-            method: 'DELETE',
-            signal: AbortSignal.timeout(10_000),
-          });
-          // 204 on delete, 404 if already gone — both are fine.
-          if (!res.ok && res.status !== 404) {
-            throw new Error(`R2 DELETE ${key} failed: ${res.status}`);
-          }
-        }),
-      );
+      const failed: string[] = [];
+      for (let i = 0; i < keys.length; i += DELETE_CONCURRENCY) {
+        const slice = keys.slice(i, i + DELETE_CONCURRENCY);
+        const settled = await Promise.allSettled(
+          slice.map(async (key) => {
+            // Bounded so a single hung object can't stall the caller indefinitely.
+            const res = await client.fetch(objectUrl(endpoint, cfg.bucket, key), {
+              method: 'DELETE',
+              signal: AbortSignal.timeout(10_000),
+            });
+            // 204 on delete, 404 if already gone — both are fine.
+            if (!res.ok && res.status !== 404) {
+              throw new Error(`R2 DELETE ${key} failed: ${res.status}`);
+            }
+          }),
+        );
+        settled.forEach((r, idx) => { if (r.status === 'rejected') failed.push(slice[idx]); });
+      }
+      if (failed.length) throw new R2DeleteError(failed);
     },
 
     // Presigned GET URL (SigV4 query signing). The browser uses it directly for
@@ -202,19 +223,9 @@ export function createStore(config: R2StoreConfig | (() => R2StoreConfig), share
 }
 
 // ---------------------------------------------------------------------------
-// Backwards-compatible wrappers over the brand-assets store (logo upload path).
-
-export async function putObject(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
-  return brandAssetsStore().putObject(key, bytes, { contentType, contentDisposition: 'attachment' });
-}
-
-export async function listKeys(prefix: string): Promise<string[]> {
-  return brandAssetsStore().listKeys(prefix);
-}
-
-export async function deleteKeys(keys: string[]): Promise<void> {
-  return brandAssetsStore().deleteKeys(keys);
-}
+// There are deliberately NO bare putObject/deleteKeys wrappers: every caller
+// names its store (brandAssetsStore() or attachmentsStore()) so customer files
+// can't drift into the public bucket by picking the "default" function.
 
 // Public read URL for a brand-asset object, built from the bucket's configured
 // public base (r2.dev URL or custom domain). Not signed — public access is
@@ -258,7 +269,14 @@ export function parseListKeysXml(xml: string): string[] {
 // and backslashes can't reach the header, non-ASCII goes only into the
 // percent-encoded `filename*` form with an ASCII fallback in `filename`.
 export function contentDispositionFor(kind: 'inline' | 'attachment', filename: string): string {
-  const base = (filename ?? '').replace(/[\r\n\t\0]+/g, ' ').trim().slice(0, 200) || 'file';
+  // Truncate by code point (not UTF-16 unit) so an emoji is never cut in half,
+  // and drop lone surrogates a bad MIME decode may have produced — either
+  // would make encodeURIComponent throw.
+  const cleaned = Array.from((filename ?? '').replace(/[\r\n\t\0]+/g, ' ').trim())
+    .filter((ch) => !/[\uD800-\uDFFF]/.test(ch) || ch.length === 2)
+    .slice(0, 200)
+    .join('');
+  const base = cleaned || 'file';
   const ascii = base.replace(/["\\]/g, '_').replace(/[^\x20-\x7e]/g, '_');
   const utf8 = encodeURIComponent(base).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${utf8}`;

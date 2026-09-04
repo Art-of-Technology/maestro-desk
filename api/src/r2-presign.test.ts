@@ -1,14 +1,16 @@
 // R2 store: presigned GET URLs, Content-Disposition hardening, and the
 // "attachments bucket not configured" contract. Pure unit tests — a store is
-// built from fixed credentials, so nothing reads env or touches the network.
+// built from fixed credentials; the config-contract block reads the env that
+// api/test-setup.ts pins to "unconfigured", and fetch is stubbed where used.
 
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import {
   attachmentsStore,
   contentDispositionFor,
   createStore,
   isAttachmentsStorageConfigured,
   PRESIGN_DEFAULT_EXPIRES_SECONDS,
+  R2DeleteError,
 } from './lib/r2.js';
 
 const cfg = {
@@ -86,6 +88,43 @@ describe('contentDispositionFor', () => {
     expect(contentDispositionFor('attachment', '   ')).toContain('filename="file"');
     const long = 'a'.repeat(500) + '.pdf';
     expect(contentDispositionFor('attachment', long).length).toBeLessThan(500);
+  });
+
+  test('never throws on surrogate pairs at the cut point or lone surrogates', () => {
+    expect(() => contentDispositionFor('attachment', 'a'.repeat(199) + '😀.pdf')).not.toThrow();
+    const v = contentDispositionFor('attachment', '\uD83D.pdf');
+    expect(v).toContain(`filename*=UTF-8''.pdf`);
+    expect(contentDispositionFor('inline', '😀.png')).toContain(`filename*=UTF-8''%F0%9F%98%80.png`);
+  });
+});
+
+describe('deleteKeys', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  test('attempts every key and reports exactly the failed ones', async () => {
+    const seen: string[] = [];
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const key = decodeURIComponent(new URL(url).pathname.split('/').pop()!);
+      seen.push(key);
+      if (key === 'gone.pdf') return new Response(null, { status: 404 });
+      if (key === 'stuck.pdf') return new Response('denied', { status: 403 });
+      return new Response(null, { status: 204 });
+    }) as unknown as typeof fetch;
+    const store = createStore(cfg);
+    let err: unknown;
+    try {
+      await store.deleteKeys(['a.pdf', 'stuck.pdf', 'gone.pdf', 'b.pdf']);
+    } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(R2DeleteError);
+    expect((err as R2DeleteError).failedKeys).toEqual(['stuck.pdf']);
+    expect(seen.sort()).toEqual(['a.pdf', 'b.pdf', 'gone.pdf', 'stuck.pdf']); // no short-circuit
+  });
+
+  test('resolves when every delete is a 204 or 404', async () => {
+    globalThis.fetch = (async () => new Response(null, { status: 204 })) as unknown as typeof fetch;
+    await expect(createStore(cfg).deleteKeys(['x', 'y'])).resolves.toBeUndefined();
   });
 });
 

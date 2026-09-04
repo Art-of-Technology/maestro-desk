@@ -101,11 +101,15 @@ runDbTests('data retention (DB-backed)', () => {
     await sql`insert into ticket_attachments (workspace_id, ticket_id, filename, storage_key) values (${ctx.wsId}, ${ctx.recent}, 'new.pdf', ${keptKey})`;
     const deleted: string[] = [];
 
-    const { purgedTickets, objectsDeleted } = await purgeExpiredTickets(500, { deleteObjects: async (keys) => { deleted.push(...keys); } });
+    const { purgedTickets, objectsDeleted, objectsFailed } = await purgeExpiredTickets(500, { deleteObjects: async (keys) => { deleted.push(...keys); } });
     expect(purgedTickets).toBeGreaterThanOrEqual(1);
     expect(deleted).toContain(expiredKey);
     expect(deleted).not.toContain(keptKey);
     expect(objectsDeleted).toBeGreaterThanOrEqual(1);
+    expect(objectsFailed).toBe(0);
+    // Successful deletes leave nothing in the outbox.
+    const outbox = await sql<{ n: number }[]>`select count(*)::int as n from pending_object_deletions where storage_key = ${expiredKey}`;
+    expect(outbox[0].n).toBe(0);
 
     const survivors = await sql<{ id: string }[]>`select id from tickets where workspace_id = ${ctx.wsId}`;
     const ids = survivors.map((r) => r.id);
@@ -147,13 +151,18 @@ runDbTests('data retention (DB-backed)', () => {
     const key = `att/${wsP}/${tid}/k3/park.pdf`;
     await sql`insert into ticket_attachments (workspace_id, ticket_id, filename, storage_key) values (${wsP}, ${tid}, 'park.pdf', ${key})`;
 
-    // Storage unavailable: rows are still purged, the key is parked.
-    const { objectsParked } = await purgeExpiredTickets(500, { deleteObjects: async () => { throw new Error('R2 unavailable'); } });
-    expect(objectsParked).toBeGreaterThanOrEqual(1);
+    // Storage unavailable: rows are still purged, the key stays in the outbox
+    // with the attempt recorded.
+    const { objectsFailed } = await purgeExpiredTickets(500, { deleteObjects: async () => { throw new Error('R2 unavailable'); } });
+    expect(objectsFailed).toBeGreaterThanOrEqual(1);
     const [{ n: ticketsLeft }] = await sql<{ n: number }[]>`select count(*)::int as n from tickets where id = ${tid}`;
     expect(ticketsLeft).toBe(0);
-    const parked = await sql<{ storage_key: string }[]>`select storage_key from pending_object_deletions where storage_key = ${key}`;
+    const parked = await sql<{ storage_key: string; attempts: number; last_error: string | null }[]>`
+      select storage_key, attempts, last_error from pending_object_deletions where storage_key = ${key}
+    `;
     expect(parked).toHaveLength(1);
+    expect(parked[0].attempts).toBe(1);
+    expect(parked[0].last_error).toBe('R2 unavailable');
 
     // The retention-cron retry sweep deletes the parked object and clears the row.
     const { retryPendingObjectDeletions } = await import('./lib/gdpr-erasure.js');
