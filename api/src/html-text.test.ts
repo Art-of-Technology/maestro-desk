@@ -32,6 +32,38 @@ describe('htmlToText', () => {
     expect(htmlToText('<p>Visible</p><!-- never closed <b>x</b>')).toBe('Visible');
   });
 
+  it('breaks before an opening block that directly follows text (Gmail web nesting)', () => {
+    expect(htmlToText('<div dir="ltr">Hola,<div>no llegó mi retiro.</div><div>Gracias</div></div>'))
+      .toBe('Hola,\nno llegó mi retiro.\nGracias');
+    expect(htmlToText('<p>line1<div>line2</div>')).toBe('line1\nline2');
+  });
+
+  it('treats source newlines inside markup as whitespace, not line breaks', () => {
+    expect(htmlToText('<p>quisiera saber por qué mi retiro\nno se ha acreditado</p>')).toBe('quisiera saber por qué mi retiro no se ha acreditado');
+    expect(htmlToText('<p>Best,<br>\nJodi</p>')).toBe('Best,\nJodi');
+    expect(htmlToText('<table><tr><td>a</td>\n<td>b</td></tr></table>')).toBe('a b');
+  });
+
+  it('keeps link destinations', () => {
+    expect(htmlToText('Proof: <a href="https://pay.example/r/123">here</a>')).toBe('Proof: here (https://pay.example/r/123)');
+    expect(htmlToText('<a href="https://example.com/">https://example.com</a>')).toBe('https://example.com');
+    expect(htmlToText('<a href="https://example.com/x"></a>')).toBe('https://example.com/x');
+    expect(htmlToText('<a href="https://example.com/x"><b>bold</b> link</a>')).toBe('bold link (https://example.com/x)');
+    expect(htmlToText('<a href="mailto:a@b.c">a@b.c</a>')).toBe('a@b.c');
+  });
+
+  it('decodes Latin-1 named entities case-sensitively', () => {
+    expect(htmlToText('por qu&eacute; a&uacute;n &Ntilde;u &Eacute;l &ntilde; &AMP; &copy;')).toBe('por qué aún Ñu Él ñ & ©');
+  });
+
+  it('stays fast on pathological input (many unmatched tags)', () => {
+    const t0 = performance.now();
+    htmlToText('<'.repeat(50_000));
+    htmlToText('<script '.repeat(20_000));
+    htmlToText('<a href="x'.repeat(20_000));
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
   it('decodes named, decimal and hex entities', () => {
     expect(htmlToText('a&nbsp;b &amp; c&#39;s &#8217;quote&#8217; &#x1F600; &lt;tag&gt;'))
       .toBe("a b & c's ’quote’ 😀 <tag>");
