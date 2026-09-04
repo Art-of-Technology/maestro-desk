@@ -50,13 +50,17 @@ correct the day upload ships:
   commit). A failed object delete parks the keys on `gdpr_erasures.pending_object_keys`;
   `retryPendingObjectDeletions()` (run from the retention cron) retries until they're gone,
   so a transient R2 outage self-heals. ✅ implemented.
-- **Retention** — the purge (`lib/retention.ts`) currently deletes only the rows (via the
-  `tickets` ON DELETE CASCADE), **not** the R2 objects. ⚠️ follow-up: gather `storage_key`s
-  before the ticket delete and delete the objects post-purge (same cleanup as erasure).
+- **Retention** — the purge (`lib/retention.ts`) gathers the `storage_key`s of every
+  expiring ticket inside the delete transaction and deletes the R2 objects after commit.
+  A failed object delete is parked in `pending_object_deletions`;
+  `retryPendingObjectDeletions()` sweeps that table too. ✅ implemented.
+- **Storage** — attachments live in a separate PRIVATE bucket (`R2_ATTACHMENTS_BUCKET`)
+  and are served only via short-lived presigned URLs minted inside authenticated ticket
+  responses. Never the public brand-assets bucket.
 - **DSAR export** — `gdpr-export.ts` does **not** yet include attachments. ⚠️ follow-up:
   add the attachment list/contents so Art.15/20 export matches what erasure removes.
 
-Both follow-ups are gated on attachment upload actually shipping (no data exists until
+The DSAR follow-up is gated on attachment upload actually shipping (no data exists until
 then), but are tracked here so they aren't missed.
 
 ## Consumers of this inventory

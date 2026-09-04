@@ -74,8 +74,11 @@ export async function runWebhookRetryJob(): Promise<{ processed: number }> {
 
 export interface RetentionJobResult {
   purgedTickets: number;
+  // Attachment objects removed / left in the outbox by this run's purge.
+  objectsDeleted: number;
+  objectsFailed: number;
   audit?: { checked: number; tampered: number; full: boolean };
-  objectRetry?: { swept: number; cleared: number };
+  objectRetry?: { swept: number; cleared: number; parkedKeysDeleted: number };
   emailDomains?: Awaited<ReturnType<typeof sweepEmailDomains>>;
 }
 
@@ -85,14 +88,33 @@ export interface RetentionJobResult {
 // core purge fails; the piggybacked sweeps are best-effort with their own
 // alerts, mirroring the original route semantics.
 export async function runRetentionJob(): Promise<RetentionJobResult> {
-  let purgedTickets: number;
+  let purged: Awaited<ReturnType<typeof purgeExpiredTickets>>;
   try {
-    ({ purgedTickets } = await purgeExpiredTickets());
+    purged = await purgeExpiredTickets();
   } catch (err) {
     await alertCronFailure('retention', err);
     throw err;
   }
-  const result: RetentionJobResult = { purgedTickets };
+  const result: RetentionJobResult = {
+    purgedTickets: purged.purgedTickets,
+    objectsDeleted: purged.objectsDeleted,
+    objectsFailed: purged.objectsFailed,
+  };
+  // Rows purged but files still in storage (R2 down, bucket unset, bad token):
+  // the outbox retries nightly, but an operator must know — otherwise expired
+  // customer files sit in the bucket with the cron reporting ok. Deduped by
+  // signature inside sendOpsAlert; best-effort.
+  if (purged.objectsFailed > 0) {
+    await sendOpsAlert({
+      signature: 'retention-r2-object-delete-fail',
+      severity: 'critical',
+      title: 'Retention purge: attachment file deletion failed',
+      detail:
+        `${purged.objectsFailed} attachment object(s) of purged tickets could not be deleted from storage ` +
+        `(${purged.objectsDeleted} succeeded). They stay in pending_object_deletions and are retried on every ` +
+        `retention run — check R2_ATTACHMENTS_BUCKET / R2 credentials if this repeats.`,
+    }).catch(() => {});
+  }
   // Piggyback the daily audit-chain integrity check (Hobby plan caps cron jobs,
   // so this compliance sweep rides the existing daily cron rather than spending a
   // slot). Incremental by default (cost ∝ new rows); a full re-verify runs weekly
@@ -108,12 +130,13 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
   } catch (err) {
     await alertCronFailure('audit-verify', err);
   }
-  // Piggyback the GDPR-erasure object-deletion retry sweep (finishes any R2
-  // deletes that failed at erase time). Best-effort — a failure here must not
-  // fail the purge result.
+  // Piggyback the object-deletion retry sweep (finishes any R2 deletes that
+  // failed at erase or purge time — the pending_object_deletions outbox plus
+  // legacy gdpr_erasures.pending_object_keys). Best-effort — a failure here
+  // must not fail the purge result.
   try {
-    const { swept, cleared } = await retryPendingObjectDeletions();
-    result.objectRetry = { swept, cleared };
+    const { swept, cleared, parkedKeysDeleted } = await retryPendingObjectDeletions();
+    result.objectRetry = { swept, cleared, parkedKeysDeleted };
   } catch (err) {
     await alertCronFailure('gdpr-object-retry', err);
   }
