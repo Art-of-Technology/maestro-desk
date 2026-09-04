@@ -10,7 +10,7 @@
 // second pass or a duplicate audit row.
 
 import { getDb } from './db.js';
-import { deleteKeys } from './r2.js';
+import { attachmentsStore } from './r2.js';
 import { sendOpsAlert } from './alert.js';
 import { inboxFromThisCustomer, repairCustomerContacts } from './customer-contacts.js';
 
@@ -52,10 +52,12 @@ export interface EraseResult {
 }
 
 // The R2 object deleter — injectable so tests can record the keys without R2
-// config or a network call. Defaults to the real lib/r2 deleteKeys.
+// config or a network call. Defaults to the PRIVATE attachments bucket — never
+// the public brand-assets store, which is where a bare lib/r2 deleteKeys points.
 export interface EraseDeps {
   deleteObjects?: (keys: string[]) => Promise<void>;
 }
+const deleteAttachmentObjects = (keys: string[]) => attachmentsStore().deleteKeys(keys);
 
 /**
  * Erase a customer's personal data. Returns null if no such customer exists in
@@ -69,7 +71,7 @@ export async function eraseCustomer(args: {
   reason?: string | null;
 }, deps: EraseDeps = {}): Promise<EraseResult | null> {
   const { workspaceId, customerId, requestedByUserId, reason } = args;
-  const deleteObjects = deps.deleteObjects ?? deleteKeys;
+  const deleteObjects = deps.deleteObjects ?? deleteAttachmentObjects;
   const db = getDb();
 
   // Captured inside the transaction, consumed after it commits: the R2 object
@@ -255,9 +257,26 @@ export async function eraseCustomer(args: {
 export async function retryPendingObjectDeletions(
   limit = 100,
   deps: EraseDeps = {},
-): Promise<{ swept: number; cleared: number; keysDeleted: number }> {
-  const deleteObjects = deps.deleteObjects ?? deleteKeys;
+): Promise<{ swept: number; cleared: number; keysDeleted: number; parkedKeysDeleted: number }> {
+  const deleteObjects = deps.deleteObjects ?? deleteAttachmentObjects;
   const sql = getDb();
+  // Keys parked by the retention purge (pending_object_deletions) — same
+  // self-heal, different origin. Best-effort: a still-failing delete just stays
+  // parked for the next run.
+  let parkedKeysDeleted = 0;
+  try {
+    const parked = await sql<{ storage_key: string }[]>`
+      select storage_key from pending_object_deletions order by created_at asc limit ${Math.max(1, limit)}
+    `;
+    if (parked.length) {
+      const keys = parked.map((r) => r.storage_key);
+      await deleteObjects(keys);
+      await sql`delete from pending_object_deletions where storage_key in ${sql(keys)}`;
+      parkedKeysDeleted = keys.length;
+    }
+  } catch (err) {
+    console.warn('[retention] parked object deletion retry still failing:', err instanceof Error ? err.message : err);
+  }
   const rows = await sql<{ id: string; pending_object_keys: string[] }[]>`
     select id, pending_object_keys from gdpr_erasures
     where pending_object_keys is not null and cardinality(pending_object_keys) > 0
@@ -276,5 +295,5 @@ export async function retryPendingObjectDeletions(
       console.warn(`[gdpr-erase] retry still failing for erasure ${row.id}:`, err instanceof Error ? err.message : err);
     }
   }
-  return { swept: rows.length, cleared, keysDeleted };
+  return { swept: rows.length, cleared, keysDeleted, parkedKeysDeleted };
 }
