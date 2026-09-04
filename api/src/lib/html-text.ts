@@ -47,7 +47,9 @@ function decodeEntities(s: string): string {
     }
     // Entity names are case-sensitive (&Eacute; ≠ &eacute;); fall back to the
     // lower-case form for sloppy upper-cased ampersand entities like &AMP;.
-    return NAMED_ENTITIES[ent] ?? NAMED_ENTITIES[ent.toLowerCase()] ?? match;
+    if (Object.hasOwn(NAMED_ENTITIES, ent)) return NAMED_ENTITIES[ent];
+    const lower = ent.toLowerCase();
+    return Object.hasOwn(NAMED_ENTITIES, lower) ? NAMED_ENTITIES[lower] : match;
   });
 }
 

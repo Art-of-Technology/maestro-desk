@@ -83,6 +83,8 @@ describe('htmlToText', () => {
 
   it('leaves invalid or unknown entities as literal text without throwing', () => {
     expect(htmlToText('&#xFFFFFFFF; &#0; &#55296; &bogus; &amp;lt;')).toBe('&#xFFFFFFFF; &#0; &#55296; &bogus; &lt;');
+    // Names that exist on Object.prototype must not resolve through the entity map.
+    expect(htmlToText('&constructor; &toString; &hasOwnProperty;')).toBe('&constructor; &toString; &hasOwnProperty;');
   });
 
   it('caps blank-line runs at one', () => {

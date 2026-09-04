@@ -83,7 +83,8 @@ for (const c of changes) {
 
 if (changes.length) {
   const snapshot = join(tmpdir(), `backfill-html-bodies-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-  writeFileSync(snapshot, JSON.stringify(changes.map(({ table, id, oldBody, body_html }) => ({ table, id, body: oldBody, body_html })), null, 2));
+  // Customer mail content — owner-only file.
+  writeFileSync(snapshot, JSON.stringify(changes.map(({ table, id, oldBody, body_html }) => ({ table, id, body: oldBody, body_html })), null, 2), { mode: 0o600 });
   console.log(`Snapshot of current bodies: ${snapshot}`);
 }
 
