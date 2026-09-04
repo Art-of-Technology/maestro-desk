@@ -16,6 +16,48 @@ import { scoreMessageSentiment } from './sentiment.js';
 import { publishTicketChanged } from './pubby.js';
 import { isUserActive } from './activity.js';
 import { isPushConfigured, sendPushToUser } from './push.js';
+import { sanitizeEmailHtml } from './email-html.js';
+import { markInlineAttachments, storeInboundAttachments, type StoreDeps } from './message-attachments.js';
+
+// Optional injection points (tests): the attachment store.
+export interface InboundDeps {
+  attachments?: StoreDeps;
+}
+
+// Store the email's files under the just-inserted message, sanitise its HTML
+// with the resulting cid map, and persist body_html (+ skip notes appended to
+// the text body). Best-effort as a whole: any failure here is logged and the
+// message stays as plain text — Postmark must always get its 200.
+async function persistRichBody(args: {
+  workspaceId: string;
+  ticketId: string;
+  messageId: string;
+  body: string;
+  payload: PostmarkInbound;
+  deps?: InboundDeps;
+}): Promise<void> {
+  const { workspaceId, ticketId, messageId, body, payload } = args;
+  const sql = getDb();
+  try {
+    const stored = await storeInboundAttachments(
+      sql,
+      { workspaceId, ticketId, messageId, attachments: payload.Attachments },
+      args.deps?.attachments,
+    );
+    const { html, usedCids } = sanitizeEmailHtml(payload.HtmlBody ?? '', { cidMap: stored.cidMap });
+    await markInlineAttachments(sql, workspaceId, usedCids);
+    const notes = stored.skipped.length ? `${body}\n\n${stored.skipped.join('\n')}` : null;
+    if (html || notes) {
+      await sql`
+        update ticket_messages
+        set body_html = ${html || null}, body = coalesce(${notes}, body)
+        where id = ${messageId} and workspace_id = ${workspaceId}
+      `;
+    }
+  } catch (err) {
+    console.error('[inbound-email] rich body/attachments failed (message kept as text):', err instanceof Error ? err.message : err);
+  }
+}
 
 // Fire-and-forget wrapper around scoreMessageSentiment used by the
 // inbound-email and reply paths. We never want sentiment to break the
@@ -178,8 +220,9 @@ export interface InboundResult {
 export async function processInboundEmail(args: {
   workspaceId: string;
   payload: PostmarkInbound;
+  deps?: InboundDeps;
 }): Promise<InboundResult> {
-  const { workspaceId, payload } = args;
+  const { workspaceId, payload, deps } = args;
   const sql = getDb();
   const { email, name } = parseFrom(payload);
   const body = pickBody(payload);
@@ -243,7 +286,7 @@ export async function processInboundEmail(args: {
       return await attachReplyToTicket({
         workspaceId: t.workspace_id, ticketId: t.id, ticketDisplayId: t.display_id,
         customerId: t.customer_id, body, name, email,
-        externalMessageId, payload,
+        externalMessageId, payload, deps,
       });
     }
   }
@@ -334,6 +377,10 @@ export async function processInboundEmail(args: {
   if (!newMessage) throw new Error('Message create failed');
   void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
+  // 3'. Files + formatted body. Awaited (not fire-and-forget) so the ticket the
+  //     agent opens moments later already has them; failures degrade to text.
+  await persistRichBody({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body, payload, deps });
+
   // 3a. Attach the contact to its Maestro player (ids + username; fills blank
   //     VIP / country). Runs AFTER the ticket + message land so it never
   //     competes with them for the pool on the webhook hot path. Self-contained
@@ -404,8 +451,9 @@ async function attachReplyToTicket(args: {
   email: string;
   externalMessageId: string | null;
   payload: PostmarkInbound;
+  deps?: InboundDeps;
 }): Promise<InboundResult> {
-  const { workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload } = args;
+  const { workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload, deps } = args;
   const sql = getDb();
 
   const authorLabel = name?.trim() || email;
@@ -416,6 +464,7 @@ async function attachReplyToTicket(args: {
   `;
   if (!replyMessage) throw new Error('Reply attach failed');
   void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
+  await persistRichBody({ workspaceId, ticketId, messageId: replyMessage.id, body, payload, deps });
 
   // Same Maestro link attempt as the new-ticket path, so a contact whose first
   // lookup failed (gateway outage) or was throttled gets retried on replies
