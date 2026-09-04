@@ -19,9 +19,7 @@
 // dangling reference to something we don't hold).
 
 import sanitizeHtml from 'sanitize-html';
-
-// Same cap as lib/html-text.ts: no legitimate ticket body is anywhere near this.
-const MAX_HTML_CHARS = 1_000_000;
+import { escapeHtml, MAX_HTML_CHARS } from './html-text.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Only raster formats a browser renders safely; never svg+xml (scriptable).
@@ -31,10 +29,8 @@ const DATA_IMAGE_RE = /^data:image\/(?:png|jpeg|jpg|gif|webp);base64,[a-z0-9+/=\
 // Apple Mail tables + legacy <font>/<center>) on top of sanitize-html's safe
 // default set. Deliberately NOT here: style/script/iframe/object/embed/form/
 // input/button/link/meta/base/svg/math/video/audio/template/noscript.
-const ALLOWED_TAGS = [
-  ...sanitizeHtml.defaults.allowedTags,
-  'img', 'font', 'center', 'strike', 'tt', 'big', 'ins', 'del', 'u', 's', 'hr', 'br',
-];
+// (br/hr/u/s and the usual text tags are already in the library defaults.)
+const ALLOWED_TAGS = [...sanitizeHtml.defaults.allowedTags, 'img', 'font', 'center', 'strike', 'tt', 'big', 'ins', 'del'];
 
 // Attributes whose values are never URLs (the URL-bearing ones are listed per
 // tag and scheme-checked). `style` is passed through unfiltered on purpose:
@@ -69,7 +65,13 @@ export interface SanitizedHtml {
   usedCids: Set<string>;
 }
 
-function normaliseCid(raw: string): string {
+/**
+ * Canonical form of a Content-ID: no `cid:` prefix, no angle brackets, no
+ * surrounding space. Exported because the ingest path builds the cidMap KEYS
+ * with it and this module builds the LOOKUP keys — they must agree exactly or
+ * an inline image silently loses its source.
+ */
+export function normaliseCid(raw: string): string {
   return raw.trim().replace(/^cid:/i, '').replace(/^<|>$/g, '').trim();
 }
 
@@ -79,6 +81,11 @@ export function sanitizeEmailHtml(html: string, opts: SanitizeOptions = {}): San
   const input = (html ?? '').slice(0, MAX_HTML_CHARS);
   if (!input.trim()) return { html: '', usedCids };
 
+  // Set during the single sanitising pass — avoids a second walk of the output
+  // just to answer "did anything visible survive?". NBSP in any spelling
+  // (entity, numeric, raw U+00A0) does not count as visible.
+  let hasText = false;
+
   const out = sanitizeHtml(input, {
     allowedTags: ALLOWED_TAGS,
     nonTextTags: NON_TEXT_TAGS,
@@ -87,8 +94,9 @@ export function sanitizeEmailHtml(html: string, opts: SanitizeOptions = {}): San
       a: ['href', 'name', 'target', 'rel'],
       img: ['src', 'alt', 'width', 'height', 'style', 'align', 'border', 'title'],
       font: ['face', 'size', 'color', 'style'],
-      td: [...GLOBAL_ATTRS, 'headers', 'scope'],
-      th: [...GLOBAL_ATTRS, 'headers', 'scope'],
+      // Per-tag lists are OR-ed with the '*' list, so these add to GLOBAL_ATTRS.
+      td: ['headers', 'scope'],
+      th: ['headers', 'scope'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel'],
     allowedSchemesByTag: { img: ['http', 'https', 'cid', ...(opts.allowDataImages ? ['data'] : [])] },
@@ -117,19 +125,19 @@ export function sanitizeEmailHtml(html: string, opts: SanitizeOptions = {}): San
         return { tagName, attribs: next };
       },
     },
+    textFilter: (text) => {
+      if (!hasText && text.replace(/&nbsp;|&#(?:160|x0*a0);|\u00a0/gi, ' ').trim()) hasText = true;
+      return text;
+    },
     // Drop images that ended up with no usable source at all.
     exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
   });
 
   // A body that is only wrapper markup (Gmail's `<div dir="auto"></div>`)
-  // should read as empty so the UI falls back to the text body.
-  const visible = out.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
-  if (!visible && !/<img\b/i.test(out) && !/<hr\b/i.test(out)) return { html: '', usedCids };
+  // should read as empty so the UI falls back to the text body. An image- or
+  // rule-only body is still a real body.
+  if (!hasText && !/<img\b/i.test(out) && !/<hr\b/i.test(out)) return { html: '', usedCids };
   return { html: out, usedCids };
-}
-
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**
@@ -145,7 +153,7 @@ export function rewriteCidsToUrls(html: string, urlByAttachmentId: Map<string, s
     /src="cid:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/gi,
     (m, id: string) => {
       const url = urlByAttachmentId.get(id.toLowerCase());
-      return url ? `src="${escapeAttr(url)}"` : m;
+      return url ? `src="${escapeHtml(url)}"` : m;
     },
   );
 }

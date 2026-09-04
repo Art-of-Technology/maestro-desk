@@ -91,9 +91,11 @@ export function fileExtension(name: string): string {
 }
 
 /**
- * Decide whether to keep a file and how to store it. `bytes` is authoritative
- * for size and (for images) type; `declaredMime` is only consulted for the
- * document allow-list.
+ * Decide whether to keep a file and how to store it. `filename` must already
+ * have been through sanitizeFilename() — callers need the clean name anyway
+ * (storage key, Content-Disposition, UI), so it is sanitised exactly once per
+ * file. `bytes` is authoritative for size and (for images) type; `declaredMime`
+ * is only consulted for the document allow-list.
  */
 export function classifyAttachment(
   filename: string,
@@ -101,8 +103,7 @@ export function classifyAttachment(
   bytes: Uint8Array,
   maxBytes: number,
 ): Classified {
-  const name = sanitizeFilename(filename);
-  if (DENY_EXT.has(fileExtension(name))) return { ok: false, reason: 'blocked type' };
+  if (DENY_EXT.has(fileExtension(filename))) return { ok: false, reason: 'blocked type' };
   if (bytes.length === 0) return { ok: false, reason: 'empty' };
   if (bytes.length > maxBytes) return { ok: false, reason: 'too large' };
 
@@ -116,7 +117,8 @@ export function classifyAttachment(
   return { ok: true, mime, disposition: 'attachment', size: bytes.length };
 }
 
+// `filename` is expected pre-sanitised (see classifyAttachment).
 export function formatSkipNote(filename: string, reason: string, size?: number): string {
   const s = size != null ? ` (${(size / (1024 * 1024)).toFixed(1)} MB)` : '';
-  return `[Attachment not stored: ${sanitizeFilename(filename)}${s} — ${reason}]`;
+  return `[Attachment not stored: ${filename}${s} — ${reason}]`;
 }

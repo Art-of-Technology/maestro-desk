@@ -17,7 +17,7 @@ import { publishTicketChanged } from './pubby.js';
 import { isUserActive } from './activity.js';
 import { isPushConfigured, sendPushToUser } from './push.js';
 import { sanitizeEmailHtml } from './email-html.js';
-import { markInlineAttachments, storeInboundAttachments, type StoreDeps } from './message-attachments.js';
+import { insertAttachmentRows, uploadInboundAttachments, type StoreDeps } from './message-attachments.js';
 
 // Optional injection points (tests): the attachment store.
 export interface InboundDeps {
@@ -39,18 +39,21 @@ async function persistRichBody(args: {
   const { workspaceId, ticketId, messageId, body, payload } = args;
   const sql = getDb();
   try {
-    const stored = await storeInboundAttachments(
-      sql,
-      { workspaceId, ticketId, messageId, attachments: payload.Attachments },
+    // Upload first: the sanitiser needs the Content-ID → attachment-id map, and
+    // the rows need to know which of those the HTML actually embeds.
+    const uploaded = await uploadInboundAttachments(
+      { workspaceId, ticketId, attachments: payload.Attachments },
       args.deps?.attachments,
     );
-    const { html, usedCids } = sanitizeEmailHtml(payload.HtmlBody ?? '', { cidMap: stored.cidMap });
-    await markInlineAttachments(sql, workspaceId, usedCids);
-    const notes = stored.skipped.length ? `${body}\n\n${stored.skipped.join('\n')}` : null;
-    if (html || notes) {
+    const { html, usedCids } = sanitizeEmailHtml(payload.HtmlBody ?? '', { cidMap: uploaded.cidMap });
+    await insertAttachmentRows(sql, { workspaceId, ticketId, messageId }, uploaded.pending, usedCids, args.deps?.attachments);
+
+    const skipped = uploaded.skipped.length > 0;
+    if (html || skipped) {
+      const newBody = skipped ? `${body}\n\n${uploaded.skipped.join('\n')}` : body;
       await sql`
         update ticket_messages
-        set body_html = ${html || null}, body = coalesce(${notes}, body)
+        set body_html = ${html || null}, body = ${newBody}
         where id = ${messageId} and workspace_id = ${workspaceId}
       `;
     }

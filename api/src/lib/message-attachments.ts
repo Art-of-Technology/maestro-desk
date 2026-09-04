@@ -6,23 +6,33 @@
 // The UI never gets a storage key — only short-lived presigned URLs minted
 // here inside an authenticated ticket response.
 //
-// Inbound storage is best-effort per file: a blocked type, an oversize file, a
-// storage outage or an unconfigured bucket SKIPS that file (the message still
-// lands, with a note in its text body) — Postmark must always get its 200.
+// Ingest is two phases because `is_inline` is only knowable after the HTML has
+// been sanitised against the cid map:
+//   1. uploadInboundAttachments — classify, upload (bounded concurrency), and
+//      return the rows-to-be plus the Content-ID → uuid map;
+//   2. insertAttachmentRows — ONE multi-row insert once the caller knows which
+//      uuids the sanitised HTML actually embeds.
+// Both are best-effort per file: a blocked type, an oversize file, a storage
+// outage or an unconfigured bucket SKIPS that file (the message still lands,
+// with a note in its text body) — Postmark must always get its 200.
 
 import type { Sql, TransactionSql } from 'postgres';
 import { getDb } from './db.js';
 import { attachmentsStore, contentDispositionFor, isAttachmentsStorageConfigured, type R2Store } from './r2.js';
-import { classifyAttachment, formatSkipNote, MAX_INBOUND_FILE_BYTES, sanitizeFilename } from './attachment-policy.js';
-import { rewriteCidsToUrls } from './email-html.js';
+import {
+  classifyAttachment, fileExtension, formatSkipNote, DENY_EXT,
+  MAX_INBOUND_FILE_BYTES, sanitizeFilename,
+} from './attachment-policy.js';
+import { normaliseCid, rewriteCidsToUrls } from './email-html.js';
+import { drainObjectDeletions, enqueueObjectDeletions } from './object-outbox.js';
+import type { PostmarkInbound } from './postmark.js';
 
-export interface PostmarkAttachment {
-  Name: string;
-  Content: string;         // base64
-  ContentType?: string;
-  ContentLength?: number;
-  ContentID?: string;      // '' for regular (non-inline) attachments
-}
+// The wire shape, derived from the zod schema so the two can't drift.
+export type PostmarkAttachment = NonNullable<PostmarkInbound['Attachments']>[number];
+
+// Simultaneous uploads. The webhook response waits on these, so they run
+// concurrently (mirroring r2.ts deleteKeys) rather than one round-trip per file.
+const UPLOAD_CONCURRENCY = 6;
 
 export interface AttachmentRow {
   id: string;
@@ -48,16 +58,30 @@ export interface PublicAttachment {
   url: string | null;
 }
 
+// An uploaded object waiting for its DB row.
+export interface PendingAttachment {
+  id: string;
+  filename: string;
+  size: number;
+  mime: string;
+  disposition: 'inline' | 'attachment';
+  // The email's own Content-ID (null for a regular attachment) — kept verbatim
+  // so a future re-sanitise of the raw HTML on inbox_messages can rebuild the
+  // cid → attachment mapping.
+  contentId: string | null;
+  storageKey: string;
+}
+
 export interface StoreDeps {
   // Injectable store (tests). Default: the private attachments bucket.
   store?: R2Store;
   configured?: () => boolean;
 }
 
-export interface StoreInboundResult {
-  // Raw Postmark Content-ID (angle brackets stripped) → our attachment uuid.
+export interface UploadResult {
+  pending: PendingAttachment[];
+  // Content-ID (normalised) → our attachment uuid, for sanitizeEmailHtml.
   cidMap: Map<string, string>;
-  stored: number;
   // Human-readable notes for files we did not keep, for the message body.
   skipped: string[];
 }
@@ -66,86 +90,122 @@ export function storageKeyFor(workspaceId: string, ticketId: string, attachmentI
   return `att/${workspaceId}/${ticketId}/${attachmentId}/${filename}`;
 }
 
+// Decoded size of a base64 payload, without decoding it — lets a 30 MB file be
+// rejected before it is materialised in memory on the webhook hot path.
+function base64Bytes(b64: string): number {
+  const s = b64.replace(/[\r\n]/g, '');
+  if (!s) return 0;
+  const pad = s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0;
+  return Math.floor((s.length * 3) / 4) - pad;
+}
+
 /**
- * Upload every acceptable Postmark attachment and insert its row. Never
- * throws for a per-file problem — each is reported in `skipped`.
+ * Upload every acceptable attachment. Never throws for a per-file problem —
+ * each is reported in `skipped`. No DB writes happen here.
  */
-export async function storeInboundAttachments(
-  sql: Sql | TransactionSql,
-  args: { workspaceId: string; ticketId: string; messageId: string; attachments: PostmarkAttachment[] | undefined },
+export async function uploadInboundAttachments(
+  args: { workspaceId: string; ticketId: string; attachments: PostmarkAttachment[] | undefined },
   deps: StoreDeps = {},
-): Promise<StoreInboundResult> {
-  const result: StoreInboundResult = { cidMap: new Map(), stored: 0, skipped: [] };
+): Promise<UploadResult> {
+  const result: UploadResult = { pending: [], cidMap: new Map(), skipped: [] };
   const list = args.attachments ?? [];
   if (list.length === 0) return result;
 
   const configured = deps.configured ?? isAttachmentsStorageConfigured;
   if (!deps.store && !configured()) {
     console.warn(`[attachments] ${list.length} inbound file(s) dropped — R2_ATTACHMENTS_BUCKET is not configured`);
-    for (const a of list) result.skipped.push(formatSkipNote(a.Name, 'attachment storage not configured'));
+    for (const a of list) result.skipped.push(formatSkipNote(sanitizeFilename(a.Name), 'attachment storage not configured'));
     return result;
   }
   const store = deps.store ?? attachmentsStore();
 
+  // Cheap rejections first: extension and declared size need no decode.
+  type Candidate = { filename: string; bytes: Uint8Array; mime: string; disposition: 'inline' | 'attachment'; contentId: string | null };
+  const candidates: Candidate[] = [];
   for (const a of list) {
     const filename = sanitizeFilename(a.Name);
-    let bytes: Uint8Array;
-    try {
-      bytes = new Uint8Array(Buffer.from(a.Content ?? '', 'base64'));
-    } catch {
-      result.skipped.push(formatSkipNote(filename, 'unreadable content'));
-      continue;
-    }
+    if (DENY_EXT.has(fileExtension(filename))) { result.skipped.push(formatSkipNote(filename, 'blocked type')); continue; }
+    const declaredSize = a.ContentLength ?? base64Bytes(a.Content);
+    if (declaredSize > MAX_INBOUND_FILE_BYTES) { result.skipped.push(formatSkipNote(filename, 'too large', declaredSize)); continue; }
+    // Buffer IS a Uint8Array — no copy. Invalid base64 decodes to garbage
+    // rather than throwing; classifyAttachment then judges the real bytes.
+    const bytes: Uint8Array = Buffer.from(a.Content, 'base64');
     const verdict = classifyAttachment(filename, a.ContentType, bytes, MAX_INBOUND_FILE_BYTES);
     if (!verdict.ok) {
       result.skipped.push(formatSkipNote(filename, verdict.reason, verdict.reason === 'too large' ? bytes.length : undefined));
       continue;
     }
+    const rawCid = normaliseCid(a.ContentID ?? '');
+    candidates.push({ filename, bytes, mime: verdict.mime, disposition: verdict.disposition, contentId: rawCid || null });
+  }
 
-    const id = crypto.randomUUID();
-    const key = storageKeyFor(args.workspaceId, args.ticketId, id, filename);
-    try {
-      await store.putObject(key, bytes, {
-        contentType: verdict.mime,
-        contentDisposition: contentDispositionFor(verdict.disposition, filename),
-      });
-    } catch (err) {
-      console.error(`[attachments] R2 upload failed for ${filename}:`, err instanceof Error ? err.message : err);
-      result.skipped.push(formatSkipNote(filename, 'storage error'));
-      continue;
-    }
-
-    const rawCid = (a.ContentID ?? '').trim().replace(/^<|>$/g, '');
-    try {
-      await sql`
-        insert into ticket_attachments
-          (id, workspace_id, ticket_id, message_id, filename, size_bytes, storage_key, mime_type, content_id, is_inline, disposition)
-        values
-          (${id}, ${args.workspaceId}, ${args.ticketId}, ${args.messageId}, ${filename}, ${verdict.size}, ${key},
-           ${verdict.mime}, ${rawCid ? id : null}, false, ${verdict.disposition})
-      `;
-    } catch (err) {
-      // Row failed after the object landed: remove the object so nothing is
-      // orphaned (best-effort), then report.
-      console.error(`[attachments] row insert failed for ${filename}:`, err instanceof Error ? err.message : err);
-      await store.deleteKeys([key]).catch(() => {});
-      result.skipped.push(formatSkipNote(filename, 'storage error'));
-      continue;
-    }
-    if (rawCid) result.cidMap.set(rawCid, id);
-    result.stored++;
+  for (let i = 0; i < candidates.length; i += UPLOAD_CONCURRENCY) {
+    const slice = candidates.slice(i, i + UPLOAD_CONCURRENCY);
+    const settled = await Promise.allSettled(
+      slice.map(async (c): Promise<PendingAttachment> => {
+        const id = crypto.randomUUID();
+        const storageKey = storageKeyFor(args.workspaceId, args.ticketId, id, c.filename);
+        await store.putObject(storageKey, c.bytes, {
+          contentType: c.mime,
+          contentDisposition: contentDispositionFor(c.disposition, c.filename),
+        });
+        return { id, filename: c.filename, size: c.bytes.length, mime: c.mime, disposition: c.disposition, contentId: c.contentId, storageKey };
+      }),
+    );
+    settled.forEach((r, idx) => {
+      if (r.status === 'fulfilled') {
+        result.pending.push(r.value);
+        if (r.value.contentId) result.cidMap.set(r.value.contentId, r.value.id);
+      } else {
+        console.error(`[attachments] R2 upload failed for ${slice[idx].filename}:`, r.reason instanceof Error ? r.reason.message : r.reason);
+        result.skipped.push(formatSkipNote(slice[idx].filename, 'storage error'));
+      }
+    });
   }
   return result;
 }
 
-/** Flag the attachments the sanitised HTML actually embeds as inline. */
-export async function markInlineAttachments(sql: Sql | TransactionSql, workspaceId: string, ids: Iterable<string>): Promise<void> {
-  const list = [...ids];
-  if (list.length === 0) return;
-  await sql`
-    update ticket_attachments set is_inline = true
-    where workspace_id = ${workspaceId} and id in ${sql(list)}
-  `;
+/**
+ * Insert the rows for already-uploaded objects in ONE statement. `usedCids` is
+ * the set of attachment ids the sanitised HTML embeds — those are the inline
+ * ones. If the insert fails the objects are handed to the deletion outbox so
+ * they can never become orphans.
+ */
+export async function insertAttachmentRows(
+  sql: Sql | TransactionSql,
+  args: { workspaceId: string; ticketId: string; messageId: string },
+  pending: PendingAttachment[],
+  usedCids: Set<string>,
+  deps: StoreDeps = {},
+): Promise<void> {
+  if (pending.length === 0) return;
+  const rows = pending.map((p) => ({
+    id: p.id,
+    workspace_id: args.workspaceId,
+    ticket_id: args.ticketId,
+    message_id: args.messageId,
+    filename: p.filename,
+    size_bytes: p.size,
+    storage_key: p.storageKey,
+    mime_type: p.mime,
+    content_id: p.contentId,
+    is_inline: usedCids.has(p.id),
+    disposition: p.disposition,
+  }));
+  try {
+    await sql`insert into ticket_attachments ${sql(rows)}`;
+  } catch (err) {
+    console.error('[attachments] row insert failed — queueing objects for deletion:', err instanceof Error ? err.message : err);
+    const keys = pending.map((p) => p.storageKey);
+    const deleter = deps.store ? (k: string[]) => deps.store!.deleteKeys(k) : undefined;
+    try {
+      await enqueueObjectDeletions(getDb(), keys, 'orphan');
+      await drainObjectDeletions(keys, deleter);
+    } catch (cleanupErr) {
+      console.error('[attachments] orphan cleanup failed:', cleanupErr instanceof Error ? cleanupErr.message : cleanupErr);
+    }
+    throw err;
+  }
 }
 
 /**
@@ -209,7 +269,6 @@ export function decorateMessages<M extends { id: string; body_html?: string | nu
     const attachments = byMessage.get(m.id) ?? [];
     const urlById = new Map<string, string>();
     for (const a of attachments) if (a.is_inline && a.url) urlById.set(a.id, a.url);
-    const body_html = m.body_html ? rewriteCidsToUrls(m.body_html, urlById) : m.body_html ?? null;
-    return { ...m, body_html, attachments };
+    return { ...m, body_html: m.body_html ? rewriteCidsToUrls(m.body_html, urlById) : null, attachments };
   });
 }

@@ -76,9 +76,12 @@ describe('sanitizeEmailHtml — keeps presentational email markup', () => {
       '<a href="https://ok.test" target="_blank" rel="noopener noreferrer">x</a>',
     );
   });
-  it('returns empty for wrapper-only bodies (Gmail blank mail)', () => {
+  it('returns empty for wrapper-only bodies (Gmail blank mail), in every NBSP spelling', () => {
     expect(clean('<div dir="auto"></div>')).toBe('');
     expect(clean('<html><head></head><body>&nbsp;</body></html>')).toBe('');
+    expect(clean('<div>&#160;</div>')).toBe('');
+    expect(clean('<div>&#xA0;</div>')).toBe('');
+    expect(clean('<div> </div>')).toBe('');
     expect(clean('')).toBe('');
   });
   it('keeps an image-only body', () => {
@@ -116,6 +119,18 @@ describe('sanitizeEmailHtml — data: images', () => {
     expect(clean(png, { allowDataImages: true })).toContain('data:image/png;base64,iVBORw0KGgo=');
     expect(clean(svg, { allowDataImages: true })).toBe('');
     expect(clean(html, { allowDataImages: true })).toBe('');
+  });
+});
+
+describe('normaliseCid', () => {
+  it('is the one canonical form both sides of the cid map use', async () => {
+    const { normaliseCid } = await import('./lib/email-html.js');
+    for (const raw of ['logo@mail', '<logo@mail>', ' < logo@mail > ', 'cid:logo@mail', 'CID:<logo@mail>']) {
+      expect(normaliseCid(raw)).toBe('logo@mail');
+    }
+    // A cidMap keyed by the canonical form resolves an <img> written any way.
+    const cidMap = new Map([[normaliseCid('< logo@mail >'), ID_A]]);
+    expect(sanitizeEmailHtml('<img src="cid: logo@mail ">', { cidMap }).html).toBe(`<img src="cid:${ID_A}" />`);
   });
 });
 

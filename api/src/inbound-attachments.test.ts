@@ -92,16 +92,18 @@ runDbTests('inbound attachments + HTML body (DB-backed)', () => {
     expect(pdf.contentDisposition).toMatch(/^attachment; filename="invoice.pdf"/);
     for (const p of fake.puts) expect(p.key).toMatch(new RegExp(`^att/${ctx.ws}/${ctx.ticket}/[0-9a-f-]{36}/`));
 
-    const rows = await sql<{ filename: string; is_inline: boolean; content_id: string | null; disposition: string; message_id: string | null; mime_type: string }[]>`
-      select filename, is_inline, content_id, disposition, message_id, mime_type from ticket_attachments
+    const rows = await sql<{ id: string; filename: string; is_inline: boolean; content_id: string | null; disposition: string; message_id: string | null; mime_type: string }[]>`
+      select id, filename, is_inline, content_id, disposition, message_id, mime_type from ticket_attachments
       where ticket_id = ${ctx.ticket} order by filename`;
     expect(rows.map((r) => r.filename)).toEqual(['invoice.pdf', 'logo.png', 'unref.png']);
     const logo = rows.find((r) => r.filename === 'logo.png')!;
     expect(logo.is_inline).toBe(true);          // referenced from the HTML
-    expect(logo.content_id).toBeTruthy();
+    expect(logo.content_id).toBe('logo@mail');  // the email's OWN Content-ID, kept verbatim
     expect(logo.disposition).toBe('inline');
     const unref = rows.find((r) => r.filename === 'unref.png')!;
     expect(unref.is_inline).toBe(false);        // had a Content-ID but the HTML never used it
+    expect(unref.content_id).toBe('unreferenced@mail');
+    expect(rows.find((r) => r.filename === 'invoice.pdf')!.content_id).toBeNull();
     expect(rows.find((r) => r.filename === 'invoice.pdf')!.disposition).toBe('attachment');
     for (const r of rows) expect(r.message_id).toBeTruthy();
 
@@ -109,7 +111,7 @@ runDbTests('inbound attachments + HTML body (DB-backed)', () => {
       select id, body, body_html from ticket_messages where ticket_id = ${ctx.ticket} and role = 'customer'`;
     expect(msg.body).toContain('see attached');
     expect(msg.body).toContain('[Attachment not stored: setup.exe — blocked type]');
-    expect(msg.body_html).toBe(`<p>Hello <b>there</b></p><img src="cid:${logo.content_id}" />`);
+    expect(msg.body_html).toBe(`<p>Hello <b>there</b></p><img src="cid:${logo.id}" />`);
     ctx.msgId = msg.id;
   });
 
@@ -127,6 +129,26 @@ runDbTests('inbound attachments + HTML body (DB-backed)', () => {
     const logo = list.find((a) => a.filename === 'logo.png')!;
     expect(decorated.body_html).toBe(`<p>Hello <b>there</b></p><img src="${logo.url}" />`);
     expect(decorated.attachments).toHaveLength(3);
+  });
+
+  it('matches a Content-ID carrying angle brackets and whitespace', async () => {
+    const fake = fakeStore();
+    const res = await processInboundEmail({
+      workspaceId: ctx.ws,
+      payload: payload({
+        Subject: 'Padded cid',
+        HtmlBody: '<p>pic</p><img src="cid: pad@mail ">',
+        Attachments: [{ Name: 'pad.png', Content: PNG_B64, ContentType: 'image/png', ContentID: '< pad@mail >' }],
+      }),
+      deps: { attachments: { store: fake.store } },
+    });
+    const [row] = await sql<{ id: string; is_inline: boolean; content_id: string }[]>`
+      select id, is_inline, content_id from ticket_attachments where ticket_id = ${res.ticket_id}`;
+    expect(row.content_id).toBe('pad@mail');
+    expect(row.is_inline).toBe(true);
+    const [msg] = await sql<{ body_html: string }[]>`
+      select body_html from ticket_messages where ticket_id = ${res.ticket_id} and role = 'customer'`;
+    expect(msg.body_html).toBe(`<p>pic</p><img src="cid:${row.id}" />`);
   });
 
   it('does not re-upload on a Postmark redelivery (dedup)', async () => {
