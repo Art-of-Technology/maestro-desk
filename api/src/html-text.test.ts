@@ -50,6 +50,15 @@ describe('htmlToText', () => {
     expect(htmlToText('<a href="https://example.com/x"></a>')).toBe('https://example.com/x');
     expect(htmlToText('<a href="https://example.com/x"><b>bold</b> link</a>')).toBe('bold link (https://example.com/x)');
     expect(htmlToText('<a href="mailto:a@b.c">a@b.c</a>')).toBe('a@b.c');
+    // Unclosed anchor keeps its URL; stray closers vanish; control chars in the input never leak.
+    expect(htmlToText('see <a href="https://example.com/x">there')).toBe('see https://example.com/x there');
+    expect(htmlToText('odd</a> text' + String.fromCharCode(1, 2, 3) + ' <a href="https://example.com/y">y</a>')).toBe('odd text y (https://example.com/y)');
+  });
+
+  it('caps oversized input instead of converting it all', () => {
+    const out = htmlToText('<p>' + 'x'.repeat(2_000_000) + '</p>');
+    expect(out.length).toBeLessThanOrEqual(1_000_000);
+    expect(out.startsWith('xxxx')).toBe(true);
   });
 
   it('decodes Latin-1 named entities case-sensitively', () => {
@@ -61,7 +70,10 @@ describe('htmlToText', () => {
     htmlToText('<'.repeat(50_000));
     htmlToText('<script '.repeat(20_000));
     htmlToText('<a href="x'.repeat(20_000));
-    expect(performance.now() - t0).toBeLessThan(500);
+    htmlToText('<a href="https://x.y/z">'.repeat(20_000));          // unclosed anchors (was minutes)
+    htmlToText('<a href="https://x.y/z"><b>t '.repeat(10_000));
+    htmlToText('</a>'.repeat(50_000));
+    expect(performance.now() - t0).toBeLessThan(1_000);
   });
 
   it('decodes named, decimal and hex entities', () => {

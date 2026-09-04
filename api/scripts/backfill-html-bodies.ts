@@ -87,28 +87,52 @@ if (changes.length) {
   console.log(`Snapshot of current bodies: ${snapshot}`);
 }
 
+// ALTER TABLE … DISABLE TRIGGER takes an ACCESS EXCLUSIVE lock on the table for
+// the rest of its transaction, blocking every read and write on ticket_messages
+// and tickets. So the work is chunked: each chunk is its own short transaction
+// with one set-based UPDATE per table, and the locks are held for milliseconds
+// rather than for the whole run. A chunk that fails leaves earlier chunks
+// committed — re-running is safe because converted rows no longer match the
+// detector.
+const CHUNK = 200;
+
 if (apply && changes.length) {
-  await sql.begin(async (tx) => {
-    // Transactional DDL: both re-enable automatically on rollback, and we
-    // re-enable explicitly before commit. Needs table ownership.
-    await tx`alter table ticket_messages disable trigger bump_ticket_on_message`;
-    await tx`alter table tickets disable trigger set_updated_at`;
-    for (const c of changes) {
-      if (c.table === 'ticket_messages') {
-        await tx`update ticket_messages set body = ${c.next}, sentiment = null where id = ${c.id}`;
+  let done = 0;
+  for (let i = 0; i < changes.length; i += CHUNK) {
+    const chunk = changes.slice(i, i + CHUNK);
+    const tm = chunk.filter((c) => c.table === 'ticket_messages');
+    const im = chunk.filter((c) => c.table === 'inbox_messages');
+    await sql.begin(async (tx) => {
+      if (tm.length) {
+        // Transactional DDL: re-enabled automatically on rollback, and
+        // explicitly before commit. Needs table ownership.
+        await tx`alter table ticket_messages disable trigger bump_ticket_on_message`;
+        await tx`alter table tickets disable trigger set_updated_at`;
         await tx`
-          update tickets set latest_customer_sentiment = null
-          where id = ${c.ticket_id} and latest_customer_message_at = ${c.created_at}::timestamptz`;
-      } else {
+          update ticket_messages m
+          set body = v.next, sentiment = null
+          from (select unnest(${tm.map((c) => c.id)}::uuid[]) as id, unnest(${tm.map((c) => c.next)}::text[]) as next) v
+          where m.id = v.id`;
         await tx`
-          update inbox_messages
-          set body = ${c.next}, body_html = coalesce(body_html, ${c.oldBody})
-          where id = ${c.id}`;
+          update tickets t
+          set latest_customer_sentiment = null
+          from (select unnest(${tm.map((c) => c.ticket_id)}::uuid[]) as ticket_id,
+                       unnest(${tm.map((c) => c.created_at)}::timestamptz[]) as created_at) v
+          where t.id = v.ticket_id and t.latest_customer_message_at = v.created_at`;
+        await tx`alter table tickets enable trigger set_updated_at`;
+        await tx`alter table ticket_messages enable trigger bump_ticket_on_message`;
       }
-    }
-    await tx`alter table tickets enable trigger set_updated_at`;
-    await tx`alter table ticket_messages enable trigger bump_ticket_on_message`;
-  });
+      if (im.length) {
+        await tx`
+          update inbox_messages m
+          set body = v.next, body_html = coalesce(m.body_html, m.body)
+          from (select unnest(${im.map((c) => c.id)}::uuid[]) as id, unnest(${im.map((c) => c.next)}::text[]) as next) v
+          where m.id = v.id`;
+      }
+    });
+    done += chunk.length;
+    console.log(`  … ${done}/${changes.length}`);
+  }
   console.log(`✓ Updated ${changes.length} row(s).`);
 }
 

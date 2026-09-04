@@ -10,9 +10,14 @@
 //
 // Deliberately regex-based and never interprets the markup — the input is
 // untrusted, and the output is always escaped again by whoever displays it.
-// Every tag pattern uses `[^<>]` (never `[^>]`) so a body full of unmatched
-// `<` stays linear — this runs synchronously inside the Postmark webhook.
+// This runs synchronously inside the Postmark webhook, so every pass must stay
+// linear: tag patterns use `[^<>]` (never `[^>]`), nothing matches from an
+// opener to a closer in one pattern, and the input is capped.
 // Returns '' for wrapper-only input so callers can apply their own placeholder.
+
+// Postmark accepts inbound messages up to 35 MB; no legitimate ticket body
+// is anywhere near this. Anything longer is truncated before conversion.
+const MAX_HTML_CHARS = 1_000_000;
 
 // HTML 4 Latin-1 names, in code-point order from U+00A0 to U+00FF.
 const LATIN1_NAMES =
@@ -48,9 +53,24 @@ function decodeEntities(s: string): string {
 
 const BLOCK_OPENERS = 'div|p|h[1-6]|blockquote|pre|table|ul|ol|tr|li';
 
+// Private markers for the two-pass link handling (see below): U+0001..U+0003,
+// never legitimate in mail text; any that arrive in the input are stripped
+// first. Built with fromCharCode so the source holds no control bytes.
+const LINK_OPEN = String.fromCharCode(1);
+const LINK_HREF_END = String.fromCharCode(2);
+const LINK_CLOSE = String.fromCharCode(3);
+const NOT_MARKER = `[^${LINK_OPEN}-${LINK_CLOSE}]*`;
+const MARKERS_RE = new RegExp(`[${LINK_OPEN}-${LINK_CLOSE}]`, 'g');
+const LINK_RE = new RegExp(`${LINK_OPEN}(${NOT_MARKER})${LINK_HREF_END}(${NOT_MARKER})${LINK_CLOSE}`, 'g');
+const UNCLOSED_LINK_RE = new RegExp(`${LINK_OPEN}(${NOT_MARKER})${LINK_HREF_END}`, 'g');
+// U+00A0 (from &nbsp;, &#160; or raw) — built without an escape so an editor
+// cannot silently normalise it to an ordinary space.
+const NBSP_RE = new RegExp(String.fromCharCode(0xa0), 'g');
+
 export function htmlToText(html: string): string {
   if (!html) return '';
-  let s = html.replace(/\r\n?/g, '\n');
+  let s = html.length > MAX_HTML_CHARS ? html.slice(0, MAX_HTML_CHARS) : html;
+  s = s.replace(/\r\n?/g, '\n');
 
   // Plain text (no tags) keeps the author's own line breaks; only markup
   // goes through the structural pass below.
@@ -65,18 +85,21 @@ export function htmlToText(html: string): string {
     s = s.replace(/\s+/g, ' ');
 
     // Links: keep the destination, which the tag strip would otherwise lose.
-    // `label (https://…)` unless the label already IS the URL.
+    // Two linear passes with private markers instead of one opener→closer
+    // regex — matching `<a …>…</a>` in a single pattern rescans to the end of
+    // the body for every unclosed opener (quadratic; minutes on a 500 KB
+    // hostile mail). Pass 1 swaps each http(s) opener for OPEN href HREF_END
+    // and each </a> for CLOSE; pass 2 (after the tag strip) rebuilds
+    // `label (href)`.
+    s = s.replace(MARKERS_RE, '');
     s = s.replace(
-      /<a\b[^<>]*?\bhref\s*=\s*(?:"([^"<>]*)"|'([^'<>]*)')[^<>]*>([^<]*(?:<(?!\/a\s*>)[^<>]*>[^<]*)*)<\/a\s*>/gi,
-      (whole, dq: string | undefined, sq: string | undefined, inner: string) => {
+      /<a\b[^<>]*?\bhref\s*=\s*(?:"([^"<>]*)"|'([^'<>]*)')[^<>]*>/gi,
+      (whole, dq: string | undefined, sq: string | undefined) => {
         const href = (dq ?? sq ?? '').trim();
-        if (!/^https?:\/\//i.test(href)) return whole;
-        const label = inner.replace(/<[^<>]+>/g, '').trim();
-        if (!label) return href;
-        const same = (a: string) => a.replace(/\/+$/, '').toLowerCase();
-        return same(label) === same(href) ? inner : `${inner} (${href})`;
+        return /^https?:\/\//i.test(href) ? `${LINK_OPEN}${href}${LINK_HREF_END}` : whole;
       },
     );
+    s = s.replace(/<\/a\s*>/gi, LINK_CLOSE);
 
     // Block boundaries → line breaks. Text directly followed by an opening
     // block (Gmail web: `<div>First<div>Second</div></div>`) breaks before it;
@@ -90,10 +113,20 @@ export function htmlToText(html: string): string {
 
     // Everything else is markup we don't want.
     s = s.replace(/<[^<>]+>/g, '');
+
+    // Pass 2 of the link handling: `label (href)` unless the label already IS
+    // the URL; an empty label shows the URL; an unclosed anchor keeps its URL.
+    s = s.replace(LINK_RE, (_m, href: string, inner: string) => {
+      const label = inner.trim();
+      if (!label) return href;
+      const same = (a: string) => a.replace(/\/+$/, '').toLowerCase();
+      return same(label) === same(href) ? inner : `${inner} (${href})`;
+    });
+    s = s.replace(UNCLOSED_LINK_RE, '$1 ').replace(MARKERS_RE, '');
   }
 
   // Numeric &#160;, &nbsp; and raw non-breaking spaces become ordinary spaces.
-  s = decodeEntities(s).replace(/ /g, ' ');
+  s = decodeEntities(s).replace(NBSP_RE, ' ');
 
   // Whitespace: tidy each line, cap blank-line runs at one.
   s = s
