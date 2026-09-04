@@ -7,6 +7,7 @@ import { getDb } from './db.js';
 import { processPendingDeliveries } from './outgoing-webhooks.js';
 import { purgeExpiredTickets } from './retention.js';
 import { retryPendingObjectDeletions } from './gdpr-erasure.js';
+import { sweepUnclaimedAttachments } from './message-attachments.js';
 import { verifyAuditChains } from './audit-verify.js';
 import { sweepEmailDomains } from './email-domains.js';
 import { sendOpsAlert } from './alert.js';
@@ -79,6 +80,8 @@ export interface RetentionJobResult {
   objectsFailed: number;
   audit?: { checked: number; tampered: number; full: boolean };
   objectRetry?: { swept: number; cleared: number; parkedKeysDeleted: number };
+  // Uploads an agent never sent, removed after a day.
+  unclaimedAttachments?: number;
   emailDomains?: Awaited<ReturnType<typeof sweepEmailDomains>>;
 }
 
@@ -139,6 +142,15 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
     result.objectRetry = { swept, cleared, parkedKeysDeleted };
   } catch (err) {
     await alertCronFailure('gdpr-object-retry', err);
+  }
+  // Piggyback the unclaimed-attachment sweep: files an agent uploaded but
+  // never sent. Best-effort; objects go through the deletion outbox so a
+  // storage failure is retried rather than orphaning a file.
+  try {
+    const { removed } = await sweepUnclaimedAttachments();
+    result.unclaimedAttachments = removed;
+  } catch (err) {
+    await alertCronFailure('unclaimed-attachment-sweep', err);
   }
   // Piggyback the sender-domain sweep (same Hobby cron-cap reasoning): verify
   // pending domains (auto-stamps owners who never revisit the settings page),
