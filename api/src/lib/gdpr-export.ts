@@ -108,7 +108,7 @@ export async function exportCustomer(args: {
   // released here and adopted elsewhere must not leak the new holder's mail
   // into this bundle (inboxFromThisCustomer).
   const inbox = await sql<Record<string, unknown>[]>`
-    select from_name, from_email, subject, body, received_at, status
+    select from_name, from_email, subject, body, body_html, received_at, status
     from inbox_messages
     where workspace_id = ${workspaceId}
       and (

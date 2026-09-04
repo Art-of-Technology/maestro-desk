@@ -78,21 +78,21 @@ async function recordInboundInInbox(args: {
   payload: PostmarkInbound;
   ticketId: string;
   channelId: string | null;
+  body: string;   // pickBody(payload), already computed by the caller
 }): Promise<void> {
-  const { workspaceId, payload, ticketId, channelId } = args;
+  const { workspaceId, payload, ticketId, channelId, body } = args;
   const sql = getDb();
   if (!channelId) return;
 
   const { email, name } = parseFrom(payload);
-  const body = pickBody(payload);
 
   try {
     await sql`
       insert into inbox_messages
-        (workspace_id, channel_id, external_id, from_name, from_email, subject, body, received_at, status, converted_ticket_id)
+        (workspace_id, channel_id, external_id, from_name, from_email, subject, body, body_html, received_at, status, converted_ticket_id)
       values
         (${workspaceId}, ${channelId}, ${extractMessageId(payload)}, ${name || null}, ${email},
-         ${payload.Subject || null}, ${body}, now(), 'converted', ${ticketId})
+         ${payload.Subject || null}, ${body}, ${payload.HtmlBody?.trim() || null}, now(), 'converted', ${ticketId})
     `;
   } catch (err) {
     // Unique violation on (channel_id, external_id) is expected on Postmark
@@ -346,7 +346,7 @@ export async function processInboundEmail(args: {
   // 3b. Audit row in the inbox view, attributed to the channel resolved
   //     above. Failures are logged but don't fail the webhook — the
   //     customer-facing ticket has already been created.
-  await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, channelId: channel?.id ?? null });
+  await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, channelId: channel?.id ?? null, body });
 
   // 4. Fire-and-forget auto-triage. We swallow errors here — they're already
   //    logged in ai_usage_log + console — because the webhook MUST return
@@ -458,7 +458,7 @@ async function attachReplyToTicket(args: {
       console.warn('[inbound-email] channel resolve failed on thread-attach:', err instanceof Error ? err.message : err);
       return null;
     });
-  await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null });
+  await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null, body });
 
   // Fire-and-forget retriage so the AI draft refreshes with the new turn.
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.

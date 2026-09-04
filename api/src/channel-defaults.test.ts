@@ -31,7 +31,7 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
   beforeEach(() => { globalThis.fetch = (async () => new Response('{}', { status: 500 })) as unknown as typeof fetch; });
   afterEach(() => { globalThis.fetch = realFetch; });
 
-  function inbound(opts: { from: string; to: string; subject: string; text: string; messageId: string; inReplyTo?: string }) {
+  function inbound(opts: { from: string; to: string; subject: string; text: string; html?: string; messageId: string; inReplyTo?: string }) {
     const headers: Array<{ Name: string; Value: string }> = [{ Name: 'Message-Id', Value: opts.messageId }];
     if (opts.inReplyTo) headers.push({ Name: 'In-Reply-To', Value: opts.inReplyTo });
     return {
@@ -40,7 +40,7 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
       FromFull: { Email: opts.from, Name: 'Cust' },
       Subject: opts.subject,
       TextBody: opts.text,
-      HtmlBody: '',
+      HtmlBody: opts.html ?? '',
       ToFull: [{ Email: opts.to }],
       Headers: headers,
     } as any;
@@ -112,6 +112,34 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
     const [inboxRow] = await sql<{ channel_id: string }[]>`
       select channel_id from inbox_messages where converted_ticket_id = ${res.ticket_id}`;
     expect(inboxRow.channel_id).toBe(ctx.chComplaints);
+  });
+
+  it('stores a blank HTML-only email as the placeholder and keeps the original HTML on the inbox row', async () => {
+    // Gmail mobile: empty TextBody, wrapper-only HtmlBody. The thread must not
+    // show the raw tag; the inbox audit row keeps the original for later.
+    const wrapper = '<div dir="auto"></div>';
+    const res = await processInboundEmail({
+      workspaceId: ctx.ws,
+      payload: inbound({ from: `blank-${RUN}@cust.test`, to: addr('complaint'), subject: 'Retiro no acreditado', text: '', html: wrapper, messageId: `<c0-${RUN}@cust.test>` }),
+    });
+    const [msg] = await sql<{ body: string }[]>`
+      select body from ticket_messages where ticket_id = ${res.ticket_id} and role = 'customer'`;
+    expect(msg.body).toBe('(empty body)');
+    const [inboxRow] = await sql<{ body: string; body_html: string | null }[]>`
+      select body, body_html from inbox_messages where converted_ticket_id = ${res.ticket_id}`;
+    expect(inboxRow.body).toBe('(empty body)');
+    expect(inboxRow.body_html).toBe(wrapper);
+  });
+
+  it('converts a real HTML-only email to readable text', async () => {
+    const html = '<html><head><style>.a{b:c}</style></head><body><div dir="auto">Hola,<br>no llegó mi retiro.</div></body></html>';
+    const res = await processInboundEmail({
+      workspaceId: ctx.ws,
+      payload: inbound({ from: `htmlonly-${RUN}@cust.test`, to: addr('complaint'), subject: 'Retiro', text: '', html, messageId: `<c0b-${RUN}@cust.test>` }),
+    });
+    const [msg] = await sql<{ body: string }[]>`
+      select body from ticket_messages where ticket_id = ${res.ticket_id} and role = 'customer'`;
+    expect(msg.body).toBe('Hola,\nno llegó mi retiro.');
   });
 
   it('matches the To: address case-insensitively', async () => {

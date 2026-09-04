@@ -1,0 +1,107 @@
+// Unit tests for htmlToText (lib/html-text.ts). Pure — no DB, no network, no env.
+
+import { describe, expect, it } from 'bun:test';
+import { htmlToText } from './lib/html-text.js';
+
+describe('htmlToText', () => {
+  it('returns empty string for a wrapper-only Gmail body', () => {
+    expect(htmlToText('<div dir="auto"></div>')).toBe('');
+    expect(htmlToText('<div dir="auto"><br></div>')).toBe('');
+    expect(htmlToText('')).toBe('');
+  });
+
+  it('turns Gmail line wrappers and <br> into line breaks', () => {
+    const html = '<div dir="auto">Hola<br>no llegó mi retiro</div><div dir="auto">Gracias</div>';
+    expect(htmlToText(html)).toBe('Hola\nno llegó mi retiro\nGracias');
+  });
+
+  it('drops <head>/<style>/<script> blocks WITH their contents', () => {
+    const html = [
+      '<html><head><title>Msg</title><style>p { color: red; } .x{margin:0}</style></head>',
+      '<body><p>Hello from Outlook</p><script>alert(1)</script><!-- tracking --></body></html>',
+    ].join('');
+    const out = htmlToText(html);
+    expect(out).toBe('Hello from Outlook');
+    expect(out).not.toContain('color');
+    expect(out).not.toContain('alert');
+    expect(out).not.toContain('Msg');
+  });
+
+  it('drops an unclosed <style> or comment to the end instead of leaking it', () => {
+    expect(htmlToText('<p>Visible</p><style>.leak { color: red }')).toBe('Visible');
+    expect(htmlToText('<p>Visible</p><!-- never closed <b>x</b>')).toBe('Visible');
+  });
+
+  it('breaks before an opening block that directly follows text (Gmail web nesting)', () => {
+    expect(htmlToText('<div dir="ltr">Hola,<div>no llegó mi retiro.</div><div>Gracias</div></div>'))
+      .toBe('Hola,\nno llegó mi retiro.\nGracias');
+    expect(htmlToText('<p>line1<div>line2</div>')).toBe('line1\nline2');
+  });
+
+  it('treats source newlines inside markup as whitespace, not line breaks', () => {
+    expect(htmlToText('<p>quisiera saber por qué mi retiro\nno se ha acreditado</p>')).toBe('quisiera saber por qué mi retiro no se ha acreditado');
+    expect(htmlToText('<p>Best,<br>\nJodi</p>')).toBe('Best,\nJodi');
+    expect(htmlToText('<table><tr><td>a</td>\n<td>b</td></tr></table>')).toBe('a b');
+  });
+
+  it('keeps link destinations', () => {
+    expect(htmlToText('Proof: <a href="https://pay.example/r/123">here</a>')).toBe('Proof: here (https://pay.example/r/123)');
+    expect(htmlToText('<a href="https://example.com/">https://example.com</a>')).toBe('https://example.com');
+    expect(htmlToText('<a href="https://example.com/x"></a>')).toBe('https://example.com/x');
+    expect(htmlToText('<a href="https://example.com/x"><b>bold</b> link</a>')).toBe('bold link (https://example.com/x)');
+    expect(htmlToText('<a href="mailto:a@b.c">a@b.c</a>')).toBe('a@b.c');
+    // Unclosed anchor keeps its URL; stray closers vanish; control chars in the input never leak.
+    expect(htmlToText('see <a href="https://example.com/x">there')).toBe('see https://example.com/x there');
+    expect(htmlToText('odd</a> text' + String.fromCharCode(1, 2, 3) + ' <a href="https://example.com/y">y</a>')).toBe('odd text y (https://example.com/y)');
+  });
+
+  it('caps oversized input instead of converting it all', () => {
+    const out = htmlToText('<p>' + 'x'.repeat(2_000_000) + '</p>');
+    expect(out.length).toBeLessThanOrEqual(1_000_000);
+    expect(out.startsWith('xxxx')).toBe(true);
+  });
+
+  it('decodes Latin-1 named entities case-sensitively', () => {
+    expect(htmlToText('por qu&eacute; a&uacute;n &Ntilde;u &Eacute;l &ntilde; &AMP; &copy;')).toBe('por qué aún Ñu Él ñ & ©');
+  });
+
+  it('stays fast on pathological input (many unmatched tags)', () => {
+    const t0 = performance.now();
+    htmlToText('<'.repeat(50_000));
+    htmlToText('<script '.repeat(20_000));
+    htmlToText('<a href="x'.repeat(20_000));
+    htmlToText('<a href="https://x.y/z">'.repeat(20_000));          // unclosed anchors (was minutes)
+    htmlToText('<a href="https://x.y/z"><b>t '.repeat(10_000));
+    htmlToText('</a>'.repeat(50_000));
+    expect(performance.now() - t0).toBeLessThan(1_000);
+  });
+
+  it('decodes named, decimal and hex entities', () => {
+    expect(htmlToText('a&nbsp;b &amp; c&#39;s &#8217;quote&#8217; &#x1F600; &lt;tag&gt;'))
+      .toBe("a b & c's ’quote’ 😀 <tag>");
+  });
+
+  it('leaves invalid or unknown entities as literal text without throwing', () => {
+    expect(htmlToText('&#xFFFFFFFF; &#0; &#55296; &bogus; &amp;lt;')).toBe('&#xFFFFFFFF; &#0; &#55296; &bogus; &lt;');
+    // Names that exist on Object.prototype must not resolve through the entity map.
+    expect(htmlToText('&constructor; &toString; &hasOwnProperty;')).toBe('&constructor; &toString; &hasOwnProperty;');
+  });
+
+  it('caps blank-line runs at one', () => {
+    const html = '<div><p>One</p></div><div><br><br></div><ul><li>a</li><li>b</li></ul><p>Two</p>';
+    expect(htmlToText(html)).toBe('One\n\na\nb\n\nTwo');
+  });
+
+  it('joins table cells with spaces and rows with newlines', () => {
+    expect(htmlToText('<table><tr><td>Amount</td><td>100</td></tr><tr><td>Status</td><td>Pending</td></tr></table>'))
+      .toBe('Amount 100\nStatus Pending');
+  });
+
+  it('passes plain text through unchanged apart from trimming', () => {
+    expect(htmlToText('  just text\nwith two lines  ')).toBe('just text\nwith two lines');
+  });
+
+  it('normalises CRLF and collapses runs of spaces/tabs', () => {
+    expect(htmlToText('a \t b\r\n\r\n\r\nc')).toBe('a b\n\nc');
+  });
+});

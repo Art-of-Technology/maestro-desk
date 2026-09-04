@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { env } from './env.js';
+import { htmlToText } from './html-text.js';
 
 // ─── Postmark inbound webhook payload ────────────────────────────────────
 //
@@ -136,14 +137,19 @@ export function parseTo(payload: PostmarkInbound): { email: string; domain: stri
 
 /**
  * Best body for the ticket message: stripped reply if present (Postmark
- * removes quoted history), else TextBody, else HTML body. HTML is left
- * as-is for v1 — proper sanitisation/conversion is a v2 concern.
+ * removes quoted history), else TextBody, else the HTML body converted to
+ * plain text. Mail clients such as Gmail mobile send an empty TextBody and
+ * a wrapper-only HTML body (`<div dir="auto"></div>`) for a blank email —
+ * the conversion turns that into '' so the placeholder applies instead of
+ * the raw tag showing in the thread. Known limit: Postmark only strips
+ * quoted history from the text part, so an HTML-only reply may still carry
+ * the quoted thread below the new text.
  */
 export function pickBody(payload: PostmarkInbound): string {
   return (
     payload.StrippedTextReply?.trim() ||
     payload.TextBody?.trim() ||
-    payload.HtmlBody?.trim() ||
+    htmlToText(payload.HtmlBody ?? '') ||
     '(empty body)'
   );
 }
