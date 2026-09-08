@@ -4,8 +4,7 @@
 > **shared spec** for erasure, data-subject export, and retention — enumerate every
 > column that holds personal data of a *player/customer* (the data subject) once, so
 > each of those features covers the same surfaces and none is missed.
-> Grounded in `db/migrations/` as of 2026-06-22; last updated 2026-09-02 (Maestro player
-> ids on `customers`). Update when a new PII column lands.
+> Grounded in `db/migrations/` as of 2026-06-22; last updated 2026-09-08 (legacy KYC retirement). Update when a new PII column lands.
 
 A "data subject" here is a **customer** (player). Agent/operator accounts are users and
 out of scope for customer erasure. The design intent (`20260520121300_gdpr.sql`): keep the
@@ -16,8 +15,9 @@ redact the personal data** and stamp `customers.erased_at`.
 
 | Table | PII column(s) | Handling on erasure | Notes |
 |---|---|---|---|
-| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `kyc_status`, `jurisdiction`, `maestro_user_id`, `maestro_member_id` | **null**; set `erased_at = now()` (also nulls `player_lookup_at`, the linker's throttle stamp, so nothing re-links an erased profile) | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `maestro_user_id` / `maestro_member_id` (20260903100000) are the player's Maestro account identifiers, written by `lib/player-identity.ts` — direct identifiers, so erased and exported like `username`. `kyc_status` is no longer surfaced anywhere in the product (removed in Phase 4) but the column still exists and still holds values, so it stays on the erasure list until the drop migration lands — erasure is idempotent, so a subject erased while it was omitted would keep that value permanently. |
+| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `jurisdiction`, `maestro_user_id`, `maestro_member_id` | **null**; set `erased_at = now()` (also nulls `player_lookup_at`, the linker's throttle stamp, so nothing re-links an erased profile) | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `maestro_user_id` / `maestro_member_id` (20260903100000) are the player's Maestro account identifiers, written by `lib/player-identity.ts` — direct identifiers, so erased and exported like `username`. `kyc_status` was retired by migration `20260908124500`; runtime compatibility still erases it on older schemas. |
 | `customer_contacts` | `value` (every email / mobile the customer holds, incl. secondaries) | **delete rows** for the customer | Phase 4 contacts model. Hard-deleted (not soft) so no address survives as PII; `customers.email`/`mobile` are a mirror of the primary row and are nulled above. A merged-away source is un-merged first (erase route), so its rows are back on it when this runs. Profile soft-delete (`DELETE /customers/:id`) soft-deletes these rows instead, freeing the address for reuse. |
+| `customer_merges` | Personal-data keys in `backfilled_fields` | **remove keys** from every journal whose source is the erased customer, scoped to its workspace | Unmerge restores copied values before erasure. Other backfills and journal rows remain as history. The KYC retirement migration also repairs journals for previously erased sources. |
 | `customer_notes` | `text` (NOT NULL) | **delete rows** for the customer | Internal agent notes *about* the data subject — removed entirely. |
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason`, `last_inbound_email` | `subject → '[erased]'`; other listed fields → null | Row kept; status/category/timestamps retained for analytics. The last inbound sender is included in the data-subject export and cleared on erasure. |
 | `ticket_messages` | `body` (NOT NULL), `author_label` | `body → '[erased]'`; `author_label → '[erased]'` only where `role = 'customer'` | Row kept (thread structure / audit). Agent/AI author labels are staff, not the data subject. |

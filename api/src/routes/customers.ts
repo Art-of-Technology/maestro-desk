@@ -433,11 +433,12 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 // not skipped. Custom-field values were a client-only flourish and are dropped
 // from the server merge.
 // kyc_status stays in this list even though Phase 4 removed KYC from the
-// product. The column still exists and still holds values, and this list drives
+// product. While the column exists it may hold values, and this list drives
 // BOTH the merge backfill and the unmerge revert — delisting it while the data
 // is live would strand a merged-away subject's value on the survivor with no way
 // to revert it, which POST /:id/erase depends on (it unmerges first precisely so
-// the survivor keeps nothing). It comes out with the drop-column migration.
+// the survivor keeps nothing). After retirement the schema probes below make
+// this entry inert; retaining compatibility permits rollback across the drop.
 //
 // performUnmerge treats any column NOT listed here as "skipped" rather than
 // "kept", so once a name does leave, stale journal rows say so in the audit
