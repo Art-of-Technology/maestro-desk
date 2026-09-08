@@ -25,12 +25,9 @@ const ERASED = '[erased]';
 
 // The customers columns this nulls — recorded verbatim in gdpr_erasures.fields_erased.
 //
-// kyc_status stays here even though Phase 4 removed KYC from the product. The
-// COLUMN still exists and every row created before that change still carries a
-// value, so it is still personal data we hold. Erasure is idempotent (it
-// short-circuits on erased_at), so a subject erased while it was omitted would
-// keep that value forever — a later re-run would not clean it up. It comes out
-// of this list in the same change that drops the column.
+// kyc_status remains a PII key for legacy merge journals and schema-compatible
+// deployments. Erasure handles its customer column only while present; the
+// retirement migration removes the column and repairs already-erased journals.
 // Exported so other writers of customer data (routes/customers.ts PATCH audit)
 // derive "which columns may have their VALUES logged" from this one list
 // instead of keeping a second copy that can drift.

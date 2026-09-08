@@ -134,13 +134,4 @@ jobs:
       - name: Tests (hermetic + DB-backed isolation suite)
         run: bun test
         env:
-          EXPECT_LEGACY_KYC: present
-
-      # This database is the disposable postgres service above. Exercise the
-      # compatibility release as the rollback image for the later migration.
-      - name: Tests after retiring the legacy KYC column
-        run: |
-          bun -e 'import postgres from "postgres"; const sql = postgres(process.env.DATABASE_URL); await sql.unsafe("alter table customers drop column kyc_status"); await sql.end();'
-          bun test
-        env:
           EXPECT_LEGACY_KYC: absent

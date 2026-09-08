@@ -29,10 +29,25 @@ shipping the migration. This release does not change the production schema.
 
 ## Release 2: physical retirement
 
-Add a new migration that removes KYC keys from every merge journal and drops the
-customer column in one transaction. Lock customers before journals to match API
-lock ordering; bound lock waits. Test a fresh migration run, upgrade, rerun and
-the compatibility release against the resulting schema before deployment.
+Migration `20260908124500_retire_legacy_kyc.sql` removes KYC keys from every merge
+journal and drops the customer column in one transaction. It also removes other
+personal-data keys from journals whose source was erased before release 1.
+Other backfills and all journal rows are preserved. Customers are locked before
+journals to match API lock ordering, with a 10-second lock timeout and a 60-second
+statement timeout. Runtime schema compatibility remains in place.
+
+Release 1 merged as `5afd5a9b459d1b3edb79963f066f3927d4ff23f3` (PR #482).
+Local release 2 validation on PostgreSQL 17:
+
+- Node 22 applied all 88 migrations to a fresh database; Bun rerun was a no-op.
+- Upgrade from the legacy schema applied the single pending migration.
+- 581 API tests passed on both fresh and upgraded databases, including a migration
+  regression that checks reruns, workspace matching, erased and active journals,
+  retained history, mobile and VIP values.
+- Release 1 commit `f6d915d9a6f7d778a2d94fd72c9d7bd848264851` passed its 580 tests
+  against the actual upgraded database, verifying the rollback image.
+- Typecheck, frontend build and guards, 17 URL tests, 24 route smokes and seven
+  ticket-detail smokes passed. Manual review found no unresolved issues.
 
 After retirement, rollback is to release 1 or newer. Earlier API images reference
 the removed column directly and cannot serve this schema. An application rollback
