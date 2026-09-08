@@ -168,6 +168,46 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(postmarkCalls).toBe(1);
   });
 
+  it('preserves accepted delivery when releasing the claim fails', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-release`, { email: `release-${RUN}@acme.test` });
+    const fn = `csat_release_test_${RUN}`;
+    // Test-only trigger, targeted at this fixture; a real SQL failure exercises
+    // the finally path without mocking away the successful send and stamp.
+    await sql.unsafe(`create function ${fn}() returns trigger language plpgsql as $$
+      begin if new.id = '${tid}' and old.csat_send_claim is not null and new.csat_send_claim is null
+        then raise exception 'test release failure' using errcode = '23514'; end if; return new; end $$;
+      create trigger ${fn} before update on tickets for each row execute function ${fn}()`);
+    try {
+      const r: any = await (await patchTicket(tid, { status_key: 'resolved' })).json();
+      expect(r.survey).toEqual({ sent: true });
+      expect(r.ticket.csat_requested_at).toBeTruthy();
+      const [row] = await sql`select csat_token, csat_send_claim from tickets where id = ${tid}`;
+      expect(row.csat_token).toBeTruthy();
+      expect(row.csat_send_claim).toBeTruthy();
+      expect(postmarkCalls).toBe(1);
+    } finally {
+      await sql.unsafe(`drop trigger ${fn} on tickets; drop function ${fn}()`);
+    }
+  });
+
+  it('does not report a confirmed survey if a newer claim replaced the sender', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-lost-claim`, { email: `lost-${RUN}@acme.test` });
+    let release!: () => void;
+    mailGate = new Promise<void>(r => { release = r; });
+    const pending = patchTicket(tid, { status_key: 'resolved' });
+    const replacement = crypto.randomUUID();
+    try {
+      for (let n = 0; n < 100 && postmarkCalls === 0; n++) await new Promise(r => setTimeout(r, 10));
+      expect(postmarkCalls).toBe(1);
+      await sql`update tickets set csat_send_claim = ${replacement} where id = ${tid}`;
+    } finally { release(); }
+    const r: any = await (await pending).json();
+    expect(r.survey).toEqual({ sent: false, reason: 'send_failed' });
+    expect(r.ticket.csat_requested_at).toBeNull();
+    const [row] = await sql`select csat_send_claim from tickets where id = ${tid}`;
+    expect(row.csat_send_claim).toBe(replacement);
+  });
+
   it('does not claim delivery for opt-outs, suppressed or missing addresses', async () => {
     for (const kind of ['no_email', 'no_consent', 'email_suppressed']) {
       const tid = await seedTicket(`AR-${RUN}-${kind}`, { email: kind === 'no_email' ? null : `${kind}-${RUN}@acme.test`, bounce: kind === 'email_suppressed' ? 'hard' : 'none' });

@@ -7,7 +7,7 @@ import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
 import { ticketListCols } from '../lib/ticket-cols.js';
-import { sendCsatSurvey, type CsatSurveyResult } from '../lib/csat-survey.js';
+import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { publishTicketChanged } from '../lib/pubby.js';
@@ -349,8 +349,8 @@ function publicSurveyResult(result: CsatSurveyResult) {
 
 async function requestSurvey(workspaceId: string, ticketId: string) {
   try { return publicSurveyResult(await sendCsatSurvey({ workspaceId, ticketId })); }
-  catch {
-    console.warn('[csat] survey request failed');
+  catch (err) {
+    console.warn('[csat] survey request failed', surveyErrorContext(err));
     return { sent: false as const, reason: 'send_failed' as const };
   }
 }
