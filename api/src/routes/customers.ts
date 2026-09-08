@@ -12,6 +12,7 @@ import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js'
 import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
+import { customerRisk } from '../lib/customer-risk.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import {
   ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
@@ -1039,13 +1040,25 @@ customers.patch('/:id', async (c) => {
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
 // returns the customer's full personal-data bundle as a downloadable JSON file.
 // ─── Profile history ────────────────────────────────────────────────────────
-// The customer profile page's counts, CSAT, topics, timeline and ticket table.
-// Member-level (the whole router is behind requireAuth) — this is the same
-// data an agent can already reach by opening the tickets, just aggregated, so
-// it needs no admin gate and writes no audit row, unlike /export.
-//
-// Both routes answer 404 identically for "no such customer" and "belongs to
-// another workspace", so they can't be used to probe for ids across tenants.
+// Member-level risk reads use the authenticated workspace and audit live AML
+// access by category. Wrong-workspace and missing customers both return 404.
+customers.get('/:id/risk', async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const workspaceId = c.get('workspaceId');
+  const risk = await customerRisk(workspaceId, customerId);
+  if (!risk) return c.json({ error: 'Customer not found' }, 404);
+  if (risk.aml.state === 'available') {
+    await writeAudit({ workspaceId, actorUserId: c.get('userId'), action: 'customer.risk_viewed',
+      targetType: 'customer', targetId: customerId, metadata: { accessed: ['aml'] } });
+  }
+  return c.json(risk);
+});
+
+// Full-history counts, CSAT, topics, timeline and ticket table. This aggregates
+// data already visible on tickets; unlike AML reads and export it needs no
+// additional audit. Missing and wrong-workspace customers both return 404.
 customers.get('/:id/summary', async (c) => {
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
