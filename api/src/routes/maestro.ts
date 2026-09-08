@@ -1,3 +1,4 @@
+import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth, maestroSignInEnabled, MAESTRO_PROVIDER_ID } from '../lib/auth.js';
@@ -14,6 +15,7 @@ import {
   workerMaestroConfigured,
   MaestroError,
   memberNotFound,
+  str,
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
@@ -301,7 +303,7 @@ maestro.get('/players', requireAuthOnly, async (c) => {
       targetId: access.playerId,
       metadata: { brand_id: brandId, lookup_key: Object.keys(key)[0], accessed: access.accessed },
     });
-    return c.json({ found: true, member });
+    return c.json({ found: true, member, backofficeUrl: playerBackofficeUrl(brandId, str(member.userId)) });
   } catch (err) {
     throw toHttp(err);
   }
