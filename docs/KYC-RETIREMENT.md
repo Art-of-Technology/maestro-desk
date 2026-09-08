@@ -8,7 +8,8 @@ two releases so the previous API image remains usable after the schema changes.
 
 Export, erasure, merge and unmerge detect the legacy field from the customer row.
 They continue handling its values while the column exists, and work without it.
-Erasing a source also removes its KYC copies from merge journals. Customer locks
+Erasing a source also removes all its personal-data copies from merge journals,
+including earlier unmerged entries, while preserving other backfills and history. Customer locks
 keep the schema observation valid until merge/erasure transactions commit.
 
 Validation on local PostgreSQL 17, 2026-09-08:

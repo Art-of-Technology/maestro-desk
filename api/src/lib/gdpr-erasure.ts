@@ -202,11 +202,12 @@ export async function eraseCustomer(args: {
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
 
-    // The merge journal also retains copied legacy values after unmerge.
+    // Every historical merge can retain copied source PII after unmerge.
+    // Keep non-personal backfills and the journal itself as merge history.
     await sql`
-      update customer_merges set backfilled_fields = backfilled_fields - 'kyc_status'
+      update customer_merges set backfilled_fields = backfilled_fields - ${[...CUSTOMER_PII_FIELDS]}::text[]
       where workspace_id = ${workspaceId} and source_customer_id = ${customerId}
-        and backfilled_fields ? 'kyc_status'
+        and backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
     `;
 
     await sql`
