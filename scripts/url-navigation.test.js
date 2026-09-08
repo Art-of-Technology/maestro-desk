@@ -14,7 +14,7 @@ globalThis.localStorage = globalThis.sessionStorage = {
 };
 const state = await import('../web/js/core/state.js');
 const TICKETS = [], CUSTOMERS = [], pushes = [], warnings = [], reads = [];
-let workspaceId, jwt, reloads, fetchTicket, platformAdmin, bootCount, whoami;
+let workspaceId, workspaceSlug, jwt, reloads, fetchTicket, platformAdmin, bootCount, whoami;
 const elements = new Map();
 globalThis.document = { getElementById: id => {
   if (!elements.has(id)) elements.set(id, { style: {}, innerHTML: '', textContent: '', addEventListener() {} });
@@ -32,6 +32,8 @@ globalThis.history = {
 };
 mock.module('../web/js/core/api-client.js', () => ({
   getWorkspaceId: () => workspaceId, getJwt: () => jwt,
+  getWorkspaceSlug: () => workspaceSlug,
+  setWorkspaceSlug: slug => { workspaceSlug = slug || null; },
   setWorkspaceId: id => { workspaceId = id; }, setBrandId() {},
   apiGet: path => { reads.push({ path, workspaceId }); return fetchTicket(); },
 }));
@@ -65,6 +67,7 @@ beforeEach(() => {
   routing.suspendUrlRouting();
   saved.clear(); TICKETS.length = CUSTOMERS.length = pushes.length = warnings.length = reads.length = 0;
   workspaceId = ws; jwt = 'test'; reloads = 0; platformAdmin = false; bootCount = 0;
+  workspaceSlug = null;
   for (const el of elements.values()) { el.style = {}; el.textContent = el.innerHTML = ''; }
   whoami = { user: { id: 'test', name: 'Test' }, memberships: [ws, otherWs].map(id => ({
     workspace_id: id, workspace_name: 'Example', role_name: 'Admin', suspended: false,
@@ -76,6 +79,70 @@ beforeEach(() => {
 });
 
 describe('URL navigation', () => {
+  it('resolves a platform administrator link through authenticated brand metadata', async () => {
+    whoami.user.is_platform_admin = true;
+    whoami.memberships = [];
+    fetchTicket = async () => ({ brands: [{ id: ws, slug: 'spacecasino', name: 'Space Casino' }] });
+    window.location.hash = '#/w/spacecasino/dashboard';
+    expect(await login.autoResumeAgent()).toBe(true);
+    expect(workspaceId).toBe(ws);
+    expect(workspaceSlug).toBe('spacecasino');
+    expect(bootCount).toBe(1);
+    expect(reads.map(r => r.path)).toEqual(['/api/v1/god/brands']);
+    expect(window.location.hash).toBe('#/w/spacecasino/dashboard');
+  });
+
+  it('restores a readable link through authenticated workspace membership', async () => {
+    workspaceId = null;
+    whoami.memberships[0].workspace_slug = 'spacecasino';
+    window.location.hash = '#/w/spacecasino/tickets/TK-55';
+    expect(await login.autoResumeAgent()).toBe(true);
+    expect(workspaceId).toBe(ws);
+    expect(state.CURRENT_TICKET).toBe('TK-55');
+    expect(reads).toEqual([{ path: '/api/v1/tickets/by-number/TK-55', workspaceId: ws }]);
+    expect(window.location.hash).toBe('#/w/spacecasino/tickets/TK-55');
+  });
+
+  it('canonicalizes old bookmarks after loading authenticated workspace metadata', async () => {
+    whoami.memberships[0].workspace_slug = 'spacecasino';
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    await login.autoResumeAgent();
+    expect(window.location.hash).toBe('#/w/spacecasino/tickets/TK-55');
+    expect(reads[0].path).toBe(`/api/v1/tickets/${ticketId}`);
+  });
+
+  it('does not read another workspace by trusting a readable slug', async () => {
+    window.location.hash = '#/w/inaccessible/tickets/TK-55';
+    await login.autoResumeAgent();
+    expect(bootCount).toBe(0);
+    expect(reads).toHaveLength(0);
+    expect(window.location.hash).toBe('');
+  });
+
+  it('reloads through authentication when a readable link changes workspace', async () => {
+    workspaceSlug = 'first';
+    window.location.hash = '#/w/second/tickets/TK-55';
+    await routing.resumeUrlRouting();
+    expect(reloads).toBe(1);
+    expect(reads).toHaveLength(0);
+  });
+
+  it('opens readable customer numbers from the workspace data', async () => {
+    workspaceSlug = 'spacecasino';
+    CUSTOMERS.push({ id: 'M25', _uuid: customerId });
+    window.location.hash = '#/w/spacecasino/customers/M25';
+    await routing.resumeUrlRouting();
+    expect(state.CUSTOMER_SELECTED).toBe('M25');
+    expect(reads).toHaveLength(0);
+    expect(window.location.hash).toBe('#/w/spacecasino/customers/M25');
+  });
+
+  it('preserves readable destinations across OAuth', () => {
+    const destination = '#/w/spacecasino/customers/M25';
+    window.location.hash = destination; routing.saveReturnRoute();
+    window.location.hash = '#maestro_session=example'; routing.restoreReturnRoute();
+    expect(window.location.hash).toBe(destination);
+  });
   it('recovers from an unauthorized link to the normal workspace picker without reading records', async () => {
     window.location.hash = `#/w/66666666-6666-4666-8666-666666666666/tickets/${ticketId}`;
     expect(await login.autoResumeAgent()).toBe(true);

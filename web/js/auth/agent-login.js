@@ -9,7 +9,7 @@
 // God reload is handled by autoResumePlatformAdmin() (see platform-admin.js).
 
 import { signIn, rehydrateUser, signOut } from '../core/auth-client.js';
-import { setWorkspaceId, getWorkspaceId, setBrandId, apiGet } from '../core/api-client.js';
+import { setWorkspaceId, getWorkspaceId, setWorkspaceSlug, setBrandId, apiGet } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
 import { enterGod } from './platform-admin.js';
@@ -62,7 +62,7 @@ export async function routeAfterAuth(me) {
   _user = me.user;
   _memberships = me.memberships || [];
 
-  if (requestedRoute()?.workspaceId) {
+  if (requestedRoute()?.workspaceId || requestedRoute()?.workspaceSlug) {
     try {
       const membership = await routeMembership(me);
       if (await enterWorkspace(membership)) return;
@@ -153,6 +153,7 @@ export async function enterWorkspaceMembership(user, m) {
 }
 
 async function bootShell(user, membership) {
+  setWorkspaceSlug(membership.workspace_slug);
   await loadWorkspaceData();
   const initials = user.initials || deriveInitials(user.name, user.email);
   const role     = membership.role_name || (membership.is_admin ? 'Admin' : 'Senior Agent');
@@ -173,16 +174,19 @@ async function bootShell(user, membership) {
 // URL workspace IDs are hints, never grants. Resolve them against authenticated
 // memberships or the existing platform-admin endpoint before loading data.
 async function routeMembership(me) {
-  const workspaceId = requestedRoute()?.workspaceId;
+  const { workspaceId, workspaceSlug } = requestedRoute() || {};
   if (me.user?.is_platform_admin) {
-    const { brand } = await apiGet(`/api/v1/god/brands/${workspaceId}`, { workspace: false });
+    const brand = workspaceSlug
+      ? (await apiGet('/api/v1/god/brands', { workspace: false })).brands.find(b => b.slug === workspaceSlug)
+      : (await apiGet(`/api/v1/god/brands/${workspaceId}`, { workspace: false })).brand;
     if (!brand || brand.suspended_at) throw new Error('This workspace is unavailable.');
     return { workspace_id: brand.id, workspace_name: brand.name, workspace_slug: brand.slug,
       workspace_logo_url: brand.logo_url, workspace_primary_color: brand.primary_color,
       maestro_brand_id: brand.maestro_brand_id, role_name: 'Platform Admin',
       can_manage_custom_fields: true, can_delete: true };
   }
-  const membership = (me.memberships || []).find(m => m.workspace_id === workspaceId && !m.suspended);
+  const membership = (me.memberships || []).find(m =>
+    (workspaceSlug ? m.workspace_slug === workspaceSlug : m.workspace_id === workspaceId) && !m.suspended);
   if (!membership) throw new Error('You do not have access to the workspace in this link.');
   return membership;
 }
@@ -224,10 +228,10 @@ function escText(s) {
 export async function autoResumeAgent() {
   const target = requestedRoute();
   const workspaceId = target?.workspaceId || getWorkspaceId();
-  if (!workspaceId) return false;
+  if (!workspaceId && !target?.workspaceSlug) return false;
   const me = await rehydrateUser();
   if (!me) return false;
-  if (target?.workspaceId) {
+  if (target?.workspaceId || target?.workspaceSlug) {
     try {
       const membership = await routeMembership(me);
       if (!await enterWorkspaceMembership(me.user, membership)) await recoverFromRoute(me);

@@ -20,7 +20,7 @@
 // All actions wire through core/event-delegation (data-action="god.X").
 
 import { nav, updateNavBadges } from '../core/router.js';
-import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId, setBrandId } from '../core/api-client.js';
+import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId, setWorkspaceSlug, setBrandId } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -424,6 +424,7 @@ async function enterBrand(brandId) {
     // this clears it.
     const entered = STATE.brands.find((b) => b.id === brandId)
       || (STATE.detail?.brand?.id === brandId ? STATE.detail.brand : null);
+    setWorkspaceSlug(entered?.slug);
     setBrandId(entered?.maestro_brand_id || null);
     await loadWorkspaceData();
     if (typeof updateNavBadges === 'function') updateNavBadges();

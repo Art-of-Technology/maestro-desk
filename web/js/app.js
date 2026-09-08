@@ -4,6 +4,7 @@
 // moved to core/router.js — imported below and re-exposed on the bridge.
 import { DASH_LAYOUT, REPORT_LAYOUT, SESSION, setDashLayout, setReportLayout, setSession } from './core/state.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
+import { setWorkspaceSlug } from './core/api-client.js';
 import { refreshAllSLA } from './tickets/sla.js';
 import { registerActions } from './core/event-delegation.js';
 import './core/dismiss.js';
@@ -95,6 +96,7 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
 // flow after window.login; demo personas keep the platform-default
 // copy because they never carry workspace metadata.
 function applyWorkspaceBrand(brand) {
+  setWorkspaceSlug(brand?.slug);
   if (!brand) return;
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');

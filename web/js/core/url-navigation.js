@@ -1,5 +1,5 @@
 import { parseRoute, formatRoute } from './route-location.js';
-import { getWorkspaceId, getJwt, apiGet } from './api-client.js';
+import { getWorkspaceId, getWorkspaceSlug, getJwt, apiGet } from './api-client.js';
 import { CUSTOMERS, TICKETS } from './data.js';
 import { CURRENT_PAGE, CUSTOMER_SELECTED, CURRENT_TICKET, SESSION, setCustomerSelected } from './state.js';
 import { showToast } from './toast.js';
@@ -43,11 +43,12 @@ export function suspendUrlRouting() {
 
 function screenRoute(page = CURRENT_PAGE, ticketId = CURRENT_TICKET) {
   const workspaceId = page === 'god' ? null : getWorkspaceId();
+  const workspaceSlug = workspaceId ? getWorkspaceSlug() : null;
   const record = page === 'tickets' && ticketId
     ? TICKETS.find(t => t.id === ticketId)
     : page === 'customers' && CUSTOMER_SELECTED
       ? CUSTOMERS.find(c => c.id === CUSTOMER_SELECTED) : null;
-  return { workspaceId, page, entityId: record ? (workspaceId ? record._uuid : record.id) : null };
+  return { workspaceId, workspaceSlug, page, entityId: record ? (workspaceId && !workspaceSlug ? record._uuid : record.id) : null };
 }
 
 function screenHash(page, ticketId) {
@@ -91,7 +92,8 @@ async function applyUrlRoute() {
   const invalidLink = !route && window.location.hash.startsWith('#/');
   const workspaceId = getWorkspaceId();
   const jwt = getJwt();
-  if (route?.workspaceId && route.workspaceId !== workspaceId && jwt) {
+  if (jwt && ((route?.workspaceId && route.workspaceId !== workspaceId)
+    || (route?.workspaceSlug && route.workspaceSlug !== getWorkspaceSlug()))) {
     // Reload through the normal authenticated bootstrap so membership, roles,
     // brand identity and all cached workspace data change together.
     window.location.reload();
@@ -108,14 +110,16 @@ async function applyUrlRoute() {
     if (page === 'god' && !isPlatformAdmin()) throw new Error('You do not have access to this page.');
     if (route?.entityId) {
       const records = page === 'tickets' ? TICKETS : CUSTOMERS;
-      entity = records.find(r => (workspaceId ? r._uuid : r.id) === route.entityId);
-      if (!entity && page === 'tickets' && workspaceId && route.workspaceId) {
-        const res = await apiGet(`/api/v1/tickets/${route.entityId}`);
+      const readable = Boolean(route.workspaceSlug);
+      entity = records.find(r => (workspaceId && !readable ? r._uuid : r.id) === route.entityId);
+      if (!entity && page === 'tickets' && workspaceId && (route.workspaceId || readable)) {
+        const path = readable ? `by-number/${encodeURIComponent(route.entityId)}` : route.entityId;
+        const res = await apiGet(`/api/v1/tickets/${path}`);
         if (!current()) return;
         const { updateOrInsertTicket } = await import('./bootstrap.js');
         if (!current()) return;
         updateOrInsertTicket(res.ticket);
-        entity = TICKETS.find(t => t._uuid === route.entityId);
+        entity = TICKETS.find(t => t._uuid === res.ticket.id);
       }
       if (!entity) throw new Error('This record is unavailable in this workspace.');
     }
