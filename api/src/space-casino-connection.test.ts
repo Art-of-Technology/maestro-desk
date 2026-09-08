@@ -9,16 +9,23 @@ const migration = readFileSync(new URL('../../db/migrations/20260908092000_conne
 
 runDbTests('Space Casino connection migration', () => {
   it('does nothing in environments without the production workspace', async () => {
-    await getDb().unsafe(migration);
-    const rows = await getDb()`select id from workspaces where id = ${workspaceId}`;
-    expect(rows).toHaveLength(0);
+    const rollback = new Error('rollback test fixture');
+    try {
+      await getDb().begin(async tx => {
+        expect(await tx`select id from workspaces where id = ${workspaceId}`).toHaveLength(0);
+        await tx.unsafe(migration);
+        expect(await tx`select id from workspaces where id = ${workspaceId}`).toHaveLength(0);
+        throw rollback;
+      });
+    } catch (err) { if (err !== rollback) throw err; }
   });
 
-  it('connects the existing workspace once, preserves customers, and audits once', async () => {
+  it('connects once despite a deleted duplicate, preserves customers, and produces a valid audit chain', async () => {
     const rollback = new Error('rollback test fixture');
     try {
       await getDb().begin(async tx => {
         await tx`insert into workspaces(id,name,slug) values (${workspaceId}, 'Space Casino', 'spacecasino')`;
+        await tx`insert into workspaces(name,slug,maestro_brand_id,deleted_at) values ('Deleted duplicate','space-deleted-duplicate',${brandId},now())`;
         const [customer] = await tx`insert into customers(workspace_id,display_id) values (${workspaceId},'M25') returning id`;
         await tx.unsafe(migration);
         await tx.unsafe(migration);
@@ -28,6 +35,8 @@ runDbTests('Space Casino connection migration', () => {
         expect(saved.workspace_id).toBe(workspaceId);
         const audits = await tx`select action from audit_events where workspace_id = ${workspaceId}`;
         expect(audits.map(a => a.action)).toEqual(['brand.maestro_connected']);
+        const [chain] = await tx`select ok from audit_events_verify(${workspaceId})`;
+        expect(chain.ok).toBe(true);
         throw rollback;
       });
     } catch (err) { if (err !== rollback) throw err; }
