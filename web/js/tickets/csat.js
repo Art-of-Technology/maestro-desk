@@ -26,7 +26,8 @@ import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from './detail.js';
-import { apiPatch } from '../core/api-client.js';
+import { apiPatch, apiPost } from '../core/api-client.js';
+import { showToast } from '../core/toast.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 function csatStarString(n) {
@@ -70,13 +71,36 @@ export function ticketCSATBlock(t) {
   return '';
 }
 
+export function notifySurveyResult(survey) {
+  if (survey.sent) { showToast('Satisfaction survey sent.'); return; }
+  const messages = {
+    already_requested: 'A survey has already been sent.',
+    already_rated: 'This ticket already has a survey response.',
+    in_progress: 'A survey is being sent. Check again shortly.',
+    no_email: 'Survey not sent: the customer has no usable email address.',
+    no_consent: 'Survey not sent: the customer has opted out.',
+    email_suppressed: 'Survey not sent: delivery to this address is blocked.',
+    postmark_not_configured: 'Survey not sent: outgoing email is not configured.',
+  };
+  showToast(messages[survey.reason] || 'Survey not sent. Try again from the ticket details.');
+}
+
+const sendingSurveys = new Set();
 async function requestCSAT(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
   const stamp = new Date().toISOString().slice(0, 10);
   if (t._uuid) {
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { csat_requested_at: stamp }); }
-    catch (err) { alert(`Couldn't send survey: ${err?.message || err}`); return; }
+    if (sendingSurveys.has(t._uuid)) return;
+    sendingSurveys.add(t._uuid);
+    try {
+      const res = await apiPost(`/api/v1/tickets/${t._uuid}/csat`, {});
+      t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
+      notifySurveyResult(res.survey);
+      if (CURRENT_TICKET === id) openTicket(id);
+    } catch (err) { alert(`Couldn't send survey: ${err?.message || err}`); }
+    finally { sendingSurveys.delete(t._uuid); }
+    return;
   }
   t.csatRequestedAt = stamp;
   logTicketEvent(id, 'system', 'CSAT survey sent to customer');
@@ -159,7 +183,6 @@ async function submitCSAT(id, score, comment) {
         csat_stars:        clamped,
         csat_comment:      comment || null,
         csat_submitted_at: submittedAt,
-        csat_requested_at: requestedAt,
       });
     } catch (err) { alert(`Couldn't submit CSAT: ${err?.message || err}`); return; }
   }

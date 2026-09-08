@@ -64,7 +64,7 @@ import {
   refreshTicketKbSuggestions,
 } from '../kb-integration/index.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
-import { ticketCSATBlock } from './csat.js';
+import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { navTo } from '../core/keybindings.js';
@@ -833,16 +833,16 @@ export function insertMacro(ticketId, idx) {
 export async function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
-  // Side-effect: resolving an un-surveyed ticket auto-requests CSAT. Bundle
-  // both fields into a single PATCH so the row stays consistent if the
-  // status update succeeds but a follow-up call would fail.
-  const stampCsat = val === 'resolved' && !t.csatRequestedAt && !t.csat
+  // Demo state is local; live survey timestamps belong to the mailer.
+  const stampCsat = !t._uuid && val === 'resolved' && !t.csatRequestedAt && !t.csat
     ? new Date().toISOString().slice(0, 10)
     : null;
   if (t._uuid) {
-    const patch = { status_key: val };
-    if (stampCsat) patch.csat_requested_at = stampCsat;
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, patch); }
+    try {
+      const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_key: val });
+      t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
+      if (res.survey) notifySurveyResult(res.survey);
+    }
     catch (err) { alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
