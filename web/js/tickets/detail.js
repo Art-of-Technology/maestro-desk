@@ -1,3 +1,4 @@
+import { copyButton } from '../core/copy.js';
 // ─── Ticket Detail ────────────────────────────────────────────────────────────
 // The per-ticket detail view: header banners (snooze / merged), full sidebar
 // (timing, SLA gauge, custom fields, mentions, attachments, linked tickets,
@@ -487,7 +488,7 @@ export function openTicket(id) {
         <div class="tb-breadcrumb">
           <button class="ticket-back" data-action="td.openTicketsList">Tickets</button>
           <span class="tb-sep">/</span>
-          <span style="color:var(--ink);font-weight:500">${t.id}</span>
+          <span style="color:var(--ink);font-weight:500">${window.escHtml(t.id)}</span>${copyButton(t.id, 'ticket number')}
           <span class="ticket-header-actions">
             <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this ticket"></div>
             <button class="btn btn-sm" data-action="td.prev" aria-label="Previous ticket">← Prev</button>

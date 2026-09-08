@@ -1,3 +1,4 @@
+import { copyButton } from '../core/copy.js';
 // ─── Customers ────────────────────────────────────────────────────────────────
 // Customers list page (topbar overflow menu, column manager, bulk actions,
 // one filter bar with a "More filters" disclosure, view chips, CSV export) and
@@ -54,7 +55,7 @@ function getCustColumns() {
 }
 
 function custCellValue(c, colId) {
-  if(colId==='id') return `<td class="bold">${c.id}</td>`;
+  if(colId==='id') return `<td class="bold">${window.escHtml(c.id)}${copyButton(c.id, 'customer ID')}</td>`;
   if(colId==='name') return `<td style="font-weight:500;color:var(--ink)">${window.escHtml(c.first)} ${window.escHtml(c.last)}</td>`;
   if(colId==='username') return `<td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(c.username)}</td>`;
   if(colId==='brand') return `<td>${window.escHtml(c.brand)}</td>`;
@@ -180,7 +181,7 @@ function applyCustFilters() {
   if (CUST_QUERY.trim()) {
     const q = CUST_QUERY.toLowerCase();
     // Every address (primary + secondaries, email + mobile) is searchable.
-    list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+c.brand).toLowerCase().includes(q) || matchesContact(c, q));
+    list = list.filter(c => (c.first+' '+c.last+' '+c.username+' '+c.id+' '+(c.maestroUserId || '')+' '+(c.memberId || '')+' '+c.brand).toLowerCase().includes(q) || matchesContact(c, q));
   }
   if (CUST_VIP_FILTER !== 'all')   list = list.filter(c => c.vip === CUST_VIP_FILTER);
   if (CUST_BRAND_FILTER !== 'all') list = list.filter(c => c.brand === CUST_BRAND_FILTER);
@@ -276,7 +277,7 @@ function bulkDeleteCustomers() {
 
 function exportCustomerList() {
   const list = applyCustFilters();
-  const headers = ['ID','First','Last','Username','Maestro user ID','Member ID','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
+  const headers = ['ID','First','Last','Username','Member ID','Global ID','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
   const rows = list.map(c => [c.id, c.first, c.last, c.username, c.maestroUserId, c.memberId, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.since]);
   const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
@@ -745,7 +746,9 @@ async function mergeCustomers(srcId, primaryId) {
       mergedFromCustomerId: n.merged_from_customer_id ? (custByUuid[n.merged_from_customer_id]?.id) : undefined,
     }));
     src.notes = [];
-    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[MERGE_COL_MAP[col] || col] = val; });
+    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => {
+      primary[MERGE_COL_MAP[col] || col] = col === 'maestro_member_id' ? (src.memberId || '') : val;
+    });
     applyContacts(primary, res.primary);
     applyContacts(src, res.source);
     src.mergedInto = primaryId;
@@ -917,7 +920,7 @@ function renderCustomerDetail(custId) {
 
   const ticketRows = s.tickets.map(t => `
     <tr data-action="cust.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
-      <td class="bold">${t.id}</td>
+      <td class="bold">${window.escHtml(t.id)}${copyButton(t.id, 'ticket number')}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}</td>
       <td><span class="tag tag-${t.status}">${t.status}</span></td>
       <td><span class="tag tag-${t.priority}">${t.priority}</span></td>

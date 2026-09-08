@@ -191,6 +191,28 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(audit).toBeDefined();
   });
 
+  it('carries Global ID verification with a merge and clears it on unmerge and erasure', async () => {
+    const source = await mkCustomer('global-src', { maestro_member_id: 'verified-global' });
+    const primary = await mkCustomer('global-pri');
+    await sql`update customers set maestro_global_id_verified = true where id = ${source}`;
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/merge`, {
+      method: 'POST', body: JSON.stringify({ into_id: primary }),
+    })).status).toBe(200);
+    const [merged] = await sql`select maestro_member_id, maestro_global_id_verified from customers where id = ${primary}`;
+    expect(merged.maestro_member_id).toBe('verified-global');
+    expect(merged.maestro_global_id_verified).toBe(true);
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/unmerge`, { method: 'POST' })).status).toBe(200);
+    const [unmerged] = await sql`select maestro_member_id, maestro_global_id_verified from customers where id = ${primary}`;
+    expect(unmerged.maestro_member_id).toBeNull();
+    expect(unmerged.maestro_global_id_verified).toBe(false);
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/erase`, {
+      method: 'POST', body: JSON.stringify({ reason: 'Test erasure' }),
+    })).status).toBe(200);
+    const [erased] = await sql`select maestro_member_id, maestro_global_id_verified from customers where id = ${source}`;
+    expect(erased.maestro_member_id).toBeNull();
+    expect(erased.maestro_global_id_verified).toBe(false);
+  });
+
   it('validation matrix: 400 self, 409 already-merged / chain-primary / erased, 404 missing, 403 without can_delete, deletes blocked on survivor', async () => {
     const other = await mkCustomer('other');
     expect((await as(admin.token, ctx.ws, `/api/v1/customers/${other}/merge`, { method: 'POST', body: JSON.stringify({ into_id: other }) })).status).toBe(400);

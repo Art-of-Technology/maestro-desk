@@ -1,5 +1,5 @@
 import { CUSTOMERS } from '../core/data.js';
-import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiPost, getJwt, getWorkspaceId, getBrandId } from '../core/api-client.js';
 import { applyCustomerRow } from '../core/bootstrap.js';
 
 // Per-object cache: switching workspace or reloading the customer collection
@@ -9,7 +9,9 @@ const RETRY_MS = 60_000;
 
 export async function refreshCustomerAccount(customer, onUpdated, onError) {
   if (!customer._uuid || customer.erased || customer.mergedInto || customer._mergedIntoUuid) return;
-  if (customer.maestroUserId && ['username', 'brand', 'mobile', 'vip', 'jurisdiction'].every(k => String(customer[k] ?? '').trim())) return;
+  const needsBackoffice = getBrandId() === '58d5016a-91bb-49e6-a9be-b3f36f08afde'
+    && /^\d+$/.test(customer.maestroUserId || '') && !String(customer.bo || '').trim();
+  if (customer.maestroUserId && !needsBackoffice && ['username', 'brand', 'mobile', 'vip', 'jurisdiction'].every(k => String(customer[k] ?? '').trim())) return;
   const token = getJwt();
   const workspace = getWorkspaceId();
   if (!token || !workspace) return;

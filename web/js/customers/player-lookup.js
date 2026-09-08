@@ -6,7 +6,7 @@
 // a ticket to email from).
 //
 // The platform endpoint is lookup-by-ONE-exact-key (email/username, numeric
-// member id, or Maestro user id) returning a single member — NOT a partial-name
+// member id) returning a single member — NOT a partial-name
 // browse/search. So the UI is "pick a key type, enter the value, see that one
 // player (or 'not found')", not a results list.
 //
@@ -21,6 +21,7 @@
 // calls resetPlayerLookup() on nav away from customers. escHtml/escAttr come
 // from the window bridge, as elsewhere.
 
+import { copyButton } from '../core/copy.js';
 import { apiGet, apiPost, getBrandId } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
 import { setCustomerSelected } from '../core/state.js';
@@ -39,7 +40,7 @@ let PLAYER = null;                // normalized member when state==='done'
 let LOOKUP_ERROR = null;          // user-facing error string
 let STARTING = false;             // start-a-conversation in flight
 
-const KEY_LABELS = { email: 'Email or username', memberId: 'Member ID', maestroUserId: 'Maestro user ID' };
+const KEY_LABELS = { email: 'Email or username', memberId: 'Member ID', maestroUserId: 'Global ID' };
 
 export function playerLookupActive() { return LOOKUP_OPEN; }
 
@@ -65,7 +66,17 @@ async function runLookup() {
   PLAYER = null;
   renderPage('customers');
   try {
-    const res = await apiGet(`/api/v1/maestro/players?${LOOKUP_BY}=${encodeURIComponent(value)}`, { brand: true });
+    // The gateway's maestroUserId key is not the backoffice Global ID.
+    // Resolve imported Global IDs within the current workspace, then use Member ID.
+    const local = LOOKUP_BY === 'maestroUserId'
+      ? CUSTOMERS.find(c => !c.erased && !c.mergedInto && !c._mergedIntoUuid && c.memberId === value && c.maestroUserId)
+      : null;
+    if (LOOKUP_BY === 'maestroUserId' && !local) {
+      throw new Error('This Global ID is not saved here. Search by email or Member ID.');
+    }
+    const key = local ? 'memberId' : LOOKUP_BY;
+    const queryValue = local ? local.maestroUserId : value;
+    const res = await apiGet(`/api/v1/maestro/players?${key}=${encodeURIComponent(queryValue)}`, { brand: true });
     PLAYER = normalizePlayer(res.member || {});
     LOOKUP_STATE = 'done';
   } catch (err) {
@@ -89,10 +100,10 @@ function normalizePlayer(m) {
   const name = `${first} ${last}`.trim() || username || email || '(unnamed player)';
   return {
     // Header chip: whichever id the gateway gave. The two rows below keep them
-    // distinct — userId is the GLOBAL Maestro id, memberId the per-brand number.
+    // distinct. The live gateway returns the brand Member ID as userId.
     id: m.userId ?? m.memberId ?? m.id ?? '',
     userId: m.userId ?? '',
-    memberId: m.memberId ?? '',
+    memberId: '', // Global ID is absent from the gateway contract.
     name, first, last, username, email,
     mobile: m.mobile ?? '',
     vip: m.vipLevel ?? '',
@@ -170,7 +181,7 @@ function renderPlayerLookup() {
   } else if (LOOKUP_STATE === 'done' && PLAYER) {
     result = renderPlayerCard(PLAYER);
   } else {
-    result = `<div style="color:var(--ink3);font-size:13px;text-align:center;padding:28px 0">Enter a player's exact email/username, member ID, or Maestro ID to pull their live record.</div>`;
+    result = `<div style="color:var(--ink3);font-size:13px;text-align:center;padding:28px 0">Enter a player's exact email/username, Member ID, or Global ID to pull their live record.</div>`;
   }
 
   const opt = (v) => `<option value="${v}" ${LOOKUP_BY === v ? 'selected' : ''}>${KEY_LABELS[v]}</option>`;
@@ -221,8 +232,10 @@ function renderPlayerCard(p) {
     ['Date of birth', p.dob],
     ['Sex', p.sex],
     ['City', p.city],
-    ['Maestro user ID', p.userId],
-    ['Member ID', p.memberId],
+    ['Member ID', p.userId],
+    ['Global ID', local?.memberId],
+    ['Customer since', local?.since],
+    ['Backoffice link', local?.bo],
   ].filter(([, v]) => v !== '' && v != null);
 
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
@@ -284,12 +297,12 @@ function renderPlayerCard(p) {
         </div>`}
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">Profile</div>
-      ${rows.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${window.escHtml(v)}</span></div>`).join('')}
+      ${rows.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${window.escHtml(v)}${copyButton(v, k)}</span></div>`).join('')}
     </div>
     ${extra.length ? `
       <div class="card">
         <div class="card-title">Additional fields</div>
-        ${extra.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${window.escHtml(v)}</span></div>`).join('')}
+        ${extra.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${window.escHtml(v)}${copyButton(v, k)}</span></div>`).join('')}
       </div>` : ''}`;
 }
 

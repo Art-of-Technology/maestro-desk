@@ -1,3 +1,4 @@
+import { copyButton } from '../core/copy.js';
 // ─── Customer details card — pinned, editable ────────────────────────────────
 // The profile's first block (Phase 4, PR 6): identity strip + every profile
 // field + all email / mobile addresses, sticky at the top of .page-scroll so
@@ -123,7 +124,7 @@ function renderAddressRow(c, kind, locked) {
         <button type="button" class="cust-addr-ctl" data-action="cust.setPrimaryContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Make primary" aria-label="Make ${attr(x.value)} the primary ${noun}">☆</button>
         <button type="button" class="cust-addr-ctl" data-action="cust.removeContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Remove" aria-label="Remove ${attr(x.value)}">×</button>` : '';
     return `<span class="cust-addr-pill${x.is_primary ? ' is-primary' : ''}">
-        <span class="cust-addr-val">${esc(x.value)}</span>
+        <span class="cust-addr-val">${esc(x.value)}</span>${copyButton(x.value, noun)}
         ${x.is_primary ? '<span class="cust-addr-primary">PRIMARY</span>' : ''}
         ${kind === 'email' ? bounceBadge(x, c) : ''}${controls}
       </span>`;
@@ -138,7 +139,7 @@ function renderAddressRow(c, kind, locked) {
 // (the address rows below show every address) and revealed while the card is
 // stuck and the body is hidden, so the one-line state still carries them.
 function identityMeta(c) {
-  const parts = [mono(c.id)];
+  const parts = [mono(c.id) + copyButton(c.id, 'customer ID')];
   if (c.vip) parts.push(`<span class="vip-badge vip-${attr((c.vip || '').toLowerCase())}">${esc(c.vip)}</span>`);
   if (c.brand) parts.push(`<span>${esc(c.brand)}</span>`);
   if (c.jurisdiction) parts.push(mono(c.jurisdiction));
@@ -158,7 +159,7 @@ export function renderDetailsCard(c) {
 
   const fields = getLayoutFields('customer')
     .filter((f) => !f.headerOwned && isFieldVisible('customer', f.key) && Object.hasOwn(ROW_RENDERERS, f.key))
-    .map((f) => `<div class="cust-pin-f"><div class="cust-pin-k">${esc(f.label)}</div><div class="cust-pin-v">${ROW_RENDERERS[f.key](c)}</div></div>`)
+    .map((f) => `<div class="cust-pin-f"><div class="cust-pin-k">${esc(f.label)}</div><div class="cust-pin-v">${ROW_RENDERERS[f.key](c)}${copyButton(f.key === 'consent' ? (c.consent ? 'Yes' : 'No') : c[vmKey(f.key)], f.label)}</div></div>`)
     .join('\n        ');
   const addressRows = ['email', 'mobile']
     .filter((k) => isFieldVisible('customer', k))
@@ -171,7 +172,7 @@ export function renderDetailsCard(c) {
           <div class="cust-pin-ident">
             <div class="cust-pin-avatar">${esc(initials)}</div>
             <div style="flex:1;min-width:0">
-              <div class="cust-pin-name">${esc(c.first)} ${esc(c.last)}</div>
+              <div class="cust-pin-name">${esc(c.first)} ${esc(c.last)}${copyButton([c.first, c.last].filter(Boolean).join(' '), 'customer name')}</div>
               <div class="cust-pin-meta">${identityMeta(c)}</div>
             </div>
             <div class="cust-pin-actions">${editBtn}</div>

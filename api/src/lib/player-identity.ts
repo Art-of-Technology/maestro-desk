@@ -3,8 +3,8 @@
 // Contacts created from inbound email / the portal are stubs (name + email).
 // This module asks the Maestro gateway for the player behind the address that
 // wrote in and, on an exact match, stores the player's stable ids on the
-// customers row (maestro_user_id = the global Maestro id, maestro_member_id =
-// the per-brand member number) and fills username / VIP / country / brand / mobile
+// customers row (legacy database column names are retained) and fills
+// username / VIP / country / brand / mobile
 // where the contact has none — an agent's value is never overwritten, and a
 // contact that already has a maestro_user_id is never re-pointed.
 //
@@ -20,6 +20,7 @@
 // unchanged).
 
 import type postgres from 'postgres';
+import { playerBackofficeUrl } from './player-backoffice.js';
 import { getDb } from './db.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str } from './maestro.js';
 import { maestroBrandIdForWorkspace } from './maestro-workspace.js';
@@ -86,7 +87,8 @@ export async function applyPlayerToCustomer(
   return sql.begin(async (tx) => {
     const [current] = await tx<Record<string, unknown>[]>`
       select c.maestro_user_id, c.maestro_member_id, c.username, c.vip_tier,
-             c.jurisdiction, c.brand, c.email, c.mobile, w.name as workspace_name
+             c.jurisdiction, c.brand, c.email, c.mobile, c.backoffice_url,
+             w.name as workspace_name, w.maestro_brand_id as workspace_brand_id
       from customers c join workspaces w on w.id = c.workspace_id
       where c.id = ${args.customerId} and c.workspace_id = ${args.workspaceId}
         and c.erased_at is null and c.deleted_at is null and c.merged_into_customer_id is null
@@ -97,7 +99,8 @@ export async function applyPlayerToCustomer(
     if (!current) return false;
     const fields = {
       maestro_user_id: userId,
-      maestro_member_id: str(m.memberId),
+      // Global ID is imported separately; the gateway does not expose it.
+      backoffice_url: playerBackofficeUrl(str(current.workspace_brand_id), userId),
       ...playerProfileFields(m, str(current.workspace_name)),
     };
     const updates: Record<string, string> = {};
@@ -200,6 +203,7 @@ interface CustomerRow {
   jurisdiction: string | null;
   brand: string | null;
   mobile: string | null;
+  backoffice_url: string | null;
 }
 
 async function link(args: LinkArgs): Promise<LinkOutcome> {
@@ -208,18 +212,20 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
 
   const [c] = await sql<CustomerRow[]>`
     select email, maestro_user_id, player_lookup_at, erased_at, merged_into_customer_id,
-           username, vip_tier, jurisdiction, brand, mobile
+           username, vip_tier, jurisdiction, brand, mobile, backoffice_url
     from customers
     where id = ${args.customerId} and workspace_id = ${args.workspaceId} and deleted_at is null
   `;
   if (!c || c.erased_at || c.merged_into_customer_id) return 'skipped';
-  if (c.maestro_user_id && [c.username, c.vip_tier, c.jurisdiction, c.brand, c.mobile].every(str)) return 'skipped';
+
   const email = str(args.email) ?? c.email;
   if (!c.maestro_user_id && !email) return 'skipped';
   if (c.player_lookup_at && Date.now() - new Date(c.player_lookup_at).getTime() < LOOKUP_TTL_MS) return 'skipped';
 
   const brandId = await maestroBrandIdForWorkspace(args.workspaceId);
   if (!brandId) return 'no_brand';
+  const missingBackoffice = !str(c.backoffice_url) && playerBackofficeUrl(brandId, c.maestro_user_id);
+  if (c.maestro_user_id && !missingBackoffice && [c.username, c.vip_tier, c.jurisdiction, c.brand, c.mobile].every(str)) return 'skipped';
 
   // Lookup is by ONE exact key. Not-found is a 200 envelope (memberNotFound);
   // a 404 from the gateway is treated the same way. A deterministic per-contact
@@ -235,7 +241,9 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   try {
     const res = await workerFetch<Member>('/api/v1/proxy/member/lookup', {
       brandId,
-      query: c.maestro_user_id ? { maestroUserId: c.maestro_user_id } : { email },
+      // The gateway response userId is the brand Member ID (e.g. 50119).
+      // maestroUserId is a different lookup key; it does not resolve this ID.
+      query: c.maestro_user_id ? { memberId: c.maestro_user_id } : { email },
     });
     member = memberNotFound(res) ? null : res;
   } catch (err) {
