@@ -191,7 +191,7 @@ export async function eraseCustomer(args: {
       update customers set
         first_name = null, last_name = null, username = null, email = null,
         mobile = null, backoffice_url = null, kyc_status = null, jurisdiction = null,
-        maestro_user_id = null, maestro_member_id = null, player_lookup_at = null,
+        maestro_user_id = null, maestro_member_id = null, maestro_global_id_verified = false, player_lookup_at = null,
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;

@@ -746,7 +746,9 @@ async function mergeCustomers(srcId, primaryId) {
       mergedFromCustomerId: n.merged_from_customer_id ? (custByUuid[n.merged_from_customer_id]?.id) : undefined,
     }));
     src.notes = [];
-    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => { primary[MERGE_COL_MAP[col] || col] = val; });
+    Object.entries(res.backfilled_fields || {}).forEach(([col, val]) => {
+      primary[MERGE_COL_MAP[col] || col] = col === 'maestro_member_id' ? (src.memberId || '') : val;
+    });
     applyContacts(primary, res.primary);
     applyContacts(src, res.source);
     src.mergedInto = primaryId;

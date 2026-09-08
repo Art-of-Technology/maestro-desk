@@ -28,7 +28,7 @@ const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
 // as a YYYY-MM-DD calendar value rather than a midnight-UTC timestamp.
 const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
            jurisdiction, consent, since, backoffice_url, erased_at, created_at,
-           maestro_user_id, maestro_member_id,
+           maestro_user_id, maestro_member_id, maestro_global_id_verified,
            merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count`;
 
@@ -474,11 +474,11 @@ customers.post('/:id/merge', async (c) => {
     const rows = await tx<{ id: string; display_id: string; first_name: string | null; last_name: string | null; email: string | null;
       mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null;
       kyc_status: string | null; since: string | null; backoffice_url: string | null;
-      maestro_user_id: string | null; maestro_member_id: string | null;
+      maestro_user_id: string | null; maestro_member_id: string | null; maestro_global_id_verified: boolean;
       merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
              jurisdiction, kyc_status, since, backoffice_url,
-             maestro_user_id, maestro_member_id, merged_into_customer_id, erased_at
+             maestro_user_id, maestro_member_id, maestro_global_id_verified, merged_into_customer_id, erased_at
       from customers
       where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
       order by id
@@ -573,12 +573,14 @@ customers.post('/:id/merge', async (c) => {
     // what was copied.
     const backfilled: Record<string, string> = {};
     for (const col of BACKFILL_COLS) {
-      const srcVal = (source as Record<string, string | null>)[col];
-      const priVal = (primary as Record<string, string | null>)[col];
+      const srcVal = source[col];
+      const priVal = primary[col];
       if (srcVal && !priVal) backfilled[col] = srcVal;
     }
     if (Object.keys(backfilled).length) {
-      await tx`update customers set ${tx(backfilled)} where id = ${primaryId} and workspace_id = ${workspaceId}`;
+      await tx`update customers set ${tx(backfilled)},
+        maestro_global_id_verified = ${backfilled.maestro_member_id ? source.maestro_global_id_verified : primary.maestro_global_id_verified}
+        where id = ${primaryId} and workspace_id = ${workspaceId}`;
     }
     audit.backfilled = Object.keys(backfilled);
 
@@ -734,7 +736,8 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
       if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
       // Reverting the Maestro link also clears the lookup stamp, so the
       // survivor is re-probed on its next email instead of waiting out the TTL.
-      const revert = col === 'maestro_user_id' ? { [col]: null, player_lookup_at: null } : { [col]: null };
+      const revert = col === 'maestro_user_id' ? { [col]: null, player_lookup_at: null }
+        : col === 'maestro_member_id' ? { [col]: null, maestro_global_id_verified: false } : { [col]: null };
       const res = await tx`
         update customers set ${tx(revert)}
         where id = ${primaryId} and workspace_id = ${workspaceId} and ${tx(col)} = ${copied}
