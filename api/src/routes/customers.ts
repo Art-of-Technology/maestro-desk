@@ -1040,13 +1040,8 @@ customers.patch('/:id', async (c) => {
 // GET /:id/export — GDPR right-of-access / portability (Art. 15 / 20). Admin-only;
 // returns the customer's full personal-data bundle as a downloadable JSON file.
 // ─── Profile history ────────────────────────────────────────────────────────
-// The customer profile page's counts, CSAT, topics, timeline and ticket table.
-// Member-level (the whole router is behind requireAuth) — this is the same
-// data an agent can already reach by opening the tickets, just aggregated, so
-// it needs no admin gate and writes no audit row, unlike /export.
-//
-// Both routes answer 404 identically for "no such customer" and "belongs to
-// another workspace", so they can't be used to probe for ids across tenants.
+// Member-level risk reads use the authenticated workspace and audit live AML
+// access by category. Wrong-workspace and missing customers both return 404.
 customers.get('/:id/risk', async (c) => {
   c.header('Cache-Control', 'no-store');
   const customerId = c.req.param('id');
@@ -1061,6 +1056,9 @@ customers.get('/:id/risk', async (c) => {
   return c.json(risk);
 });
 
+// Full-history counts, CSAT, topics, timeline and ticket table. This aggregates
+// data already visible on tickets; unlike AML reads and export it needs no
+// additional audit. Missing and wrong-workspace customers both return 404.
 customers.get('/:id/summary', async (c) => {
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');

@@ -1,5 +1,5 @@
 import { getDb } from './db.js';
-import { workerFetch, workerMaestroConfigured, memberNotFound, str } from './maestro.js';
+import { workerFetch, workerMaestroConfigured, memberNotFound, str, MaestroError } from './maestro.js';
 
 const SPACE_CASINO = '58d5016a-91bb-49e6-a9be-b3f36f08afde';
 export type AmlLevel = 'low' | 'medium' | 'high';
@@ -48,7 +48,13 @@ export async function customerRisk(workspaceId: string, customerId: string) {
         const level = amlLevel(customer.brand_id, (member.attributes as Record<string, unknown> | null)?.amlRiskLevel);
         if (level) aml = { state: 'available', level };
       }
-    } catch { /* An unavailable provider must never be shown as low risk. */ }
+    } catch (err) {
+      // Keep failures observable without recording provider bodies, identifiers
+      // or risk values. The panel still shows Unavailable rather than Low.
+      console.warn('[customer-risk] Maestro lookup unavailable', {
+        status: err instanceof MaestroError ? err.status : null,
+      });
+    }
   }
   // A lookup can finish after erasure, merge or relinking. Do not publish the
   // previous subject's live risk after the local identity has changed.
