@@ -12,10 +12,11 @@ workspace data loads. The URL cannot grant access. No API or schema changes.
 
 ## Checks
 
-- 14 automated URL parsing/navigation tests: valid pages, malformed routes,
+- 17 automated URL parsing/navigation tests: valid pages, malformed routes,
   auth-fragment exclusion, UUID scoping, history deduplication, direct ticket
   fetch, late-response cancellation, inaccessible records, OAuth return state
-  and draft separation across workspaces/users.
+  draft separation across workspaces/users, invalid view-model IDs and recovery
+  to normal workspace selection after an inaccessible link.
 - Frontend build, bridge/import/header checks, 24 route and 7 ticket-detail smokes.
 - API TypeScript check.
 - Native-module Chrome tests against a local static host with intercepted API

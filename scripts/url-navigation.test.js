@@ -14,19 +14,38 @@ globalThis.localStorage = globalThis.sessionStorage = {
 };
 const state = await import('../web/js/core/state.js');
 const TICKETS = [], CUSTOMERS = [], pushes = [], warnings = [], reads = [];
-let workspaceId, jwt, reloads, fetchTicket;
-globalThis.window = { location: { hash: '', reload: () => reloads++ } };
+let workspaceId, jwt, reloads, fetchTicket, platformAdmin, bootCount, whoami;
+const elements = new Map();
+globalThis.document = { getElementById: id => {
+  if (!elements.has(id)) elements.set(id, { style: {}, innerHTML: '', textContent: '', addEventListener() {} });
+  return elements.get(id);
+} };
+globalThis.window = {
+  location: { hash: '', pathname: '/', search: '', reload: () => reloads++ },
+  login: (role, name, initials, options) => {
+    state.setSession({ role, name, initials, ...options }); state.setCurrentPage('dashboard');
+  },
+};
 globalThis.history = {
   pushState: (_state, _title, hash) => { pushes.push(hash); window.location.hash = hash; },
-  replaceState: (_state, _title, hash) => { window.location.hash = hash; },
+  replaceState: (_state, _title, url) => { window.location.hash = url.startsWith('#') ? url : ''; },
 };
 mock.module('../web/js/core/api-client.js', () => ({
   getWorkspaceId: () => workspaceId, getJwt: () => jwt,
+  setWorkspaceId: id => { workspaceId = id; }, setBrandId() {},
   apiGet: path => { reads.push({ path, workspaceId }); return fetchTicket(); },
 }));
 mock.module('../web/js/core/data.js', () => ({ TICKETS, CUSTOMERS }));
 mock.module('../web/js/core/toast.js', () => ({ showToast: message => warnings.push(message) }));
+mock.module('../web/js/core/auth-client.js', () => ({
+  isPlatformAdmin: () => platformAdmin,
+  signIn: async () => whoami, rehydrateUser: async () => whoami,
+  signOut: () => { jwt = null; workspaceId = null; },
+}));
+mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {} }));
+mock.module('../web/js/auth/platform-admin.js', () => ({ enterGod() {} }));
 mock.module('../web/js/core/bootstrap.js', () => ({
+  loadWorkspaceData: async () => { bootCount++; },
   updateOrInsertTicket: row => TICKETS.push({ _uuid: row.id, id: row.display_id }),
 }));
 mock.module('../web/js/customers/player-lookup.js', () => ({ resetPlayerLookup() {} }));
@@ -40,11 +59,16 @@ mock.module('../web/js/tickets/detail.js', () => ({ openTicket: id => {
 } }));
 const routing = await import('../web/js/core/url-navigation.js');
 const drafts = await import('../web/js/tickets/drafts.js');
+const login = await import('../web/js/auth/agent-login.js');
 
 beforeEach(() => {
   routing.suspendUrlRouting();
   saved.clear(); TICKETS.length = CUSTOMERS.length = pushes.length = warnings.length = reads.length = 0;
-  workspaceId = ws; jwt = 'test'; reloads = 0;
+  workspaceId = ws; jwt = 'test'; reloads = 0; platformAdmin = false; bootCount = 0;
+  for (const el of elements.values()) { el.style = {}; el.textContent = el.innerHTML = ''; }
+  whoami = { user: { id: 'test', name: 'Test' }, memberships: [ws, otherWs].map(id => ({
+    workspace_id: id, workspace_name: 'Example', role_name: 'Admin', suspended: false,
+  })) };
   state.setSession({ role: 'Admin', userId: 'test' });
   state.setCurrentPage('dashboard'); state.setCurrentTicket(null); state.setCustomerSelected(null);
   window.location.hash = `#/w/${ws}/dashboard`;
@@ -52,6 +76,25 @@ beforeEach(() => {
 });
 
 describe('URL navigation', () => {
+  it('recovers from an unauthorized link to the normal workspace picker without reading records', async () => {
+    window.location.hash = `#/w/66666666-6666-4666-8666-666666666666/tickets/${ticketId}`;
+    expect(await login.autoResumeAgent()).toBe(true);
+    expect(window.location.hash).toBe('');
+    expect(elements.get('login-picker').style.display).toBe('block');
+    expect(bootCount).toBe(0);
+    expect(reads).toHaveLength(0);
+  });
+
+  it('recovers from an inaccessible destination to the sole available workspace', async () => {
+    whoami.memberships = [{ workspace_id: otherWs, workspace_name: 'Available', role_name: 'Admin' }];
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    await login.routeAfterAuth(whoami);
+    expect(workspaceId).toBe(otherWs);
+    expect(bootCount).toBe(1);
+    expect(state.CURRENT_PAGE).toBe('dashboard');
+    expect(window.location.hash).toBe(`#/w/${otherWs}/dashboard`);
+    expect(reads).toHaveLength(0);
+  });
   it('keeps same-number drafts separate across workspaces and users', () => {
     drafts.saveDraft('TK-55', 'Workspace A reply', 'reply');
     drafts.saveDraft('TK-55', 'Workspace A note', 'note');
@@ -160,8 +203,16 @@ describe('URL navigation', () => {
     expect(state.CURRENT_TICKET).toBeNull();
     expect(warnings[0]).toBe('This record is unavailable in this workspace.');
     window.location.hash = '#/god';
+    state.setSession({ role: 'Platform Admin', userId: 'test' });
     await routing.resumeUrlRouting();
     expect(state.CURRENT_PAGE).toBe('dashboard');
+  });
+
+  it('does not break rendering when a legacy view model has an invalid ID', async () => {
+    await routing.resumeUrlRouting();
+    TICKETS.push({ id: 'TK-55', _uuid: 'legacy-invalid-id' });
+    expect(() => routing.syncRoute('tickets', 'TK-55')).not.toThrow();
+    expect(pushes).toHaveLength(0);
   });
 
   it('preserves only validated internal destinations across OAuth, once', () => {

@@ -3,6 +3,7 @@ import { getWorkspaceId, getJwt, apiGet } from './api-client.js';
 import { CUSTOMERS, TICKETS } from './data.js';
 import { CURRENT_PAGE, CUSTOMER_SELECTED, CURRENT_TICKET, SESSION, setCustomerSelected } from './state.js';
 import { showToast } from './toast.js';
+import { isPlatformAdmin } from './auth-client.js';
 
 const RETURN_ROUTE_KEY = 'respovia_return_route';
 let ready = false;
@@ -13,6 +14,11 @@ let installed = false;
 
 export function requestedRoute() {
   return parseRoute(window.location.hash);
+}
+
+export function discardRequestedRoute() {
+  sessionStorage.removeItem(RETURN_ROUTE_KEY);
+  history.replaceState(null, '', window.location.pathname + window.location.search);
 }
 
 // Save only a validated internal destination before OAuth leaves this origin.
@@ -44,12 +50,17 @@ function screenRoute(page = CURRENT_PAGE, ticketId = CURRENT_TICKET) {
   return { workspaceId, page, entityId: record ? (workspaceId ? record._uuid : record.id) : null };
 }
 
+function screenHash(page, ticketId) {
+  try { return formatRoute(screenRoute(page, ticketId)); }
+  catch { return null; } // Invalid legacy view-model IDs must not break rendering.
+}
+
 // Rendering is also used for background refreshes. Only an actual destination
 // change creates history; applying history must never push another entry.
 export function syncRoute(page = CURRENT_PAGE, ticketId = CURRENT_TICKET) {
   if (!ready || rendering || !SESSION) return;
-  const hash = formatRoute(screenRoute(page, ticketId));
-  if (hash === lastRenderedHash) return;
+  const hash = screenHash(page, ticketId);
+  if (!hash || hash === lastRenderedHash) return;
   revision++;
   lastRenderedHash = hash;
   if (window.location.hash !== hash) history.pushState(null, '', hash);
@@ -90,11 +101,11 @@ async function applyUrlRoute() {
     && workspaceId === getWorkspaceId() && jwt === getJwt();
   const { nav } = await import('./router.js');
   if (!current()) return;
-  let page = route?.page || (SESSION.role === 'Platform Admin' && !workspaceId ? 'god' : 'dashboard');
+  let page = route?.page || (isPlatformAdmin() && !workspaceId ? 'god' : 'dashboard');
   let entity = null;
   let error = null;
   try {
-    if (page === 'god' && SESSION.role !== 'Platform Admin') throw new Error('You do not have access to this page.');
+    if (page === 'god' && !isPlatformAdmin()) throw new Error('You do not have access to this page.');
     if (route?.entityId) {
       const records = page === 'tickets' ? TICKETS : CUSTOMERS;
       entity = records.find(r => (workspaceId ? r._uuid : r.id) === route.entityId);
@@ -125,8 +136,8 @@ async function applyUrlRoute() {
     setCustomerSelected(page === 'customers' && entity ? entity.id : null);
     nav(page);
     if (page === 'tickets' && entity) openTicket(entity.id);
-    lastRenderedHash = formatRoute(screenRoute(page, entity && page === 'tickets' ? entity.id : null));
-    history.replaceState(null, '', lastRenderedHash);
+    lastRenderedHash = screenHash(page, entity && page === 'tickets' ? entity.id : null);
+    if (lastRenderedHash) history.replaceState(null, '', lastRenderedHash);
   } finally { rendering = false; }
   if (error) showToast(error, 'warn');
   else if (invalidLink) showToast('That link is unavailable. Showing your home page.', 'warn');

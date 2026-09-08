@@ -13,7 +13,8 @@ import { setWorkspaceId, getWorkspaceId, setBrandId, apiGet } from '../core/api-
 import { registerActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
 import { enterGod } from './platform-admin.js';
-import { requestedRoute, resumeUrlRouting } from '../core/url-navigation.js';
+import { requestedRoute, resumeUrlRouting, discardRequestedRoute } from '../core/url-navigation.js';
+import { showToast } from '../core/toast.js';
 
 // Cached between sign-in and workspace pick (for the 2+ picker click handler).
 let _memberships = null;
@@ -64,8 +65,9 @@ export async function routeAfterAuth(me) {
   if (requestedRoute()?.workspaceId) {
     try {
       const membership = await routeMembership(me);
-      return await enterWorkspace(membership);
-    } catch (err) { showError(err?.message || 'Could not open this workspace.'); return; }
+      if (await enterWorkspace(membership)) return;
+      return await recoverFromRoute(me);
+    } catch (err) { return await recoverFromRoute(me, err); }
   }
 
   if (_user?.is_platform_admin) { enterGod(_user); return; }
@@ -115,11 +117,12 @@ document.getElementById('login-password')
   ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(); });
 
 async function enterWorkspace(m) {
-  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return; }
+  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return false; }
   setWorkspaceId(m.workspace_id);
   setBrandId(m.maestro_brand_id || null);
   try {
     await bootShell(_user, m);
+    return true;
   } catch (err) {
     // Unwind so the user lands back on the form, not a half-booted shell.
     setWorkspaceId(null);
@@ -144,6 +147,7 @@ export async function enterWorkspaceMembership(user, m) {
     setWorkspaceId(null);
     setBrandId(null);
     showError(err?.message || 'Failed to load workspace data.');
+    return false;
     return false;
   }
 }
@@ -183,6 +187,16 @@ async function routeMembership(me) {
   return membership;
 }
 
+async function recoverFromRoute(me, err) {
+  discardRequestedRoute();
+  setWorkspaceId(null);
+  setBrandId(null);
+  showToast(err?.message || 'Could not open the workspace in this link.', 'warn');
+  // The link is gone, so normal sign-in can show another workspace or the
+  // platform home. A failed destination must not trap a valid account.
+  await routeAfterAuth(me);
+}
+
 function deriveInitials(name, email) {
   if (name) {
     const parts = name.trim().split(/\s+/);
@@ -216,11 +230,9 @@ export async function autoResumeAgent() {
   if (target?.workspaceId) {
     try {
       const membership = await routeMembership(me);
-      await enterWorkspaceMembership(me.user, membership);
+      if (!await enterWorkspaceMembership(me.user, membership)) await recoverFromRoute(me);
     } catch (err) {
-      setWorkspaceId(null);
-      setBrandId(null);
-      showError(err?.message || 'Could not open this workspace.');
+      await recoverFromRoute(me, err);
     }
     return true;
   }
