@@ -28,7 +28,7 @@
 
     // Status-pill tint class. Allow-listed rather than interpolated so a
     // server-side status_key can never inject a class name.
-    const PORTAL_STATUS_CLASSES = ['open', 'pending', 'escalated', 'gdpr', 'resolved'];
+    const PORTAL_STATUS_CLASSES = ['open', 'pending', 'escalated', 'gdpr', 'resolved', 'closed'];
     function statusClass(key) {
       return PORTAL_STATUS_CLASSES.includes(key) ? `st-${key}` : '';
     }

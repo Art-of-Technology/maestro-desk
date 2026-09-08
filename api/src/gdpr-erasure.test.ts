@@ -80,6 +80,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
       returning id
     `;
     ctx.ticketId = tk.id;
+    await sql`update tickets set closure_note = 'Duplicate email from Jane Doe' where id = ${tk.id}`;
 
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'customer', 'Jane Doe', 'Hi, my email is jane@player.test')`;
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'agent', 'Support Agent', 'Replied to Jane')`;
@@ -152,6 +153,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(tk.subject).toBe('[erased]');
     expect(tk.csat_comment).toBeNull();
     expect(tk.snooze_reason).toBeNull();
+    expect(tk.closure_note).toBeNull();
 
     const msgs = await sql<any[]>`select role, author_label, body from ticket_messages where ticket_id = ${ctx.ticketId} order by created_at`;
     for (const m of msgs) expect(m.body).toBe('[erased]');

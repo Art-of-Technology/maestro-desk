@@ -531,6 +531,13 @@ async function attachReplyToTicket(args: {
     });
   await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null, body });
 
+  const [current] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  if (current?.status_key === 'closed') {
+    void publishTicketChanged(workspaceId, ticketId);
+    return { ticket_id: ticketId, ticket_display_id: ticketDisplayId, customer_id: customerId,
+      is_new_customer: false, auto_triage_queued: false, deduped: false, threaded: true };
+  }
+
   // Fire-and-forget retriage so the AI draft refreshes with the new turn.
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.
   let autoTriageQueued = false;

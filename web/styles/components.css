@@ -48,6 +48,12 @@
    --ink3 keeps "low" visually quiet while staying legible. */
 .tag-low{color:var(--ink3);background:var(--off2)}
 .tag-neutral{color:var(--ink2);background:var(--off2)}
+.tag-closed{color:var(--ink2);background:var(--off2)}
+.closure-date{margin-top:8px;color:var(--ink2);font-size:12px;line-height:1.5}
+.closure-note{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
+#closure-error{white-space:pre-wrap;color:var(--red);font-size:13px}
+.closure-modal .modal-body>p{margin-bottom:16px}
+@media(max-width:768px){.closure-modal .btn,.closure-modal select{min-height:44px}}
 /* ── Table ── */
 .tbl{width:100%;border-collapse:collapse}
 .tbl th{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);padding:10px 14px;border-bottom:1px solid var(--rule);text-align:left;cursor:pointer;white-space:nowrap;user-select:none}

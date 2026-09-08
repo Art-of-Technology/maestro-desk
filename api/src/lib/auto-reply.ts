@@ -129,6 +129,7 @@ export interface PostAutoReplyArgs {
 export type PostAutoReplyResult =
   | { posted: true; message_id: string; postmark_message_id: string; rfc_message_id: string }
   | { posted: false; reason:
+      | 'ticket_closed'
       | 'already_auto_replied'
       | 'postmark_not_configured'
       | 'customer_email_missing'
@@ -155,6 +156,9 @@ export type PostAutoReplyResult =
 export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoReplyResult> {
   const { workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
   const sql = getDb();
+
+  const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  if (ticket?.status_key === 'closed') return { posted: false, reason: 'ticket_closed' };
 
   // 1. Idempotency check — has this ticket already been auto-replied?
   const [existing] = await sql`

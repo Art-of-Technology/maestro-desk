@@ -45,7 +45,7 @@ export function renderSLA() {
   // Compute, per-policy, how many open tickets currently match it (resolved tickets excluded)
   const policyTicketCounts = {};
   TICKETS.forEach(t => {
-    if (t.status === 'resolved') return;
+    if (['resolved', 'closed'].includes(t.status)) return;
     const m = findMatchingSLAPolicy(t);
     if (m) policyTicketCounts[m.id] = (policyTicketCounts[m.id] || 0) + 1;
   });

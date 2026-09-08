@@ -65,6 +65,7 @@ import {
 } from '../kb-integration/index.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
+import { showCloseTickets, closureDetails } from './closure.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { navTo } from '../core/keybindings.js';
@@ -214,7 +215,7 @@ export function openTicket(id) {
   const slaBlock = `
     <div class="ts-section">
       <div class="ts-heading">SLA${bhPaused ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink3);font-size:10px;font-style:italic;margin-left:4px">· paused (outside hours)</span>' : ''}</div>
-      ${sla.policy ? `
+      ${sla.isClosed ? '<div>SLA does not apply to tickets closed without resolution.</div>' : sla.policy ? `
         <div class="ts-row"><span class="ts-key">Policy</span><span class="ts-val"><span class="link" data-action="td.navTo" data-target="sla">${window.escHtml(sla.policy.name)}</span></span></div>
         ${bhActive ? `<div class="ts-row"><span class="ts-key">Hours</span><span class="ts-val"><span class="link" data-action="td.navTo" data-target="business-hours">Business hours</span></span></div>` : ''}
         <div style="margin-top:10px">
@@ -500,17 +501,18 @@ export function openTicket(id) {
             <details class="ticket-popover ticket-more">
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
+            ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.macroModal" data-ticket-id="${window.escAttr(id)}" title="Apply a macro">⚡ Macro</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.runRules" data-ticket-id="${window.escAttr(id)}" title="Auto-assign by rules">⇄ Run rules</button>`}
-            ${t.status !== 'escalated' && t.status !== 'resolved' ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="escalated">Escalate</button>` : ''}
-            ${t.status !== 'resolved' ? (t.snoozedUntil
+            ${t.status !== 'escalated' && !['resolved', 'closed'].includes(t.status) ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="escalated">Escalate</button>` : ''}
+            ${!['resolved', 'closed'].includes(t.status) ? (t.snoozedUntil
               ? `<button class="btn btn-sm" data-action="td.unsnooze" data-ticket-id="${window.escAttr(id)}" title="Wake the ticket up now">💤 Wake up</button>`
               : `<button class="btn btn-sm" data-action="td.snooze" data-ticket-id="${window.escAttr(id)}" title="Pause SLA until a chosen time">💤 Snooze</button>`) : ''}
                 <button class="btn btn-sm" data-action="td.gdprModal" data-ticket-id="${window.escAttr(id)}">Privacy / GDPR</button>
               </div>
             </details>
-            ${t.status !== 'resolved'
+            ${!['resolved', 'closed'].includes(t.status)
               ? `<button class="btn btn-sm btn-solid" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="resolved">Resolve</button>`
               : `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="open">Reopen</button>`}
           </span>
@@ -526,7 +528,7 @@ export function openTicket(id) {
           <span class="tag tag-neutral">${window.escHtml(t.category)}</span>
           ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${window.escHtml(tg)}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
           <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase"/>
-          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="sla-${t.sla}">${t.sla.toUpperCase()}</span></span>
+          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="sla-${t.sla}">${t.status === 'closed' ? 'N/A' : t.sla.toUpperCase()}</span></span>
         </div>
       </div>
       <div class="ticket-layout">
@@ -624,6 +626,7 @@ export function openTicket(id) {
               <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
               <option value="gdpr" ${t.status==='gdpr'?'selected':''}>GDPR</option>
               <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
+              <option value="closed" ${t.status==='closed'?'selected':''}>Closed</option>
             </select>
             <select class="ts-select" aria-label="Ticket priority" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
               <option value="urgent" ${t.priority==='urgent'?'selected':''}>Urgent</option>
@@ -636,6 +639,7 @@ export function openTicket(id) {
             </select>
           </div>
           ${unscoredCount > 0 ? `<details class="ts-section ticket-secondary"><summary>Sentiment · ${unscoredCount} unscored</summary>${sentimentBackfillBar}</details>` : ''}
+          ${closureDetails(t)}
           <details class="ts-section ticket-secondary"><summary>Customer satisfaction</summary>
           <div class="ts-section">
             <div class="ts-heading">CSAT</div>
@@ -833,6 +837,18 @@ export function insertMacro(ticketId, idx) {
 export async function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
+  if (val === 'closed') {
+    const select = document.querySelector('[aria-label="Ticket status"]');
+    if (select) select.value = t.status;
+    showCloseTickets([id], async (succeeded) => {
+      if (!succeeded.length) return;
+      updateNavBadges();
+      if (t._uuid) await loadTicketDetail(id);
+      if (CURRENT_TICKET === id) openTicket(id);
+    });
+    return;
+  }
+  if (t.status === 'closed' && val !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
   // Demo state is local; live survey timestamps belong to the mailer.
   const stampCsat = !t._uuid && val === 'resolved' && !t.csatRequestedAt && !t.csat
     ? new Date().toISOString().slice(0, 10)
@@ -848,6 +864,7 @@ export async function changeTicketStatus(id, val) {
   const prevSla = t.sla;
   logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
   t.status = val;
+  t.closureReason = null; t.closureNote = null; t.closedAt = null; t.closedByUserId = null;
   refreshTicketSLA(t);
   if (stampCsat) {
     t.csatRequestedAt = stampCsat;

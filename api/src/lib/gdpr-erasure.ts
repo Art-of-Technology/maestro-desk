@@ -41,7 +41,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -127,7 +127,7 @@ export async function eraseCustomer(args: {
       messagesRedacted = msgs.count;
 
       const tks = await sql`
-        update tickets set subject = ${ERASED}, csat_comment = null, snooze_reason = null, last_inbound_email = null
+        update tickets set subject = ${ERASED}, csat_comment = null, snooze_reason = null, last_inbound_email = null, closure_note = null
         where workspace_id = ${workspaceId} and id in ${sql(ticketIds)}
       `;
       ticketsAffected = tks.count;

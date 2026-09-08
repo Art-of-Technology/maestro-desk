@@ -113,6 +113,10 @@ export function updateOrInsertTicket(row, lookups) {
   const t = TICKETS[idx];
   t.subject       = row.subject;
   t.status        = row.status_key;
+  t.closureReason = row.closure_reason || null;
+  t.closureNote = row.closure_note || null;
+  t.closedAt = row.closed_at || null;
+  t.closedByUserId = row.closed_by_user_id || null;
   t.priority      = row.priority_key;
   t.category      = labelCase(row.category_key) || 'Other';
   t.agent         = row.assigned_user_id == null ? '' : (userByUuid[row.assigned_user_id]?.name || t.agent);
@@ -150,6 +154,10 @@ function mapTicket(t, customerByUuid, userByUuid) {
     subject:         t.subject,
     customerId:      customerByUuid[t.customer_id]?.id || customerByUuid[t.customer_id]?.display_id || null,
     status:          t.status_key,
+    closureReason: t.closure_reason || null,
+    closureNote: t.closure_note || null,
+    closedAt: t.closed_at || null,
+    closedByUserId: t.closed_by_user_id || null,
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
     agent:           userByUuid[t.assigned_user_id]?.name || '',
@@ -322,6 +330,10 @@ export async function loadWorkspaceData() {
     subject:         t.subject,
     customerId:      customerByUuid[t.customer_id]?.display_id || null,
     status:          t.status_key,
+    closureReason: t.closure_reason || null,
+    closureNote: t.closure_note || null,
+    closedAt: t.closed_at || null,
+    closedByUserId: t.closed_by_user_id || null,
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
     agent:           userByUuid[t.assigned_user_id]?.name || '',
@@ -644,6 +656,10 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   t.snoozedAt       = d.snoozed_at || null;
   t.snoozeReason    = d.snooze_reason || '';
   t.resolvedAt      = d.resolved_at || null;
+  t.closureReason = d.closure_reason || null;
+  t.closureNote = d.closure_note || null;
+  t.closedAt = d.closed_at || null;
+  t.closedByUserId = d.closed_by_user_id || null;
 
   // Merge state — the detail endpoint joins the primary's display_id and
   // the children's display_ids so the SPA's merge banner + merged-duplicates

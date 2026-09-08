@@ -108,6 +108,78 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   const patchTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify(body) });
   const requestSurvey = (tid: string) => as(`/api/v1/tickets/${tid}/csat`, { method: 'POST', body: '{}' });
 
+  const closeTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}/close`, { method: 'POST', body: JSON.stringify(body) });
+
+  it('closes without email, records the agent and reason, and blocks every survey path', async () => {
+    const tid = await seedTicket(`AR-${RUN}-close`, { email: `close-${RUN}@acme.test` });
+    await sql`update tickets set snoozed_until = now() + interval '1 day', sla_state = 'breach' where id = ${tid}`;
+    const res = await closeTicket(tid, { reason: 'spam', note: 'Unsolicited advert' });
+    expect(res.status).toBe(200);
+    const [ticket] = await sql`select * from tickets where id = ${tid}`;
+    expect(ticket.status_key).toBe('closed');
+    expect(ticket.closure_reason).toBe('spam');
+    expect(ticket.closed_by_user_id).toBe(admin.userId);
+    expect(ticket.closed_at).toBeTruthy();
+    expect(ticket.resolved_at).toBeNull();
+    expect(ticket.snoozed_until).toBeNull();
+    expect(ticket.sla_state).toBe('ok');
+    const [audit] = await sql`select * from ticket_messages where ticket_id = ${tid} and role = 'system'`;
+    expect(audit.author_user_id).toBe(admin.userId);
+    expect(audit.body).toContain('Unsolicited advert');
+    expect((await requestSurvey(tid)).status).toBe(409);
+    const { sendCsatSurvey } = await import('./lib/csat-survey.js');
+    expect(await sendCsatSurvey({ workspaceId: ctx.wsId, ticketId: tid })).toEqual({ sent: false, reason: 'not_resolved' });
+    expect(postmarkCalls).toBe(0);
+    expect((await patchTicket(tid, { status_key: 'resolved' })).status).toBe(409);
+    const { postAutoReply } = await import('./lib/auto-reply.js');
+    expect(await postAutoReply({ workspaceId: ctx.wsId, ticketId: tid, draftReply: 'Answer', confidence: 1, model: 'test', workspaceName: 'Test' }))
+      .toEqual({ posted: false, reason: 'ticket_closed' });
+    const { exportCustomer } = await import('./lib/gdpr-export.js');
+    const exported = await exportCustomer({ workspaceId: ctx.wsId, customerId: ticket.customer_id });
+    expect(exported?.tickets.find(t => t.display_id === `AR-${RUN}-close`)?.closure_note).toBe('Unsolicited advert');
+    expect((await closeTicket(tid, { reason: 'abuse' })).status).toBe(200);
+    const [{ count }] = await sql`select count(*)::int as count from ticket_messages where ticket_id = ${tid}`;
+    expect(count).toBe(1);
+    const report: any = await (await as('/api/v1/reports/sla-breaches?days=7')).json();
+    expect(report.tickets.some((t: any) => t.id === tid)).toBe(false);
+    expect((await patchTicket(tid, { status_key: 'open' })).status).toBe(200);
+    const [reopened] = await sql`select * from tickets where id = ${tid}`;
+    expect(reopened.closed_at).toBeNull();
+    expect(reopened.closure_reason).toBeNull();
+    // Reopening is explicit; normal resolution and its survey work again.
+    expect((await patchTicket(tid, { status_key: 'resolved' })).status).toBe(200);
+    expect(postmarkCalls).toBe(1);
+  });
+
+  it('requires a valid reason and rejects status-only closure without changing the ticket', async () => {
+    const tid = await seedTicket(`AR-${RUN}-close-invalid`, { email: null });
+    for (const body of [{}, { reason: 'invented' }, { reason: 'spam', note: 'x'.repeat(4001) }]) {
+      expect((await closeTicket(tid, body)).status).toBe(400);
+    }
+    expect((await patchTicket(tid, { status_key: 'closed' })).status).toBe(400);
+    const [t] = await sql`select status_key from tickets where id = ${tid}`;
+    expect(t.status_key).toBe('open');
+    expect(postmarkCalls).toBe(0);
+  });
+
+  it('does not close while a survey owns the ticket, or expose another workspace ticket', async () => {
+    const tid = await seedTicket(`AR-${RUN}-close-sending`, { email: null });
+    await sql`update tickets set csat_send_claim = ${crypto.randomUUID()}, csat_send_started_at = now() where id = ${tid}`;
+    expect((await closeTicket(tid, { reason: 'duplicate' })).status).toBe(409);
+    await sql`update tickets set csat_send_started_at = now() - interval '11 minutes' where id = ${tid}`;
+    expect((await closeTicket(tid, { reason: 'duplicate' })).status).toBe(200);
+    expect(postmarkCalls).toBe(0);
+    await patchTicket(tid, { status_key: 'open' });
+    const [{ provision_brand: otherId }] = await sql`select provision_brand(${'close-other-' + RUN}, 'Other')`;
+    try {
+      await sql`update tickets set workspace_id = ${otherId} where id = ${tid}`;
+      expect((await closeTicket(tid, { reason: 'other' })).status).toBe(404);
+    } finally {
+      await sql`update tickets set workspace_id = ${ctx.wsId} where id = ${tid}`;
+      await sql`delete from workspaces where id = ${otherId}`;
+    }
+  });
+
   it('resolving with an old browser stamp really sends once and returns the server timestamp', async () => {
     const tid = await seedTicket(`AR-${RUN}-csat-resolve`, { email: `survey-${RUN}@acme.test` });
     const res = await patchTicket(tid, { status_key: 'resolved', csat_requested_at: '2000-01-01' });
@@ -153,9 +225,11 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       const duplicate: any = await (await requestSurvey(tid)).json();
       expect(duplicate.survey).toEqual({ sent: false, reason: 'in_progress' });
       expect(duplicate.ticket.csat_requested_at).toBeNull();
+      expect((await closeTicket(tid, { reason: 'duplicate' })).status).toBe(409);
     } finally { release(); }
     expect((await (await pending).json() as any).survey).toEqual({ sent: true });
     expect(postmarkCalls).toBe(1);
+    expect((await closeTicket(tid, { reason: 'duplicate' })).status).toBe(200);
   });
 
   it('retries a legacy false stamp and an expired claim without resending rated tickets', async () => {
@@ -265,7 +339,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       method: 'POST', body: JSON.stringify({ role: 'agent', body_html: '<p>Hello <b>again</b></p>' }),
     });
     expect(res.status).toBe(201);
-    expect(lastBody.To).toBe(secondary);
+      expect(lastBody.To).toBe(secondary);
     expect(lastBody.HtmlBody).toContain('<b>again</b>');
   });
 
@@ -300,6 +374,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     const auto = await postAutoReply({ workspaceId: ctx.wsId, ticketId: tid, draftReply: 'Answer', confidence: 1, model: 'test', workspaceName: 'Test' });
     expect(auto.posted).toBe(true);
     expect(lastBody.To).toBe(secondary);
+    await sql`update tickets set status_key = 'resolved', resolved_at = now() where id = ${tid}`;
     const survey = await sendCsatSurvey({ workspaceId: ctx.wsId, ticketId: tid });
     expect(survey.sent).toBe(true);
     expect(lastBody.To).toBe(secondary);
