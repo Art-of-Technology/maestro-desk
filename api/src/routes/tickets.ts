@@ -179,6 +179,18 @@ tickets.get('/sync', async (c) => {
   return c.json({ tickets: responseRows, cursor: newCursor });
 });
 
+// Resolve readable links within the authenticated workspace. Return the same
+// row shape as the list so loading an older ticket preserves its metadata.
+tickets.get('/by-number/:displayId', async (c) => {
+  const displayId = c.req.param('displayId');
+  if (!/^[a-z0-9_-]{1,80}$/i.test(displayId)) return c.json({ error: 'Ticket not found' }, 404);
+  const sql = getDb();
+  const [ticket] = await sql`select ${ticketListCols(sql)} from tickets
+    where workspace_id = ${c.get('workspaceId')} and display_id = ${displayId} and deleted_at is null`;
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+  return c.json({ ticket });
+});
+
 // Full ticket detail — the row itself plus all of its child collections.
 // Used by the SPA's ticket-detail view to populate the conversation thread,
 // tags, AI tags, and time entries that aren't returned by the list endpoint.

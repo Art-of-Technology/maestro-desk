@@ -1,3 +1,5 @@
+import { isReadableWorkspaceSlug } from './route-location.js';
+
 // Generic API client for the Respovia backend.
 //
 // Wraps fetch() with:
@@ -19,6 +21,15 @@ export const WORKSPACE_ID_KEY  = 'maestro_workspace_id';
 // Maestro sign-in. Sent only on calls that opt in with { brand: true } (the
 // player-lookup endpoints); the platform enforces the agent's brand perms.
 export const BRAND_ID_KEY      = 'maestro_brand_id';
+// Readable names come from authenticated workspace metadata, never URL input.
+const workspaceSlugs = new Map();
+export function getWorkspaceSlug() { return workspaceSlugs.get(getWorkspaceId()) || null; }
+export function setWorkspaceSlug(slug) {
+  const workspaceId = getWorkspaceId();
+  if (!workspaceId) return;
+  if (isReadableWorkspaceSlug(slug)) workspaceSlugs.set(workspaceId, slug);
+  else workspaceSlugs.delete(workspaceId);
+}
 
 export class ApiError extends Error {
   constructor(message, status, body) {
@@ -33,6 +44,7 @@ export function getJwt() {
 }
 
 export function setJwt(jwt) {
+  if (jwt !== getJwt()) workspaceSlugs.clear();
   if (jwt) sessionStorage.setItem(JWT_KEY, jwt);
   else     sessionStorage.removeItem(JWT_KEY);
 }
