@@ -468,3 +468,14 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ed-changes .ed-from{color:var(--ink3);text-decoration:line-through}
 .ed-changes .ed-to{font-weight:600}
 .ed-changes .ed-lbl{color:var(--ink3)}
+.customer-risk{margin-bottom:16px;min-height:220px}
+.customer-risk-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+.customer-risk-heading .card-title{margin:0}
+.customer-risk-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:0}
+.customer-risk-grid dt,.customer-risk-note{font-size:12px;line-height:1.5;color:var(--ink2)}
+.customer-risk-grid dd{font-size:14px;font-weight:600;margin:4px 0 0;color:var(--ink)}
+.customer-risk-grid .risk-medium{color:var(--amber)}
+.customer-risk-grid .risk-high{color:var(--red)}
+.customer-risk-note{margin:16px 0 0}
+.customer-risk-heading .btn{min-height:32px}
+@media(max-width:600px){.customer-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-risk-heading .btn{min-height:44px}}

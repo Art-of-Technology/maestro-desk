@@ -12,6 +12,7 @@ import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js'
 import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
+import { customerRisk } from '../lib/customer-risk.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import {
   ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
@@ -1046,6 +1047,20 @@ customers.patch('/:id', async (c) => {
 //
 // Both routes answer 404 identically for "no such customer" and "belongs to
 // another workspace", so they can't be used to probe for ids across tenants.
+customers.get('/:id/risk', async (c) => {
+  c.header('Cache-Control', 'no-store');
+  const customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const workspaceId = c.get('workspaceId');
+  const risk = await customerRisk(workspaceId, customerId);
+  if (!risk) return c.json({ error: 'Customer not found' }, 404);
+  if (risk.aml.state === 'available') {
+    await writeAudit({ workspaceId, actorUserId: c.get('userId'), action: 'customer.risk_viewed',
+      targetType: 'customer', targetId: customerId, metadata: { accessed: ['aml'] } });
+  }
+  return c.json(risk);
+});
+
 customers.get('/:id/summary', async (c) => {
   const workspaceId = c.get('workspaceId');
   const customerId = c.req.param('id');
