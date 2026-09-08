@@ -90,8 +90,8 @@ export async function eraseCustomer(args: {
 
   const result = await db.begin(async (sql) => {
     // Lock the customer row (scoped) so a concurrent erase can't double-run.
-    const [cust] = await sql<{ id: string; email: string | null; erased_at: string | null }[]>`
-      select id, email, erased_at from customers
+    const [cust] = await sql<{ id: string; email: string | null; erased_at: string | null; has_legacy_kyc: boolean }[]>`
+      select id, email, erased_at, to_jsonb(customers) ? 'kyc_status' as has_legacy_kyc from customers
       where id = ${customerId} and workspace_id = ${workspaceId}
       for update
     `;
@@ -102,6 +102,10 @@ export async function eraseCustomer(args: {
     // The scalar is captured BEFORE nulling — the inbox match below also uses
     // it for a legacy profile with no contact rows.
     const email = cust.email;
+    // This transaction's customer lock also prevents concurrent DROP COLUMN.
+    // Keep erasing legacy data until the column is physically retired, while
+    // allowing this release to run after that migration (including rollback).
+    const fieldsErased = FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status');
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
@@ -190,21 +194,30 @@ export async function eraseCustomer(args: {
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
-        mobile = null, backoffice_url = null, kyc_status = null, jurisdiction = null,
+        mobile = null, backoffice_url = null,
+        ${cust.has_legacy_kyc ? sql`kyc_status = null,` : sql``}
+        jurisdiction = null,
         maestro_user_id = null, maestro_member_id = null, maestro_global_id_verified = false, player_lookup_at = null,
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
 
+    // The merge journal also retains copied legacy values after unmerge.
+    await sql`
+      update customer_merges set backfilled_fields = backfilled_fields - 'kyc_status'
+      where workspace_id = ${workspaceId} and source_customer_id = ${customerId}
+        and backfilled_fields ? 'kyc_status'
+    `;
+
     await sql`
       insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${[...FIELDS_ERASED]}, ${reason ?? null})
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null})
     `;
 
     return {
       erased: true,
       alreadyErased: false,
-      fieldsErased: [...FIELDS_ERASED],
+      fieldsErased,
       ticketsAffected,
       notesDeleted,
       messagesRedacted,

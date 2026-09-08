@@ -16,6 +16,7 @@ runDbTests('GDPR export (DB-backed)', () => {
   const admin = { email: `exp-admin-${RUN}@t.test` } as Record<string, string>;
   const agent = { email: `exp-agent-${RUN}@t.test` } as Record<string, string>;
   const ctx = {} as Record<string, string>;
+  let hasLegacyKyc = false;
 
   async function signUp(email: string): Promise<{ id: string; token: string }> {
     const { auth } = await import('./lib/auth.js');
@@ -52,11 +53,14 @@ runDbTests('GDPR export (DB-backed)', () => {
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${wsId}, ${agent.userId}, ${roRole.id}, true)`;
 
     const [cust] = await sql<{ id: string }[]>`
-      insert into customers (workspace_id, display_id, first_name, last_name, email, mobile, kyc_status, jurisdiction)
-      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT')
+      insert into customers (workspace_id, display_id, first_name, last_name, email, mobile, jurisdiction)
+      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', ${'jane-' + slug + '@player.test'}, '+15551234', 'MT')
       returning id
     `;
     ctx.customerId = cust.id;
+    const [shape] = await sql`select to_jsonb(customers) ? 'kyc_status' as present from customers where id = ${cust.id}`;
+    hasLegacyKyc = shape.present;
+    if (hasLegacyKyc) await sql`update customers set kyc_status = 'verified' where id = ${cust.id}`;
 
     const [tk] = await sql<{ id: string }[]>`
       insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key)
@@ -107,6 +111,9 @@ runDbTests('GDPR export (DB-backed)', () => {
     expect(body.customer.first_name).toBe('Jane');
     expect(body.customer.display_id).toBe('M-' + slug);
     expect(body.customer.id).toBeUndefined(); // internal uuid stripped
+    if (hasLegacyKyc) expect(body.customer.kyc_status).toBe('verified');
+    else expect(body.customer).not.toHaveProperty('kyc_status');
+    expect(body.customer).not.toHaveProperty('has_legacy_kyc');
 
     expect(body.notes.length).toBe(1);
     expect(body.notes[0].text).toBe('Patient VIP');

@@ -21,6 +21,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
   const admin = { email: `era-admin-${RUN}@t.test` } as Record<string, string>;
   const agent = { email: `era-agent-${RUN}@t.test` } as Record<string, string>;
   const ctx = {} as Record<string, string>;
+  let hasLegacyKyc = false;
 
   async function signUp(email: string): Promise<{ id: string; token: string }> {
     const { auth } = await import('./lib/auth.js');
@@ -62,13 +63,16 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     await sql`insert into workspace_members (workspace_id, user_id, role_id, active) values (${wsId}, ${agent.userId}, ${roRole.id}, true)`;
 
     const [cust] = await sql<{ id: string }[]>`
-      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, kyc_status, jurisdiction, backoffice_url, brand,
+      insert into customers (workspace_id, display_id, first_name, last_name, username, email, mobile, jurisdiction, backoffice_url, brand,
                              maestro_user_id, maestro_member_id, player_lookup_at)
-      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'verified', 'MT', 'https://bo.example/p/1', 'Acme',
+      values (${wsId}, ${'M-' + slug}, 'Jane', 'Doe', 'janed', ${'jane-' + slug + '@player.test'}, '+15551234', 'MT', 'https://bo.example/p/1', 'Acme',
               'mu-jane-0001', '4711', now())
       returning id
     `;
     ctx.customerId = cust.id;
+    const [shape] = await sql`select to_jsonb(customers) ? 'kyc_status' as present from customers where id = ${cust.id}`;
+    hasLegacyKyc = shape.present;
+    if (hasLegacyKyc) await sql`update customers set kyc_status = 'verified' where id = ${cust.id}`;
 
     const [tk] = await sql<{ id: string }[]>`
       insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, csat_comment, snooze_reason)
@@ -133,7 +137,8 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(cust.mobile).toBeNull();
     // Still asserted after Phase 4 removed KYC from the product: the column
     // survives until its drop migration, so erasure must keep nulling it.
-    expect(cust.kyc_status).toBeNull();
+    if (hasLegacyKyc) expect(cust.kyc_status).toBeNull();
+    else expect(cust).not.toHaveProperty('kyc_status');
     expect(cust.jurisdiction).toBeNull();
     // Maestro player ids name the subject's casino account — erased too, and
     // the lookup stamp goes with them so nothing re-links an erased profile.
