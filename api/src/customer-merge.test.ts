@@ -20,6 +20,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
   const admin = { email: `cm-admin-${RUN}@t.test` } as Record<string, string>;
   const agent = { email: `cm-agent-${RUN}@t.test` } as Record<string, string>;
   const ctx = {} as Record<string, string>;
+  let hasLegacyKyc = false;
 
   async function signUp(email: string): Promise<{ id: string; token: string }> {
     const { auth } = await import('./lib/auth.js');
@@ -67,6 +68,9 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
 
     const [{ provision_brand: ws }] = await sql<{ provision_brand: string }[]>`select provision_brand(${'cm-' + RUN}, ${'cm-' + RUN}) as provision_brand`;
     ctx.ws = ws;
+    const probeId = await mkCustomer('schema-probe');
+    const [shape] = await sql`select to_jsonb(customers) ? 'kyc_status' as present from customers where id = ${probeId}`;
+    hasLegacyKyc = shape.present;
     const [adminRole] = await sql<{ id: string }[]>`select id from roles where workspace_id = ${ws} and is_admin = true limit 1`;
     const [plainRole] = await sql<{ id: string }[]>`select id from roles where workspace_id = ${ws} and name = 'Read Only' limit 1`;
     ctx.plainRoleId = plainRole.id;
@@ -82,6 +86,98 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     // Double cast: the stub omits fetch.preconnect, which the DOM lib now
     // declares on typeof fetch. Nothing under test calls it.
     globalThis.fetch = (async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
+  });
+
+  it('runs against the requested legacy-column state', () => {
+    const expected = process.env.EXPECT_LEGACY_KYC;
+    if (expected) expect(hasLegacyKyc).toBe(expected === 'present');
+  });
+
+  it('preserves export, merge and unmerge behavior across KYC retirement', async () => {
+    const source = await mkCustomer('kyc-source', {
+      username: 'legacy-source', mobile: '+447700123456',
+      ...(hasLegacyKyc ? { kyc_status: 'verified' } : {}),
+    });
+    const primary = await mkCustomer('kyc-primary', { username: null, mobile: null });
+    const merged = await as(admin.token, ctx.ws, `/api/v1/customers/${source}/merge`,
+      { method: 'POST', body: JSON.stringify({ into_id: primary }) });
+    expect(merged.status).toBe(200);
+    const mergeBody = await merged.json() as any;
+    expect(mergeBody.backfilled_fields.username).toBe('legacy-source');
+    if (hasLegacyKyc) expect(mergeBody.backfilled_fields.kyc_status).toBe('verified');
+    else expect(mergeBody.backfilled_fields).not.toHaveProperty('kyc_status');
+    const exported = await as(admin.token, ctx.ws, `/api/v1/customers/${primary}/export`);
+    expect(exported.status).toBe(200);
+    const bundle = await exported.json() as any;
+    expect(bundle.customer.mobile).toBe('+447700123456');
+    if (hasLegacyKyc) expect(bundle.customer.kyc_status).toBe('verified');
+    else expect(bundle.customer).not.toHaveProperty('kyc_status');
+    expect(bundle.customer).not.toHaveProperty('has_legacy_kyc');
+    const unmerged = await as(admin.token, ctx.ws, `/api/v1/customers/${source}/unmerge`, { method: 'POST' });
+    expect(unmerged.status).toBe(200);
+    const unmergeBody = await unmerged.json() as any;
+    expect(unmergeBody.fields_reverted.includes('kyc_status')).toBe(hasLegacyKyc);
+    const [restored] = await sql`select mobile, username, to_jsonb(customers) ->> 'kyc_status' as kyc from customers where id = ${primary}`;
+    expect(restored.mobile).toBeNull();
+    expect(restored.username).toBeNull();
+    expect(restored.kyc).toBeNull();
+    const [original] = await sql`select mobile from customers where id = ${source}`;
+    expect(original.mobile).toBe('+447700123456');
+  });
+
+  it('handles an old KYC journal entry when unmerging after the column is removed', async () => {
+    const source = await mkCustomer('kyc-journal-source', { vip_tier: 'Gold' });
+    const primary = await mkCustomer('kyc-journal-primary', { vip_tier: null });
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/merge`,
+      { method: 'POST', body: JSON.stringify({ into_id: primary }) })).status).toBe(200);
+    await sql`update customer_merges set backfilled_fields = backfilled_fields || ${sql.json({ kyc_status: 'old-value' })}
+      where workspace_id = ${ctx.ws} and source_customer_id = ${source}`;
+    const response = await as(admin.token, ctx.ws, `/api/v1/customers/${source}/unmerge`, { method: 'POST' });
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.fields_reverted).toContain('vip_tier');
+    expect(body.fields_skipped.includes('kyc_status')).toBe(!hasLegacyKyc);
+  });
+
+  it('erases source PII from all merge journals while preserving other history and the survivor', async () => {
+    const source = await mkCustomer('kyc-erase-source', { username: 'erase-source',
+      ...(hasLegacyKyc ? { kyc_status: 'verified' } : {}) });
+    const primary = await mkCustomer('kyc-erase-primary', { username: null });
+    expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/merge`,
+      { method: 'POST', body: JSON.stringify({ into_id: primary }) })).status).toBe(200);
+    // An earlier, already-unmerged journal still holds source values. Include
+    // legacy email/mobile keys and KYC even when its customer column is absent.
+    const personal = { first_name: 'Old', last_name: 'Name', username: 'old-user',
+      email: 'old@customer.test', mobile: '+447700123456', jurisdiction: 'MT',
+      backoffice_url: 'https://bo.example/old', maestro_user_id: 'old-member',
+      maestro_member_id: 'old-global', kyc_status: 'verified' };
+    await sql`insert into customer_merges
+      (workspace_id, source_customer_id, primary_customer_id, backfilled_fields, unmerged_at)
+      values (${ctx.ws}, ${source}, ${primary}, ${sql.json({ ...personal, brand: 'History', vip_tier: 'Gold', since: '2020-01-01' })}, now()),
+             (${ctx.ws}, ${primary}, ${source}, ${sql.json(personal)}, now())`;
+    const response = await as(admin.token, ctx.ws, `/api/v1/customers/${source}/erase`, { method: 'POST', body: '{}' });
+    expect(response.status).toBe(200);
+    const result = await response.json() as any;
+    expect(result.fieldsErased.includes('kyc_status')).toBe(hasLegacyKyc);
+    const [original] = await sql`select erased_at, to_jsonb(customers) ->> 'kyc_status' as kyc from customers where id = ${source}`;
+    expect(original.erased_at).not.toBeNull();
+    expect(original.kyc).toBeNull();
+    const [survivor] = await sql`select first_name, username, erased_at, to_jsonb(customers) ->> 'kyc_status' as kyc from customers where id = ${primary}`;
+    expect(survivor.first_name).toBe('C');
+    expect(survivor.username).toBeNull();
+    expect(survivor.erased_at).toBeNull();
+    expect(survivor.kyc).toBeNull();
+    const journals = await sql`select backfilled_fields, unmerged_at from customer_merges
+      where workspace_id = ${ctx.ws} and source_customer_id = ${source}`;
+    expect(journals).toHaveLength(2);
+    for (const journal of journals) {
+      for (const key of Object.keys(personal)) expect(journal.backfilled_fields).not.toHaveProperty(key);
+      expect(journal.unmerged_at).not.toBeNull();
+    }
+    expect(journals.map(j => j.backfilled_fields)).toContainEqual({ brand: 'History', vip_tier: 'Gold', since: '2020-01-01' });
+    const [otherJournal] = await sql`select backfilled_fields from customer_merges
+      where workspace_id = ${ctx.ws} and source_customer_id = ${primary}`;
+    expect(otherJournal.backfilled_fields).toEqual(personal);
   });
 
   afterAll(async () => {

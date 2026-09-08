@@ -477,7 +477,7 @@ customers.post('/:id/merge', async (c) => {
       maestro_user_id: string | null; maestro_member_id: string | null; maestro_global_id_verified: boolean;
       merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
-             jurisdiction, kyc_status, since, backoffice_url,
+             jurisdiction, to_jsonb(customers) ->> 'kyc_status' as kyc_status, since, backoffice_url,
              maestro_user_id, maestro_member_id, maestro_global_id_verified, merged_into_customer_id, erased_at
       from customers
       where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
@@ -676,8 +676,9 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
     `;
     // Re-verify under the lock — the peek raced unlocked, so the merge state
     // may have changed before we got here.
-    const [source] = await tx<{ id: string; display_id: string; merged_into_customer_id: string | null }[]>`
-      select id, display_id, merged_into_customer_id from customers
+    const [source] = await tx<{ id: string; display_id: string; merged_into_customer_id: string | null; has_legacy_kyc: boolean }[]>`
+      select id, display_id, merged_into_customer_id,
+             to_jsonb(customers) ? 'kyc_status' as has_legacy_kyc from customers
       where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
     `;
     if (!source) { outcome = { status: 404, body: { error: 'Customer not found' } }; return; }
@@ -734,6 +735,9 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
         continue;
       }
       if (!(BACKFILL_COLS as readonly string[]).includes(col)) { audit.skipped.push(col); continue; }
+      // Old journals can still name the column after it has been retired.
+      // The customer locks above keep this schema observation valid until commit.
+      if (col === 'kyc_status' && !source.has_legacy_kyc) { audit.skipped.push(col); continue; }
       // Reverting the Maestro link also clears the lookup stamp, so the
       // survivor is re-probed on its next email instead of waiting out the TTL.
       const revert = col === 'maestro_user_id' ? { [col]: null, player_lookup_at: null }

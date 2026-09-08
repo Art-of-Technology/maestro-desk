@@ -37,7 +37,9 @@ export async function exportCustomer(args: {
 
   const [customer] = await sql<Record<string, unknown>[]>`
     select id, display_id, first_name, last_name, username, email, mobile, brand,
-           vip_tier, jurisdiction, consent, kyc_status, since, backoffice_url,
+           vip_tier, jurisdiction, consent, since, backoffice_url,
+           to_jsonb(customers) ->> 'kyc_status' as kyc_status,
+           to_jsonb(customers) ? 'kyc_status' as has_legacy_kyc,
            maestro_user_id, maestro_member_id,
            created_at, updated_at, erased_at
     from customers
@@ -143,7 +145,8 @@ export async function exportCustomer(args: {
 
   // Strip the DB uuid from the emitted customer record (display_id is the
   // stable, non-internal identifier).
-  const { id: _custId, ...customerOut } = customer;
+  const { id: _custId, has_legacy_kyc: hasLegacyKyc, ...customerOut } = customer;
+  if (!hasLegacyKyc) delete customerOut.kyc_status;
 
   return {
     exported_at: new Date().toISOString(),
