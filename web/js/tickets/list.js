@@ -622,7 +622,7 @@ function bulkSetStatus(v) {
     logTicketEvent(t.id, 'status', `Status: ${t.status} → ${v} (bulk)`);
     t.status = v;
     refreshTicketSLA(t);
-    if (v === 'resolved' && !t.csatRequestedAt && !t.csat) {
+    if (!t._uuid && v === 'resolved' && !t.csatRequestedAt && !t.csat) {
       t.csatRequestedAt = new Date().toISOString().slice(0, 10);
       logTicketEvent(t.id, 'system', 'CSAT survey sent to customer');
     }

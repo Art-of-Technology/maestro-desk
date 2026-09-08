@@ -28,14 +28,18 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   const realFetch = globalThis.fetch;
   let postmarkCalls = 0;
   let lastBody: any = null;
+  let failMail = false;
+  let mailGate: Promise<void> | null = null;
 
   beforeEach(() => {
-    postmarkCalls = 0; lastBody = null;
+    postmarkCalls = 0; lastBody = null; failMail = false; mailGate = null;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith('https://api.postmarkapp.com/email')) {
         postmarkCalls++;
         lastBody = JSON.parse(String(init?.body ?? '{}'));
+        if (mailGate) await mailGate;
+        if (failMail) return new Response('Mail service unavailable', { status: 503 });
         return new Response(JSON.stringify({ MessageID: 'pm-id', SubmittedAt: '2026-01-01T00:00:00Z', To: 'x', ErrorCode: 0, Message: 'OK' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
@@ -99,6 +103,139 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       select external_message_id from ticket_messages where id = ${message.id}
     `;
     expect(row.external_message_id).toMatch(/^<.+@.+>$/);
+  });
+
+  const patchTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify(body) });
+  const requestSurvey = (tid: string) => as(`/api/v1/tickets/${tid}/csat`, { method: 'POST', body: '{}' });
+
+  it('resolving with an old browser stamp really sends once and returns the server timestamp', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-resolve`, { email: `survey-${RUN}@acme.test` });
+    const res = await patchTicket(tid, { status_key: 'resolved', csat_requested_at: '2000-01-01' });
+    expect(res.status).toBe(200);
+    const data: any = await res.json();
+    expect(data.survey).toEqual({ sent: true });
+    expect(data.ticket.csat_requested_at).not.toContain('2000-01-01');
+    expect(lastBody.To).toBe(`survey-${RUN}@acme.test`);
+    expect(lastBody.Subject).toContain(`AR-${RUN}-csat-resolve`);
+    const [row] = await sql`select csat_token, csat_requested_at from tickets where id = ${tid}`;
+    expect(row.csat_token).toBeTruthy();
+    expect(row.csat_requested_at).toBeTruthy();
+    expect((await (await requestSurvey(tid)).json() as any).survey).toEqual({ sent: false, reason: 'already_requested' });
+    await patchTicket(tid, { status_key: 'open' });
+    await patchTicket(tid, { status_key: 'resolved' });
+    expect(postmarkCalls).toBe(1);
+    expect((await patchTicket(tid, { csat_requested_at: null })).status).toBe(400);
+  });
+
+  it('leaves failed sends retryable and the manual endpoint sends real mail', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-retry`, { email: `retry-${RUN}@acme.test` });
+    failMail = true;
+    const failed: any = await (await patchTicket(tid, { status_key: 'resolved' })).json();
+    expect(failed.survey).toEqual({ sent: false, reason: 'send_failed' });
+    expect(failed.ticket.csat_requested_at).toBeNull();
+    const [before] = await sql`select csat_send_claim from tickets where id = ${tid}`;
+    expect(before.csat_send_claim).toBeNull();
+    failMail = false;
+    const sent: any = await (await requestSurvey(tid)).json();
+    expect(sent.survey).toEqual({ sent: true });
+    expect(sent.ticket.csat_requested_at).toBeTruthy();
+    expect(sent.survey.token).toBeUndefined();
+  });
+
+  it('serializes simultaneous manual and automatic requests across the database claim', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-race`, { email: `race-${RUN}@acme.test` });
+    let release!: () => void;
+    mailGate = new Promise<void>(r => { release = r; });
+    const pending = patchTicket(tid, { status_key: 'resolved' });
+    try {
+      for (let n = 0; n < 100 && postmarkCalls === 0; n++) await new Promise(r => setTimeout(r, 10));
+      expect(postmarkCalls).toBe(1);
+      const duplicate: any = await (await requestSurvey(tid)).json();
+      expect(duplicate.survey).toEqual({ sent: false, reason: 'in_progress' });
+      expect(duplicate.ticket.csat_requested_at).toBeNull();
+    } finally { release(); }
+    expect((await (await pending).json() as any).survey).toEqual({ sent: true });
+    expect(postmarkCalls).toBe(1);
+  });
+
+  it('retries a legacy false stamp and an expired claim without resending rated tickets', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-legacy`, { email: `legacy-${RUN}@acme.test` });
+    await sql`update tickets set status_key = 'resolved', csat_requested_at = now(),
+      csat_send_claim = ${crypto.randomUUID()}, csat_send_started_at = now() - interval '11 minutes' where id = ${tid}`;
+    expect((await (await requestSurvey(tid)).json() as any).survey).toEqual({ sent: true });
+    await sql`update tickets set csat_token = null, csat_submitted_at = now(), csat_score = 4 where id = ${tid}`;
+    expect((await (await requestSurvey(tid)).json() as any).survey).toEqual({ sent: false, reason: 'already_rated' });
+    expect(postmarkCalls).toBe(1);
+  });
+
+  it('preserves accepted delivery when releasing the claim fails', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-release`, { email: `release-${RUN}@acme.test` });
+    const fn = `csat_release_test_${RUN}`;
+    // Test-only trigger, targeted at this fixture; a real SQL failure exercises
+    // the finally path without mocking away the successful send and stamp.
+    await sql.unsafe(`create function ${fn}() returns trigger language plpgsql as $$
+      begin if new.id = '${tid}' and old.csat_send_claim is not null and new.csat_send_claim is null
+        then raise exception 'test release failure' using errcode = '23514'; end if; return new; end $$;
+      create trigger ${fn} before update on tickets for each row execute function ${fn}()`);
+    try {
+      const r: any = await (await patchTicket(tid, { status_key: 'resolved' })).json();
+      expect(r.survey).toEqual({ sent: true });
+      expect(r.ticket.csat_requested_at).toBeTruthy();
+      const [row] = await sql`select csat_token, csat_send_claim from tickets where id = ${tid}`;
+      expect(row.csat_token).toBeTruthy();
+      expect(row.csat_send_claim).toBeTruthy();
+      expect(postmarkCalls).toBe(1);
+    } finally {
+      await sql.unsafe(`drop trigger ${fn} on tickets; drop function ${fn}()`);
+    }
+  });
+
+  it('does not report a confirmed survey if a newer claim replaced the sender', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-lost-claim`, { email: `lost-${RUN}@acme.test` });
+    let release!: () => void;
+    mailGate = new Promise<void>(r => { release = r; });
+    const pending = patchTicket(tid, { status_key: 'resolved' });
+    const replacement = crypto.randomUUID();
+    try {
+      for (let n = 0; n < 100 && postmarkCalls === 0; n++) await new Promise(r => setTimeout(r, 10));
+      expect(postmarkCalls).toBe(1);
+      await sql`update tickets set csat_send_claim = ${replacement} where id = ${tid}`;
+    } finally { release(); }
+    const r: any = await (await pending).json();
+    expect(r.survey).toEqual({ sent: false, reason: 'send_failed' });
+    expect(r.ticket.csat_requested_at).toBeNull();
+    const [row] = await sql`select csat_send_claim from tickets where id = ${tid}`;
+    expect(row.csat_send_claim).toBe(replacement);
+  });
+
+  it('does not claim delivery for opt-outs, suppressed or missing addresses', async () => {
+    for (const kind of ['no_email', 'no_consent', 'email_suppressed']) {
+      const tid = await seedTicket(`AR-${RUN}-${kind}`, { email: kind === 'no_email' ? null : `${kind}-${RUN}@acme.test`, bounce: kind === 'email_suppressed' ? 'hard' : 'none' });
+      if (kind === 'no_consent') await sql`update customers set consent = false where id = (select customer_id from tickets where id = ${tid})`;
+      const r: any = await (await patchTicket(tid, { status_key: 'resolved' })).json();
+      expect(r.survey).toEqual({ sent: false, reason: kind });
+      expect(r.ticket.csat_requested_at).toBeNull();
+    }
+    expect(postmarkCalls).toBe(0);
+  });
+
+  it('requires authentication, a visible resolved ticket and rejects deleted tickets', async () => {
+    const tid = await seedTicket(`AR-${RUN}-csat-auth`, { email: `auth-${RUN}@acme.test` });
+    expect((await app.request(`/api/v1/tickets/${tid}/csat`, { method: 'POST' })).status).toBe(401);
+    expect((await requestSurvey(tid)).status).toBe(409);
+    expect((await requestSurvey(crypto.randomUUID())).status).toBe(404);
+    expect((await requestSurvey('bad-id')).status).toBe(404);
+    const [{ provision_brand: otherId }] = await sql`select provision_brand(${'csat-other-' + RUN}, ${'csat-other-' + RUN})`;
+    try {
+      await sql`update tickets set workspace_id = ${otherId}, status_key = 'resolved' where id = ${tid}`;
+      expect((await requestSurvey(tid)).status).toBe(404);
+    } finally {
+      await sql`update tickets set workspace_id = ${ctx.wsId} where id = ${tid}`;
+      await sql`delete from workspaces where id = ${otherId}`;
+    }
+    await sql`update tickets set deleted_at = now() where id = ${tid}`;
+    expect((await requestSurvey(tid)).status).toBe(404);
+    expect(postmarkCalls).toBe(0);
   });
 
   async function contactTicket(label: string, primaryBounce = 'none') {

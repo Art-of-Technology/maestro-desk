@@ -7,7 +7,7 @@ import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
 import { ticketListCols } from '../lib/ticket-cols.js';
-import { sendCsatSurvey } from '../lib/csat-survey.js';
+import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { publishTicketChanged } from '../lib/pubby.js';
@@ -217,6 +217,8 @@ tickets.get('/:id', async (c) => {
   return c.json({
     ticket: {
       ...ticket,
+      csat_send_claim: undefined,
+      csat_send_started_at: undefined,
       messages:     decorateMessages(msgs, attachmentsByMsg),
       tags:         tags.map((r: any) => r.tag),
       ai_tags:      aiTags,
@@ -240,9 +242,8 @@ const PatchTicket = z.object({
   priority_key:      z.string().optional(),
   category_key:      z.string().nullable().optional(),
   assigned_user_id:  z.string().uuid().nullable().optional(),
-  // CSAT fields — the schema defaults to YYYY-MM-DD when written from the
-  // SPA, but the column is timestamptz so any Postgres-parseable timestamp
-  // is fine. Bad values bubble up as DB errors.
+  // Rating fields retain the existing agent-recorded-response flow.
+  // csat_requested_at is accepted but ignored for stale-client compatibility.
   csat_score:        z.number().int().min(1).max(5).nullable().optional(),
   csat_stars:        z.number().int().min(1).max(5).nullable().optional(),
   csat_comment:      z.string().nullable().optional(),
@@ -260,7 +261,9 @@ tickets.patch('/:id', async (c) => {
   if (!parsed.success) {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
-  const updates = parsed.data;
+  // Accept stale clients' field for compatibility, but only the mailer may
+  // stamp delivery. In particular, resolving must not pre-empt the send.
+  const { csat_requested_at: _legacySurveyStamp, ...updates } = parsed.data;
   if (Object.keys(updates).length === 0) {
     return c.json({ error: 'No fields to update' }, 400);
   }
@@ -310,16 +313,14 @@ tickets.patch('/:id', async (c) => {
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
   const priorityChanged = updates.priority_key !== undefined && updates.priority_key !== existing.priority_key;
+  let survey: ReturnType<typeof publicSurveyResult> | undefined;
   if (statusChanged && updates.status_key === 'resolved') {
     try { await notifySlack({ workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[slack] notify resolved failed:', err); }
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] resolved failed:', err); }
-    // Auto-send a CSAT survey email. The lib short-circuits on
-    // already-requested / no-email / postmark-not-configured paths,
-    // so this is safe to fire-and-forget for every resolution.
-    try { await sendCsatSurvey({ workspaceId, ticketId }); }
-    catch (err) { console.warn('[csat] auto-survey failed:', err); }
+    // Await the mailer so the response reports whether a survey was sent.
+    survey = await requestSurvey(workspaceId, ticketId);
   }
   if (statusChanged && updates.status_key === 'escalated') {
     try { await notifySlack({ workspaceId, event: 'ticket.escalated', ticketId }); }
@@ -339,7 +340,36 @@ tickets.patch('/:id', async (c) => {
            csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at
     from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
   `;
-  return c.json({ ticket: updated });
+  return c.json({ ticket: updated, survey });
+});
+
+function publicSurveyResult(result: CsatSurveyResult) {
+  return result.sent ? { sent: true as const } : { sent: false as const, reason: result.reason };
+}
+
+async function requestSurvey(workspaceId: string, ticketId: string) {
+  try { return publicSurveyResult(await sendCsatSurvey({ workspaceId, ticketId })); }
+  catch (err) {
+    console.warn('[csat] survey request failed', surveyErrorContext(err));
+    return { sent: false as const, reason: 'send_failed' as const };
+  }
+}
+
+tickets.post('/:id/csat', async (c) => {
+  const workspaceId = c.get('workspaceId'), ticketId = c.req.param('id');
+  if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
+  const sql = getDb();
+  const [ticket] = await sql`select status_key from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId}
+      and deleted_at is null and merged_into_id is null`;
+  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+  if (ticket.status_key !== 'resolved') return c.json({ error: 'Resolve the ticket before sending a survey.' }, 409);
+  const limited = await enforceRateLimit(c, { name: 'csat-send', by: c.get('userId'), max: 10, windowSeconds: 600 });
+  if (limited) return limited;
+  const survey = await requestSurvey(workspaceId, ticketId);
+  const [updated] = await sql`select id, csat_requested_at, csat_submitted_at from tickets
+    where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  return c.json({ survey, ticket: updated });
 });
 
 // ─── POST /:id/attachments — upload a file for the next reply ────────────

@@ -26,7 +26,17 @@ import { resolveTicketRecipient } from './ticket-recipient.js';
 
 export type CsatSurveyResult =
   | { sent: true;  token: string }
-  | { sent: false; reason: 'already_requested' | 'already_rated' | 'no_email' | 'no_consent' | 'email_suppressed' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
+  | { sent: false; reason: 'in_progress' | 'already_requested' | 'already_rated' | 'no_email' | 'no_consent' | 'email_suppressed' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
+
+// Provider and SQL errors can contain recipient addresses or query parameters.
+// Keep diagnostics useful without logging those bodies or the survey token.
+export function surveyErrorContext(err: unknown) {
+  const code = (err as { code?: unknown } | null)?.code;
+  return {
+    type: err instanceof PostmarkSendError ? 'PostmarkSendError' : err instanceof Error ? err.constructor.name : 'UnknownError',
+    code: typeof code === 'string' && /^[A-Z0-9]{5}$/.test(code) ? code : null,
+  };
+}
 
 export async function sendCsatSurvey(args: {
   workspaceId: string;
@@ -35,6 +45,32 @@ export async function sendCsatSurvey(args: {
 }): Promise<CsatSurveyResult> {
   const { workspaceId, ticketId } = args;
   if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
+  const sql = getDb();
+  const claim = crypto.randomUUID();
+  const [claimed] = await sql`
+    update tickets set csat_send_claim = ${claim}, csat_send_started_at = now()
+    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+      and merged_into_id is null
+      and (csat_send_claim is null or csat_send_started_at < now() - interval '10 minutes')
+    returning id
+  `;
+  if (!claimed) return { sent: false, reason: 'in_progress' };
+  try {
+    return await sendClaimedSurvey(args, claim);
+  } finally {
+    try {
+      await sql`update tickets set csat_send_claim = null, csat_send_started_at = null
+        where id = ${ticketId} and workspace_id = ${workspaceId} and csat_send_claim = ${claim}`;
+    } catch (err) {
+      console.warn('[csat] claim release deferred until expiry', surveyErrorContext(err));
+    }
+  }
+}
+
+async function sendClaimedSurvey(args: {
+  workspaceId: string; ticketId: string; portalBase?: string;
+}, claim: string): Promise<CsatSurveyResult> {
+  const { workspaceId, ticketId } = args;
   const sql = getDb();
 
   const [t] = await sql<{
@@ -53,7 +89,7 @@ export async function sendCsatSurvey(args: {
   `;
   if (!t) return { sent: false, reason: 'no_workspace' };
   if (t.csat_submitted_at)   return { sent: false, reason: 'already_rated' };
-  if (t.csat_requested_at)   return { sent: false, reason: 'already_requested' };
+  if (t.csat_requested_at && t.csat_token) return { sent: false, reason: 'already_requested' };
   const customer = { first_name: t.first_name, last_name: t.last_name };
   const recipient = await resolveTicketRecipient(workspaceId, ticketId);
   const customerEmail = recipient?.email;
@@ -70,10 +106,8 @@ export async function sendCsatSurvey(args: {
   const workspaceSlug = t.ws_slug;
   if (!workspaceSlug) return { sent: false, reason: 'no_workspace' };
 
-  // Generate the customer-link token first. We commit it to the row
-  // before sending so the survey URL is valid the moment the email
-  // lands. Reusing an existing token (idempotent on retry) keeps the
-  // link stable if the email is sent twice for some reason.
+  // Publish the token with the accepted-send timestamp below. Reuse a token
+  // when retrying, but never treat a legacy browser-only date as a sent email.
   const token = t.csat_token || generateToken();
 
   // Outbound identity is resolved by sendBrandedEmail below: brand-owned
@@ -141,10 +175,15 @@ export async function sendCsatSurvey(args: {
   // possible if Postmark transiently fails (the next resolve event
   // or a manual trigger can retry without bouncing off the
   // "already_requested" guard).
-  await sql`
+  const [confirmed] = await sql`
     update tickets set csat_token = ${token}, csat_requested_at = now()
-    where id = ${ticketId} and workspace_id = ${workspaceId}
+    where id = ${ticketId} and workspace_id = ${workspaceId} and csat_send_claim = ${claim}
+    returning id
   `;
+  if (!confirmed) {
+    console.warn('[csat] send accepted but claim no longer owned');
+    return { sent: false, reason: 'send_failed' };
+  }
 
   return { sent: true, token };
 }
