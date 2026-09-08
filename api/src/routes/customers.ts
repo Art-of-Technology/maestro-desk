@@ -6,6 +6,7 @@ import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str } from '../lib/maestro.js';
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
+import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { applyPlayerToCustomer, linkedCategories, scheduleLink, linkCustomerToPlayer, playerProfileFields } from '../lib/player-identity.js';
 import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
 import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
@@ -132,11 +133,11 @@ customers.post('/from-player', async (c) => {
       const [created] = await tx<{ id: string }[]>`
         insert into customers
           (workspace_id, display_id, first_name, last_name, username, email, mobile, vip_tier, jurisdiction, brand,
-           maestro_user_id, maestro_member_id, player_lookup_at)
+           maestro_user_id, backoffice_url, player_lookup_at)
         values
           (${workspaceId}, ${displayId}, ${str(m.firstName)}, ${str(m.lastName)}, ${fields.username},
            ${email}, ${str(m.mobile)}, ${fields.vip_tier}, ${fields.jurisdiction}, ${fields.brand},
-           ${str(m.userId)}, ${str(m.userId) ? str(m.memberId) : null}, now())
+           ${str(m.userId)}, ${playerBackofficeUrl(brandId, str(m.userId))}, now())
         returning id
       `;
       await ensurePrimaryContacts(tx, { workspaceId, customerId: created.id, email, mobile: str(m.mobile) }, { strict: true });

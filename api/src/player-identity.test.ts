@@ -123,7 +123,7 @@ runDbTests('player identity linking (DB-backed)', () => {
 
     const r = await row(id);
     expect(r.maestro_user_id).toBe(PLAYER.userId);
-    expect(r.maestro_member_id).toBe('4711');       // numeric → text
+    expect(r.maestro_member_id).toBeNull();       // Global ID is not in the gateway contract
     expect(r.username).toBe('ferit_bey');
     expect(r.vip_tier).toBe('Gold');
     expect(r.jurisdiction).toBe('TR');
@@ -322,7 +322,8 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect(body.customer.mobiles[0].is_primary).toBe(true);
     expect(calls).toHaveLength(1);
     const url = new URL(calls[0].url);
-    expect(url.searchParams.get('maestroUserId')).toBe(PLAYER.userId);
+    expect(url.searchParams.get('memberId')).toBe(PLAYER.userId);
+    expect(url.searchParams.has('maestroUserId')).toBe(false);
     expect(url.searchParams.has('email')).toBe(false);
     expect(calls[0].brandId).toBe(brand);
     expect((await row(id)).mobile).toBe(PLAYER.mobile);
@@ -335,6 +336,32 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('adds a verified backoffice link to an otherwise complete Space Casino account and preserves imported details', async () => {
+    const spaceBrand = '58d5016a-91bb-49e6-a9be-b3f36f08afde';
+    await sql`update workspaces set maestro_brand_id = ${spaceBrand} where id = ${ws}`;
+    try {
+      const id = await mkCustomer(ws, `space-link-${RUN}@example.test`, {
+        maestro_user_id: '50119', maestro_member_id: 'imported-global-id',
+        since: '2026-08-30', username: 'saved', vip_tier: '1', jurisdiction: 'MX',
+        brand: 'Space Casino', mobile: '+52 123',
+      });
+      stubGateway({ ...PLAYER, userId: '50119' });
+      const response = await refresh(id);
+      const body = await response.json() as any;
+      expect(body.customer.backoffice_url).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      expect(body.customer.maestro_member_id).toBe('imported-global-id');
+      expect(new Date(body.customer.since).toISOString().slice(0, 10)).toBe('2026-08-30');
+      expect(calls).toHaveLength(1);
+      expect(calls[0].brandId).toBe(spaceBrand);
+      await sql`update customers set backoffice_url = 'https://example.com/custom' where id = ${id}`;
+      expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: { ...PLAYER, userId: '50119' } })).toBe(false);
+      const [saved] = await sql`select backoffice_url from customers where id = ${id}`;
+      expect(saved.backoffice_url).toBe('https://example.com/custom');
+    } finally {
+      await sql`update workspaces set maestro_brand_id = ${brand} where id = ${ws}`;
+    }
+  });
+
   it('preserves agent values and existing primary and secondary mobile contacts during repair', async () => {
     const id = await mkCustomer(ws, `preserve-${RUN}@example.test`, {
       maestro_user_id: PLAYER.userId, username: 'agent', vip_tier: 'Silver', jurisdiction: 'MT',
@@ -342,7 +369,7 @@ runDbTests('player identity linking (DB-backed)', () => {
     });
     const { addContact } = await import('./lib/customer-contacts.js');
     await addContact(sql, { workspaceId: ws, customerId: id, kind: 'mobile', value: '+44 222' });
-    expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: PLAYER })).toBe(true);
+    expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: PLAYER })).toBe(false);
     const saved = await row(id);
     expect(saved.username).toBe('agent');
     expect(saved.vip_tier).toBe('Silver');

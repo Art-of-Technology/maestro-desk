@@ -185,8 +185,8 @@ export function applyCustomerRow(target, c) {
   target.first        = c.first_name || '';
   target.last         = c.last_name || '';
   target.username     = c.username || '';
-  target.maestroUserId = c.maestro_user_id || '';   // Maestro global player id (auto-linked, read-only)
-  target.memberId      = c.maestro_member_id || ''; // per-brand member number
+  target.maestroUserId = c.maestro_user_id || '';   // Member ID (legacy property name, auto-linked)
+  target.memberId      = c.maestro_member_id || ''; // Global ID (verified import; legacy property name)
   target.email        = c.email || '';   // primary mirror (server-derived for merged-away rows)
   target.mobile       = c.mobile || '';
   target.emails       = Array.isArray(c.emails)  ? c.emails  : [];   // Phase 4 contacts model

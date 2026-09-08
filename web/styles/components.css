@@ -235,3 +235,8 @@ textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
 .presence-banner{display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--purple-lt);border-bottom:1px solid var(--purple);color:var(--purple);font-size:11.5px;line-height:1.4}
 .presence-banner strong{font-weight:600;color:var(--purple)}
 .presence-banner-dot{width:7px;height:7px;border-radius:50%;background:var(--purple);flex-shrink:0;animation:presence-pulse 1.2s ease-in-out infinite}
+
+/* Copy controls remain available to pointer and keyboard users. */
+.copy-value{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;width:28px;height:28px;margin-left:4px;padding:4px;border:0;border-radius:4px;background:transparent;color:var(--ink3);cursor:pointer;flex-shrink:0}
+.copy-value:hover{background:var(--off);color:var(--ink)}
+.copy-value:focus-visible{outline:2px solid var(--purple);outline-offset:2px}

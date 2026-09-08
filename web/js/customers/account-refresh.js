@@ -9,7 +9,7 @@ const RETRY_MS = 60_000;
 
 export async function refreshCustomerAccount(customer, onUpdated, onError) {
   if (!customer._uuid || customer.erased || customer.mergedInto || customer._mergedIntoUuid) return;
-  if (customer.maestroUserId && ['username', 'brand', 'mobile', 'vip', 'jurisdiction'].every(k => String(customer[k] ?? '').trim())) return;
+  if (customer.maestroUserId && ['username', 'brand', 'mobile', 'vip', 'jurisdiction', 'bo'].every(k => String(customer[k] ?? '').trim())) return;
   const token = getJwt();
   const workspace = getWorkspaceId();
   if (!token || !workspace) return;
