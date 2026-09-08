@@ -1,4 +1,3 @@
-import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth, maestroSignInEnabled, MAESTRO_PROVIDER_ID } from '../lib/auth.js';
@@ -19,6 +18,7 @@ import {
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
+import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 // Maestro Connect integration routes.
