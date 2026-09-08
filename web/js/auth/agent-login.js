@@ -9,10 +9,12 @@
 // God reload is handled by autoResumePlatformAdmin() (see platform-admin.js).
 
 import { signIn, rehydrateUser, signOut } from '../core/auth-client.js';
-import { setWorkspaceId, getWorkspaceId } from '../core/api-client.js';
+import { setWorkspaceId, getWorkspaceId, setBrandId, apiGet } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
 import { enterGod } from './platform-admin.js';
+import { requestedRoute, resumeUrlRouting, discardRequestedRoute } from '../core/url-navigation.js';
+import { showToast } from '../core/toast.js';
 
 // Cached between sign-in and workspace pick (for the 2+ picker click handler).
 let _memberships = null;
@@ -39,7 +41,7 @@ async function submitLogin() {
   if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
   try {
     const me = await signIn(email, pw);
-    routeAfterAuth(me);
+    await routeAfterAuth(me);
   } catch (err) {
     showError(err?.message || 'Sign-in failed.');
   } finally {
@@ -56,9 +58,17 @@ async function submitLogin() {
  *   - 1 membership          → auto-enter that workspace
  *   - 2+ memberships        → workspace picker
  */
-export function routeAfterAuth(me) {
+export async function routeAfterAuth(me) {
   _user = me.user;
   _memberships = me.memberships || [];
+
+  if (requestedRoute()?.workspaceId) {
+    try {
+      const membership = await routeMembership(me);
+      if (await enterWorkspace(membership)) return;
+      return await recoverFromRoute(me);
+    } catch (err) { return await recoverFromRoute(me, err); }
+  }
 
   if (_user?.is_platform_admin) { enterGod(_user); return; }
 
@@ -66,7 +76,7 @@ export function routeAfterAuth(me) {
     signOut();
     return showError('No workspace access yet — ask your admin for an invite.');
   }
-  if (_memberships.length === 1) { enterWorkspace(_memberships[0]); return; }
+  if (_memberships.length === 1) return await enterWorkspace(_memberships[0]);
   renderPicker(_memberships);
 }
 
@@ -107,14 +117,18 @@ document.getElementById('login-password')
   ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(); });
 
 async function enterWorkspace(m) {
-  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return; }
+  if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return false; }
   setWorkspaceId(m.workspace_id);
+  setBrandId(m.maestro_brand_id || null);
   try {
     await bootShell(_user, m);
+    return true;
   } catch (err) {
     // Unwind so the user lands back on the form, not a half-booted shell.
     setWorkspaceId(null);
+    setBrandId(null);
     showError(err?.message || 'Failed to load workspace data.');
+    return false;
   }
 }
 
@@ -126,11 +140,13 @@ async function enterWorkspace(m) {
 export async function enterWorkspaceMembership(user, m) {
   if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return false; }
   setWorkspaceId(m.workspace_id);
+  setBrandId(m.maestro_brand_id || null);
   try {
     await bootShell(user, m);
     return true;
   } catch (err) {
     setWorkspaceId(null);
+    setBrandId(null);
     showError(err?.message || 'Failed to load workspace data.');
     return false;
   }
@@ -151,6 +167,34 @@ async function bootShell(user, membership) {
     logoUrl:      membership.workspace_logo_url,
     primaryColor: membership.workspace_primary_color,
   });
+  await resumeUrlRouting();
+}
+
+// URL workspace IDs are hints, never grants. Resolve them against authenticated
+// memberships or the existing platform-admin endpoint before loading data.
+async function routeMembership(me) {
+  const workspaceId = requestedRoute()?.workspaceId;
+  if (me.user?.is_platform_admin) {
+    const { brand } = await apiGet(`/api/v1/god/brands/${workspaceId}`, { workspace: false });
+    if (!brand || brand.suspended_at) throw new Error('This workspace is unavailable.');
+    return { workspace_id: brand.id, workspace_name: brand.name, workspace_slug: brand.slug,
+      workspace_logo_url: brand.logo_url, workspace_primary_color: brand.primary_color,
+      maestro_brand_id: brand.maestro_brand_id, role_name: 'Platform Admin',
+      can_manage_custom_fields: true, can_delete: true };
+  }
+  const membership = (me.memberships || []).find(m => m.workspace_id === workspaceId && !m.suspended);
+  if (!membership) throw new Error('You do not have access to the workspace in this link.');
+  return membership;
+}
+
+async function recoverFromRoute(me, err) {
+  discardRequestedRoute();
+  setWorkspaceId(null);
+  setBrandId(null);
+  showToast(err?.message || 'Could not open the workspace in this link.', 'warn');
+  // The link is gone, so normal sign-in can show another workspace or the
+  // platform home. A failed destination must not trap a valid account.
+  await routeAfterAuth(me);
 }
 
 function deriveInitials(name, email) {
@@ -178,12 +222,22 @@ function escText(s) {
  * auto-resume. Returns true if the shell was bootstrapped.
  */
 export async function autoResumeAgent() {
-  const workspaceId = getWorkspaceId();
+  const target = requestedRoute();
+  const workspaceId = target?.workspaceId || getWorkspaceId();
   if (!workspaceId) return false;
   const me = await rehydrateUser();
   if (!me) return false;
-  // Platform admins (God) land in the platform view by default — even on reload
-  // — so don't resume a stored workspace for them; app.js startup falls through
+  if (target?.workspaceId) {
+    try {
+      const membership = await routeMembership(me);
+      if (!await enterWorkspaceMembership(me.user, membership)) await recoverFromRoute(me);
+    } catch (err) {
+      await recoverFromRoute(me, err);
+    }
+    return true;
+  }
+  // Without an explicit workspace link, platform admins land in the platform
+  // view. Do not resume an old stored workspace; app.js startup falls through
   // to autoResumePlatformAdmin, which shows the God view.
   if (me.user?.is_platform_admin) return false;
   const m = (me.memberships || []).find(x => x.workspace_id === workspaceId);

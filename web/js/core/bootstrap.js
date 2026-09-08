@@ -57,7 +57,10 @@ export async function loadMoreTickets() {
       }
     }
   }
-  for (const m of newMapped) TICKETS.push(m);
+  // A deep link may have loaded a later page's ticket directly already.
+  for (const m of newMapped) {
+    if (!TICKETS.some(t => t._uuid === m._uuid)) TICKETS.push(m);
+  }
   _ticketsOffset += newMapped.length;
   _ticketsTotal   = res.total ?? _ticketsTotal;
   return newMapped.length;
