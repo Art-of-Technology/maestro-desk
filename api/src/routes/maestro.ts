@@ -14,9 +14,11 @@ import {
   workerMaestroConfigured,
   MaestroError,
   memberNotFound,
+  str,
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
+import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 
 // Maestro Connect integration routes.
@@ -301,7 +303,7 @@ maestro.get('/players', requireAuthOnly, async (c) => {
       targetId: access.playerId,
       metadata: { brand_id: brandId, lookup_key: Object.keys(key)[0], accessed: access.accessed },
     });
-    return c.json({ found: true, member });
+    return c.json({ found: true, member, backofficeUrl: playerBackofficeUrl(brandId, str(member.userId)) });
   } catch (err) {
     throw toHttp(err);
   }

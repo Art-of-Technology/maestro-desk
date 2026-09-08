@@ -22,6 +22,7 @@
 // from the window bridge, as elsewhere.
 
 import { copyButton } from '../core/copy.js';
+import { showToast } from '../core/toast.js';
 import { apiGet, apiPost, getBrandId } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
 import { setCustomerSelected } from '../core/state.js';
@@ -39,6 +40,8 @@ let LOOKUP_STATE = 'idle';        // 'idle' | 'loading' | 'done' | 'notfound' | 
 let PLAYER = null;                // normalized member when state==='done'
 let LOOKUP_ERROR = null;          // user-facing error string
 let STARTING = false;             // start-a-conversation in flight
+let CONVERSATION_SUBJECT = '';
+let CONVERSATION_ERROR = '';
 
 const KEY_LABELS = { email: 'Email or username', memberId: 'Member ID', maestroUserId: 'Global ID' };
 
@@ -52,11 +55,14 @@ export function resetPlayerLookup() {
   PLAYER = null;
   LOOKUP_ERROR = null;
   STARTING = false;
+  CONVERSATION_SUBJECT = '';
+  CONVERSATION_ERROR = '';
 }
 
 // ─── Data fetch + normalization ─────────────────────────────────────────────
 
 async function runLookup() {
+  if (STARTING) return;
   const el = document.getElementById('player-lookup-input');
   const value = (el ? el.value : LOOKUP_VALUE).trim();
   LOOKUP_VALUE = value;
@@ -78,6 +84,9 @@ async function runLookup() {
     const queryValue = local ? local.maestroUserId : value;
     const res = await apiGet(`/api/v1/maestro/players?${key}=${encodeURIComponent(queryValue)}`, { brand: true });
     PLAYER = normalizePlayer(res.member || {});
+    PLAYER.bo = res.backofficeUrl || '';
+    CONVERSATION_SUBJECT = `Outreach to ${PLAYER.first || PLAYER.name}`.trim().slice(0, 500);
+    CONVERSATION_ERROR = '';
     LOOKUP_STATE = 'done';
   } catch (err) {
     if (err?.status === 404) {
@@ -142,14 +151,24 @@ function localMatchFor(player) {
 // agent in that ticket so they can compose the outbound email.
 async function startConversation() {
   if (!PLAYER || STARTING) return;
+  const subject = CONVERSATION_SUBJECT.trim();
+  if (!subject || subject.length > 500) {
+    CONVERSATION_ERROR = !subject ? 'Enter a subject.' : 'Keep the subject to 500 characters or fewer.';
+    renderPage('customers');
+    document.getElementById('conversation-subject')?.focus();
+    return;
+  }
+  const email = PLAYER.email;
+  CONVERSATION_ERROR = '';
   STARTING = true;
   renderPage('customers');
+  let created = false;
   try {
-    const cust = await apiPost('/api/v1/customers/from-player', { email: PLAYER.email }, { brand: true });
+    const cust = await apiPost('/api/v1/customers/from-player', { email }, { brand: true });
     const customerId = cust?.customer?.id;
     if (!customerId) throw new Error('Could not create the customer record.');
-    const subject = `Outreach to ${PLAYER.first || PLAYER.name}`.trim();
     const res = await apiPost('/api/v1/tickets', { customer_id: customerId, subject });
+    created = true;
     const displayId = res?.ticket?.display_id;
     // Refresh the in-memory tickets + customers so the new ticket is openable.
     await loadWorkspaceData();
@@ -157,9 +176,14 @@ async function startConversation() {
     if (displayId) openTicket(displayId);
     else renderPage('tickets');
   } catch (err) {
+    if (created) {
+      resetPlayerLookup();
+      renderPage('tickets');
+      showToast('Conversation created. Refresh to open it.', 'warn');
+      return;
+    }
     STARTING = false;
-    LOOKUP_ERROR = err?.message || 'Could not start the conversation.';
-    LOOKUP_STATE = 'error';
+    CONVERSATION_ERROR = err?.message || 'Could not start the conversation.';
     if (LOOKUP_OPEN) renderPage('customers');
   }
 }
@@ -204,7 +228,7 @@ function renderPlayerLookup() {
             <input id="player-lookup-input" class="filter-select" style="flex:1;min-width:220px;max-width:420px"
               placeholder="${window.escAttr(KEY_LABELS[LOOKUP_BY])}…" value="${window.escAttr(LOOKUP_VALUE)}"
               data-input-action="players.setValue"/>
-            <button class="btn btn-sm btn-solid" data-action="players.run">Look up</button>
+            <button class="btn btn-sm btn-solid" data-action="players.run" ${STARTING ? 'disabled' : ''}>Look up</button>
           </div>
           <div style="font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.5">Live from Maestro Connect. Lookup is by an exact key — not a name search. Nothing is stored locally until you start a conversation.</div>
         </div>
@@ -220,6 +244,7 @@ function vipChip(vip) {
 
 function renderPlayerCard(p) {
   const local = localMatchFor(p);
+  const backoffice = [local?.bo, p.bo].find(v => typeof v === 'string' && /^https?:\/\//i.test(v)) || '';
   const balance = (p.balance !== undefined && p.balance !== null)
     ? `${p.balance}${p.balanceCy ? ' ' + p.balanceCy : ''}` : '';
   const rows = [
@@ -235,7 +260,7 @@ function renderPlayerCard(p) {
     ['Member ID', p.userId],
     ['Global ID', local?.memberId],
     ['Customer since', local?.since],
-    ['Backoffice link', local?.bo],
+    ['Backoffice link', backoffice],
   ].filter(([, v]) => v !== '' && v != null);
 
   // Dump any further primitive fields (incl. flattened attributes) we didn't map
@@ -292,12 +317,19 @@ function renderPlayerCard(p) {
       : `<div class="card" style="margin-bottom:16px">
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="font-size:12px;color:var(--ink2);flex:1;min-width:200px">No support history yet — they've never opened a ticket. Start a conversation to reach out (this creates their customer record and opens a ticket you can email from).</div>
+            <div style="flex:1;min-width:220px">
+              <label for="conversation-subject" style="display:block;font-size:12px;margin-bottom:6px">Subject</label>
+              <input id="conversation-subject" class="filter-select" style="width:100%" maxlength="500" required
+                value="${window.escAttr(CONVERSATION_SUBJECT)}" data-input-action="players.setSubject"
+                aria-describedby="conversation-error" ${STARTING ? 'disabled' : ''}/>
+            </div>
             <button class="btn btn-sm btn-solid" ${STARTING ? 'disabled' : ''} data-action="players.startConvo">${STARTING ? 'Starting…' : '✉ Start a conversation'}</button>
           </div>
+          <div id="conversation-error" role="alert" style="color:var(--red);font-size:12px;margin-top:8px">${window.escHtml(CONVERSATION_ERROR)}</div>
         </div>`}
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">Profile</div>
-      ${rows.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${window.escHtml(v)}${copyButton(v, k)}</span></div>`).join('')}
+      ${rows.map(([k, v]) => `<div class="ts-row"><span class="ts-key">${window.escHtml(k)}</span><span class="ts-val">${k === 'Backoffice link' ? `<a href="${window.escAttr(v)}" target="_blank" rel="noopener noreferrer">Open in backoffice ↗</a>` : window.escHtml(v)}${copyButton(v, k)}</span></div>`).join('')}
     </div>
     ${extra.length ? `
       <div class="card">
@@ -331,4 +363,5 @@ registerChangeActions({
 
 registerInputActions({
   'players.setValue': (ds, el) => { LOOKUP_VALUE = el.value; },
+  'players.setSubject': (ds, el) => { CONVERSATION_SUBJECT = el.value; },
 });

@@ -10,7 +10,7 @@
 //   RUN_DB_TESTS=1 DATABASE_URL='…?sslmode=disable' bun test src/player-identity.test.ts
 
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
 import { memberNotFound } from './lib/player-identity.js';
 
 describe('memberNotFound', () => {
@@ -334,6 +334,33 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect(audit.actor_user_id).toBe(createdUserIds[0]);
     expect((await refresh(id)).status).toBe(200);
     expect(calls).toHaveLength(1);
+  });
+
+  it('returns a backoffice link from player lookup without creating a local customer', async () => {
+    const spaceBrand = '58d5016a-91bb-49e6-a9be-b3f36f08afde';
+    const [{ count: before }] = await sql`select count(*)::int from customers where workspace_id = ${ws}`;
+    const lookup = (brandId: string) => app.request('/api/v1/maestro/players?memberId=50119', {
+      headers: { Authorization: `Bearer ${agentToken}`, 'X-Brand-Id': brandId, 'X-Workspace-Id': ws },
+    });
+    const authModule = await import('./lib/auth.js');
+    const originalAuthExports = { ...authModule };
+    // Enable the lookup route without depending on another suite's OAuth mock.
+    mock.module('./lib/auth.js', () => ({ ...originalAuthExports, maestroSignInEnabled: true }));
+    try {
+      stubGateway({ ...PLAYER, userId: '50119' });
+      const other = await lookup(brand);
+      expect(other.status).toBe(200);
+      expect((await other.json() as any).backofficeUrl).toBeNull();
+      await sql`update workspaces set maestro_brand_id = ${spaceBrand} where id = ${ws}`;
+      const response = await lookup(spaceBrand);
+      expect(response.status).toBe(200);
+      expect((await response.json() as any).backofficeUrl).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      const [{ count: after }] = await sql`select count(*)::int from customers where workspace_id = ${ws}`;
+      expect(after).toBe(before);
+    } finally {
+      mock.module('./lib/auth.js', () => originalAuthExports);
+      await sql`update workspaces set maestro_brand_id = ${brand} where id = ${ws}`;
+    }
   });
 
   it('adds a verified backoffice link to an otherwise complete Space Casino account and preserves imported details', async () => {
