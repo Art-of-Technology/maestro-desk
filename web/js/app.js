@@ -25,7 +25,7 @@ import { DASH_WIDGETS, DEFAULT_DASH_LAYOUT } from './dashboard/index.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import { REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT } from './reports/index.js';
 import { nav, renderPage } from './core/router.js';
-import { initUrlRouting, resumeUrlRouting, suspendUrlRouting } from './core/url-navigation.js';
+import { initUrlRouting, resumeUrlRouting, suspendUrlRouting, discardRequestedRoute } from './core/url-navigation.js';
 
 // keybindings.js registers the global `/` and Cmd-K shortcuts as a side effect
 // of import. Callers import navTo/focusGlobalSearch from core/keybindings.js
@@ -143,6 +143,7 @@ function resetWorkspaceBrand() {
 
 function logout() {
   suspendUrlRouting();
+  discardRequestedRoute();
   // Release any presence row before we wipe the JWT — sendLeaveBeacon
   // needs the token to authorise the DELETE.
   stopPresence();

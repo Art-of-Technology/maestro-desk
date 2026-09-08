@@ -128,6 +128,7 @@ async function enterWorkspace(m) {
     setWorkspaceId(null);
     setBrandId(null);
     showError(err?.message || 'Failed to load workspace data.');
+    return false;
   }
 }
 
@@ -147,7 +148,6 @@ export async function enterWorkspaceMembership(user, m) {
     setWorkspaceId(null);
     setBrandId(null);
     showError(err?.message || 'Failed to load workspace data.');
-    return false;
     return false;
   }
 }
