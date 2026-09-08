@@ -1,4 +1,5 @@
-import { COMPOSE_TAB } from '../core/state.js';
+import { COMPOSE_TAB, SESSION } from '../core/state.js';
+import { getWorkspaceId } from '../core/api-client.js';
 // ─── Composer drafts ─────────────────────────────────────────────────────────
 // Persist the composer textarea's content to localStorage per (ticket, tab)
 // so an agent can switch tickets mid-draft without losing work. The key
@@ -11,7 +12,13 @@ import { COMPOSE_TAB } from '../core/state.js';
 // caller that knows which tab it means (the new-ticket flow always writes a
 // customer-facing 'reply' draft) doesn't have to move the app-wide global to
 // address the right key.
-function getDraftKey(id, tab = COMPOSE_TAB) { return `draft:${id}:${tab}`; }
+// Display numbers repeat across workspaces; browsers can also be shared by
+// agents. Legacy unscoped drafts cannot safely be attributed to either, so
+// leave them stored without automatically attaching them to a conversation.
+function getDraftPrefix(id) {
+  return `draft:v2:${getWorkspaceId() || 'demo'}:${SESSION?.userId || 'demo'}:${id}:`;
+}
+function getDraftKey(id, tab = COMPOSE_TAB) { return getDraftPrefix(id) + tab; }
 
 export function loadDraft(id, tab)   { return localStorage.getItem(getDraftKey(id, tab)) || ''; }
 
@@ -27,7 +34,7 @@ export function clearDraft(id, tab) { localStorage.removeItem(getDraftKey(id, ta
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB
 // would leave the other tab's draft orphaned in localStorage forever.
 export function clearAllDrafts(id) {
-  const prefix = `draft:${id}:`;
+  const prefix = getDraftPrefix(id);
   for (let i = localStorage.length - 1; i >= 0; i--) {
     const k = localStorage.key(i);
     if (k && k.startsWith(prefix)) localStorage.removeItem(k);

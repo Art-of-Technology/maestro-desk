@@ -9,6 +9,8 @@ globalThis.localStorage = globalThis.sessionStorage = {
   getItem: key => saved.get(key) ?? null,
   setItem: (key, value) => saved.set(key, value),
   removeItem: key => saved.delete(key),
+  get length() { return saved.size; },
+  key: index => [...saved.keys()][index] ?? null,
 };
 const state = await import('../web/js/core/state.js');
 const TICKETS = [], CUSTOMERS = [], pushes = [], warnings = [], reads = [];
@@ -37,6 +39,7 @@ mock.module('../web/js/tickets/detail.js', () => ({ openTicket: id => {
   routing.syncRoute('tickets', id);
 } }));
 const routing = await import('../web/js/core/url-navigation.js');
+const drafts = await import('../web/js/tickets/drafts.js');
 
 beforeEach(() => {
   routing.suspendUrlRouting();
@@ -49,6 +52,29 @@ beforeEach(() => {
 });
 
 describe('URL navigation', () => {
+  it('keeps same-number drafts separate across workspaces and users', () => {
+    drafts.saveDraft('TK-55', 'Workspace A reply', 'reply');
+    drafts.saveDraft('TK-55', 'Workspace A note', 'note');
+    workspaceId = otherWs;
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('');
+    drafts.saveDraft('TK-55', 'Workspace B reply', 'reply');
+    workspaceId = ws;
+    state.setSession({ role: 'Admin', userId: 'another-user' });
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('');
+    state.setSession({ role: 'Admin', userId: 'test' });
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('Workspace A reply');
+    drafts.clearAllDrafts('TK-55');
+    expect(drafts.loadDraft('TK-55', 'note')).toBe('');
+    workspaceId = otherWs;
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('Workspace B reply');
+  });
+
+  it('does not guess the ownership of legacy unscoped drafts', () => {
+    localStorage.setItem('draft:TK-55:reply', 'Legacy content');
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('');
+    drafts.clearAllDrafts('TK-55');
+    expect(localStorage.getItem('draft:TK-55:reply')).toBe('Legacy content');
+  });
   it('loads a ticket absent from the first page and replaces the initial entry', async () => {
     window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
     await routing.resumeUrlRouting();
