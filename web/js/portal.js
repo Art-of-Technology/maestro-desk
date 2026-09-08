@@ -283,8 +283,17 @@
         // workspaces from rendering a blank brand.
         if (ws.logo_url) {
           const logoEl = document.getElementById('ws-logo');
+          const nameEl = document.getElementById('ws-name');
+          logoEl.alt = ws.name;
+          logoEl.onload = () => {
+            logoEl.style.display = 'block';
+            nameEl.hidden = true;
+          };
+          logoEl.onerror = () => {
+            logoEl.style.display = 'none';
+            nameEl.hidden = false;
+          };
           logoEl.src = ws.logo_url;
-          logoEl.style.display = 'block';
         }
         if (ws.portal_tagline) {
           document.getElementById('ws-tagline').textContent = ws.portal_tagline;
