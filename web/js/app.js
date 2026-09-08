@@ -25,6 +25,7 @@ import { DASH_WIDGETS, DEFAULT_DASH_LAYOUT } from './dashboard/index.js';
 import { loadLayout, reconcileLayout } from './core/widget-shell.js';
 import { REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT } from './reports/index.js';
 import { nav, renderPage } from './core/router.js';
+import { initUrlRouting, resumeUrlRouting, suspendUrlRouting } from './core/url-navigation.js';
 
 // keybindings.js registers the global `/` and Cmd-K shortcuts as a side effect
 // of import. Callers import navTo/focusGlobalSearch from core/keybindings.js
@@ -87,6 +88,7 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
   // to more than one workspace (fire-and-forget; resolves its own trigger).
   if (userId && !isPlatformAdmin()) initWorkspaceSwitcher(userId);
   renderPage('dashboard');
+  if (!userId) void resumeUrlRouting();
 }
 // Swap the sidebar brand block (and the browser tab title) to the
 // signed-in workspace's identity. Called from the agent-login boot
@@ -140,6 +142,7 @@ function resetWorkspaceBrand() {
 }
 
 function logout() {
+  suspendUrlRouting();
   // Release any presence row before we wipe the JWT — sendLeaveBeacon
   // needs the token to authorise the DELETE.
   stopPresence();
@@ -301,6 +304,7 @@ initGlobalSearchInput();
 // explicit "I'm here as an agent" signal. Platform-admin resume is the
 // fallback. Demo persona flow stays on the auth screen until the user
 // clicks one.
+initUrlRouting();
 (async () => {
   try {
     // Landing from an emailed set-password / invite link? Show the

@@ -53,6 +53,7 @@ import { renderGod } from '../god/index.js';
 import { applyCollapsibleHeaders } from './collapsible.js';
 import { stopPresence } from './presence.js';
 import { taglineCheck } from '../tagline-sdk/index.js';
+import { syncRoute, beginRouteNavigation } from './url-navigation.js';
 
 // Merged sidebar destinations own extra page keys through their header tabs
 // (Insights = reports|activity). Map those tab
@@ -63,6 +64,12 @@ import { taglineCheck } from '../tagline-sdk/index.js';
 const NAV_ITEM_FOR_PAGE = { activity: 'reports', 'sla-breach': 'reports' };
 
 export function nav(page, el) {
+  beginRouteNavigation();
+  highlightNav(page, el);
+  renderPage(page);
+}
+
+export function highlightNav(page, el) {
   document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
   // The top-bar config cog manages its own active state (set in app.config);
   // any sidebar/card navigation clears it so it doesn't stay visually pressed.
@@ -73,7 +80,6 @@ export function nav(page, el) {
   // sidebar row simply get no highlight.
   const item = el || document.querySelector(`.sb-item[data-page="${NAV_ITEM_FOR_PAGE[page] || page}"]`);
   if (item) item.classList.add('active');
-  renderPage(page);
 }
 
 export function renderPage(page) {
@@ -156,6 +162,7 @@ export function renderPage(page) {
   applyCollapsibleHeaders();
   updateNavBadges();
   taglineCheck(page);
+  syncRoute(page, null);
 }
 
 // ─── Page-render hooks (updateNavBadges) ────────────────────────────────────

@@ -1,0 +1,150 @@
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+
+const ws = '11111111-1111-4111-8111-111111111111';
+const otherWs = '22222222-2222-4222-8222-222222222222';
+const ticketId = '44444444-4444-4444-8444-444444444444';
+const customerId = '33333333-3333-4333-8333-333333333333';
+const saved = new Map();
+globalThis.localStorage = globalThis.sessionStorage = {
+  getItem: key => saved.get(key) ?? null,
+  setItem: (key, value) => saved.set(key, value),
+  removeItem: key => saved.delete(key),
+};
+const state = await import('../web/js/core/state.js');
+const TICKETS = [], CUSTOMERS = [], pushes = [], warnings = [], reads = [];
+let workspaceId, jwt, reloads, fetchTicket;
+globalThis.window = { location: { hash: '', reload: () => reloads++ } };
+globalThis.history = {
+  pushState: (_state, _title, hash) => { pushes.push(hash); window.location.hash = hash; },
+  replaceState: (_state, _title, hash) => { window.location.hash = hash; },
+};
+mock.module('../web/js/core/api-client.js', () => ({
+  getWorkspaceId: () => workspaceId, getJwt: () => jwt,
+  apiGet: path => { reads.push({ path, workspaceId }); return fetchTicket(); },
+}));
+mock.module('../web/js/core/data.js', () => ({ TICKETS, CUSTOMERS }));
+mock.module('../web/js/core/toast.js', () => ({ showToast: message => warnings.push(message) }));
+mock.module('../web/js/core/bootstrap.js', () => ({
+  updateOrInsertTicket: row => TICKETS.push({ _uuid: row.id, id: row.display_id }),
+}));
+mock.module('../web/js/customers/player-lookup.js', () => ({ resetPlayerLookup() {} }));
+mock.module('../web/js/core/router.js', () => ({ nav: page => {
+  state.setCurrentPage(page); state.setCurrentTicket(null);
+  routing.syncRoute(page, null);
+} }));
+mock.module('../web/js/tickets/detail.js', () => ({ openTicket: id => {
+  state.setCurrentPage('tickets'); state.setCurrentTicket(id);
+  routing.syncRoute('tickets', id);
+} }));
+const routing = await import('../web/js/core/url-navigation.js');
+
+beforeEach(() => {
+  routing.suspendUrlRouting();
+  saved.clear(); TICKETS.length = CUSTOMERS.length = pushes.length = warnings.length = reads.length = 0;
+  workspaceId = ws; jwt = 'test'; reloads = 0;
+  state.setSession({ role: 'Admin', userId: 'test' });
+  state.setCurrentPage('dashboard'); state.setCurrentTicket(null); state.setCustomerSelected(null);
+  window.location.hash = `#/w/${ws}/dashboard`;
+  fetchTicket = async () => ({ ticket: { id: ticketId, display_id: 'TK-55' } });
+});
+
+describe('URL navigation', () => {
+  it('loads a ticket absent from the first page and replaces the initial entry', async () => {
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    await routing.resumeUrlRouting();
+    expect(reads).toEqual([{ path: `/api/v1/tickets/${ticketId}`, workspaceId: ws }]);
+    expect(state.CURRENT_TICKET).toBe('TK-55');
+    expect(pushes).toHaveLength(0);
+    routing.syncRoute('tickets', 'TK-55');
+    routing.syncRoute('tickets', 'TK-55');
+    expect(pushes).toHaveLength(0);
+  });
+
+  it('records destination changes but never routine re-renders', async () => {
+    await routing.resumeUrlRouting();
+    CUSTOMERS.push({ id: 'M25', _uuid: customerId });
+    state.setCustomerSelected('M25');
+    routing.syncRoute('customers', null);
+    routing.syncRoute('customers', null);
+    expect(pushes).toEqual([`#/w/${ws}/customers/${customerId}`]);
+    window.location.hash = `#/w/${ws}/dashboard`;
+    await routing.resumeUrlRouting();
+    expect(state.CURRENT_PAGE).toBe('dashboard');
+    expect(pushes).toHaveLength(1);
+  });
+
+  it('reboots through authentication before reading another workspace', async () => {
+    window.location.hash = `#/w/${otherWs}/tickets/${ticketId}`;
+    await routing.resumeUrlRouting();
+    expect(reloads).toBe(1);
+    expect(reads).toHaveLength(0);
+    expect(TICKETS).toHaveLength(0);
+  });
+
+  it('does not insert or open a late response after navigating away', async () => {
+    await routing.resumeUrlRouting();
+    let resolve, started;
+    const fetched = new Promise(r => { started = r; });
+    fetchTicket = () => { started(); return new Promise(r => { resolve = r; }); };
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    const pending = routing.resumeUrlRouting();
+    await fetched;
+    state.setCurrentPage('customers'); routing.syncRoute('customers', null);
+    resolve({ ticket: { id: ticketId, display_id: 'TK-55' } });
+    await pending;
+    expect(TICKETS).toHaveLength(0);
+    expect(state.CURRENT_PAGE).toBe('customers');
+    expect(window.location.hash).toBe(`#/w/${ws}/customers`);
+  });
+
+  it('does not insert a late response after logout or a workspace change', async () => {
+    for (const change of [() => routing.suspendUrlRouting(), () => { workspaceId = otherWs; }]) {
+      workspaceId = ws;
+      let resolve, started;
+      const fetched = new Promise(r => { started = r; });
+      fetchTicket = () => { started(); return new Promise(r => { resolve = r; }); };
+      window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+      const pending = routing.resumeUrlRouting();
+      await fetched; change();
+      resolve({ ticket: { id: ticketId, display_id: 'TK-55' } });
+      await pending;
+      expect(TICKETS).toHaveLength(0);
+    }
+  });
+
+  it('cancels a pending link when the current sidebar destination is clicked', async () => {
+    await routing.resumeUrlRouting();
+    let resolve, started;
+    const fetched = new Promise(r => { started = r; });
+    fetchTicket = () => { started(); return new Promise(r => { resolve = r; }); };
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    const pending = routing.resumeUrlRouting();
+    await fetched;
+    routing.beginRouteNavigation(); routing.syncRoute('dashboard', null);
+    resolve({ ticket: { id: ticketId, display_id: 'TK-55' } });
+    await pending;
+    expect(TICKETS).toHaveLength(0);
+    expect(window.location.hash).toBe(`#/w/${ws}/dashboard`);
+  });
+
+  it('handles inaccessible records and forbidden pages without opening them', async () => {
+    window.location.hash = `#/w/${ws}/tickets/${ticketId}`;
+    fetchTicket = async () => { throw Object.assign(new Error('Not found'), { status: 404 }); };
+    await routing.resumeUrlRouting();
+    expect(state.CURRENT_TICKET).toBeNull();
+    expect(warnings[0]).toBe('This record is unavailable in this workspace.');
+    window.location.hash = '#/god';
+    await routing.resumeUrlRouting();
+    expect(state.CURRENT_PAGE).toBe('dashboard');
+  });
+
+  it('preserves only validated internal destinations across OAuth, once', () => {
+    const destination = `#/w/${ws}/customers/${customerId}`;
+    window.location.hash = destination; routing.saveReturnRoute();
+    window.location.hash = '#maestro_session=example'; routing.restoreReturnRoute();
+    expect(window.location.hash).toBe(destination);
+    expect(saved.size).toBe(0);
+    window.location.hash = '#maestro_session=example'; routing.saveReturnRoute();
+    expect(saved.size).toBe(0);
+  });
+});

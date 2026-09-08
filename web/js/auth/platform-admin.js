@@ -6,6 +6,7 @@
 
 import { nav } from '../core/router.js';
 import { rehydrateUser } from '../core/auth-client.js';
+import { resumeUrlRouting } from '../core/url-navigation.js';
 
 export function revealGodNav() {
   const el = document.getElementById('nav-god');
@@ -20,6 +21,7 @@ export function enterGod(user) {
   const initials = user.initials || (user.email || 'PA').slice(0, 2).toUpperCase();
   window.login('Platform Admin', user.name || user.email, initials, { userId: user.id });
   nav('god', document.getElementById('nav-god'));
+  void resumeUrlRouting();
 }
 
 // If a platform-admin JWT survives in sessionStorage, restore the God view

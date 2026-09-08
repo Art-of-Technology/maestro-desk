@@ -11,8 +11,9 @@ import { copyButton } from '../core/copy.js';
 // all still in app.js. navTo is a direct ES import.
 
 import { AGENTS, CANNED_RESPONSES, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS } from '../core/data.js';
-import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinking, setComposeTabValue, setCurrentTicket, setKbSelected } from '../core/state.js';
-import { renderPage, updateNavBadges } from '../core/router.js';
+import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinking, setComposeTabValue, setCurrentTicket, setCurrentPage, setKbSelected } from '../core/state.js';
+import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
+import { syncRoute } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
@@ -120,6 +121,9 @@ export function openTicket(id) {
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
   if (!t) { setCurrentTicket(null); return renderPage('tickets'); }
+  setCurrentPage('tickets');
+  document.body.dataset.currentPage = 'tickets';
+  highlightNav('tickets');
   // Fire-and-forget API load of messages/tags/ai_tags/time_entries. The
   // ticket renders immediately with whatever's already in `t`; when the
   // fetch completes, the entry is mutated in place and we re-render iff
@@ -682,6 +686,7 @@ export function openTicket(id) {
       </div>
     </div>`;
   syncTicketLayout(id);
+  syncRoute('tickets', id);
 
   // Show the most recent reply on open: scroll to the bottom, unless we're
   // restoring a scrolled-up reader's position from an in-place re-render.

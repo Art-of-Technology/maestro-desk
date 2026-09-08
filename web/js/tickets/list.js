@@ -18,7 +18,7 @@ import { copyButton } from '../core/copy.js';
 // handlers assign the core/state.js globals directly, as before.
 
 import { AGENTS, CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
-import { FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
+import { CURRENT_PAGE, CURRENT_TICKET, FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
@@ -102,7 +102,11 @@ function ensureSavedSearchesLoaded() {
   SAVED_SEARCHES_LOADED = true;
   SAVED_SEARCHES_ATTEMPTS++;
   apiGet('/api/v1/saved-searches')
-    .then((res) => { SAVED_SEARCHES = res.saved_searches || []; renderPage('tickets'); })
+    .then((res) => {
+      SAVED_SEARCHES = res.saved_searches || [];
+      // A linked ticket may have opened while the list's optional data loaded.
+      if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+    })
     .catch((err) => {
       SAVED_SEARCHES_LOADED = false;
       const last = SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS;

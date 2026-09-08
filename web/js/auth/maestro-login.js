@@ -21,6 +21,7 @@ import { API_BASE, setJwt, setBrandId, apiGet, apiPost } from '../core/api-clien
 import { rehydrateUser, signOut } from '../core/auth-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { routeAfterAuth, enterWorkspaceMembership } from './agent-login.js';
+import { saveReturnRoute, restoreReturnRoute, requestedRoute } from '../core/url-navigation.js';
 
 // Brands cached between auto-detect and a picker click.
 let _brands = null;
@@ -55,6 +56,7 @@ function setBusy(msg) {
 
 // Kick off the flow (top-level navigation, so the API can set the PKCE cookie).
 function startMaestroLogin() {
+  saveReturnRoute();
   window.location.assign(`${API_BASE}/api/v1/maestro/login`);
 }
 
@@ -90,6 +92,7 @@ export async function handleMaestroRedirect() {
   const params = new URLSearchParams(hash.replace(/^#/, ''));
   // Strip the fragment immediately so the token never lingers in the URL/history.
   history.replaceState({}, '', window.location.pathname + window.location.search);
+  restoreReturnRoute();
 
   const err = params.get('maestro_error');
   if (err) {
@@ -128,7 +131,7 @@ async function detectWorkspaceAndRoute() {
 
   // Platform admins (God) land in the platform view — brands are an agent
   // concept, so we don't run brand selection for them.
-  if (me.user?.is_platform_admin) { routeAfterAuth(me); return; }
+  if (me.user?.is_platform_admin || requestedRoute()?.workspaceId) { await routeAfterAuth(me); return; }
 
   let brands = [];
   try {
@@ -162,7 +165,7 @@ async function selectBrand(brand) {
     return;
   }
   setBrandId(brand.id);   // X-Brand-Id for this agent's player lookups
-  await enterWorkspaceMembership(_pendingMe.user, membership);
+  await enterWorkspaceMembership(_pendingMe.user, { ...membership, maestro_brand_id: brand.id });
 }
 
 function renderBrandPicker(brands, me) {
