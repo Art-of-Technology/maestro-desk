@@ -8,6 +8,20 @@
 .settings-section + .settings-section{border-top:1px solid var(--rule);margin-top:24px;padding-top:24px}
 .settings-h{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule)}
+.ai-settings .btn,.ai-settings .form-input{min-height:44px}
+.ai-settings .btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.ai-settings .toggle{width:44px;height:44px}
+.ai-settings .toggle-slider{inset:13px 6px}
+.ai-settings .toggle input:focus-visible+.toggle-slider{outline:2px solid var(--ink);outline-offset:3px}
+#ai-settings-status{min-height:40px}
+#ai-connection-result{min-height:20px}
+.ai-settings{overflow-wrap:anywhere}
+.ai-settings .settings-row>div{min-width:0}
+@media(max-width:900px){
+  .ai-settings-shell{grid-template-columns:minmax(0,1fr)}
+  .ai-settings-shell .settings-side{flex-direction:row;overflow-x:auto;border-right:0;padding-right:0}
+  .ai-settings-shell .settings-tab{flex-shrink:0}
+}
 .settings-row:last-of-type{border-bottom:none}
 /* ── Customer detail extras ── */
 .cust-quickactions{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}

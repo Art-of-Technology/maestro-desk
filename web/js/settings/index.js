@@ -7,7 +7,7 @@
 //
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // logout — all still in app.js. navTo is a direct ES import.
-// refreshNotifBadge, setAIKey/setAIModel, setAgentPreferredLang,
+// refreshNotifBadge, setAIModel, setAgentPreferredLang,
 // showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
 // direct ES imports.
@@ -22,7 +22,7 @@
 import { CUSTOMERS, CATEGORIES } from '../core/data.js';
 import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
-import { AI_API_KEY, AI_MODEL, setAIKey, setAIModel } from '../ai/client.js';
+import { AI_MODEL, AI_MODELS, setAIModel, getAIStatus, checkAIConnection } from '../ai/client.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
@@ -91,7 +91,7 @@ export function renderSettings() {
     <div class="page">
       <div class="topbar"><div class="tb-title">Settings</div></div>
       <div class="page-scroll">
-        <div class="settings-shell">
+        <div class="settings-shell ${SETTINGS_TAB === 'ai' ? 'ai-settings-shell' : ''}">
           <aside class="settings-side">${tabbar}</aside>
           <div class="settings-panel">${panel}</div>
         </div>
@@ -537,37 +537,75 @@ function toggleNotifPref(k, v) {
 }
 
 function settingsAI() {
-  const models = [
-    {v:'claude-opus-4-7',  l:'Claude Opus 4.7'},
-    {v:'claude-sonnet-4-6',l:'Claude Sonnet 4.6'},
-    {v:'claude-haiku-4-5', l:'Claude Haiku 4.5'},
-  ];
-  // Warm the shared workspace-settings cache (the portal/branding tab reads
-  // it); either tab triggers the fetch, whichever paints first.
-  if (!WORKSPACE_SETTINGS_LOADED) {
-    WORKSPACE_SETTINGS_LOADED = true;
-    apiGet('/api/v1/workspace/settings')
-      .then((res) => { WORKSPACE_SETTINGS = res.workspace; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] workspace load failed:', err); });
-  }
+  // The status node belongs to this render; late responses cannot update a
+  // different workspace or a subsequently rendered settings screen.
+  queueMicrotask(() => refreshAIStatus());
   return `
-    <div class="settings-section">
-      <div class="settings-h">Claude API</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Used by the <strong style="color:var(--ink2)">AI Draft</strong> button in the ticket composer. Stored locally in your browser — never sent to our servers.</div>
+    <div class="settings-section ai-settings">
+      <div class="settings-h">AI Assistant</div>
+      <p style="font-size:12px;color:var(--ink3);line-height:1.5">Draft replies, summarise tickets, translate messages and chat about your workspace using Respovia’s shared Claude connection.</p>
       <div class="form-row">
-        <label class="form-label">API key</label>
-        <input class="form-input" type="password" id="set-ai-key" value="${AI_API_KEY}" placeholder="sk-ant-…" data-input-action="settings.setAiKey" autocomplete="off"/>
-      </div>
-      <div class="form-row">
-        <label class="form-label">Model</label>
-        <select class="form-input" data-change-action="settings.setAiModel">
-          ${models.map(m => `<option value="${m.v}" ${AI_MODEL===m.v?'selected':''}>${m.l}</option>`).join('')}
+        <label class="form-label" for="set-ai-model">Model for your AI requests</label>
+        <select id="set-ai-model" class="form-input" data-change-action="settings.setAiModel">
+          ${AI_MODELS.map(m => `<option value="${m.v}" ${AI_MODEL===m.v?'selected':''}>${m.l}</option>`).join('')}
         </select>
       </div>
-      <div style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--ink3)'};font-family:'DM Mono',monospace;margin-top:8px">
-        ${AI_API_KEY ? '✓ Key saved' : 'No key configured — AI Draft will return a fallback message'}
+      <div id="ai-settings-status" role="status" aria-live="polite" style="font-size:12px;line-height:1.6">Checking workspace settings…</div>
+      <button class="btn btn-sm" data-action="settings.checkAi" style="margin-top:12px">Check connection</button>
+      <div id="ai-connection-result" role="status" aria-live="polite" style="font-size:12px;margin-top:8px"></div>
+      <p style="font-size:11px;color:var(--ink3)">The connection check verifies the server key and model access. AI requests also need provider billing credit and workspace credit.</p>
+      <div class="settings-row">
+        <div><div style="font-size:13px">Include player account details</div>
+        <div style="font-size:11px;color:var(--ink3)">Allow VIP tier, brand and jurisdiction in AI context. Ticket text is still sent when this is off. AML data is excluded. Workspace admins can change this setting.</div></div>
+        <label class="toggle"><input id="ai-player-enrichment" type="checkbox" aria-label="Include player account details" disabled data-change-action="settings.setAiEnrichment"><span class="toggle-slider"></span></label>
       </div>
+      <div id="ai-privacy-result" role="status" aria-live="polite" style="font-size:12px"></div>
     </div>`;
+}
+
+async function refreshAIStatus() {
+  const node = document.getElementById('ai-settings-status');
+  const toggle = document.getElementById('ai-player-enrichment');
+  const ws = getWorkspaceId(), jwt = getJwt();
+  if (!node) return;
+  try {
+    const status = await getAIStatus();
+    if (!node.isConnected || ws !== getWorkspaceId() || jwt !== getJwt()) return;
+    node.textContent = (status.configured ? 'Server key configured.' : 'Server key needs configuration.')
+      + ' Workspace credit: $' + (status.balance_micro / 1000000).toFixed(4)
+      + '. Your platform administrator manages credit.';
+    if (toggle) { toggle.checked = status.player_enrichment; toggle.disabled = !window.isAdmin(); }
+  } catch (err) {
+    if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt()) node.textContent = err?.message || 'Could not load AI settings.';
+  }
+}
+
+async function testAIConnection() {
+  const node = document.getElementById('ai-connection-result');
+  const ws = getWorkspaceId(), jwt = getJwt();
+  if (!node) return;
+  const model = AI_MODEL;
+  node.textContent = 'Checking connection…';
+  try {
+    await checkAIConnection();
+    if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt() && model === AI_MODEL) node.textContent = 'Connected. The selected model is available.';
+  } catch (err) {
+    if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt() && model === AI_MODEL) node.textContent = err?.message || 'Connection failed.';
+  }
+  refreshAIStatus();
+}
+
+async function setAIEnrichment(el) {
+  const node = document.getElementById('ai-privacy-result');
+  const ws = getWorkspaceId(), jwt = getJwt();
+  el.disabled = true;
+  try {
+    await apiPatch('/api/v1/workspace/settings', { ai_player_enrichment: el.checked });
+    if (node?.isConnected && ws === getWorkspaceId() && jwt === getJwt()) node.textContent = 'Player data setting saved.';
+  } catch (err) {
+    if (node?.isConnected && ws === getWorkspaceId() && jwt === getJwt()) node.textContent = err?.message || 'Could not save the setting.';
+  }
+  refreshAIStatus();
 }
 
 function settingsKnowledgeBase() {
@@ -669,8 +707,8 @@ function settingsLanguage() {
           ${TRANSLATOR_LANGS.map(l => `<option value="${l}" ${AGENT_PREFERRED_LANG===l?'selected':''}>${l}</option>`).join('')}
         </select>
       </div>
-      <div style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--amber)'};font-family:'DM Mono',monospace;margin-top:8px">
-        ${AI_API_KEY ? `✓ Currently set to ${AGENT_PREFERRED_LANG}` : 'Add an API key in AI Assistant to enable detection and translation.'}
+      <div style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px">
+        Preferred language: ${AGENT_PREFERRED_LANG}. Uses your workspace AI connection.
       </div>
     </div>`;
 }
@@ -1308,6 +1346,7 @@ async function toggleCategory(key, nextActive) {
 }
 
 registerActions({
+  'settings.checkAi':           () => testAIConnection(),
   'settings.setTab':             (ds) => setSettingsTab(ds.tab),
   'settings.logout':            () => window.logout(),
   'settings.resetCollapsed':    () => resetAllCollapsedSections(),
@@ -1339,9 +1378,10 @@ registerActions({
 });
 
 registerChangeActions({
+  'settings.setAiEnrichment': (ds, el) => setAIEnrichment(el),
   'settings.toggleNotif':   (ds, el) => toggleNotifPref(ds.key, el.checked),
   'settings.setMentionEmail':(ds, el) => setMentionEmailPref(el.checked),
-  'settings.setAiModel':    (ds, el) => setAIModel(el.value),
+  'settings.setAiModel':    (ds, el) => { setAIModel(el.value); const node = document.getElementById('ai-connection-result'); if (node) node.textContent = ''; },
   'settings.setLang':       (ds, el) => setAgentPreferredLang(el.value),
   'settings.setKbCfg':      setKbCfgHandler,
 });
@@ -1349,7 +1389,6 @@ registerChangeActions({
 registerInputActions({
   'settings.updateName':     (ds, el) => updateProfileName(el.value),
   'settings.updateInitials': (ds, el) => updateProfileInitials(el.value),
-  'settings.setAiKey':       (ds, el) => setAIKey(el.value),
   'settings.setKbCfg':       setKbCfgHandler,
   // color picker → mirror its value into the hex text input
   'settings.syncBrandColor': (ds, el) => { const t = document.getElementById('brand-primary-color'); if (t) t.value = el.value; },
