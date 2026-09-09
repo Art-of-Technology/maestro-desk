@@ -700,7 +700,7 @@ function settingsLanguage() {
   return `
     <div class="settings-section">
       <div class="settings-h">Your reading language</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">When ticket-thread translation is enabled (toggle above the conversation), customer messages render in this language. Replies you compose can also be auto-translated to the customer's language before sending. Detection and translation use the Claude API key configured in <span class="link" data-action="settings.setTab" data-tab="ai">AI Assistant</span>.</div>
+      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">When ticket-thread translation is enabled (toggle above the conversation), the conversation renders in this language. Replies you compose can also be auto-translated to the customer's language before sending. Saved language checks and translations are reused in this browser until you sign out. AI credit is managed in <span class="link" data-action="settings.setTab" data-tab="ai">AI Assistant</span>.</div>
       <div class="form-row">
         <label class="form-label">Preferred language</label>
         <select class="form-input" id="set-pref-lang" data-change-action="settings.setLang">

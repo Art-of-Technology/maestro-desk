@@ -20,6 +20,7 @@ import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { callClaude } from './client.js';
 import { translateFormatted } from './formatted-translation.js';
+import { messageTranslationRequest, translationScope } from './translation-cache.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -30,10 +31,10 @@ export const TRANSLATOR_LANGS = [
   'English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian',
 ];
 
-export async function translateText(text, targetLang) {
+export async function translateText(text, targetLang, request = callClaude) {
   if (!text || !text.trim()) return { error: 'No text to translate.' };
   try {
-    const { text: translation, error } = await callClaude({
+    const { text: translation, error } = await request({
       system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Preserve paragraphs, line breaks, lists and existing formatting. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, return it unchanged.`,
       messages: [{ role: 'user', content: text }],
       maxTokens: 1000,
@@ -45,90 +46,119 @@ export async function translateText(text, targetLang) {
   }
 }
 
-async function translateMessageContent(message, target) {
-  if (!message.html) return translateText(message.t, target);
-  try {
-    return await translateFormatted(message.html, target, callClaude);
-  } catch {
-    return { error: 'Could not complete the formatted translation. Please try again.' };
-  }
+export function messageTranslationSource(message) {
+  return JSON.stringify([message.t, message.html || null]);
 }
 
-export async function translateMessage(ticketId, msgIdx) {
-  const t = TICKETS.find(x => x.id === ticketId);
-  if (!t || !t.msgs[msgIdx]) return;
-  const m = t.msgs[msgIdx];
-  m.translating = true;
-  openTicket(ticketId);
-  const target = AGENT_PREFERRED_LANG;
-  const res = await translateMessageContent(m, target);
-  m.translating = false;
-  m.translation = res.translation || ('⚠ ' + (res.error || 'Translation failed'));
-  m.translationHtml = res.translationHtml || null;
-  m.translatedFor = res.translation ? target : null;
-  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+export function hasMessageTranslation(message, target = AGENT_PREFERRED_LANG) {
+  return message.translationScope === translationScope() && message.translatedFor === target
+    && message.translationSource === messageTranslationSource(message) && !!message.translation;
 }
 
-export function hideMessageTranslation(ticketId, msgIdx) {
-  const t = TICKETS.find(x => x.id === ticketId);
-  if (!t || !t.msgs[msgIdx]) return;
-  delete t.msgs[msgIdx].translation;
-  delete t.msgs[msgIdx].translationHtml;
-  delete t.msgs[msgIdx].translatedFor;
-  openTicket(ticketId);
+async function translateMessageContent(ticket, message, index, target) {
+  const source = messageTranslationSource(message);
+  const scope = translationScope();
+  const messageKey = message._uuid || [ticket._uuid || ticket.id, index];
+  const request = messageTranslationRequest(messageKey, scope, message.html ? 'array' : 'text');
+  const detectRequest = messageTranslationRequest(messageKey, scope);
+  const language = message.translatedTo || await detectLanguage(message.t, async body => {
+    const response = await detectRequest(body);
+    if (response.cacheWarning) message.translationCacheWarning = true;
+    return response;
+  }, true);
+  if (message.r === 'customer' && !ticket.detectedCustomerLang) ticket.detectedCustomerLang = language;
+  const cachedRequest = async body => {
+    const response = await request(body);
+    if (response.cacheWarning) message.translationCacheWarning = true;
+    return response;
+  };
+  // Detection samples 600 characters; longer/mixed messages still translate.
+  const result = language?.toLowerCase() === target.toLowerCase() && (message.translatedTo || String(message.t).length <= 600)
+    ? { translation: message.t, translationHtml: message.html || null }
+    : message.html
+    ? await translateFormatted(message.html, target, cachedRequest)
+    : await translateText(message.t, target, cachedRequest);
+  if (result.error) throw new Error(result.error);
+  if (source !== messageTranslationSource(message) || scope !== translationScope()) return;
+  message.translation = result.translation;
+  message.translationHtml = result.translationHtml || null;
+  message.translatedFor = target;
+  message.translationSource = source;
+  message.translationScope = scope;
 }
 
-export async function detectLanguage(text) {
+// Kept for existing action callers; both controls now select a conversation view.
+export function translateMessage(ticketId) { return toggleThreadTranslate(ticketId, true); }
+export function hideMessageTranslation(ticketId) { return toggleThreadTranslate(ticketId, false); }
+
+export async function detectLanguage(text, request = callClaude, throwErrors = false) {
   const sample = String(text || '').slice(0, 600);
   if (!sample.trim()) return null;
   try {
-    const { text: out } = await callClaude({
+    const { text: out } = await request({
       system: 'Identify the language of the text. Reply with ONLY the English name of the language using its common form (e.g. "French", "Japanese", "Spanish", "Mandarin Chinese", "English"). Nothing else — no punctuation, no explanation.',
       messages: [{ role: 'user', content: sample }],
       maxTokens: 30,
       action: 'detect_language',
     });
     return (out || '').trim() || null;
-  } catch {
+  } catch (error) {
+    if (throwErrors) throw error;
     return null;
   }
 }
 
+const runningThreads = new WeakMap();
+
 export async function detectAndTranslateThread(ticketId) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || !t.translateThread) return;
-  if (!t.detectedCustomerLang) {
-    const firstCust = (t.msgs || []).find(m => m.r === 'customer');
-    if (firstCust) {
-      const lang = await detectLanguage(firstCust.t);
-      if (lang) t.detectedCustomerLang = lang;
-    }
-  }
-  // Translate all stale customer messages in parallel — long threads no longer block on serial round-trips.
+  if (runningThreads.has(t)) return runningThreads.get(t);
   const target = AGENT_PREFERRED_LANG;
-  const stale = (t.msgs || []).filter(m =>
-    m.r === 'customer' && (m.translatedFor !== target || !m.translation)
-  );
-  if (stale.length) {
-    await Promise.all(stale.map(async m => {
-      const res = await translateMessageContent(m, target);
-      if (res.translation) {
-        m.translation = res.translation;
-        m.translationHtml = res.translationHtml || null;
-        m.translatedFor = target;
+  const scope = translationScope();
+  const work = async () => {
+    t.translationError = null;
+    t.translatingThread = true;
+    try {
+      if (CURRENT_TICKET === ticketId && scope === translationScope()) openTicket(ticketId);
+      // Serial messages let Original stop queued paid work, and avoid bursts.
+      for (const [index, message] of (t.msgs || []).entries()) {
+        if (!t.translateThread || target !== AGENT_PREFERRED_LANG || scope !== translationScope()) break;
+        if (!['customer', 'agent', 'note', 'ai'].includes(message.r) || !String(message.t || '').trim() || hasMessageTranslation(message, target)) continue;
+        await translateMessageContent(t, message, index, target);
       }
-    }));
-  }
-  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
-  return stale.length > 0;
+    } catch (error) {
+      if (scope === translationScope() && target === AGENT_PREFERRED_LANG && t.translateThread) {
+        t.translationError = error?.message || 'Could not translate this conversation. Please try again.';
+      }
+    } finally {
+      t.translatingThread = false;
+      runningThreads.delete(t);
+      if (CURRENT_TICKET === ticketId && scope === translationScope()) openTicket(ticketId);
+    }
+  };
+  // Start on a microtask so the guard exists before any synchronous failure.
+  const task = Promise.resolve().then(work);
+  runningThreads.set(t, task);
+  return task;
 }
 
 export function toggleThreadTranslate(ticketId, on) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t) return;
   t.translateThread = !!on;
-  if (on) detectAndTranslateThread(ticketId);
+  t.translationError = null;
+  const task = on ? detectAndTranslateThread(ticketId) : undefined;
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+  return task;
+}
+
+// Called after rendering: new messages use saved results or translate once.
+export function ensureConversationTranslation(ticket) {
+  if (!ticket.translateThread || ticket.translationError || runningThreads.has(ticket)) return;
+  if ((ticket.msgs || []).some(m => ['customer', 'agent', 'note', 'ai'].includes(m.r) && String(m.t || '').trim() && !hasMessageTranslation(m))) {
+    void detectAndTranslateThread(ticket.id);
+  }
 }
 
 export function toggleAutoTranslateReplies(ticketId, on) {

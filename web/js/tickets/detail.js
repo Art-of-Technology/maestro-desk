@@ -17,9 +17,9 @@ import { syncRoute } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
-  translateText, translateMessage, hideMessageTranslation,
+  translateText,
   toggleThreadTranslate, toggleAutoTranslateReplies,
-  setCustomerLanguage,
+  setCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
 } from '../ai/translate.js';
 import { aiAction } from '../ai/reply.js';
 import {
@@ -113,6 +113,8 @@ function renderSentimentBadge(sentiment) {
 }
 
 export function openTicket(id) {
+  const focusedLanguageAction = document.activeElement?.closest?.('.ticket-language-toggle')
+    ? document.activeElement.dataset.action : null;
   const layout = captureTicketLayout(id);
   if (CURRENT_TICKET !== id) setComposeTabValue('reply');
   setCurrentTicket(id);
@@ -389,30 +391,18 @@ export function openTicket(id) {
 
   const threadOn = !!t.translateThread;
   const msgsHtml = t.msgs.map((m, i) => {
-    let translateBlock = '';
     let bodyText = m.t;
     let bodyNote = '';
 
-    if (m.r === 'customer') {
-      // Thread translation: show translation as the primary body when available
-      if (threadOn && m.translatedFor === AGENT_PREFERRED_LANG && m.translation) {
-        bodyText = m.translation;
-        bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">Translated from ${window.escHtml(t.detectedCustomerLang || 'auto')} → ${window.escHtml(AGENT_PREFERRED_LANG)} · <span class="link" data-action="td.hideTranslation" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">show original</span></div>`;
-      } else if (m.translating) {
-        translateBlock = '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule);font-size:11px;color:var(--purple);font-style:italic">Translating…</div>';
-      } else if (m.translation) {
-        translateBlock = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)">
-          <div style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:4px">Translation</div>
-          ${m.translationHtml ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, '') : `<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap;line-height:1.55">${window.escHtml(m.translation)}</div>`}
-          <div style="margin-top:6px"><span class="link" style="font-size:11px" data-action="td.hideTranslation" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Hide translation</span></div>
-        </div>`;
-      } else {
-        translateBlock = `<div style="margin-top:6px"><span class="link" style="font-size:11px" data-action="td.translateMsg" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Translate</span></div>`;
-      }
-    } else if ((m.r === 'agent' || m.r === 'note') && m.tOriginal) {
-      // Agent reply that was auto-translated for the customer — show what the agent typed
+    const showingTranslation = threadOn && hasMessageTranslation(m);
+    if (showingTranslation) {
+      bodyText = m.translation;
+      bodyNote = `<div class="ticket-message-language">Translated to ${window.escHtml(AGENT_PREFERRED_LANG)}</div>`;
+    } else if (threadOn && ['customer', 'agent', 'note', 'ai'].includes(m.r) && String(m.t || '').trim()) {
+      bodyNote = '<div class="ticket-message-language">Original shown until translation is ready.</div>';
+    } else if (['agent', 'note'].includes(m.r) && m.tOriginal) {
       bodyText = m.tOriginal;
-      bodyNote = `<div style="margin-top:6px;font-size:10px;color:var(--ink3);font-style:italic">→ Sent to customer in ${window.escHtml(m.translatedTo || 'their language')} · <span class="link" data-action="td.showSentText" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">view sent text</span></div>`;
+      bodyNote = `<div class="ticket-message-language">Sent in ${window.escHtml(m.translatedTo || 'the customer language')} · <span class="link" data-action="td.showSentText" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">View sent text</span></div>`;
     }
 
     const plainBody = m.r === 'note'
@@ -420,8 +410,8 @@ export function openTicket(id) {
       : window.escHtml(bodyText).replace(/\n/g, '<br>');
     // Original and translated email HTML share the sandboxed renderer.
     // Notes, plain-text mail and outgoing originals remain escaped text.
-    const translatedRich = threadOn && m.r === 'customer' && m.translatedFor === AGENT_PREFERRED_LANG && m.translation && m.translationHtml;
-    const showRich = !!m.html && bodyText === m.t;
+    const translatedRich = showingTranslation && m.translationHtml;
+    const showRich = !!m.html && !showingTranslation && bodyText === m.t;
     const bodyHtml = translatedRich
       ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, plainBody)
       : showRich ? renderMessageBody(m, id, i, plainBody) : plainBody;
@@ -433,7 +423,6 @@ export function openTicket(id) {
       ${bodyHtml}
       ${attachHtml}
       ${bodyNote}
-      ${translateBlock}
     </div>`;
   }).join('');
 
@@ -445,14 +434,14 @@ export function openTicket(id) {
   const threadBarHtml = `
     <div class="ticket-thread-tools">
       <strong>Conversation</strong>
+      <div class="ticket-language-toggle" role="group" aria-label="Conversation language">
+        <button class="btn btn-sm" aria-pressed="${!threadOn}" data-action="td.originalConversation" data-ticket-id="${window.escAttr(id)}">Original</button>
+        <button class="btn btn-sm" aria-pressed="${threadOn}" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">${window.escHtml(AGENT_PREFERRED_LANG)}</button>
+      </div>
       <span class="ticket-translation-state">${t.autoTranslateReplies ? `Replies translated to ${window.escHtml(t.detectedCustomerLang || 'customer language')}` : ''}</span>
       <details class="ticket-popover ticket-language" ${layout.languageOpen ? 'open' : ''}>
-        <summary class="btn btn-sm">${threadOn ? 'Translated' : 'Language'} ▾</summary>
+        <summary class="btn btn-sm">Language options ▾</summary>
         <div class="ticket-popover-panel">
-      <label class="auth-check" style="margin:0">
-        <input type="checkbox" ${threadOn?'checked':''} data-change-action="td.toggleThreadTranslate" data-ticket-id="${window.escAttr(id)}">
-        <span>Translate thread to <strong style="color:var(--ink)">${window.escHtml(AGENT_PREFERRED_LANG)}</strong></span>
-      </label>
       ${customerLangLabel}
       ${(threadOn || t.autoTranslateReplies) ? `<select class="filter-select" data-change-action="td.setCustomerLang" data-ticket-id="${window.escAttr(id)}" style="font-size:11px;padding:3px 8px"><option value="">— override —</option>${langOptions}</select>` : ''}
       <label class="auth-check" style="margin:0">
@@ -462,6 +451,11 @@ export function openTicket(id) {
         </div>
       </details>
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
+    </div>
+    <div class="ticket-translation-notice" role="status" aria-live="polite">
+      ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : 'Saved translations are reused in this browser until sign-out. New language checks and translations use AI credit.'}
+      ${t.translationError && threadOn ? `<button class="btn btn-sm" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">Retry translation</button>` : ''}
+      ${(t.msgs || []).some(m => m.translationCacheWarning) ? '<span>Could not save translations in this browser. Reloading may require another paid translation.</span>' : ''}
     </div>`;
 
   // Sentiment backfill nudge — only when this is a real (api-backed)
@@ -711,6 +705,10 @@ export function openTicket(id) {
     }).then(() => syncTicketLayout(id)).catch((err) => console.warn('[composer] mount failed:', err));
     renderPendingAttachments(id);
   }
+  if (['td.originalConversation', 'td.translatedConversation'].includes(focusedLanguageAction)) {
+    document.querySelector(`[data-action="${focusedLanguageAction}"]`)?.focus({ preventScroll: true });
+  }
+  ensureConversationTranslation(t);
 }
 
 function setComposeTab(tab, id) {
@@ -1141,6 +1139,7 @@ async function sendCompose(id) {
     // notes have no delivery field, so this is silently skipped for them.
     if (delivery) notifyReplyDelivery(delivery);
     t.msgs.push({
+      _uuid: message.id,
       from: message.author_label,
       r: message.role,
       t: message.body,
@@ -1242,8 +1241,8 @@ registerActions({
   // Tags row
   'td.removeTag':      (ds) => removeTicketTag(ds.ticketId, ds.tag),
   // Message thread
-  'td.hideTranslation':(ds) => hideMessageTranslation(ds.ticketId, parseInt(ds.msgIdx, 10)),
-  'td.translateMsg':   (ds) => translateMessage(ds.ticketId, parseInt(ds.msgIdx, 10)),
+  'td.originalConversation': (ds) => toggleThreadTranslate(ds.ticketId, false),
+  'td.translatedConversation': (ds) => toggleThreadTranslate(ds.ticketId, true),
   'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showRemoteImages': (ds) => { enableRemoteImages(ds.ticketId, parseInt(ds.msgIdx, 10)); openTicket(ds.ticketId); },
   // Compose area
