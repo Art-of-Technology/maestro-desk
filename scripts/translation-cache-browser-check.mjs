@@ -21,5 +21,10 @@ export default async(page)=>{
  await pages[0].evaluate(async()=>{(await import('/js/core/api-client.js')).setWorkspaceId('11111111-1111-4111-8111-111111111111');});
  await pages[0].evaluate(request,'switch-during-request');
  if(count!==3)throw new Error('Late response was incorrectly saved');
- for(const p of pages)await p.close();return {checks:3,requests:count};
+ await pages[0].evaluate(()=>{window.purgeObserved=new Promise(resolve=>{const c=new BroadcastChannel('respovia-translation-signout');c.onmessage=()=>{c.close();resolve();};});});
+ await pages[1].evaluate(async user=>await(await import('/js/ai/translation-cache.js')).clearTranslationCache(user),user);
+ await pages[0].evaluate(()=>window.purgeObserved);
+ await pages[0].evaluate(request,'same-message');
+ if(count!==4)throw new Error('Cross-tab sign-out did not clear memory and storage');
+ for(const p of pages)await p.close();return {checks:4,requests:count};
 };

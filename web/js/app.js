@@ -144,6 +144,7 @@ function resetWorkspaceBrand() {
 }
 
 function logout() {
+  const signedOutUserId = SESSION?.userId;
   suspendUrlRouting();
   discardRequestedRoute();
   // Release any presence row before we wipe the JWT — sendLeaveBeacon
@@ -166,9 +167,10 @@ function logout() {
   // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
   // demo personas (which never stored anything) and load-bearing for real-
   // auth users (so the next page-load doesn't auto-resume).
-  authSignOut();
+  const clearedTranslations = authSignOut(signedOutUserId);
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
+  return clearedTranslations;
 }
 
 // ─── Navigation ───────────────────────────────────────────────────────────────

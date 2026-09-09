@@ -19,6 +19,7 @@
 //   sessionStorage.maestro_user         — JSON of the current user (here)
 
 import { apiGet, setJwt, setWorkspaceId, getJwt, JWT_KEY, API_BASE } from './api-client.js';
+import { clearTranslationCache } from '../ai/translation-cache.js';
 
 const USER_KEY = 'maestro_user';
 
@@ -126,7 +127,8 @@ export async function rehydrateUser() {
   }
 }
 
-export function signOut() {
+export function signOut(userId = getCurrentUser()?.id) {
+  const clearedTranslations = clearTranslationCache(userId);
   // Best-effort server-side session revocation — fire-and-forget so the local
   // state is cleared immediately regardless of the network call.
   const jwt = getJwt();
@@ -139,6 +141,7 @@ export function signOut() {
   setJwt(null);
   setWorkspaceId(null);
   setCurrentUser(null);
+  return clearedTranslations;
 }
 
 export function isPlatformAdmin() {

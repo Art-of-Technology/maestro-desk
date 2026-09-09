@@ -1,10 +1,11 @@
 // Run with scripts/serve-spa.js; provider and API requests are fixtures.
-export default async(page)=>{
+export default async(page, screenshotDir)=>{
  const p=await page.context().newPage(); const user='translation-toggle-'+Date.now();let count=0,fail=false;
  await p.route('**/api/**',r=>r.fulfill({status:200,contentType:'application/json',body:'{}'}));
  await p.route('**/api/v1/ai/messages',async r=>{
   count++;const b=r.request().postDataJSON();let text;
-  try{text=JSON.stringify(JSON.parse(b.messages[0].content).map(t=>'Translated '+t));}catch{text='Translated '+b.messages[0].content;}
+  if(b.action==='detect_language')text='French';
+  else try{text=JSON.stringify(JSON.parse(b.messages[0].content).map(t=>'Translated '+t));}catch{text='Translated '+b.messages[0].content;}
   await p.waitForTimeout(70);
   await r.fulfill({status:fail?402:200,contentType:'application/json',body:JSON.stringify(fail?{error:'Not enough AI credit.'}:{text})});
  });
@@ -22,32 +23,32 @@ export default async(page)=>{
  const id=await p.evaluate(setup,user);let checks=0;const check=(v,m)=>{checks++;if(!v)throw new Error(m+' (requests='+count+')');};
  const toggle=on=>p.evaluate(async({id,on})=>await(await import('/js/ai/translate.js')).toggleThreadTranslate(id,on),{id,on});
  await p.evaluate(async id=>{const tx=await import('/js/ai/translate.js');await Promise.all([tx.toggleThreadTranslate(id,true),tx.toggleThreadTranslate(id,true),tx.toggleThreadTranslate(id,true)]);},id);
- check(count===3,'Repeated clicks should translate each role once');
+ check(count===6,'Repeated clicks should translate each role once');
  check(await p.locator('.ticket-message-language').count()===3,'Whole conversation translated');
  await toggle(false);check(await p.locator('.ticket-message-language').count()===0,'Original hides translations');
  check(await p.evaluate(async()=> (await import('/js/core/data.js')).TICKETS[0].msgs.every(m=>!!m.translation)),'Original retains saved results');
- await toggle(true);check(count===3,'Switching views costs no requests');
+ await toggle(true);check(count===6,'Switching views costs no requests');
  await p.reload();await p.waitForFunction(()=>typeof window.login==='function');await p.evaluate(setup,user);await toggle(true);
- check(count===3,'Refresh reuses persistent translations');
+ check(count===6,'Refresh reuses persistent translations');
  await p.evaluate(async()=>{const t=(await import('/js/core/data.js')).TICKETS[0];t.msgs[1].t='Changed agent text';});
- await toggle(true);check(count===4,'Only changed message translated');
+ await toggle(true);check(count===8,'Only changed message translated');
  await p.evaluate(async()=>{const t=(await import('/js/core/data.js')).TICKETS[0];t.msgs.push({_uuid:'new-1',r:'customer',from:'Customer',t:'New message',ts:'12:03'});(await import('/js/tickets/detail.js')).openTicket(t.id);});
  await p.evaluate(async id=>await(await import('/js/ai/translate.js')).detectAndTranslateThread(id),id);
- check(count===5,'New message translated once');
+ check(count===10,'New message translated once');
  await p.evaluate(async()=>{(await import('/js/ai/translate.js')).setAgentPreferredLang('German');});
  await p.evaluate(async id=>await(await import('/js/ai/translate.js')).detectAndTranslateThread(id),id);
- check(count===9,'New language translates four messages');
+ check(count===14,'New language translates four messages');
  await p.evaluate(async()=>{(await import('/js/ai/translate.js')).setAgentPreferredLang('English');});
  await p.evaluate(async id=>await(await import('/js/ai/translate.js')).detectAndTranslateThread(id),id);
- check(count===9,'Returning to saved language costs no requests');
+ check(count===14,'Returning to saved language costs no requests');
  const before=count;
  await p.evaluate(async()=>{(await import('/js/core/api-client.js')).setWorkspaceId('22222222-2222-4222-8222-222222222222');});
- await toggle(true);check(count===before+4,'Workspace caches isolated');
- await p.evaluate(setup,user+'-other');await toggle(true);check(count===before+7,'Agent caches isolated');
+ await toggle(true);check(count===before+8,'Workspace caches isolated');
+ await p.evaluate(setup,user+'-other');await toggle(true);check(count===before+14,'Agent caches isolated');
  await p.evaluate(setup,user+'-failure');fail=true;await toggle(true);const failedCount=count;
  check((await p.locator('.ticket-translation-notice').innerText()).includes('Not enough AI credit'),'Provider errors visible');
  await p.waitForTimeout(150);check(count===failedCount,'No automatic paid retry loop');
- fail=false;await toggle(true);check(count===failedCount+3,'Failure is not cached');
+ fail=false;await toggle(true);check(count===failedCount+6,'Failure is not cached');
  for(const width of [1280,768,390]){
   await p.setViewportSize({width,height:900});const box=await p.locator('.ticket-language-toggle').boundingBox();
   check(box.x>=0&&box.x+box.width<=width,'Language toggle fits '+width);
@@ -56,8 +57,8 @@ export default async(page)=>{
  await p.getByRole('button',{name:'Original',exact:true}).focus();await p.keyboard.press('Enter');
  check(await p.getByRole('button',{name:'Original',exact:true}).getAttribute('aria-pressed')==='true','Keyboard switches original view');
  check(await p.evaluate(()=>document.activeElement?.dataset.action==='td.originalConversation'),'Keyboard focus survives switching');
- await p.screenshot({path:'C:/Users/Jodi/.codex/artifacts/translation-toggle-390.png'});
+ if(screenshotDir) await p.screenshot({path:screenshotDir+'/translation-toggle-390.png'});
  await p.setViewportSize({width:1280,height:900});await toggle(true);await p.waitForTimeout(150);
- await p.screenshot({path:'C:/Users/Jodi/.codex/artifacts/translation-toggle-1280.png'});
+ if(screenshotDir) await p.screenshot({path:screenshotDir+'/translation-toggle-1280.png'});
  await p.close();return {checks,requests:count};
 };

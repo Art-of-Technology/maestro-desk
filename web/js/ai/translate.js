@@ -58,13 +58,24 @@ export function hasMessageTranslation(message, target = AGENT_PREFERRED_LANG) {
 async function translateMessageContent(ticket, message, index, target) {
   const source = messageTranslationSource(message);
   const scope = translationScope();
-  const request = messageTranslationRequest(message._uuid || [ticket._uuid || ticket.id, index], scope);
+  const messageKey = message._uuid || [ticket._uuid || ticket.id, index];
+  const request = messageTranslationRequest(messageKey, scope, message.html ? 'array' : 'text');
+  const detectRequest = messageTranslationRequest(messageKey, scope);
+  const language = message.translatedTo || await detectLanguage(message.t, async body => {
+    const response = await detectRequest(body);
+    if (response.cacheWarning) message.translationCacheWarning = true;
+    return response;
+  }, true);
+  if (message.r === 'customer' && !ticket.detectedCustomerLang) ticket.detectedCustomerLang = language;
   const cachedRequest = async body => {
     const response = await request(body);
     if (response.cacheWarning) message.translationCacheWarning = true;
     return response;
   };
-  const result = message.html
+  // Detection samples 600 characters; longer/mixed messages still translate.
+  const result = language?.toLowerCase() === target.toLowerCase() && (message.translatedTo || String(message.t).length <= 600)
+    ? { translation: message.t, translationHtml: message.html || null }
+    : message.html
     ? await translateFormatted(message.html, target, cachedRequest)
     : await translateText(message.t, target, cachedRequest);
   if (result.error) throw new Error(result.error);
@@ -80,18 +91,19 @@ async function translateMessageContent(ticket, message, index, target) {
 export function translateMessage(ticketId) { return toggleThreadTranslate(ticketId, true); }
 export function hideMessageTranslation(ticketId) { return toggleThreadTranslate(ticketId, false); }
 
-export async function detectLanguage(text) {
+export async function detectLanguage(text, request = callClaude, throwErrors = false) {
   const sample = String(text || '').slice(0, 600);
   if (!sample.trim()) return null;
   try {
-    const { text: out } = await callClaude({
+    const { text: out } = await request({
       system: 'Identify the language of the text. Reply with ONLY the English name of the language using its common form (e.g. "French", "Japanese", "Spanish", "Mandarin Chinese", "English"). Nothing else — no punctuation, no explanation.',
       messages: [{ role: 'user', content: sample }],
       maxTokens: 30,
       action: 'detect_language',
     });
     return (out || '').trim() || null;
-  } catch {
+  } catch (error) {
+    if (throwErrors) throw error;
     return null;
   }
 }

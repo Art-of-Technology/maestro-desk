@@ -17,7 +17,7 @@ import { syncRoute } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
-  translateText, translateMessage, hideMessageTranslation,
+  translateText,
   toggleThreadTranslate, toggleAutoTranslateReplies,
   setCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
 } from '../ai/translate.js';
@@ -400,6 +400,9 @@ export function openTicket(id) {
       bodyNote = `<div class="ticket-message-language">Translated to ${window.escHtml(AGENT_PREFERRED_LANG)}</div>`;
     } else if (threadOn && ['customer', 'agent', 'note', 'ai'].includes(m.r) && String(m.t || '').trim()) {
       bodyNote = '<div class="ticket-message-language">Original shown until translation is ready.</div>';
+    } else if (['agent', 'note'].includes(m.r) && m.tOriginal) {
+      bodyText = m.tOriginal;
+      bodyNote = `<div class="ticket-message-language">Sent in ${window.escHtml(m.translatedTo || 'the customer language')} · <span class="link" data-action="td.showSentText" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">View sent text</span></div>`;
     }
 
     const plainBody = m.r === 'note'
@@ -408,7 +411,7 @@ export function openTicket(id) {
     // Original and translated email HTML share the sandboxed renderer.
     // Notes, plain-text mail and outgoing originals remain escaped text.
     const translatedRich = showingTranslation && m.translationHtml;
-    const showRich = !!m.html && !showingTranslation;
+    const showRich = !!m.html && !showingTranslation && bodyText === m.t;
     const bodyHtml = translatedRich
       ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, plainBody)
       : showRich ? renderMessageBody(m, id, i, plainBody) : plainBody;
@@ -450,7 +453,7 @@ export function openTicket(id) {
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
     <div class="ticket-translation-notice" role="status" aria-live="polite">
-      ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : 'Saved translations are reused in this browser. Only new translations use AI credit.'}
+      ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : 'Saved translations are reused in this browser until sign-out. New language checks and translations use AI credit.'}
       ${t.translationError && threadOn ? `<button class="btn btn-sm" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">Retry translation</button>` : ''}
       ${(t.msgs || []).some(m => m.translationCacheWarning) ? '<span>Could not save translations in this browser. Reloading may require another paid translation.</span>' : ''}
     </div>`;
@@ -1240,8 +1243,6 @@ registerActions({
   // Message thread
   'td.originalConversation': (ds) => toggleThreadTranslate(ds.ticketId, false),
   'td.translatedConversation': (ds) => toggleThreadTranslate(ds.ticketId, true),
-  'td.hideTranslation':(ds) => hideMessageTranslation(ds.ticketId, parseInt(ds.msgIdx, 10)),
-  'td.translateMsg':   (ds) => translateMessage(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showRemoteImages': (ds) => { enableRemoteImages(ds.ticketId, parseInt(ds.msgIdx, 10)); openTicket(ds.ticketId); },
   // Compose area
