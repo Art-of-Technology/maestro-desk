@@ -115,6 +115,22 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     expect(t.resolved_at).toBeNull();
   });
 
+  it('preserves a reply to a closed ticket without reopening it', async () => {
+    await sql`update tickets set status_key = 'closed', closure_reason = 'spam', closed_at = now() where id = ${ctx.realTicket}`;
+    const res = await processInboundEmail({
+      workspaceId: ctx.bucket,
+      payload: inbound({ from: ctx.realCustomerEmail, subject: 'Re: Original subject', text: 'more spam', messageId: `<closed-reply-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID }),
+    });
+    expect(res.threaded).toBe(true);
+    expect(res.auto_triage_queued).toBe(false);
+    const [ticket] = await sql`select status_key, closure_reason from tickets where id = ${ctx.realTicket}`;
+    expect(ticket.status_key).toBe('closed');
+    expect(ticket.closure_reason).toBe('spam');
+    const [message] = await sql`select id from ticket_messages where ticket_id = ${ctx.realTicket} and body = 'more spam'`;
+    expect(message).toBeTruthy();
+    await sql`update tickets set status_key = 'open', closure_reason = null, closed_at = null where id = ${ctx.realTicket}`;
+  });
+
   it('creates a ticket in the unrouted bucket for unmatched mail (no 500)', async () => {
     const res = await processInboundEmail({
       workspaceId: ctx.bucket,

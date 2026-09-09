@@ -145,6 +145,7 @@ tickets.get('/sync', async (c) => {
   const cursorId = pipeIdx === -1 ? ''        : rawCursor.slice(pipeIdx + 1);
 
   const cols = sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+    closure_reason, closure_note, closed_at, closed_by_user_id,
     customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
     snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at`;
   // Composite-cursor tie-break: rows strictly later in (updated_at, id) order.
@@ -244,6 +245,56 @@ tickets.get('/:id', async (c) => {
   });
 });
 
+const CloseTicket = z.object({
+  reason: z.enum(['spam', 'abuse', 'duplicate', 'other']),
+  note: z.string().trim().max(4000).optional(),
+}).strict();
+
+type ClosedTicketRow = {
+  id: string; status_key: string; closure_reason: string | null; closure_note: string | null;
+  closed_at: string | null; closed_by_user_id: string | null; survey_sending?: boolean;
+};
+
+tickets.post('/:id/close', async (c) => {
+  const workspaceId = c.get('workspaceId'), ticketId = c.req.param('id');
+  if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
+  const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
+  const result = await getDb().begin(async (sql) => {
+    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id,
+      (csat_send_claim is not null and csat_send_started_at >= now() - interval '10 minutes') as survey_sending
+      from tickets where id = ${ticketId}
+      and workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null for update`;
+    if (!ticket) return { ok: false as const, error: 'Ticket not found', status: 404 as const };
+    if (ticket.status_key === 'closed') return { ok: true as const, ticket, changed: false };
+    // The mailer claims the same row before sending. Do not report a silent
+    // closure while an already-started survey is still being delivered.
+    if (ticket.survey_sending) return { ok: false as const, error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
+    const [updated] = await sql<ClosedTicketRow[]>`update tickets set status_key = 'closed',
+      closure_reason = ${parsed.data.reason}, closure_note = ${parsed.data.note || null},
+      closed_at = now(), closed_by_user_id = ${c.get('userId')}, resolved_at = null,
+      sla_state = 'ok', snoozed_until = null, snoozed_at = null, snoozed_by_user_id = null,
+      snooze_reason = null, csat_send_claim = null, csat_send_started_at = null
+      where id = ${ticketId} and workspace_id = ${workspaceId}
+      returning id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id`;
+    const [actor] = await sql`select name from users where id = ${c.get('userId')}`;
+    await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body)
+      values (${workspaceId}, ${ticketId}, 'system', ${c.get('userId')}, ${actor?.name || 'Agent'},
+        ${`Closed without resolution: ${parsed.data.reason}.${parsed.data.note ? '\n' + parsed.data.note : ''}`})`;
+    return { ok: true as const, ticket: updated, changed: true };
+  });
+  if (!result.ok) return c.json({ error: result.error }, result.status);
+  // The router middleware publishes ticket.changed for this successful POST.
+  // Outgoing subscriptions are explicit, and only a new closure emits one.
+  if (result.changed) {
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.closed', ticketId }); }
+    catch (err) { console.warn('[outgoing-webhooks] closed failed:', err); }
+  }
+  const t = result.ticket;
+  return c.json({ ticket: { id: t.id, status_key: t.status_key, closure_reason: t.closure_reason,
+    closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id } });
+});
+
 // ─── PATCH /:id — update status / priority / assignment / category ───────
 //
 // All fields optional; only provided ones are written. Empty body is a
@@ -288,6 +339,11 @@ tickets.patch('/:id', async (c) => {
   `;
   if (!existing) return c.json({ error: 'Ticket not found' }, 404);
 
+  if (updates.status_key === 'closed') return c.json({ error: 'Use Close without resolution and choose a reason.' }, 400);
+  if (existing.status_key === 'closed' && updates.status_key && !['closed', 'open'].includes(updates.status_key)) {
+    return c.json({ error: 'Reopen the ticket before changing its status.' }, 409);
+  }
+
   // Reject assigning an unknown/disabled category (null clears; non-null must
   // match an active row). Skipped when unchanged.
   if (updates.category_key != null && updates.category_key !== existing.category_key) {
@@ -320,7 +376,11 @@ tickets.patch('/:id', async (c) => {
   const resolvedAtSet = !statusTransition ? sql`` :
     updates.status_key === 'resolved' ? sql`, resolved_at = now()` :
     existing.status_key === 'resolved' ? sql`, resolved_at = null` : sql``;
-  await sql`update tickets set ${sql(updates)}${resolvedAtSet} where id = ${ticketId} and workspace_id = ${workspaceId}`;
+  const reopenSet = statusTransition && existing.status_key === 'closed'
+    ? sql`, closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null` : sql``;
+  const [saved] = await sql`update tickets set ${sql(updates)}${resolvedAtSet}${reopenSet}
+    where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id`;
+  if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
@@ -1246,7 +1306,7 @@ tickets.post('/:id/apply-rules', async (c) => {
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),
-  status_key: z.string().default('open'),
+  status_key: z.string().refine(value => value !== 'closed', 'Create the ticket before closing it with a reason.').default('open'),
   priority_key: z.string().default('normal'),
   // Bounded like every other free-text field — the value is validated
   // against the workspace's categories below, but an unbounded string

@@ -174,9 +174,9 @@ function renderPortalTicketList(cust) {
       <button class="btn btn-solid btn-sm" data-action="portal.nav" data-view="new">+ New ticket</button>
     </div>
     ${tickets.map(t => {
-      const lastMsg = (t.msgs || []).filter(m => m.r !== 'note').slice(-1)[0];
+      const lastMsg = (t.msgs || []).filter(m => ['customer', 'agent', 'ai'].includes(m.r)).slice(-1)[0];
       const lastPreview = lastMsg ? (lastMsg.t.length > 100 ? lastMsg.t.slice(0, 100) + '…' : lastMsg.t) : '';
-      const statusLabel = t.status === 'resolved' ? 'Resolved'
+      const statusLabel = t.status === 'closed' ? 'Closed' : t.status === 'resolved' ? 'Resolved'
         : t.status === 'pending' ? 'Awaiting your reply'
         : t.status === 'escalated' ? 'Escalated · being handled'
         : 'In progress';
@@ -199,7 +199,7 @@ function renderPortalTicket(cust, ticketId) {
     return `<div style="color:var(--ink3);font-size:12px;text-align:center;padding:30px">Ticket not found. <span class="link" data-action="portal.nav" data-view="tickets">Back to my tickets</span></div>`;
   }
   // Public messages only — internal notes never reach the customer.
-  const publicMsgs = (t.msgs || []).filter(m => m.r !== 'note');
+  const publicMsgs = (t.msgs || []).filter(m => ['customer', 'agent', 'ai'].includes(m.r));
   const msgsHtml = publicMsgs.map(m => `
     <div style="display:flex;flex-direction:column;margin-bottom:10px">
       <div class="${m.r === 'customer' ? 'portal-msg-customer' : 'portal-msg-agent'}">
@@ -211,7 +211,7 @@ function renderPortalTicket(cust, ticketId) {
   return `
     <div style="margin-bottom:10px"><span class="link" data-action="portal.nav" data-view="tickets" style="font-size:12px">← My tickets</span></div>
     <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:600;color:var(--ink);margin-bottom:6px">${window.escHtml(t.subject)}</div>
-    <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-bottom:18px">${window.escHtml(t.id)} · ${closed ? 'Resolved' : 'In progress'}${t.agent ? ' · Helping you: ' + window.escHtml(t.agent) : ''}</div>
+    <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-bottom:18px">${window.escHtml(t.id)} · ${t.status === 'closed' ? 'Closed' : closed ? 'Resolved' : 'In progress'}${t.agent ? ' · Helping you: ' + window.escHtml(t.agent) : ''}</div>
     <div style="display:flex;flex-direction:column;margin-bottom:18px">${msgsHtml || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px">No messages yet</div>'}</div>
     <div style="border-top:1px solid var(--rule);padding-top:14px">
       <label class="form-label">${closed ? 'Reopen with a reply' : 'Reply'}</label>

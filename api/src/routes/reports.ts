@@ -61,6 +61,7 @@ reports.get('/sla-breaches', async (c) => {
     where t.workspace_id = ${workspaceId}
       and t.deleted_at is null
       and t.merged_into_id is null
+      and t.status_key <> 'closed'
       and t.created_at >= now() - (${days} * interval '1 day')
     order by t.created_at desc
     limit ${MAX_ROWS + 1}

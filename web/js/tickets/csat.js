@@ -39,6 +39,7 @@ function csatColorFor(n) {
 }
 
 export function ticketCSATBlock(t) {
+  if (t.status === 'closed') return '<div class="ts-section"><div class="ts-heading">CSAT survey</div><div>No survey for tickets closed without resolution.</div></div>';
   if (t.csat) {
     const stars = csatStarString(t.csat);
     const color = csatColorFor(t.csat);
@@ -74,6 +75,7 @@ export function ticketCSATBlock(t) {
 export function notifySurveyResult(survey) {
   if (survey.sent) { showToast('Satisfaction survey sent.'); return; }
   const messages = {
+    not_resolved: 'Only resolved tickets can receive a survey.',
     already_requested: 'A survey has already been sent.',
     already_rated: 'This ticket already has a survey response.',
     in_progress: 'A survey is being sent. Check again shortly.',
@@ -89,6 +91,7 @@ const sendingSurveys = new Set();
 async function requestCSAT(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
+  if (t.status !== 'resolved') { showToast('Only resolved tickets can receive a survey.'); return; }
   const stamp = new Date().toISOString().slice(0, 10);
   if (t._uuid) {
     if (sendingSurveys.has(t._uuid)) return;

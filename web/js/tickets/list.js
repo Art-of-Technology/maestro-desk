@@ -25,7 +25,8 @@ import { formatSnoozeUntil } from './snooze.js';
 import { refreshTicketSLA } from './sla.js';
 import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
-import { openTicket } from './detail.js';
+import { openTicket, changeTicketStatus } from './detail.js';
+import { showCloseTickets } from './closure.js';
 import { showNewTicketModal } from './new-ticket.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
@@ -177,7 +178,7 @@ export function initTicketsPage() {
 
 export function renderTickets() {
   ensureSavedSearchesLoaded();
-  const statuses = ['all','open','pending','escalated','gdpr','resolved'];
+  const statuses = ['all','open','pending','escalated','gdpr','resolved','closed'];
   const tabs = statuses.map(s => `<div class="tab ${FILTER_STATUS===s?'active':''}" data-action="tickets.setStatus" data-status="${s}">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}${s!=='all'?' ('+TICKETS.filter(t=>t.status===s).length+')':' ('+TICKETS.length+')'}</div>`).join('');
 
   const list = getFilteredTickets();
@@ -252,6 +253,7 @@ export function renderTickets() {
         <option value="pending">Pending</option>
         <option value="escalated">Escalated</option>
         <option value="resolved">Resolved</option>
+        <option value="closed">Close without resolution…</option>
       </select>
       <select class="filter-select" data-change-action="tickets.bulkPriority">
         <option value="">Set priority…</option>
@@ -537,9 +539,9 @@ function setTicketGroupBy(v) { TICKET_GROUP_BY = v; renderPage('tickets'); }
 
 function getFilteredTickets() {
   let list = [...TICKETS];
-  if (FILTER_VIEW === 'mine' && SESSION) list = list.filter(t => t.agent === SESSION.name);
-  else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent);
-  else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.sla === 'breach' || t.sla === 'warn');
+  if (FILTER_VIEW === 'mine' && SESSION) list = list.filter(t => t.agent === SESSION.name && t.status !== 'closed');
+  else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent && t.status !== 'closed');
+  else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.status !== 'closed' && (t.sla === 'breach' || t.sla === 'warn'));
   else if (FILTER_VIEW === 'snoozed')    list = list.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now());
   else if (FILTER_VIEW === 'needs_attention') list = list.filter(needsAttention);
   if (FILTER_STATUS !== 'all')   list = list.filter(t => t.status === FILTER_STATUS);
@@ -614,20 +616,20 @@ function bulkAssignTickets() {
   }, 'Assign');
 }
 
-function bulkSetStatus(v) {
+async function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  TICKETS.forEach(t => {
-    if (!TICKET_SELECTED_IDS.has(t.id)) return;
-    if (t.status === v) return;
-    logTicketEvent(t.id, 'status', `Status: ${t.status} → ${v} (bulk)`);
-    t.status = v;
-    refreshTicketSLA(t);
-    if (!t._uuid && v === 'resolved' && !t.csatRequestedAt && !t.csat) {
-      t.csatRequestedAt = new Date().toISOString().slice(0, 10);
-      logTicketEvent(t.id, 'system', 'CSAT survey sent to customer');
-    }
-  });
-  TICKET_SELECTED_IDS.clear();
+  if (v === 'closed') {
+    showCloseTickets([...TICKET_SELECTED_IDS], (succeeded) => {
+      succeeded.forEach(id => TICKET_SELECTED_IDS.delete(id));
+      updateNavBadges();
+      if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+    });
+    return;
+  }
+  for (const id of [...TICKET_SELECTED_IDS]) {
+    await changeTicketStatus(id, v);
+    if (TICKETS.find(t => t.id === id)?.status === v) TICKET_SELECTED_IDS.delete(id);
+  }
   updateNavBadges();
   renderPage('tickets');
 }
@@ -806,7 +808,7 @@ registerChangeActions({
   'tickets.applySearchSelect': (ds, el) => { applySavedSearch(el.value); el.value = ''; },
   'tickets.toggleSelected':    (ds) => toggleTicketSelected(ds.id),
   'tickets.toggleAll':         () => toggleAllTickets(),
-  'tickets.bulkStatus':        (ds, el) => bulkSetStatus(el.value),
+  'tickets.bulkStatus':        (ds, el) => { const value = el.value; el.value = ''; return bulkSetStatus(value); },
   'tickets.bulkPriority':      (ds, el) => bulkSetPriority(el.value),
   'tickets.setAgent':          (ds, el) => setAgentFilter(el.value),
   'tickets.setGroupBy':        (ds, el) => setTicketGroupBy(el.value),

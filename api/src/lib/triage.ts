@@ -234,6 +234,7 @@ export interface TriageResult {
       | 'postmark_not_configured'
       | 'customer_email_missing'
       | 'email_suppressed'
+      | 'ticket_closed'
       | 'send_failed'
       | 'unknown_error';
     not_posted_detail?: string;      // free-form context (e.g. Postmark error body)

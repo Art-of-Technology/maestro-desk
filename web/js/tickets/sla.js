@@ -166,6 +166,9 @@ export function fmtSLAMinutes(min) {
 }
 
 export function computeTicketSLA(t) {
+  if (t.status === 'closed') return { status: 'ok', policy: null, elapsedMin: 0,
+    firstRespMin: null, firstResponseStatus: 'n/a', resolutionStatus: 'n/a',
+    isResolved: false, isClosed: true, isSnoozed: false };
   const policy = findMatchingSLAPolicy(t);
   const elapsedMin = ticketElapsedMinutes(t);
   const firstRespMin = ticketFirstResponseMinutes(t);

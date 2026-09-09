@@ -57,9 +57,9 @@ export function computeReportStats(tickets) {
       sentimentScored++;
     }
     if (t.csat) csatScores.push(t.csat);
-    if      (t.sla === 'ok')     slaOk++;
-    else if (t.sla === 'warn')   slaWarn++;
-    else if (t.sla === 'breach') slaBreach++;
+    if      (t.status !== 'closed' && t.sla === 'ok')     slaOk++;
+    else if (t.status !== 'closed' && t.sla === 'warn')   slaWarn++;
+    else if (t.status !== 'closed' && t.sla === 'breach') slaBreach++;
     (t.timeEntries || []).forEach(e => {
       timeTotal += e.minutes || 0;
       if (e.billable !== false) timeBillable += e.minutes || 0;
@@ -70,9 +70,10 @@ export function computeReportStats(tickets) {
   }
   const total = tickets.length;
   const resolved = byStatus.resolved || 0;
-  const resolutionRate = total ? Math.round(resolved/total*100) : 0;
+  const eligible = total - (byStatus.closed || 0);
+  const resolutionRate = eligible ? Math.round(resolved/eligible*100) : 0;
   const avgCSAT = csatScores.length ? csatScores.reduce((a,b)=>a+b,0)/csatScores.length : 0;
-  const slaCompliance = total ? Math.round((slaOk + slaWarn)/total*100) : 0;
+  const slaCompliance = eligible ? Math.round((slaOk + slaWarn)/eligible*100) : 0;
   return { total, byStatus, byPriority, byCategory, byAgent, bySentiment, sentimentScored, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
 }
 

@@ -36,7 +36,7 @@ function getAgentStats(name) {
   const resolved = tickets.filter(t => t.status === 'resolved').length;
   const csat = tickets.filter(t => t.csat);
   const avgCSAT = csat.length ? csat.reduce((a, t) => a + t.csat, 0) / csat.length : 0;
-  return { tickets, total: tickets.length, open, resolved, csatCount: csat.length, avgCSAT };
+  return { tickets, total: tickets.length, eligible: tickets.filter(t => t.status !== 'closed').length, open, resolved, csatCount: csat.length, avgCSAT };
 }
 
 export function renderAgents() {
@@ -307,7 +307,7 @@ function renderAgentDetail(name) {
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:6px">
             <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${a.active && d.totalActive ? '#'+d.rank : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Rank by load</div></div>
             <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${window.fmtMinutes(d.avgResponseMin)}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Avg first response</div></div>
-            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${s.total ? Math.round(s.resolved/s.total*100) + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Resolution rate</div></div>
+            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${s.eligible ? Math.round(s.resolved/s.eligible*100) + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Resolution rate</div></div>
             <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:${d.slaCompliance>=80?'var(--green)':d.slaCompliance>=60?'var(--amber)':'var(--red)'};line-height:1">${s.total ? d.slaCompliance + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">SLA compliance</div></div>
           </div>
         </div>
