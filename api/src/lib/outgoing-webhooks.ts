@@ -78,6 +78,7 @@ function webhookFetcher(): Promise<WebhookFetcher> {
 export type WebhookEvent =
   | 'ticket.created'
   | 'ticket.resolved'
+  | 'ticket.closed'
   | 'ticket.escalated'
   | 'priority.urgent';
 

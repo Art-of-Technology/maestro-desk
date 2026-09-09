@@ -94,7 +94,7 @@ integrations.delete('/slack', async (c) => {
 });
 
 // ─── Outgoing webhooks (multiple per workspace) ─────────────────────────
-const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.escalated', 'priority.urgent'] as const;
+const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.closed', 'ticket.escalated', 'priority.urgent'] as const;
 
 const WebhookBody = z.object({
   name:   z.string().min(1).max(100),

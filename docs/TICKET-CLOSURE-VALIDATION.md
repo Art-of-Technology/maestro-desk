@@ -21,6 +21,20 @@ Self-review covered workspace isolation, concurrent closure/survey requests, sta
 - Closure notes participate in the existing data export and erasure paths; system messages stay out of the customer portal preview.
 - Failed bulk saves preserve local status and selection. Retry sends only the failed tickets.
 
+## Octopus follow-up
+
+- Realtime is owned by `tickets.use('*', ...)`, which runs after the close route. The DB-backed test spies on that boundary and verifies exactly one publication per successful request, none on a rejected request. No duplicate publish was added to the handler.
+- `ticket.closed` is now a selectable outgoing webhook subscription. The new closure emits it once; repeat requests do not enqueue duplicates. Its payload uses the existing public ticket fields and excludes the closure note.
+- An authenticated customer-portal test reads the closed ticket and verifies that the internal note is absent from both the ticket fields and messages. A customer reply is retained while the ticket remains closed. This tests the live API allowlist, in addition to the preview allowlist.
+- The close result uses a discriminated union and explicit selected columns; non-null assertions and the unrelated indentation change were removed.
+- A PostgreSQL migration test verifies that existing open/resolved rows retain their data, both existing and newly provisioned workspaces gain the terminal status, and invalid closure metadata is rejected.
+
+## Migration and rollback
+
+The migration is additive and follows this repository's forward-only convention. Roll back an application release through Dokploy's prior image, leaving the extra nullable columns and status in place; do not drop closure history. A schema correction requires a new forward migration. Production startup runs migrations before the new API serves traffic.
+
+The supported pre-feature statuses do not include `closed`. A manually customized database containing that status needs an explicit data-conversion decision before migration; the check constraint deliberately refuses to invent a reason, agent, or closing time. Test fixtures cover the supported prior schema rather than silently relabeling custom historical data.
+
 # Design Review: Ticket closure
 
 **Stack:** native JavaScript/CSS | **Reviewed:** closure dialog, ticket details, bulk action | **Breakpoints:** 390 / 768 / 1280

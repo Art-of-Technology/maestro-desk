@@ -250,35 +250,47 @@ const CloseTicket = z.object({
   note: z.string().trim().max(4000).optional(),
 }).strict();
 
+type ClosedTicketRow = {
+  id: string; status_key: string; closure_reason: string | null; closure_note: string | null;
+  closed_at: string | null; closed_by_user_id: string | null; survey_sending?: boolean;
+};
+
 tickets.post('/:id/close', async (c) => {
   const workspaceId = c.get('workspaceId'), ticketId = c.req.param('id');
   if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
   const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
   const result = await getDb().begin(async (sql) => {
-    const [ticket] = await sql`select *,
+    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id,
       (csat_send_claim is not null and csat_send_started_at >= now() - interval '10 minutes') as survey_sending
       from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null for update`;
-    if (!ticket) return { error: 'Ticket not found', status: 404 as const };
-    if (ticket.status_key === 'closed') return { ticket };
+    if (!ticket) return { ok: false as const, error: 'Ticket not found', status: 404 as const };
+    if (ticket.status_key === 'closed') return { ok: true as const, ticket, changed: false };
     // The mailer claims the same row before sending. Do not report a silent
     // closure while an already-started survey is still being delivered.
-    if (ticket.survey_sending) return { error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
-    const [updated] = await sql`update tickets set status_key = 'closed',
+    if (ticket.survey_sending) return { ok: false as const, error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
+    const [updated] = await sql<ClosedTicketRow[]>`update tickets set status_key = 'closed',
       closure_reason = ${parsed.data.reason}, closure_note = ${parsed.data.note || null},
       closed_at = now(), closed_by_user_id = ${c.get('userId')}, resolved_at = null,
       sla_state = 'ok', snoozed_until = null, snoozed_at = null, snoozed_by_user_id = null,
       snooze_reason = null, csat_send_claim = null, csat_send_started_at = null
-      where id = ${ticketId} and workspace_id = ${workspaceId} returning *`;
+      where id = ${ticketId} and workspace_id = ${workspaceId}
+      returning id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id`;
     const [actor] = await sql`select name from users where id = ${c.get('userId')}`;
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body)
       values (${workspaceId}, ${ticketId}, 'system', ${c.get('userId')}, ${actor?.name || 'Agent'},
         ${`Closed without resolution: ${parsed.data.reason}.${parsed.data.note ? '\n' + parsed.data.note : ''}`})`;
-    return { ticket: updated };
+    return { ok: true as const, ticket: updated, changed: true };
   });
-  if ('error' in result) return c.json({ error: result.error }, result.status!);
-  const t = result.ticket!;
+  if (!result.ok) return c.json({ error: result.error }, result.status);
+  // The router middleware publishes ticket.changed for this successful POST.
+  // Outgoing subscriptions are explicit, and only a new closure emits one.
+  if (result.changed) {
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.closed', ticketId }); }
+    catch (err) { console.warn('[outgoing-webhooks] closed failed:', err); }
+  }
+  const t = result.ticket;
   return c.json({ ticket: { id: t.id, status_key: t.status_key, closure_reason: t.closure_reason,
     closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id } });
 });

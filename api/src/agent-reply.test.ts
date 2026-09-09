@@ -4,7 +4,7 @@
 // Message-Id; an internal note never emails; no-email and hard-bounced
 // customers are saved-only with the right reason.
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 // Hermetic env so imports resolve; force Postmark "configured" + a fallback
 // sender so the send path runs and getOutboundFrom falls back cleanly.
@@ -109,6 +109,63 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   const requestSurvey = (tid: string) => as(`/api/v1/tickets/${tid}/csat`, { method: 'POST', body: '{}' });
 
   const closeTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}/close`, { method: 'POST', body: JSON.stringify(body) });
+
+  it('publishes closure through shared realtime middleware and enqueues one subscribed webhook', async () => {
+    const tid = await seedTicket(`AR-${RUN}-close-events`, { email: null });
+    const pubby = await import('./lib/pubby.js');
+    const publish = spyOn(pubby, 'publishTicketChanged').mockResolvedValue(undefined);
+    const [hook] = await sql`insert into workspace_webhooks (workspace_id, name, url, secret, events, active)
+      values (${ctx.wsId}, 'Closure test', 'https://example.com/hook', 'test-secret', array['ticket.closed'], true) returning id`;
+    try {
+      // Exercise the subscription API as well as the dispatcher, without an outbound HTTP request.
+      const configured = await as(`/api/v1/integrations/webhooks/${hook.id}`, {
+        method: 'PATCH', body: JSON.stringify({ events: ['ticket.closed'] }),
+      });
+      expect(configured.status).toBe(200);
+      expect((await closeTicket(tid, { reason: 'abuse', note: 'Private closure detail' })).status).toBe(200);
+      expect(publish).toHaveBeenCalledTimes(1);
+      expect(publish).toHaveBeenCalledWith(ctx.wsId, tid);
+      expect((await closeTicket(tid, { reason: 'abuse' })).status).toBe(200);
+      const deliveries = await sql`select event, payload from webhook_deliveries where webhook_id = ${hook.id}`;
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0].event).toBe('ticket.closed');
+      expect(deliveries[0].payload.ticket.status).toBe('closed');
+      expect(JSON.stringify(deliveries[0].payload)).not.toContain('Private closure detail');
+      expect((await closeTicket(crypto.randomUUID(), { reason: 'other' })).status).toBe(404);
+      expect(publish).toHaveBeenCalledTimes(2); // successful requests only, once per request
+    } finally {
+      publish.mockRestore();
+      await sql`delete from workspace_webhooks where id = ${hook.id}`;
+    }
+  });
+
+  it('keeps closure notes out of the authenticated customer portal and preserves closed status on replies', async () => {
+    const display = `AR-${RUN}-close-portal`;
+    const tid = await seedTicket(display, { email: `portal-${RUN}@acme.test` });
+    const [ticket] = await sql`select customer_id from tickets where id = ${tid}`;
+    const portal = await import('./lib/portal-auth.js');
+    const { token } = await portal.createMagicLink({ workspaceId: ctx.wsId, customerId: ticket.customer_id });
+    const session = await portal.verifyMagicLink({ workspaceId: ctx.wsId, token });
+    if (!session) throw new Error('Portal session fixture failed');
+    await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+      values (${ctx.wsId}, ${tid}, 'customer', 'Customer', 'Public question')`;
+    await closeTicket(tid, { reason: 'duplicate', note: 'Internal assessment must remain private' });
+    const path = `/api/v1/public/ar-${RUN}/customer/tickets/${display}`;
+    const headers = { Authorization: `Bearer ${session.sessionToken}`, 'Content-Type': 'application/json' };
+    const response = await app.request(path, { headers });
+    expect(response.status).toBe(200);
+    const data: any = await response.json();
+    expect(data.ticket.status_key).toBe('closed');
+    expect(data.ticket.messages).toHaveLength(1);
+    expect(data.ticket.messages[0].body).toBe('Public question');
+    expect(JSON.stringify(data)).not.toContain('Internal assessment');
+    expect(data.ticket).not.toHaveProperty('closure_note');
+    const reply = await app.request(`${path}/messages`, { method: 'POST', headers, body: JSON.stringify({ body: 'Customer follow-up' }) });
+    expect(reply.status).toBe(201);
+    const [after] = await sql`select status_key from tickets where id = ${tid}`;
+    expect(after.status_key).toBe('closed');
+    expect(postmarkCalls).toBe(0);
+  });
 
   it('closes without email, records the agent and reason, and blocks every survey path', async () => {
     const tid = await seedTicket(`AR-${RUN}-close`, { email: `close-${RUN}@acme.test` });
@@ -339,7 +396,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       method: 'POST', body: JSON.stringify({ role: 'agent', body_html: '<p>Hello <b>again</b></p>' }),
     });
     expect(res.status).toBe(201);
-      expect(lastBody.To).toBe(secondary);
+    expect(lastBody.To).toBe(secondary);
     expect(lastBody.HtmlBody).toContain('<b>again</b>');
   });
 

@@ -24,6 +24,7 @@ import { showModal, closeModal } from '../core/modal.js';
 const WEBHOOK_EVENT_TYPES = [
   { v:'ticket.created',   l:'Ticket created' },
   { v:'ticket.resolved',  l:'Ticket resolved' },
+  { v:'ticket.closed',    l:'Ticket closed without resolution' },
   { v:'ticket.escalated', l:'Ticket escalated' },
   { v:'ticket.assigned',  l:'Ticket assignee changed' },
   { v:'ticket.merged',    l:'Ticket merged into another' },
