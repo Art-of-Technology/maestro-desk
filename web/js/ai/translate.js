@@ -19,6 +19,7 @@
 import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { callClaude } from './client.js';
+import { translateFormatted } from './formatted-translation.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -33,7 +34,7 @@ export async function translateText(text, targetLang) {
   if (!text || !text.trim()) return { error: 'No text to translate.' };
   try {
     const { text: translation, error } = await callClaude({
-      system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, polish it lightly for clarity.`,
+      system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Preserve paragraphs, line breaks, lists and existing formatting. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, return it unchanged.`,
       messages: [{ role: 'user', content: text }],
       maxTokens: 1000,
       action: 'translate',
@@ -44,22 +45,36 @@ export async function translateText(text, targetLang) {
   }
 }
 
+async function translateMessageContent(message, target) {
+  if (!message.html) return translateText(message.t, target);
+  try {
+    return await translateFormatted(message.html, target, callClaude);
+  } catch {
+    return { error: 'Could not complete the formatted translation. Please try again.' };
+  }
+}
+
 export async function translateMessage(ticketId, msgIdx) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || !t.msgs[msgIdx]) return;
   const m = t.msgs[msgIdx];
   m.translating = true;
   openTicket(ticketId);
-  const res = await translateText(m.t, 'English');
+  const target = AGENT_PREFERRED_LANG;
+  const res = await translateMessageContent(m, target);
   m.translating = false;
   m.translation = res.translation || ('⚠ ' + (res.error || 'Translation failed'));
-  openTicket(ticketId);
+  m.translationHtml = res.translationHtml || null;
+  m.translatedFor = res.translation ? target : null;
+  if (CURRENT_TICKET === ticketId) openTicket(ticketId);
 }
 
 export function hideMessageTranslation(ticketId, msgIdx) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || !t.msgs[msgIdx]) return;
   delete t.msgs[msgIdx].translation;
+  delete t.msgs[msgIdx].translationHtml;
+  delete t.msgs[msgIdx].translatedFor;
   openTicket(ticketId);
 }
 
@@ -96,9 +111,10 @@ export async function detectAndTranslateThread(ticketId) {
   );
   if (stale.length) {
     await Promise.all(stale.map(async m => {
-      const res = await translateText(m.t, target);
+      const res = await translateMessageContent(m, target);
       if (res.translation) {
         m.translation = res.translation;
+        m.translationHtml = res.translationHtml || null;
         m.translatedFor = target;
       }
     }));

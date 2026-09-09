@@ -403,7 +403,7 @@ export function openTicket(id) {
       } else if (m.translation) {
         translateBlock = `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--rule)">
           <div style="font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin-bottom:4px">Translation</div>
-          <div style="font-size:13px;color:var(--ink2);font-style:italic;line-height:1.55">${window.escHtml(m.translation)}</div>
+          ${m.translationHtml ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, '') : `<div style="font-size:13px;color:var(--ink2);white-space:pre-wrap;line-height:1.55">${window.escHtml(m.translation)}</div>`}
           <div style="margin-top:6px"><span class="link" style="font-size:11px" data-action="td.hideTranslation" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Hide translation</span></div>
         </div>`;
       } else {
@@ -418,11 +418,13 @@ export function openTicket(id) {
     const plainBody = m.r === 'note'
       ? renderTextWithMentions(bodyText)
       : window.escHtml(bodyText).replace(/\n/g, '<br>');
-    // A formatted email renders in a sandboxed frame; everything else (notes,
-    // plain-text mail, and any message being shown as a translation or as the
-    // agent's pre-translation original) keeps the escaped-text rendering.
+    // Original and translated email HTML share the sandboxed renderer.
+    // Notes, plain-text mail and outgoing originals remain escaped text.
+    const translatedRich = threadOn && m.r === 'customer' && m.translatedFor === AGENT_PREFERRED_LANG && m.translation && m.translationHtml;
     const showRich = !!m.html && bodyText === m.t;
-    const bodyHtml = showRich ? renderMessageBody(m, id, i, plainBody) : plainBody;
+    const bodyHtml = translatedRich
+      ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, plainBody)
+      : showRich ? renderMessageBody(m, id, i, plainBody) : plainBody;
     const attachHtml = renderAttachmentChips(m.attachments);
     const sentimentBadge = m.r === 'customer' ? renderSentimentBadge(m.sentiment) : '';
     return `
