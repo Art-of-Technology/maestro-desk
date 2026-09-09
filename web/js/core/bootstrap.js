@@ -623,6 +623,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
 
   // Map messages to data.js shape ({from, r, t, ts, mentions, mergedFrom?}).
   t.msgs = (d.messages || []).map((m) => ({
+    _uuid:      m.id,
     from:       m.author_label,
     r:          m.role,
     t:          m.body,
