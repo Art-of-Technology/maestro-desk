@@ -327,6 +327,38 @@ runDbTests('tenant isolation (DB-backed)', () => {
   });
 
   // ─── #18: readiness probe must not leak the platform tenant count ────────
+  it('work index spans pages, excludes completed work, and remains tenant scoped', async () => {
+    await sql`insert into tickets (workspace_id, customer_id, display_id, subject, status_key, priority_key)
+      select ${A.wsId}::uuid, ${A.customerId}::uuid, 'QUEUE-' || n, 'Queue fixture', 'pending', 'normal' from generate_series(1, 205) n`;
+    try {
+      const ids: string[] = [];
+      let next: string | null = null;
+      do {
+        const response = await as(A.token, A.wsId, `/api/v1/tickets/work-index${next ? '?after=' + next : ''}`);
+        expect(response.status).toBe(200);
+        const body: any = await response.json();
+        expect(body.tickets.length).toBeLessThanOrEqual(200);
+        for (const row of body.tickets) {
+          expect(['resolved', 'closed']).not.toContain(row.status_key);
+          expect(row.id).not.toBe(B.ticketId);
+          ids.push(row.display_id);
+        }
+        next = body.next;
+      } while (next);
+      expect(ids.filter(id => id.startsWith('QUEUE-')).length).toBe(205);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect((await as(A.token, B.wsId, '/api/v1/tickets/work-index')).status).toBe(403);
+      expect((await as(A.token, A.wsId, '/api/v1/tickets/work-index?after=bad')).status).toBe(400);
+    } finally { await sql`delete from tickets where workspace_id = ${A.wsId} and display_id like 'QUEUE-%'`; }
+  });
+
+  it('Dashboard requires workspace membership', async () => {
+    const path = '/api/v1/reports/dashboard?start=2026-01-01T00:00:00Z&end=2026-01-02T00:00:00Z';
+    expect((await as(A.token, B.wsId, path)).status).toBe(403);
+    expect((await as(null, A.wsId, path)).status).toBe(401);
+    expect((await as(A.token, A.wsId, path)).status).toBe(200);
+  });
+
   it('readiness probe does not expose the workspace count', async () => {
     const res = await app.request('/api/v1/health/ready');
     expect(res.status).toBe(200);

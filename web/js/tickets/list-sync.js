@@ -19,11 +19,12 @@
 // keeps the list live. First call stamps the server's clock as the cursor;
 // subsequent calls pull deltas since the last cursor.
 
-import { CURRENT_PAGE } from '../core/state.js';
-import { updateNavBadges } from '../core/router.js';
-import { apiGet } from '../core/api-client.js';
+import { CURRENT_PAGE, CURRENT_TICKET } from '../core/state.js';
+import { renderPage, updateNavBadges } from '../core/router.js';
+import { apiGet, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
-import { renderTickets } from './list.js';
+import { invalidateWorkQueue } from './work-queue.js';
+import { invalidateDashboard } from '../dashboard/index.js';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -59,26 +60,28 @@ export function stopListSync() {
 export async function tick() {
   if (state.inFlight) return;
   state.inFlight = true;
+  const workspace = getWorkspaceId(), jwt = getJwt();
   try {
     const path = state.cursor
       ? `/api/v1/tickets/sync?cursor=${encodeURIComponent(state.cursor)}`
       : `/api/v1/tickets/sync`;
     const res = await apiGet(path);
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
 
     if (res?.cursor) state.cursor = res.cursor;
 
+    invalidateWorkQueue();
+    invalidateDashboard();
+
     const rows = Array.isArray(res?.tickets) ? res.tickets : [];
-    if (rows.length === 0) return;
 
     // Build customer + user lookup maps once per batch (rather than once
     // per row inside updateOrInsertTicket) so a 50-row response doesn't
     // rebuild them 50 times.
     const lookups = buildTicketLookups();
-    let dirty = false;
     for (const row of rows) {
-      if (updateOrInsertTicket(row, lookups)) dirty = true;
+      updateOrInsertTicket(row, lookups);
     }
-    if (!dirty) return;
 
     // Re-render the active list view if we're on one. Other pages
     // pull the fresh TICKETS data on their next render naturally.
@@ -86,9 +89,7 @@ export async function tick() {
     // every other module — it is NOT a window property (a top-level `let`
     // doesn't attach to window, so window.CURRENT_PAGE was always undefined).
     const page = CURRENT_PAGE;
-    if (page === 'tickets') {
-      renderTickets();
-    }
+    if ((page === 'tickets' && !CURRENT_TICKET) || page === 'dashboard') renderPage(page);
     // Nav badges read off TICKETS too — refresh regardless of page so
     // the sidebar counts don't go stale while the agent is elsewhere.
     if (typeof updateNavBadges === 'function') {

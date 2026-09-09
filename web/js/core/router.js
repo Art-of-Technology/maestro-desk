@@ -24,6 +24,7 @@ import { renderCustomers } from '../customers/index.js';
 import { resetPlayerLookup } from '../customers/player-lookup.js';
 import { detachPinObserver } from '../customers/details-card.js';
 import { renderReports } from '../reports/index.js';
+import { isOutstanding, workQueueState } from '../tickets/work-queue.js';
 import { renderSLABreach } from '../reports/sla-breach.js';
 import { renderAgents } from '../agents/index.js';
 import { renderAI, initAI } from '../ai/page.js';
@@ -170,6 +171,10 @@ export function renderPage(page) {
 // through the import so the table's "select all" indeterminate state lands
 // after innerHTML.
 export function updateNavBadges() {
-  document.getElementById('nb-open').textContent = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
+  const badge = document.getElementById('nb-open');
+  if (badge) {
+    badge.textContent = workQueueState().ready ? TICKETS.filter(isOutstanding).length : '';
+    badge.title = 'Outstanding tickets, including pending';
+  }
   refreshNotifBadge();
 }
