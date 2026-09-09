@@ -12,10 +12,13 @@ headers. The browser does not receive the provider key.
    value if it works. Do not put it in the frontend environment or a browser.
 2. Release the API first, then **respovia-web**, from the same reviewed commit.
    No database migration or additional environment variable is required.
-3. In **Platform → Brands**, set the intended brand's AI credit balance using
-   the existing platform-admin control. Do not change another brand's balance.
-   The field is in micro-USD: 1,000,000 means $1. This is an internal allowance,
-   not a payment to Anthropic. Choose the allowance with the workspace owner.
+3. Review the intended brand's balance in **Platform → Brands**. To change it,
+   use the existing platform-admin API: `PATCH /api/v1/god/brands/:id` with
+   `ai_credits_micro` set to the agreed balance. The current brand screen shows
+   the balance but has no edit control. Do not change another brand's balance.
+   The field is in micro-USD: 1,000,000 means $1. This sets an absolute internal
+   allowance, not an increment or a payment to Anthropic. Choose the allowance
+   with the workspace owner and avoid replacing it while AI calls are in flight.
 4. In that workspace's **Settings → AI Assistant**, select a model and click
    **Check connection**. This checks the server key and model access without a
    paid generation. It does not prove the provider account has billing credit.
