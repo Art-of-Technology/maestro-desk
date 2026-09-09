@@ -13,7 +13,7 @@
 
 import { TICKETS } from '../core/data.js';
 import { AI_THINKING, setAiThinking } from '../core/state.js';
-import { AI_API_KEY, callClaude } from './client.js';
+import { callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';
 import { focusEnd, getPlainText, setText } from '../tickets/composer.js';
 import { buildKbQuery, fetchKbArticles } from '../kb-integration/index.js';
@@ -26,15 +26,10 @@ export async function aiAction(id, action) {
   const t = TICKETS.find(x => x.id === id);
   const el = document.getElementById('compose-' + id);
   if (!t || !el) return;
-  if (!AI_API_KEY) {
-    setText(id, 'No Claude API key configured. Add one in Settings → AI Assistant.');
-    onComposeInput(id);
-    return;
-  }
   // AI works on (and returns) plain text; in the rich editor that replaces the
   // content, which is what "draft/improve/shorten" means to an agent.
   const current = getPlainText(id);
-  if (action !== 'draft' && !current.trim()) {
+  if (!['draft', 'kb-reply'].includes(action) && !current.trim()) {
     setText(id, `Type something first — AI ${action} works on the current draft.`);
     onComposeInput(id);
     return;
@@ -88,8 +83,8 @@ export async function aiAction(id, action) {
     });
     const txt = text || error;
     if (txt) setText(id, txt);
-  } catch {
-    if (!getPlainText(id)) setText(id, 'AI unavailable. Please type your reply.');
+  } catch (err) {
+    alert(err?.message || 'AI unavailable. Please try again.');
   }
   setAiThinking(false);
   if (th) th.classList.remove('show');

@@ -22,7 +22,6 @@ import {
   setCustomerLanguage,
 } from '../ai/translate.js';
 import { aiAction } from '../ai/reply.js';
-import { AI_API_KEY } from '../ai/client.js';
 import {
   ticketTotalMinutes, ticketBillableMinutes,
   removeTimeEntry, showLogTimeModal,
@@ -458,7 +457,6 @@ export function openTicket(id) {
         <input type="checkbox" ${t.autoTranslateReplies?'checked':''} data-change-action="td.toggleAutoTranslate" data-ticket-id="${window.escAttr(id)}">
         <span>Send replies in customer language</span>
       </label>
-      ${!AI_API_KEY ? '<span style="margin-left:auto;color:var(--amber);font-family:\'DM Mono\',monospace;font-size:10px">Add API key in Settings → AI</span>' : ''}
         </div>
       </details>
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
@@ -1092,8 +1090,7 @@ async function sendCompose(id) {
   const shouldAutoTranslate = COMPOSE_TAB !== 'note'
     && t.autoTranslateReplies
     && t.detectedCustomerLang
-    && t.detectedCustomerLang.toLowerCase() !== AGENT_PREFERRED_LANG.toLowerCase()
-    && AI_API_KEY;
+    && t.detectedCustomerLang.toLowerCase() !== AGENT_PREFERRED_LANG.toLowerCase();
   if (shouldAutoTranslate) {
     setAiThinking(true);
     try {

@@ -7,7 +7,7 @@
 //   • the auto-translate-replies toggle that wraps outgoing replies in the
 //     customer's language at send time (consumed by sendCompose in app.js)
 //
-// Imports callClaude + AI_API_KEY from ./client.js, TICKETS from
+// Imports callClaude from ./client.js, TICKETS from
 // core/data.js, and CURRENT_TICKET from core/state.js.
 //
 // openTicket is now a direct ES import from tickets/detail.js (the cycle
@@ -18,7 +18,7 @@
 
 import { TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
-import { AI_API_KEY, callClaude } from './client.js';
+import { callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';
 import { registerActions } from '../core/event-delegation.js';
@@ -30,13 +30,13 @@ export const TRANSLATOR_LANGS = [
 ];
 
 export async function translateText(text, targetLang) {
-  if (!AI_API_KEY) return { error: 'No Claude API key configured. Add one in Settings → AI Assistant.' };
   if (!text || !text.trim()) return { error: 'No text to translate.' };
   try {
     const { text: translation, error } = await callClaude({
       system: `You are a translator. Translate the following text into ${targetLang || 'English'}. Output ONLY the translated text — no labels, no preamble, no quotes. If the text is already in the target language, polish it lightly for clarity.`,
       messages: [{ role: 'user', content: text }],
       maxTokens: 1000,
+      action: 'translate',
     });
     return translation ? { translation } : { error: error || 'Could not translate.' };
   } catch (e) {
@@ -64,7 +64,6 @@ export function hideMessageTranslation(ticketId, msgIdx) {
 }
 
 export async function detectLanguage(text) {
-  if (!AI_API_KEY) return null;
   const sample = String(text || '').slice(0, 600);
   if (!sample.trim()) return null;
   try {
@@ -72,6 +71,7 @@ export async function detectLanguage(text) {
       system: 'Identify the language of the text. Reply with ONLY the English name of the language using its common form (e.g. "French", "Japanese", "Spanish", "Mandarin Chinese", "English"). Nothing else — no punctuation, no explanation.',
       messages: [{ role: 'user', content: sample }],
       maxTokens: 30,
+      action: 'detect_language',
     });
     return (out || '').trim() || null;
   } catch {
@@ -173,7 +173,7 @@ export function showTranslatorModal(prefillText) {
         <span id="tx-status" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)"></span>
       </div>
     </div>
-    <div style="margin-top:10px;font-size:11px;color:var(--ink3);line-height:1.5">Uses your configured Claude API key. ${AI_API_KEY ? '' : 'Add one in Settings → AI Assistant to enable.'}</div>
+    <div style="margin-top:10px;font-size:11px;color:var(--ink3);line-height:1.5">Uses your workspace AI connection and credit.</div>
   `, null, null);
 }
 

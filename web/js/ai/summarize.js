@@ -6,11 +6,10 @@
 
 import { CUSTOMERS, TICKETS } from '../core/data.js';
 import { CURRENT_TICKET } from '../core/state.js';
-import { AI_API_KEY, callClaude } from './client.js';
+import { callClaude } from './client.js';
 import { openTicket } from '../tickets/detail.js';
 
 export async function summarizeTicket(ticketId) {
-  if (!AI_API_KEY) { alert('No Claude API key configured. Add one in Settings → AI Assistant.'); return; }
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t) return;
   const msgs = t.msgs || [];
@@ -31,6 +30,7 @@ export async function summarizeTicket(ticketId) {
       system: 'You produce concise, agent-friendly handoff summaries for support tickets. Output strict JSON only.',
       messages: [{ role: 'user', content: prompt }],
       maxTokens: 600,
+      action: 'summarize',
     });
     let parsed = null;
     try {

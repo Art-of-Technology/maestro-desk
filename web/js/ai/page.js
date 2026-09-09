@@ -28,7 +28,8 @@
 import { AGENTS, CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { AI_MESSAGES, AI_THINKING, SESSION, setAiMessages, setAiThinking } from '../core/state.js';
 import { renderPage } from '../core/router.js';
-import { AI_API_KEY, AI_MODEL, callClaude } from './client.js';
+import { AI_MODEL, callClaude } from './client.js';
+import { getWorkspaceId, getJwt } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { setSettingsTab } from '../settings/index.js';
@@ -47,17 +48,31 @@ const AI_FOLLOWUPS = [
   "Show me the ticket IDs",
 ];
 
-let AI_CONVERSATIONS = (() => {
-  try { return JSON.parse(localStorage.getItem('ai_conversations') || '[]'); }
-  catch { return []; }
-})();
-let AI_CURRENT_ID = localStorage.getItem('ai_current_id') || null;
-// Hydrate AI_MESSAGES from the persisted current conversation
-(function hydrateAIMessages() {
-  if (!AI_CURRENT_ID) return;
-  const c = AI_CONVERSATIONS.find(x => x.id === AI_CURRENT_ID);
-  if (c) setAiMessages([...(c.messages || [])]);
-})();
+let AI_CONVERSATIONS = [];
+let AI_CURRENT_ID = null;
+let AI_SCOPE = null;
+let AI_SCOPE_JWT = null;
+
+function ensureAIConversationScope() {
+  const scope = SESSION?.userId && getWorkspaceId() ? SESSION.userId + ':' + getWorkspaceId() : null;
+  const jwt = getJwt();
+  if (scope === AI_SCOPE && jwt === AI_SCOPE_JWT) return;
+  AI_SCOPE = scope;
+  AI_SCOPE_JWT = jwt;
+  AI_CURRENT_ID = null;
+  AI_CONVERSATIONS = [];
+  // Ignore legacy unscoped localStorage history: its owner is unknown.
+  try {
+    const saved = scope ? JSON.parse(sessionStorage.getItem('ai_chat:' + scope) || 'null') : null;
+    if (Array.isArray(saved?.conversations)) {
+      AI_CONVERSATIONS = saved.conversations;
+      AI_CURRENT_ID = saved.currentId;
+    }
+  } catch {}
+  const current = getCurrentAIConv();
+  setAiMessages(current ? [...(current.messages || [])] : []);
+  setAiThinking(false);
+}
 
 export function renderMarkdown(text) {
   let html = window.escHtml(text);
@@ -94,10 +109,9 @@ export function renderMarkdown(text) {
 }
 
 function saveAIConversations() {
+  if (!AI_SCOPE) return;
   try {
-    localStorage.setItem('ai_conversations', JSON.stringify(AI_CONVERSATIONS));
-    if (AI_CURRENT_ID) localStorage.setItem('ai_current_id', AI_CURRENT_ID);
-    else localStorage.removeItem('ai_current_id');
+    sessionStorage.setItem('ai_chat:' + AI_SCOPE, JSON.stringify({ conversations: AI_CONVERSATIONS, currentId: AI_CURRENT_ID }));
   } catch {}
 }
 
@@ -173,6 +187,7 @@ function useFollowUp(text) {
 }
 
 export function renderAI() {
+  ensureAIConversationScope();
   const empty = AI_MESSAGES.length === 0;
   const sources = [
     {k:'tickets',   l:`Tickets · ${TICKETS.length}`},
@@ -181,7 +196,7 @@ export function renderAI() {
     {k:'kb',        l:`KB · ${KB_ARTICLES.length}`},
   ];
   const chips = sources.map(s => `<span class="source-chip ${AI_CONTEXT_SOURCES[s.k]?'on':''}" data-action="ai.toggleSource" data-source="${s.k}" style="cursor:pointer">${s.l}</span>`).join('');
-  const noKeyMsg = AI_API_KEY ? '' : ` Add a Claude API key in <span class="link" data-action="ai.gotoSettingsAi">Settings → AI Assistant</span> to get started.`;
+  const noKeyMsg = ' Uses your workspace AI connection and credit.';
 
   const msgs = AI_MESSAGES.map((m, i) => {
     const body = m.r === 'user'
@@ -222,9 +237,9 @@ export function renderAI() {
       <div class="topbar">
         <div class="tb-title">AI Intelligence</div>
         ${AI_MESSAGES.length ? `<button class="btn btn-sm" data-action="ai.clear">Clear chat</button>` : ''}
-        <span style="font-size:11px;color:${AI_API_KEY?'var(--green)':'var(--amber)'};font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;margin-left:auto">
+        <span style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;display:flex;align-items:center;gap:6px;margin-left:auto">
           <span style="width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor"></span>
-          ${AI_API_KEY ? `${AI_MODEL || 'claude-sonnet-4-6'}` : 'No API key'}
+          ${AI_MODEL}
         </span>
       </div>
       <div class="ai-layout">
@@ -252,7 +267,7 @@ export function renderAI() {
             </div>
           ` : `<div class="ai-chat" id="ai-chat">${msgs}${thinkingMsg}</div>${followUpsHtml}`}
           <div class="ai-input-row">
-            <textarea id="ai-input" placeholder="${AI_API_KEY?'Ask about your workspace… (Enter to send, Shift+Enter for new line)':'Add an API key in Settings → AI Assistant to chat'}" style="flex:1;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:9px 12px;resize:none;outline:none;height:46px" ${AI_THINKING?'disabled':''}></textarea>
+            <textarea id="ai-input" placeholder="Ask about your workspace… (Enter to send, Shift+Enter for new line)" style="flex:1;font-family:'Inter',sans-serif;font-size:13px;line-height:1.5;color:var(--ink);background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);padding:9px 12px;resize:none;outline:none;height:46px" ${AI_THINKING?'disabled':''}></textarea>
             <button class="btn btn-solid" data-action="ai.send" ${AI_THINKING?'disabled':''}>${AI_THINKING?'…':'Send'}</button>
           </div>
         </div>
@@ -289,33 +304,9 @@ function scrollAIBottom() {
   if (chat) chat.scrollTop = chat.scrollHeight;
 }
 
-function buildAIContext() {
-  const parts = [];
-  if (AI_CONTEXT_SOURCES.tickets) {
-    parts.push(`TICKETS (${TICKETS.length}):\n` + TICKETS.map(t => {
-      const c = CUSTOMERS.find(x => x.id === t.customerId);
-      return `- ${t.id}: "${t.subject}" | status=${t.status} | priority=${t.priority} | category=${t.category} | sla=${t.sla} | agent=${t.agent} | customer=${c?c.first+' '+c.last:t.customerId} | tags=[${t.tags.join(',')}] | csat=${t.csat??'n/a'}`;
-    }).join('\n'));
-  }
-  if (AI_CONTEXT_SOURCES.customers) {
-    parts.push(`CUSTOMERS (${CUSTOMERS.length}):\n` + CUSTOMERS.map(c =>
-      `- ${c.id}: ${c.first} ${c.last} | brand=${c.brand} | vip=${c.vip} | jurisdiction=${c.jurisdiction} | consent=${c.consent} | since=${c.since}`
-    ).join('\n'));
-  }
-  if (AI_CONTEXT_SOURCES.agents) {
-    parts.push(`AGENTS (${AGENTS.length}):\n` + AGENTS.map(a =>
-      `- ${a.name} (${a.initials}) | role=${a.role} | active=${a.active}`
-    ).join('\n'));
-  }
-  if (AI_CONTEXT_SOURCES.kb) {
-    parts.push(`KNOWLEDGE BASE (${KB_ARTICLES.length}):\n` + KB_ARTICLES.map(a =>
-      `- ${a.id}: "${a.title}" | category=${a.category}`
-    ).join('\n'));
-  }
-  return parts.length ? parts.join('\n\n') : 'No workspace data context selected.';
-}
-
 async function aiSend() {
+  ensureAIConversationScope();
+  const requestScope = AI_SCOPE, requestJwt = getJwt(), requestWorkspace = getWorkspaceId();
   if (AI_THINKING) return;
   const input = document.getElementById('ai-input');
   const text = input?.value.trim();
@@ -325,30 +316,26 @@ async function aiSend() {
   if (input) input.value = '';
   syncCurrentAIConv();
 
-  if (!AI_API_KEY) {
-    AI_MESSAGES.push({r:'ai', t:'No Claude API key configured. Add one in Settings → AI Assistant to enable the assistant.'});
-    syncCurrentAIConv();
-    renderPage('ai');
-    return;
-  }
 
   setAiThinking(true);
   renderPage('ai');
 
-  const ctx = buildAIContext();
   const conv = AI_MESSAGES
     .filter(m => m.r === 'user' || m.r === 'ai')
     .map(m => ({ role: m.r === 'user' ? 'user' : 'assistant', content: m.t }));
 
   try {
     const { text, error } = await callClaude({
-      system: `You are an AI analyst embedded in Respovia, a customer-support app. Answer questions about the workspace data provided below. Be concise and concrete — when you reference tickets, customers or agents, use their identifiers (e.g. TK-001, M003). If a question can't be answered from the data provided, say so plainly.\n\n${ctx}`,
       messages: conv,
       maxTokens: 1024,
+      action: 'chat',
+      sources: Object.keys(AI_CONTEXT_SOURCES).filter(k => AI_CONTEXT_SOURCES[k]),
     });
+    if (requestScope !== AI_SCOPE || requestJwt !== getJwt() || requestWorkspace !== getWorkspaceId()) return;
     const reply = text || error || 'Could not generate a response.';
     AI_MESSAGES.push({r:'ai', t:reply});
   } catch (e) {
+    if (requestScope !== AI_SCOPE || requestJwt !== getJwt() || requestWorkspace !== getWorkspaceId()) return;
     AI_MESSAGES.push({r:'ai', t:'AI unavailable: ' + (e?.message || 'network error')});
   }
   setAiThinking(false);
