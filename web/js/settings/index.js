@@ -469,6 +469,7 @@ function settingsNotifications() {
     {k:'wake',      l:'Snooze wake-ups', d:'Tickets that have come back from a snooze'},
     {k:'mention',   l:'@mentions',     d:'You were @-mentioned in an internal note'},
     {k:'response',  l:'New customer responses', d:'A customer replied to a ticket assigned to you'},
+    {k:'unassigned', l:'Unassigned tickets', d:'Outstanding tickets that need an owner; paused while snoozed'},
   ];
   // Email preferences live server-side (per-user, on public.users).
   // Lazy-load on tab open + re-render once the fetch lands so the
@@ -491,7 +492,7 @@ function settingsNotifications() {
             <div style="font-size:11px;color:var(--ink3);margin-top:2px">${t.d}</div>
           </div>
           <label class="toggle">
-            <input type="checkbox" ${NOTIF_PREFS[t.k]?'checked':''} data-change-action="settings.toggleNotif" data-key="${t.k}">
+            <input type="checkbox" aria-label="${window.escAttr(t.l)}" ${NOTIF_PREFS[t.k]?'checked':''} data-change-action="settings.toggleNotif" data-key="${t.k}">
             <span class="toggle-slider"></span>
           </label>
         </div>`).join('')}

@@ -947,6 +947,7 @@ export async function changeTicketAgent(id, val) {
     const assignedUserId = assignee?.userId ?? null;
     try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { assigned_user_id: assignedUserId }); }
     catch (err) { alert(`Couldn't reassign: ${err?.message || err}`); return; }
+    t.assignedUserId = assignedUserId;
   }
   logTicketEvent(id, 'agent', `Reassigned: ${old} → ${val}`);
   t.agent = val;
