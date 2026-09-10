@@ -25,7 +25,7 @@ export default async function checkHistory(page, { screenshotPath } = {}) {
     if (otherWorkspace) return route.fulfill({ json: { events: [{ ...event, id: 'other-event', entity_id: 'TK-504', author_label: 'Other workspace agent', details: 'Other workspace change' }], next_cursor: null } });
     if (fail) { fail = false; return route.fulfill({ status: 503, json: { error: 'Fixture outage' } }); }
     if (url.includes('kind=tag')) return route.fulfill({ json: { events: [], next_cursor: null } });
-    return route.fulfill({ json: { events: url.includes('cursor=next') ? [event, { ...event, id: 'history-2', details: 'Priority: normal → high' }] : [event],
+    return route.fulfill({ json: { events: url.includes('cursor=next') ? [event, { ...event, id: 'history-2', entity_id: 'Legacy record with spaces', details: 'Priority: normal → high' }] : [event],
       next_cursor: url.includes('cursor=next') ? null : 'next' } });
   });
   const setup = () => page.evaluate(async () => {
@@ -64,6 +64,7 @@ export default async function checkHistory(page, { screenshotPath } = {}) {
   await page.getByRole('button', { name: 'Load more activity' }).click();
   await page.waitForFunction(() => document.querySelectorAll('#main-area tbody tr').length === 2);
   check(await page.locator('#main-area tbody tr').count() === 2, 'pagination de-duplicates returned IDs');
+  check((await page.getByRole('link', { name: 'Legacy record with spaces', exact: true }).getAttribute('href')) === '#/w/11111111-1111-4111-8111-111111111111/tickets/' + event.entity_uuid, 'unusual display numbers fall back to UUID links without hiding activity');
   await page.getByLabel('Type', { exact: true }).selectOption('tag');
   await page.getByText('No activity matches these filters.').waitFor();
   check(queries.at(-1).includes('kind=tag'), 'filter must query all server history');

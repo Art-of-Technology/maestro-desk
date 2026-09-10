@@ -55,10 +55,16 @@ export function renderSavedActivity() {
   const current = state();
   if (!current.loaded && !current.loading && !current.error) void load();
   const h = window.escHtml, a = window.escAttr;
+  const workspaceSlug = getWorkspaceSlug(), workspaceId = getWorkspaceId();
   const rows = current.rows.map(e => {
-    const workspaceSlug = getWorkspaceSlug();
-    const href = formatRoute({ workspaceSlug, workspaceId: getWorkspaceId(),
-      page: e.entity === 'ticket' ? 'tickets' : 'customers', entityId: workspaceSlug ? e.entity_id : e.entity_uuid });
+    const page = e.entity === 'ticket' ? 'tickets' : 'customers';
+    let href;
+    try { href = formatRoute({ workspaceSlug, workspaceId, page, entityId: workspaceSlug ? e.entity_id : e.entity_uuid }); }
+    catch {
+      // Imported display numbers may not fit readable URL syntax. The API's
+      // UUID is still routable; one such record must not blank the whole feed.
+      href = formatRoute({ workspaceId, page, entityId: e.entity_uuid });
+    }
     return `<tr><td style="white-space:nowrap">${h(new Date(e.created_at).toLocaleString('en-GB'))}</td>
       <td>${h(kinds[e.kind] || e.kind)}</td><td>${h(e.entity)}</td>
       <td><a href="${a(href)}">${h(e.entity_id)}</a> ${h(e.entity_name)}</td>
