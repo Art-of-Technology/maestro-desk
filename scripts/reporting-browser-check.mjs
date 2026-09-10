@@ -5,7 +5,8 @@ export default async function checkReporting(page, screenshotDir) {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   const queries = [];
-  let failQueue = false, failReport = false;
+  let failQueue = false, failReport = false, invalidQueue = false;
+  let queueRequests = 0;
   const row = (n, status = 'pending') => ({
     id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, display_id: `Q-${n}`,
     subject: n === 205 ? 'Old breach beyond the first page' : `Ticket ${n}`, status_key: status,
@@ -18,10 +19,12 @@ export default async function checkReporting(page, screenshotDir) {
   const history = [row(206, 'resolved'), row(207, 'closed')];
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
   await page.route('**/api/v1/tickets/work-index?*', route => {
+    queueRequests++;
     if (failQueue) return route.fulfill({ status: 500, json: { error: 'Fixture failure' } });
     const url = route.request().url();
     const rows = url.includes('scope=history') ? history : outstanding;
     const offset = url.includes('&after=') ? 200 : 0;
+    if (invalidQueue && offset === 200) return route.fulfill({ json: { tickets: [invalidQueue === 'missing' ? null : { ...row(206), category_key: {} }], next: null } });
     return route.fulfill({ json: { tickets: rows.slice(offset, offset + 200), next: rows.length > offset + 200 ? rows[offset + 199].id : null } });
   });
   await page.route('**/api/v1/reports/dashboard?*', route => {
@@ -41,9 +44,53 @@ export default async function checkReporting(page, screenshotDir) {
     sessionStorage.setItem('maestro_jwt', 'fixture-only');
     sessionStorage.setItem('maestro_workspace_id', 'fixture-workspace');
     (await import('/js/tickets/work-queue.js')).invalidateWorkQueue();
+    (await import('/js/core/router.js')).renderPage('dashboard');
+  });
+  await page.waitForFunction(() => document.getElementById('nb-open').textContent === '205');
+  check(queueRequests === 2, 'Dashboard alone loads one complete index for the badge');
+  await page.locator('.report-kpis').first().waitFor();
+  const unchangedReportRequests = queries.length;
+  await page.evaluate(async () => {
+    window.__reportNode = document.querySelector('.report-kpis');
+    await (await import('/js/tickets/list-sync.js')).tick();
+  });
+  check(queries.length === unchangedReportRequests && queueRequests === 2, 'Empty Dashboard sync must not refetch reports or queue');
+  check(await page.evaluate(() => document.querySelector('.report-kpis') === window.__reportNode), 'Empty sync preserves Dashboard DOM');
+  const rolled = await page.evaluate(async () => {
+    const RealDate = Date;
+    const tomorrow = new RealDate(); tomorrow.setDate(tomorrow.getDate() + 1);
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [tomorrow.getTime()])); }
+      static now() { return tomorrow.getTime(); }
+    };
+    try {
+      const dashboard = await import('/js/dashboard/index.js');
+      const changed = dashboard.dashboardPeriodChanged();
+      await (await import('/js/tickets/list-sync.js')).tick();
+      return changed;
+    } finally { window.Date = RealDate; }
+  });
+  check(rolled && queries.length > unchangedReportRequests, 'Calendar rollover refreshes an otherwise idle Dashboard');
+  await page.evaluate(async () => (await import('/js/core/router.js')).renderPage('tickets'));
+  await page.getByRole('button', { name: '205 Outstanding', exact: true }).waitFor();
+  await page.evaluate(async () => {
+    window.__queueNode = document.querySelector('.tbl');
+    await (await import('/js/tickets/list-sync.js')).tick();
+  });
+  check(queueRequests === 2, 'Empty ticket sync must not fetch the index');
+  check(await page.evaluate(() => document.querySelector('.tbl') === window.__queueNode), 'Empty sync preserves ticket DOM');
+  await page.evaluate(async () => {
+    const data = await import('/js/core/data.js');
+    const t = data.TICKETS.find(t => t.id === 'Q-2');
+    t.created = new Date(Date.now() - 61 * 60000).toISOString();
+    await (await import('/js/tickets/list-sync.js')).tick();
+  });
+  check(queueRequests === 2, 'Local SLA transition must not fetch the index');
+  check(await page.getByRole('button', { name: '2 Out of SLA', exact: true }).count() === 1, 'SLA threshold updates on an empty poll');
+  await page.evaluate(async () => {
+    (await import('/js/core/data.js')).TICKETS.find(t => t.id === 'Q-2').created = new Date(Date.now() - 5 * 60000).toISOString();
     (await import('/js/core/router.js')).renderPage('tickets');
   });
-  await page.getByRole('button', { name: '205 Outstanding', exact: true }).waitFor();
   check(await page.locator('.tbl tbody tr').count() === 50, 'Only first 50 rows render');
   check((await page.locator('.tbl tbody tr').first().innerText()).includes('Q-205'), 'Old breach from page two must rank first');
   check(await page.getByRole('button', { name: '1 Out of SLA', exact: true }).count() === 1, 'Complete breach count');
@@ -76,6 +123,23 @@ export default async function checkReporting(page, screenshotDir) {
   await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
   check(await page.locator('.queue-kpis').count() === 0, 'Failure must not display partial counts');
   failQueue = false;
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByRole('button', { name: '205 Outstanding', exact: true }).waitFor();
+  const beforeInvalid = await page.evaluate(async () => {
+    const { TICKETS } = await import('/js/core/data.js');
+    window.__originalTicket = TICKETS[0];
+    return JSON.stringify(TICKETS);
+  });
+  invalidQueue = true;
+  await page.locator('[data-action="tickets.retryQueue"]').click();
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  check(await page.evaluate(async () => JSON.stringify((await import('/js/core/data.js')).TICKETS)) === beforeInvalid, 'Mapping failure after valid pages must not mutate shared tickets');
+  check(await page.evaluate(async () => (await import('/js/core/data.js')).TICKETS[0] === window.__originalTicket), 'Failed load preserves ticket object identity');
+  invalidQueue = 'missing';
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+  check(await page.evaluate(async () => JSON.stringify((await import('/js/core/data.js')).TICKETS)) === beforeInvalid, 'Missing row must not crash or partially commit');
+  invalidQueue = false;
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await page.getByRole('button', { name: '205 Outstanding', exact: true }).waitFor();
   await page.evaluate(async () => (await import('/js/core/router.js')).renderPage('dashboard'));
@@ -123,6 +187,7 @@ export default async function checkReporting(page, screenshotDir) {
     const queue = await import('/js/tickets/work-queue.js');
     queue.invalidateWorkQueue();
     window.__oldQueueLoad = queue.loadWorkQueue();
+    if (queue.loadWorkQueue() !== window.__oldQueueLoad) throw new Error('Concurrent callers must share the pending queue promise');
   });
   await oldRequest;
   await page.evaluate(async () => {

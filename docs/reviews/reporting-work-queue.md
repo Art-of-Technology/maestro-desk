@@ -62,3 +62,13 @@ Self-review covered workspace/session boundaries, late responses, pagination, da
 - Native-browser fixture test: 205 outstanding tickets, late-page breach first, stable counts after Show more, pending included, overlapping urgency counts, history, every period preset, custom validation, error/retry, and discarded old-workspace response.
 
 The queue index is transferred in 200-row pages and only 50 matching rows render initially. Browser memory still grows with the outstanding queue (and history when opened); there is no silent row cap. Existing business-hours configuration semantics are unchanged.
+
+## Octopus follow-up: 2026-09-10
+
+Addressed the two inline findings and the missing-row concern in the summary:
+
+- Empty sync responses retain queue and Dashboard caches and DOM. Local SLA threshold changes repaint the queue without an index request. Calendar presets advance at midnight without needing a ticket delta.
+- The sidebar starts or joins a shared queue load from any page, then paints the complete count without re-rendering that page. Loading/error states never masquerade as a partial total. Completion callbacks ignore discarded workspace loads.
+- Every index page is validated. Ticket mapping and pruning run against copies before shared state is committed; mapping failures leave existing ticket data and object identities untouched.
+
+Validation: build, API typecheck, import/bridge audits, six calendar tests, all 24 route and seven detail smokes passed. The native-browser regression additionally passed empty-poll request/DOM checks, local SLA transitions, calendar rollover, Dashboard-only sidebar loading, shared pending requests, malformed/missing rows after a valid first page, and late workspace response isolation. Self-review verified the optional mapping target leaves ordinary bootstrap/sync callers unchanged.

@@ -20,6 +20,11 @@ const cohortNote = 'Tickets created in the selected period; statuses are current
 
 export function openAgentFromDash(name) { setAgentSelected(name); navTo('agents'); }
 export function invalidateDashboard() { reportState = { key: null, data: null, loading: false, error: null }; }
+export function dashboardPeriodChanged() {
+  if (!getJwt()) return false;
+  try { return reportState.key !== requestKey(reportingPeriod(selection, customStart, customEnd)); }
+  catch { return false; } // Leave invalid custom inputs for the user to correct.
+}
 function rerender() { if (CURRENT_PAGE === 'dashboard') renderPage('dashboard'); }
 function requestKey(period) { return JSON.stringify([getWorkspaceId(), getJwt(), period.start, period.end, Intl.DateTimeFormat().resolvedOptions().timeZone]); }
 async function loadReport(period, key) {

@@ -23,8 +23,8 @@ import { CURRENT_PAGE, CURRENT_TICKET } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { apiGet, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
-import { invalidateWorkQueue } from './work-queue.js';
-import { invalidateDashboard } from '../dashboard/index.js';
+import { invalidateWorkQueue, refreshQueueUrgency, workQueueState } from './work-queue.js';
+import { invalidateDashboard, dashboardPeriodChanged } from '../dashboard/index.js';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -70,10 +70,20 @@ export async function tick() {
 
     if (res?.cursor) state.cursor = res.cursor;
 
+    const rows = Array.isArray(res?.tickets) ? res.tickets : [];
+    if (rows.length === 0) {
+      // SLA deadlines still advance without ticket edits. Only repaint when
+      // a threshold changes; otherwise retain focus, scroll and DOM identity.
+      const changed = workQueueState().ready && refreshQueueUrgency();
+      if (changed && CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+      // Today/week/month presets roll forward at calendar boundaries even
+      // without new tickets. An unchanged period does not trigger a request.
+      if (CURRENT_PAGE === 'dashboard' && dashboardPeriodChanged()) renderPage('dashboard');
+      updateNavBadges();
+      return;
+    }
     invalidateWorkQueue();
     invalidateDashboard();
-
-    const rows = Array.isArray(res?.tickets) ? res.tickets : [];
 
     // Build customer + user lookup maps once per batch (rather than once
     // per row inside updateOrInsertTicket) so a 50-row response doesn't

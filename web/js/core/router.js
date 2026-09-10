@@ -24,7 +24,7 @@ import { renderCustomers } from '../customers/index.js';
 import { resetPlayerLookup } from '../customers/player-lookup.js';
 import { detachPinObserver } from '../customers/details-card.js';
 import { renderReports } from '../reports/index.js';
-import { isOutstanding, workQueueState } from '../tickets/work-queue.js';
+import { isOutstanding, workQueueState, loadWorkQueue } from '../tickets/work-queue.js';
 import { renderSLABreach } from '../reports/sla-breach.js';
 import { renderAgents } from '../agents/index.js';
 import { renderAI, initAI } from '../ai/page.js';
@@ -170,11 +170,23 @@ export function renderPage(page) {
 // initTicketsPage lives in tickets/list.js; renderPage above still calls it
 // through the import so the table's "select all" indeterminate state lands
 // after innerHTML.
-export function updateNavBadges() {
+function paintTicketBadge() {
   const badge = document.getElementById('nb-open');
   if (badge) {
-    badge.textContent = workQueueState().ready ? TICKETS.filter(isOutstanding).length : '';
-    badge.title = 'Outstanding tickets, including pending';
+    const state = workQueueState();
+    badge.textContent = state.ready ? TICKETS.filter(isOutstanding).length : state.error ? '?' : '…';
+    badge.title = state.error ? 'Ticket count unavailable. Open Tickets to retry.'
+      : state.ready ? 'Outstanding tickets, including pending' : 'Loading outstanding ticket count';
+  }
+}
+
+export function updateNavBadges() {
+  const state = workQueueState();
+  paintTicketBadge();
+  if (!state.ready && !state.error) {
+    // Shared promise also covers a load started by the Tickets page. Paint
+    // only the badge when it finishes, and ignore a discarded workspace load.
+    void loadWorkQueue().then(() => { if (workQueueState() === state) paintTicketBadge(); });
   }
   refreshNotifBadge();
 }
