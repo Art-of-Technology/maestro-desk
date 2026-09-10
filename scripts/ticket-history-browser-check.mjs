@@ -1,5 +1,6 @@
 // Local native-ESM check. All API requests are intercepted on this page only.
-export default async function checkHistory(page) {
+// Pass screenshotPath from the runner when an image artifact is wanted.
+export default async function checkHistory(page, { screenshotPath } = {}) {
   if (!page.url().startsWith('http://localhost:5173/')) throw new Error('Local fixture only');
   await page.evaluate(() => sessionStorage.clear());
   await page.reload();
@@ -68,7 +69,7 @@ export default async function checkHistory(page) {
     }));
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.screenshot({ path: 'C:/Users/Jodi/AppData/Local/Temp/history-ui.png' });
+  if (screenshotPath) await page.screenshot({ path: screenshotPath });
   holdNext = true; held = new Promise(resolve => { notifyHeld = resolve; });
   await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await held;
   await page.evaluate(async () => {
@@ -79,5 +80,5 @@ export default async function checkHistory(page) {
   release();
   await page.waitForTimeout(100);
   check((await page.locator('#main-area tbody').innerText()).includes('Other workspace agent') && !(await page.locator('#main-area tbody').innerText()).includes('Original Agent'), 'late previous-workspace response ignored');
-  return { checks, metrics, screenshot: 'history-ui.png' };
+  return { checks, metrics, ...(screenshotPath ? { screenshot: screenshotPath } : {}) };
 }
