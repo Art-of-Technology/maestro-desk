@@ -1,4 +1,6 @@
 import { getDb } from './db.js';
+import type { TransactionSql } from 'postgres';
+import { recordTicketActivity } from './ticket-activity.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 //
@@ -27,6 +29,8 @@ export interface AssignResult {
   rule_id:       string;
   rule_name:     string;
   assigned_user_id: string | null;
+  activity: Awaited<ReturnType<typeof recordTicketActivity>>;
+  ticket: Record<string, any>;
 }
 
 // ─── OOO check ───────────────────────────────────────────────────────────
@@ -65,11 +69,11 @@ function ruleMatches(rule: Rule, ticket: any, customerVip: string | null): boole
 // updated rr_index for round-robin rules (so the caller can persist it).
 // Returns null if no eligible agent exists (e.g. whole team is OOO).
 async function pickAssignee(args: {
+  sql: TransactionSql;
   workspaceId:  string;
   rule:         Rule;
 }): Promise<{ userId: string; rrIndexNext?: number } | null> {
-  const { workspaceId, rule } = args;
-  const sql = getDb();
+  const { workspaceId, rule, sql } = args;
   const a = rule.assignment || {};
 
   if (a.mode === 'specific-agent') {
@@ -152,54 +156,62 @@ async function pickAssignee(args: {
 export async function applyAssignmentRules(args: {
   workspaceId:  string;
   ticketId:     string;
+  actorId?:     string;
 }): Promise<AssignResult | null> {
   const { workspaceId, ticketId } = args;
-  const sql = getDb();
+  return getDb().begin(async sql => {
 
-  const [ticket] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; customer_id: string | null; assigned_user_id: string | null }[]>`
-    select status_key, priority_key, category_key, customer_id, assigned_user_id from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!ticket) return null;
+    const [ticket] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; customer_id: string | null; assigned_user_id: string | null }[]>`
+      select status_key, priority_key, category_key, customer_id, assigned_user_id from tickets
+      where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
+    `;
+    if (!ticket) return null;
 
-  // VIP tier is a per-customer attribute used by some rules.
-  let customerVip: string | null = null;
-  if (ticket.customer_id) {
-    const [c] = await sql<{ vip_tier: string | null }[]>`select vip_tier from customers where id = ${ticket.customer_id}`;
-    customerVip = c?.vip_tier || null;
-  }
-
-  const rules = await sql<Rule[]>`
-    select id, display_id, name, priority, status, conditions, assignment, match_count from assign_rules
-    where workspace_id = ${workspaceId} and status = 'active'
-    order by priority asc
-  `;
-
-  for (const rule of rules) {
-    if (!ruleMatches(rule, ticket, customerVip)) continue;
-    const pick = await pickAssignee({ workspaceId, rule });
-    if (!pick) continue;
-
-    // 1. Update the ticket assignee. Skip the write if it already matches.
-    if (ticket.assigned_user_id !== pick.userId) {
-      await sql`update tickets set assigned_user_id = ${pick.userId} where id = ${ticketId} and workspace_id = ${workspaceId}`;
+    // VIP tier is a per-customer attribute used by some rules.
+    let customerVip: string | null = null;
+    if (ticket.customer_id) {
+      const [c] = await sql<{ vip_tier: string | null }[]>`select vip_tier from customers where id = ${ticket.customer_id} and workspace_id = ${workspaceId}`;
+      customerVip = c?.vip_tier || null;
     }
 
-    // 2. Bump rule bookkeeping. rr_index merges into the assignment jsonb.
-    const nextAssignment = pick.rrIndexNext !== undefined
-      ? { ...rule.assignment, rr_index: pick.rrIndexNext }
-      : rule.assignment;
-    await sql`
-      update assign_rules
-      set match_count = ${(rule.match_count || 0) + 1}, last_match_at = now(), assignment = ${sql.json(nextAssignment)}
-      where id = ${rule.id}
+    const rules = await sql<Rule[]>`
+      select id, display_id, name, priority, status, conditions, assignment, match_count from assign_rules
+      where workspace_id = ${workspaceId} and status = 'active'
+      order by priority asc, id asc for update
     `;
 
-    return {
-      rule_id:          rule.id,
-      rule_name:        rule.name,
-      assigned_user_id: pick.userId,
-    };
-  }
-  return null;
+    for (const rule of rules) {
+      if (!ruleMatches(rule, ticket, customerVip)) continue;
+      const pick = await pickAssignee({ sql, workspaceId, rule });
+      if (!pick) continue;
+
+      // 1. Update the ticket assignee. Skip the write if it already matches.
+      if (ticket.assigned_user_id !== pick.userId) {
+        await sql`update tickets set assigned_user_id = ${pick.userId} where id = ${ticketId} and workspace_id = ${workspaceId}`;
+      }
+
+      // 2. Bump rule bookkeeping. rr_index merges into the assignment jsonb.
+      const nextAssignment = pick.rrIndexNext !== undefined
+        ? { ...rule.assignment, rr_index: pick.rrIndexNext }
+        : rule.assignment;
+      await sql`
+        update assign_rules
+        set match_count = ${(rule.match_count || 0) + 1}, last_match_at = now(), assignment = ${sql.json(nextAssignment)}
+        where id = ${rule.id} and workspace_id = ${workspaceId}
+      `;
+
+      const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: args.actorId || null,
+        kind: 'agent', before: ticket.assigned_user_id, after: pick.userId, source: 'assignment_rule',
+        context: { rule_id: rule.id, rule_name: rule.name } });
+      const [saved] = await sql`select id, display_id, assigned_user_id, status_key, priority_key, category_key
+        from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+      return {
+        rule_id:          rule.id,
+        rule_name:        rule.name,
+        assigned_user_id: pick.userId,
+        activity, ticket: saved,
+      };
+    }
+    return null;
+  });
 }

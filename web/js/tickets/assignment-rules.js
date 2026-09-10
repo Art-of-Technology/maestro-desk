@@ -20,6 +20,7 @@ import { AGENTS, ASSIGN_RULES, ASSIGN_RULES_RR_INDEX, CUSTOMERS, TICKETS } from 
 import { AR_FILTER, CURRENT_PAGE, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setArFilter } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { applySavedActivity } from '../core/ticket-history.js';
 import { openTicket } from './detail.js';
 import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -245,12 +246,9 @@ export async function runAssignmentRulesOnTicket(id) {
     if (!resp.matched) { alert('No active rule matched this ticket.'); return; }
     t.assignedUserId = resp.ticket.assigned_user_id ?? null;
     const userByUuid = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
-    const oldAgent = t.agent || 'Unassigned';
     const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
-    if (newAgent && newAgent !== oldAgent) {
-      logTicketEvent(id, 'assign', `Assigned by rule ${resp.rule.name}: ${oldAgent} → ${newAgent}`);
-      t.agent = newAgent;
-    }
+    applySavedActivity(t, resp);
+    t.agent = newAgent;
     // Bookkeeping for the matched rule mirrors the server's bump.
     const localRule = ASSIGN_RULES.find(r => r._uuid === resp.rule.id);
     if (localRule) {
@@ -283,10 +281,8 @@ async function bulkApplyAssignmentRules() {
       if (!resp.matched) return false;
       t.assignedUserId = resp.ticket.assigned_user_id ?? null;
       const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
-      if (newAgent) {
-        if (t.agent !== newAgent) logTicketEvent(id, 'assign', `Assigned by rule ${resp.rule.name}: ${t.agent || 'Unassigned'} → ${newAgent}`);
-        t.agent = newAgent;
-      }
+      applySavedActivity(t, resp);
+      t.agent = newAgent;
       const localRule = ASSIGN_RULES.find(r => r._uuid === resp.rule.id);
       if (localRule) {
         localRule.matchCount = (localRule.matchCount || 0) + 1;

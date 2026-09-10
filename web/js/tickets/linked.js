@@ -27,6 +27,7 @@ import { refreshTicketSLA } from './sla.js';
 import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { applySavedActivity } from '../core/ticket-history.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { closeModal, showModal } from '../core/modal.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
@@ -88,7 +89,7 @@ async function mergeTickets(srcId, primaryId) {
     return;
   }
   if (src._uuid && primary._uuid) {
-    try { await apiPost(`/api/v1/tickets/${src._uuid}/merge`, { into_id: primary._uuid }); }
+    try { applySavedActivity(src, await apiPost(`/api/v1/tickets/${src._uuid}/merge`, { into_id: primary._uuid })); }
     catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
   }
   src.mergedInto = primaryId;
@@ -107,7 +108,7 @@ async function mergeTickets(srcId, primaryId) {
   (src.msgs || []).forEach(m => primary.msgs.push({ ...m, mergedFrom: srcId }));
   if (src.status !== 'resolved') {
     src._statusBeforeMerge = src.status;
-    logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
+    if (!src._uuid) logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
     src.status = 'resolved';
     refreshTicketSLA(src);
   }
@@ -124,8 +125,13 @@ export async function unmergeTicket(srcId) {
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
   const primary = TICKETS.find(x => x.id === primaryId);
+  let savedStatus;
   if (src._uuid) {
-    try { await apiPost(`/api/v1/tickets/${src._uuid}/unmerge`, {}); }
+    try {
+      const response = await apiPost(`/api/v1/tickets/${src._uuid}/unmerge`, {});
+      applySavedActivity(src, response);
+      savedStatus = response.source.status_key;
+    }
     catch (err) { alert(`Couldn't un-merge: ${err?.message || err}`); return; }
   }
   if (primary) {
@@ -136,9 +142,9 @@ export async function unmergeTicket(srcId) {
   src.mergedAt = null;
   // Restore the pre-merge status if we captured one; otherwise default to 'open'
   // so the un-merged ticket re-enters the queue rather than staying resolved-but-active.
-  const restored = src._statusBeforeMerge || 'open';
-  if (src.status === 'resolved' && src.status !== restored) {
-    logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
+  const restored = savedStatus || src._statusBeforeMerge || 'open';
+  if ((savedStatus || src.status === 'resolved') && src.status !== restored) {
+    if (!src._uuid) logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
     src.status = restored;
     refreshTicketSLA(src);
   }

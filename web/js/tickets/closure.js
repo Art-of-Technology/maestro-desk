@@ -4,6 +4,7 @@ import { apiPost } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { showToast } from '../core/toast.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { applySavedActivity } from '../core/ticket-history.js';
 import { refreshTicketSLA } from './sla.js';
 
 export const CLOSURE_REASONS = { spam: 'Spam', abuse: 'Abuse', duplicate: 'Duplicate', other: 'Other' };
@@ -16,7 +17,7 @@ export function closureDetails(t) {
     ${actor ? `<div class="closure-date">Closed by ${window.escHtml(actor)}</div>` : ''}
     ${t.closedAt ? `<div class="closure-date">${window.escHtml(new Date(t.closedAt).toLocaleString())}</div>` : ''}
     ${t.closureNote ? `<div class="closure-note">${window.escHtml(t.closureNote)}</div>` : ''}
-    <div class="closure-date">No satisfaction survey. New replies stay closed until an agent reopens the ticket.</div></div>`;
+    <div class="closure-date">No satisfaction survey. A new customer reply reopens the ticket.</div></div>`;
 }
 
 export function showCloseTickets(ids, onChanged) {
@@ -46,6 +47,7 @@ export function showCloseTickets(ids, onChanged) {
     for (const t of targets) {
       try {
         const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason, note }) : null;
+        applySavedActivity(t, result);
         t.status = 'closed';
         t.closureReason = result?.ticket.closure_reason || reason;
         t.closureNote = result ? result.ticket.closure_note : note || null;
