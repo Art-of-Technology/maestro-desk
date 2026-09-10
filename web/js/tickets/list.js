@@ -17,12 +17,11 @@ import { copyButton } from '../core/copy.js';
 // (snooze.bulkSnooze / ar.bulkRun / macros.bulkRun). The FILTER_* set/clear
 // handlers assign the core/state.js globals directly, as before.
 
-import { AGENTS, CUSTOMERS, TAG_LIBRARY, TICKETS } from '../core/data.js';
+import { AGENTS, CUSTOMERS, TICKETS } from '../core/data.js';
 import { CURRENT_PAGE, CURRENT_TICKET, FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';
 import { formatSnoozeUntil } from './snooze.js';
-import { refreshTicketSLA } from './sla.js';
 import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { openTicket, changeTicketStatus } from './detail.js';
@@ -36,6 +35,7 @@ import { isOutstanding, compareUrgency, workQueueState, loadWorkQueue, refreshQu
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { saveBulkAssignments } from './bulk-assignment.js';
+import { showBulkEdit } from './bulk-edit.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
@@ -701,50 +701,9 @@ async function bulkSetStatus(v) {
   renderPage('tickets');
 }
 
-function bulkSetPriority(v) {
-  if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  TICKETS.forEach(t => {
-    if (!TICKET_SELECTED_IDS.has(t.id)) return;
-    if (t.priority === v) return;
-    logTicketEvent(t.id, 'priority', `Priority: ${t.priority} → ${v} (bulk)`);
-    t.priority = v;
-    refreshTicketSLA(t);
-  });
-  TICKET_SELECTED_IDS.clear();
-  renderPage('tickets');
-}
+function bulkSetPriority(v) { showBulkEdit('priority', v); }
 
-function bulkAddTag() {
-  if (TICKET_SELECTED_IDS.size === 0) return;
-  const n = TICKET_SELECTED_IDS.size;
-  showModal(`Tag ${n} ticket${n===1?'':'s'}`, `
-    <div class="form-row"><label class="form-label">Tag</label>
-      <input class="form-input" id="bulk-tag" placeholder="e.g. priority-customer" autocomplete="off"/>
-      <div style="font-size:11px;color:var(--ink3);margin-top:4px">Lowercase, hyphenated. Tickets that already have the tag are skipped.</div>
-    </div>
-  `, () => {
-    const raw = document.getElementById('bulk-tag').value;
-    const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    if (!tag) { alert('Enter a tag.'); return; }
-    let added = 0;
-    TICKETS.forEach(t => {
-      if (!TICKET_SELECTED_IDS.has(t.id)) return;
-      if (!t.tags) t.tags = [];
-      if (t.tags.includes(tag)) return;
-      t.tags.push(tag);
-      logTicketEvent(t.id, 'tag', `Tagged: ${tag} (bulk)`);
-      added++;
-    });
-    if (added > 0) {
-      const lib = TAG_LIBRARY.find(x => x.tag === tag);
-      if (lib) lib.count += added;
-      else TAG_LIBRARY.push({ tag, count: added, type: 'manual', conf: null });
-    }
-    TICKET_SELECTED_IDS.clear();
-    closeModal();
-    renderPage('tickets');
-  }, 'Apply tag');
-}
+function bulkAddTag() { showBulkEdit('tag'); }
 
 function bulkExportTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
