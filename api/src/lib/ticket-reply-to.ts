@@ -23,5 +23,17 @@ export async function resolveTicketReplyTo(workspaceId: string, ticketId: string
   if (address && emailAddress.safeParse(address).success) return address;
 
   const sender = await getOutboundFrom(workspaceId);
-  return sender?.fromEmail || env.POSTMARK_INBOUND_REPLY_ADDRESS || null;
+  if (sender) {
+    // Sending-domain verification alone does not configure an inbound mailbox.
+    // Only use the brand fallback if it is also an active inbound channel.
+    const [inbox] = await sql<{ address: string }[]>`
+      select address from channels
+      where workspace_id = ${workspaceId} and type = 'email'
+        and status = 'active' and deleted_at is null
+        and lower(trim(address)) = ${sender.fromEmail.toLowerCase()}
+      limit 1
+    `;
+    if (inbox && emailAddress.safeParse(inbox.address.trim()).success) return inbox.address.trim();
+  }
+  return env.POSTMARK_INBOUND_REPLY_ADDRESS || null;
 }

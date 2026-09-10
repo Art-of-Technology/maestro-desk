@@ -145,6 +145,10 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     const domain = `reply-${RUN}.test`;
     await sql`insert into workspace_email_domains (workspace_id, domain, verified_at) values (${ctx.wsId}, ${domain}, now())`;
     try {
+      // A verified sending domain without an inbound channel is insufficient.
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(env.POSTMARK_INBOUND_REPLY_ADDRESS || null);
+      const [support] = await sql`insert into channels (workspace_id, display_id, name, type, address)
+        values (${ctx.wsId}, ${'CH-support-' + RUN}, 'Support', 'email', ${`support@${domain}`}) returning id`;
       expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
       const [channel] = await sql`insert into channels (workspace_id, display_id, name, type, address)
         values (${ctx.wsId}, ${'CH-fallback-' + RUN}, 'Inbox', 'email', 'inbox@acme.test') returning id`;
@@ -163,6 +167,10 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       const sent = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Fallback answer' }) });
       expect((await sent.json() as any).delivery.emailed).toBe(true);
       expect(lastBody.ReplyTo).toBe(`support@${domain}`);
+      await sql`update channels set status = 'inactive' where id = ${support.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(env.POSTMARK_INBOUND_REPLY_ADDRESS || null);
+      await sql`update channels set status = 'active', deleted_at = now() where id = ${support.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(env.POSTMARK_INBOUND_REPLY_ADDRESS || null);
       await sql`update tickets set deleted_at = now() where id = ${tid}`;
       expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBeNull();
     } finally {
