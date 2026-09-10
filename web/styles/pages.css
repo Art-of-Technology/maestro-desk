@@ -541,3 +541,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
   .report-period input, .report-period select { max-width: 100%; min-height: 44px; }
   .ticket-work-page .tab, .ticket-work-page .btn { min-height: 44px; }
 }
+.saved-activity-page .filter-select { min-height:32px; max-width:100%; }
+.saved-activity-page .filter-bar label { display:flex; align-items:center; flex-wrap:wrap; gap:4px; min-width:0; }
+.saved-activity-page input:focus-visible, .saved-activity-page select:focus-visible,
+.saved-activity-page button:focus-visible, .saved-activity-page a:focus-visible { outline:2px solid var(--purple); outline-offset:2px; }

@@ -1,3 +1,4 @@
+import { replaceSavedActivity } from './ticket-history.js';
 // Workspace data bootstrap.
 //
 // Called after a real-auth sign-in (or auto-resume) succeeds. Parallel-
@@ -643,6 +644,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     sentiment:  m.sentiment || null,
     mergedFrom: m.merged_from_id ? (ticketByUuid[m.merged_from_id] || null) : undefined,
   }));
+  replaceSavedActivity(t, d.activity || []);
   t.tags        = d.tags || [];
   t.aiTags      = (d.ai_tags || []).map((x) => ({ tag: x.tag, conf: x.confidence, accepted: x.accepted }));
   t.timeEntries = (d.time_entries || []).map((te) => ({

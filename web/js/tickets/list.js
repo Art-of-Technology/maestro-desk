@@ -1,3 +1,4 @@
+import { applySavedActivity } from '../core/ticket-history.js';
 import { copyButton } from '../core/copy.js';
 // ─── Tickets list ────────────────────────────────────────────────────────────
 // The Tickets index page: KPI bar, status tab bar, filter/group/view chips,
@@ -646,10 +647,11 @@ function bulkAssignTickets() {
           if (!ticket._uuid) throw new Error('This ticket is no longer available. Refresh the list.');
           return apiPatch(`/api/v1/tickets/${ticket._uuid}`, { assigned_user_id: agentId });
         },
-        onSaved: (ticket) => {
+        onSaved: (ticket, response) => {
           const t = TICKETS.find(t => ticket._uuid ? t._uuid === ticket._uuid : t.id === ticket.id);
           if (t) {
-            if (t.assignedUserId !== agent.key) logTicketEvent(t.id, 'assign', `Assigned: ${t.agent || 'Unassigned'} → ${agent.name} (bulk)`);
+            if (!jwt && t.assignedUserId !== agent.key) logTicketEvent(t.id, 'assign', `Assigned: ${t.agent || 'Unassigned'} → ${agent.name} (bulk)`);
+            if (jwt) applySavedActivity(t, response);
             t.agent = agent.name;
             t.assignedUserId = agent.key;
           }

@@ -56,7 +56,7 @@ jobs:
         run: bun test scripts/bulk-assignment.test.js
 
       - name: Bulk priority and tag tests
-        run: bun test scripts/bulk-edit.test.js
+        run: bun test scripts/bulk-edit.test.js scripts/ticket-history.test.js
 
       # Catches a module that READS a shared state/data binding without
       # IMPORTING it — a bug the bundled smokes can't see (the bare name resolves
