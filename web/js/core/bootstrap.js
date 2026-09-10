@@ -89,20 +89,22 @@ export function buildTicketLookups() {
 // Returns false when nothing changed (e.g., a deleted_at row for a
 // ticket we don't have locally). Caller uses the return value to decide
 // whether a re-render is worth firing.
-export function updateOrInsertTicket(row, lookups) {
+// An optional target lets index loaders prepare a batch against copies before
+// committing it; ordinary sync/detail callers continue to mutate TICKETS.
+export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   if (!row || !row.id) return false;
   const { customerByUuid, userByUuid } = lookups || buildTicketLookups();
 
-  const idx = TICKETS.findIndex((x) => x._uuid === row.id);
+  const idx = target.findIndex((x) => x._uuid === row.id);
 
   if (row.deleted_at) {
     if (idx === -1) return false;
-    TICKETS.splice(idx, 1);
+    target.splice(idx, 1);
     return true;
   }
 
   if (idx === -1) {
-    TICKETS.unshift(mapTicket(row, customerByUuid, userByUuid));
+    target.unshift(mapTicket(row, customerByUuid, userByUuid));
     return true;
   }
 
@@ -110,7 +112,7 @@ export function updateOrInsertTicket(row, lookups) {
   // returns + that may change server-side; leave detail-loaded
   // collections (msgs/tags/aiTags/timeEntries/csat) alone — those
   // refresh through loadTicketDetail on the detail view's own path.
-  const t = TICKETS[idx];
+  const t = target[idx];
   t.subject       = row.subject;
   t.status        = row.status_key;
   t.closureReason = row.closure_reason || null;
@@ -136,7 +138,7 @@ export function updateOrInsertTicket(row, lookups) {
   t.lastMessageRole = row.last_message_role || null;
   // mergedInto display_id resolves from the uuid + current TICKETS state
   if (row.merged_into_id) {
-    const parent = TICKETS.find((x) => x._uuid === row.merged_into_id);
+    const parent = target.find((x) => x._uuid === row.merged_into_id);
     if (parent) t.mergedInto = parent.id;
   } else {
     t.mergedInto = null;

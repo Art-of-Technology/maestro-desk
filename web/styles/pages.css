@@ -500,3 +500,44 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .customer-risk-note{margin:16px 0 0}
 .customer-risk-heading .btn{min-height:32px}
 @media(max-width:600px){.customer-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-risk-heading .btn{min-height:44px}}
+/* Period reporting and the active-work summary use the existing theme tokens. */
+.report-note { margin: 10px 20px; font-size: 12px; color: var(--ink2); line-height: 1.5; }
+.report-period { flex-wrap: wrap; gap: 12px; }
+.report-period label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.report-period span { font-size: 12px; color: var(--ink2); }
+.report-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.queue-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.queue-kpis button.kpi { appearance: none; background: transparent; color: inherit; text-align: left; border: 0; border-right: 1px solid var(--rule); cursor: pointer; font: inherit; }
+.queue-kpis .kpi-n, .queue-kpis .kpi-l { display: block; }
+.queue-kpis button:hover { background: var(--purple-lt); }
+.queue-kpis button:focus-visible, .report-period select:focus-visible, .report-period input:focus-visible { outline: 2px solid var(--purple); outline-offset: -2px; }
+.report-rank { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.report-rank > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.report-ticket { display: flex; justify-content: space-between; width: 100%; margin-bottom: 8px; gap: 12px; text-align: left; white-space: normal; }
+.report-ticket span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.report-ticket span:last-child { flex-shrink: 0; }
+.ticket-work-page .tab { appearance: none; background: transparent; border: 0; border-bottom: 2px solid transparent; }
+.ticket-work-page .tab.active { border-bottom-color: var(--purple); }
+.ticket-work-page .tab-bar { flex-wrap: wrap; }
+.ticket-work-page, .dashboard-report-page { container-type: inline-size; }
+@container (max-width: 380px) {
+  .queue-kpis { grid-template-columns: 1fr; }
+  .queue-kpis button.kpi { display: flex; gap: 12px; align-items: center; }
+  .queue-kpis .kpi-l { white-space: normal; }
+  .ticket-work-page .filter-bar { padding-right: 20px; }
+  .ticket-work-page .filter-select { max-width: 100%; min-width: 0; }
+  .ticket-work-page .topbar { flex-wrap: wrap; height: auto; min-height: 48px; padding-block: 12px; }
+  .ticket-work-page .tb-title { flex-basis: 100%; }
+  .ticket-work-page .queue-kpis:not(.sec-collapsed), .ticket-work-page .tab-bar:not(.sec-collapsed) { padding-top: 28px; }
+  .dashboard-report-page .report-kpis { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .report-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .queue-kpis .kpi { padding: 12px 8px; }
+  .queue-kpis .kpi-n { font-size: 28px; }
+  .queue-kpis .kpi-l { font-size: 10px; }
+  .ticket-work-page, .dashboard-report-page { overflow-y: auto; display: block; }
+  .report-period { padding: 32px 20px 12px !important; }
+  .report-period input, .report-period select { max-width: 100%; min-height: 44px; }
+  .ticket-work-page .tab, .ticket-work-page .btn { min-height: 44px; }
+}

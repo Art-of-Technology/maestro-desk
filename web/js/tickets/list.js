@@ -32,18 +32,19 @@ import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { showToast } from '../core/toast.js';
 import { clearAllDrafts } from './drafts.js';
-import { loadMoreTickets, ticketsTotal, ticketsLoaded, ticketsHasMore } from '../core/bootstrap.js';
+import { isOutstanding, compareUrgency, workQueueState, loadWorkQueue, refreshQueueUrgency, invalidateWorkQueue } from './work-queue.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
-let FILTER_STATUS = 'all';
+let FILTER_STATUS = 'outstanding';
 let FILTER_VIEW = 'all';
 let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
-let SORT_COL = 'id';
+let SORT_COL = 'urgency';
 let SORT_DIR = 1;
+let VISIBLE_LIMIT = 50;
 // The four advanced selects live behind "More filters" (issue #447). Closed by
 // default; anything actually filtering is still visible as a removal chip in
 // the main bar, so nothing hides silently.
@@ -159,8 +160,7 @@ function renderPinnedSavedSearchChips() {
 // snoozed (the agent has deliberately deferred those). Used by both
 // the KPI counter and the view filter so they stay in sync.
 function needsAttention(t) {
-  const isOpen = t.status === 'open' || t.status === 'escalated';
-  if (!isOpen) return false;
+  if (!isOutstanding(t)) return false;
   const snoozed = t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now();
   if (snoozed) return false;
   return t.sentiment === 'angry'
@@ -178,11 +178,27 @@ export function initTicketsPage() {
 
 export function renderTickets() {
   ensureSavedSearchesLoaded();
-  const statuses = ['all','open','pending','escalated','gdpr','resolved','closed'];
-  const tabs = statuses.map(s => `<div class="tab ${FILTER_STATUS===s?'active':''}" data-action="tickets.setStatus" data-status="${s}">${s==='all'?'All':s.charAt(0).toUpperCase()+s.slice(1)}${s!=='all'?' ('+TICKETS.filter(t=>t.status===s).length+')':' ('+TICKETS.length+')'}</div>`).join('');
+  const history = ['history', 'resolved', 'closed'].includes(FILTER_STATUS);
+  const scopes = history ? ['outstanding', 'history'] : ['outstanding'];
+  for (const scope of scopes) {
+    const state = workQueueState(scope);
+    if (!state.ready && !state.loading && !state.error) void loadWorkQueue(scope).then(() => {
+      if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+    });
+  }
+  const error = scopes.map(s => workQueueState(s).error).find(Boolean);
+  if (error || scopes.some(s => !workQueueState(s).ready)) return `<div class="page"><div class="topbar"><div class="tb-title">Tickets</div></div><p class="report-note" role="${error ? 'alert' : 'status'}">${error || 'Loading the complete ticket queue…'}${error ? ' <button class="btn" data-action="tickets.retryQueue">Retry</button>' : ''}</p></div>`;
+  refreshQueueUrgency();
+  const outstanding = TICKETS.filter(isOutstanding);
+  const statuses = history ? ['outstanding', 'history', 'resolved', 'closed'] : ['outstanding','open','pending','escalated','gdpr','history'];
+  const tabs = statuses.map(s => {
+    const count = s === 'outstanding' ? outstanding.length : s === 'history' ? TICKETS.filter(t => ['resolved', 'closed'].includes(t.status)).length : TICKETS.filter(t => t.status === s).length;
+    const label = s === 'history' ? 'History' : s.charAt(0).toUpperCase()+s.slice(1);
+    return `<button class="tab ${FILTER_STATUS===s?'active':''}" data-action="tickets.setStatus" data-status="${s}">${label}${s === 'history' && !workQueueState('history').ready ? '' : ` (${count})`}</button>`;
+  }).join('');
 
   const list = getFilteredTickets();
-  const groups = groupTicketsBy(list, TICKET_GROUP_BY);
+  const groups = groupTicketsBy(list.slice(0, VISIBLE_LIMIT), TICKET_GROUP_BY);
   const cats = [...new Set(TICKETS.map(t => t.category))];
   // How many of the four "More filters" selects are actually narrowing the
   // list. Badged on the toggle so a closed row never hides an active filter.
@@ -194,21 +210,22 @@ export function renderTickets() {
   const activeChipN = advancedN + (FILTER_QUERY ? 1 : 0) + (TICKET_GROUP_BY !== 'none' ? 1 : 0);
 
   // KPIs
-  const total = TICKETS.length;
-  const openN = TICKETS.filter(t => t.status === 'open' || t.status === 'escalated').length;
-  const breachN = TICKETS.filter(t => t.sla === 'breach').length;
-  const myN = SESSION ? TICKETS.filter(t => t.agent === SESSION.name && (t.status === 'open' || t.status === 'escalated')).length : 0;
-  const unassignedN = TICKETS.filter(t => !t.agent).length;
-  const slaRiskN = TICKETS.filter(t => t.sla === 'breach' || t.sla === 'warn').length;
+  const total = history ? TICKETS.filter(t => ['resolved', 'closed'].includes(t.status)).length : outstanding.length;
+  const breachN = outstanding.filter(t => t.sla === 'breach').length;
+  const escalatedN = outstanding.filter(t => t.status === 'escalated').length;
+  const myN = SESSION ? outstanding.filter(t => t.agent === SESSION.name).length : 0;
+  const unassignedN = outstanding.filter(t => !t.agent).length;
+  const slaRiskN = outstanding.filter(t => t.sla === 'breach' || t.sla === 'warn').length;
 
-  const snoozedN = TICKETS.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()).length;
-  const needsAttentionN = TICKETS.filter(needsAttention).length;
-  const views = [
+  const snoozedN = outstanding.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()).length;
+  const needsAttentionN = outstanding.filter(needsAttention).length;
+  const views = history ? [{ k: 'all', l: 'All history', active: true }] : [
     { k: 'all',             l: 'All',                                 active: FILTER_VIEW === 'all' },
     { k: 'needs_attention', l: `Needs attention · ${needsAttentionN}`, active: FILTER_VIEW === 'needs_attention' },
     { k: 'mine',            l: `Assigned to me · ${myN}`,             active: FILTER_VIEW === 'mine' },
     { k: 'unassigned',      l: `Unassigned · ${unassignedN}`,         active: FILTER_VIEW === 'unassigned' },
     { k: 'breach',          l: `SLA risk · ${slaRiskN}`,              active: FILTER_VIEW === 'breach' },
+    { k: 'overdue',         l: `Out of SLA · ${breachN}`,             active: FILTER_VIEW === 'overdue' },
     { k: 'snoozed',         l: `Snoozed · ${snoozedN}`,               active: FILTER_VIEW === 'snoozed' },
   ];
 
@@ -220,7 +237,7 @@ export function renderTickets() {
         <input type="checkbox" ${checked?'checked':''} data-change-action="tickets.toggleSelected" data-id="${window.escAttr(t.id)}" style="cursor:pointer;accent-color:var(--purple)" />
       </td>
       <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}${copyButton(t.id, 'ticket number')}</td>
-      <td>${cust ? window.escHtml(cust.first+' '+cust.last) : '—'}</td>
+      <td>${window.escHtml(t.customerName || (cust ? cust.first+' '+cust.last : '—'))}</td>
       <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
       <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
@@ -275,20 +292,22 @@ export function renderTickets() {
     </div>` : '';
 
   return `
-    <div class="page">
+    <div class="page ticket-work-page">
       <div class="topbar">
         <div class="tb-title">Tickets</div>
         <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
         <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
       </div>
-      <div class="kpi-bar">
-        <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total</div></div>
-        <div class="kpi"><div class="kpi-n c-blue">${openN}</div><div class="kpi-l">Open</div></div>
-        <div class="kpi"><div class="kpi-n c-red">${breachN}</div><div class="kpi-l">SLA breach</div></div>
-        <div class="kpi"><div class="kpi-n c-purple">${myN}</div><div class="kpi-l">Assigned to me</div></div>
+      <div class="kpi-bar queue-kpis">
+        <button class="kpi" data-action="tickets.focusQueue" data-focus="outstanding"><span class="kpi-n">${outstanding.length}</span><span class="kpi-l">Outstanding</span></button>
+        <button class="kpi" data-action="tickets.focusQueue" data-focus="overdue"><span class="kpi-n c-red">${breachN}</span><span class="kpi-l">Out of SLA</span></button>
+        <button class="kpi" data-action="tickets.focusQueue" data-focus="escalated"><span class="kpi-n c-purple">${escalatedN}</span><span class="kpi-l">Escalated</span></button>
       </div>
+      <p class="report-note">All unfinished tickets, including pending and GDPR, regardless of age. Out of SLA and escalated can overlap.
+        <button class="btn btn-sm" data-action="tickets.urgencySort" ${SORT_COL === 'urgency' ? 'disabled' : ''}>Urgency first</button>
+        <button class="btn btn-sm" data-action="tickets.retryQueue">Refresh</button></p>
       ${bulkBar}
-      <div class="tab-bar">${tabs}</div>
+      <div class="tab-bar" aria-label="Ticket status">${tabs}</div>
       ${/* One bar, not two (issue #447). What stays out here is what an agent
              uses constantly — search, the saved views, and a chip for every
              filter currently narrowing the list. The four rarely-touched
@@ -372,43 +391,32 @@ export function renderTickets() {
         <table class="tbl">
           <thead><tr>
             <th style="width:32px;padding-right:0" data-action="">
-              <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} data-change-action="tickets.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
+              <input type="checkbox" id="ticket-select-all-cb" ${allSelected?'checked':''} data-change-action="tickets.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all ${list.length} matching tickets"/>
             </th>
             ${TICKET_COLUMNS.map(([k,l])=>`<th data-action="tickets.sort" data-col="${k}">${l} ${SORT_COL===k?(SORT_DIR===1?'↑':'↓'):''}</th>`).join('')}
           </tr></thead>
           <tbody>${tableBody}</tbody>
         </table>
         ${list.length===0?'<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets match the current filters</div><div class="empty-line"></div></div>':''}
-        ${ticketsHasMore() ? `
+        ${list.length > VISIBLE_LIMIT ? `
           <div style="padding:14px;display:flex;align-items:center;gap:12px;justify-content:center;border-top:1px solid var(--rule)">
-            <button class="btn btn-sm" data-action="tickets.loadMore" ${TICKETS_LOAD_MORE_PENDING ? 'disabled' : ''}>
-              ${TICKETS_LOAD_MORE_PENDING ? 'Loading…' : `Load more (${ticketsLoaded()} of ${ticketsTotal()})`}
+            <button class="btn btn-sm" data-action="tickets.loadMore">
+              Show more (${Math.min(VISIBLE_LIMIT, list.length)} of ${list.length})
             </button>
           </div>` : ''}
       </div>
     </div>`;
 }
 
-let TICKETS_LOAD_MORE_PENDING = false;
-async function ticketsLoadMore() {
-  if (TICKETS_LOAD_MORE_PENDING || !ticketsHasMore()) return;
-  TICKETS_LOAD_MORE_PENDING = true;
-  renderPage('tickets');
-  try { await loadMoreTickets(); }
-  catch (err) { alert(`Couldn't load more tickets: ${err?.message || err}`); }
-  finally {
-    TICKETS_LOAD_MORE_PENDING = false;
-    renderPage('tickets');
-  }
-}
+function ticketsLoadMore() { VISIBLE_LIMIT += 50; renderPage('tickets'); }
 
-function setStatusFilter(s) { FILTER_STATUS = s; renderPage('tickets'); }
+function setStatusFilter(s) { FILTER_STATUS = s; FILTER_VIEW = 'all'; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear(); renderPage('tickets'); }
 function sortTickets(col) {
   if (SORT_COL === col) SORT_DIR *= -1; else { SORT_COL = col; SORT_DIR = 1; }
   renderPage('tickets');
 }
 function setAgentFilter(v)  { setFilterAgent(v); renderPage('tickets'); }
-export function setTicketView(v)   { FILTER_VIEW = v;  renderPage('tickets'); }
+export function setTicketView(v) { FILTER_VIEW = v; if (v !== 'all') FILTER_STATUS = 'outstanding'; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear(); renderPage('tickets'); }
 
 // ─── Saved searches ─────────────────────────────────────────────────────
 
@@ -441,7 +449,7 @@ function applySavedSearch(id) {
   const s = SAVED_SEARCHES.find((x) => x.id === id);
   if (!s) return;
   const f = s.filters || {};
-  FILTER_STATUS    = f.status    || 'all';
+  FILTER_STATUS    = f.status && f.status !== 'all' ? f.status : 'outstanding';
   setFilterCategory(f.category  || 'all');
   setFilterPriority(f.priority  || 'all');
   setFilterAgent(f.agent     || 'all');
@@ -538,13 +546,15 @@ function setTicketQuery(q)  {
 function setTicketGroupBy(v) { TICKET_GROUP_BY = v; renderPage('tickets'); }
 
 function getFilteredTickets() {
-  let list = [...TICKETS];
-  if (FILTER_VIEW === 'mine' && SESSION) list = list.filter(t => t.agent === SESSION.name && t.status !== 'closed');
-  else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent && t.status !== 'closed');
-  else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.status !== 'closed' && (t.sla === 'breach' || t.sla === 'warn'));
+  const history = ['history', 'resolved', 'closed'].includes(FILTER_STATUS);
+  let list = TICKETS.filter(t => !t.mergedInto && !t._mergedIntoUuid && (history ? ['resolved', 'closed'].includes(t.status) : isOutstanding(t)));
+  if (FILTER_VIEW === 'mine' && SESSION) list = list.filter(t => t.agent === SESSION.name);
+  else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent);
+  else if (FILTER_VIEW === 'overdue')    list = list.filter(t => t.sla === 'breach');
+  else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.sla === 'breach' || t.sla === 'warn');
   else if (FILTER_VIEW === 'snoozed')    list = list.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now());
   else if (FILTER_VIEW === 'needs_attention') list = list.filter(needsAttention);
-  if (FILTER_STATUS !== 'all')   list = list.filter(t => t.status === FILTER_STATUS);
+  if (!['all', 'outstanding', 'history'].includes(FILTER_STATUS)) list = list.filter(t => t.status === FILTER_STATUS);
   if (FILTER_CATEGORY !== 'all') list = list.filter(t => t.category === FILTER_CATEGORY);
   if (FILTER_PRIORITY !== 'all') list = list.filter(t => t.priority === FILTER_PRIORITY);
   if (FILTER_AGENT !== 'all')    list = list.filter(t => t.agent === FILTER_AGENT);
@@ -553,7 +563,7 @@ function getFilteredTickets() {
     const q = FILTER_QUERY.toLowerCase();
     list = list.filter(t => {
       const cust = CUSTOMERS.find(c => c.id === t.customerId);
-      const custName = cust ? (cust.first + ' ' + cust.last) : '';
+      const custName = t.customerName || (cust ? (cust.first + ' ' + cust.last) : '');
       return t.id.toLowerCase().includes(q)
         || t.subject.toLowerCase().includes(q)
         || (t.tags || []).some(tag => tag.toLowerCase().includes(q))
@@ -562,6 +572,7 @@ function getFilteredTickets() {
     });
   }
   list.sort((a, b) => {
+    if (SORT_COL === 'urgency') return compareUrgency(a, b);
     let av = a[SORT_COL] || '', bv = b[SORT_COL] || '';
     return typeof av === 'string' ? av.localeCompare(bv) * SORT_DIR : (av - bv) * SORT_DIR;
   });
@@ -763,6 +774,15 @@ function exportTicketList() {
 }
 
 registerActions({
+  'tickets.retryQueue': () => { invalidateWorkQueue(); renderPage('tickets'); },
+  'tickets.urgencySort': () => { SORT_COL = 'urgency'; SORT_DIR = 1; renderPage('tickets'); },
+  'tickets.focusQueue': ds => {
+    FILTER_STATUS = ds.focus === 'escalated' ? 'escalated' : 'outstanding';
+    FILTER_VIEW = ds.focus === 'overdue' ? 'overdue' : 'all';
+    setFilterCategory('all'); setFilterPriority('all'); setFilterAgent('all'); setFilterSentiment('all'); setFilterQuery('');
+    SORT_COL = 'urgency'; SORT_DIR = 1; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear();
+    renderPage('tickets');
+  },
   'tickets.loadMore':      () => ticketsLoadMore(),
   // saved searches
   'tickets.saveSearch':    () => saveCurrentSearch(),

@@ -96,6 +96,40 @@ tickets.get('/', async (c) => {
   return c.json({ tickets, limit, offset });
 });
 
+// Complete queue/history indexes are fetched in bounded, stable-ID pages.
+// Never publish counts from a partly fetched index in the client.
+tickets.get('/work-index', async (c) => {
+  const scope = c.req.query('scope') ?? 'outstanding';
+  const after = c.req.query('after');
+  if (!['outstanding', 'history'].includes(scope) || (after && !z.string().uuid().safeParse(after).success)) {
+    return c.json({ error: 'Invalid ticket scope or cursor.' }, 400);
+  }
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const rows = await sql`
+    select ${ticketListCols(sql)},
+      (select concat_ws(' ', c.first_name, c.last_name) from customers c
+        where c.id = tickets.customer_id and c.workspace_id = ${workspaceId}) as customer_name,
+      (select u.name from users u where u.id = tickets.assigned_user_id) as assignee_name,
+      (select coalesce(jsonb_agg(tt.tag), '[]'::jsonb) from ticket_tags tt
+        where tt.ticket_id = tickets.id and tt.workspace_id = ${workspaceId}) as tags,
+      (select min(m.created_at) from ticket_messages m where m.ticket_id = tickets.id
+        and m.workspace_id = ${workspaceId} and m.role = 'customer'
+        and m.deleted_at is null and m.merged_from_id is null) as first_customer_at,
+      (select min(m.created_at) from ticket_messages m where m.ticket_id = tickets.id
+        and m.workspace_id = ${workspaceId} and m.role in ('agent', 'ai')
+        and m.deleted_at is null and m.merged_from_id is null
+        and m.created_at >= (select min(fc.created_at) from ticket_messages fc
+          where fc.ticket_id = tickets.id and fc.workspace_id = ${workspaceId}
+          and fc.role = 'customer' and fc.deleted_at is null and fc.merged_from_id is null)) as first_agent_reply_at
+    from tickets where workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null
+      ${scope === 'history' ? sql`and status_key in ('resolved', 'closed')` : sql`and status_key not in ('resolved', 'closed')`}
+      ${after ? sql`and id > ${after}::uuid` : sql``}
+    order by id limit 201`;
+  const page = rows.slice(0, 200);
+  return c.json({ tickets: page, next: rows.length > 200 ? page[page.length - 1].id : null });
+});
+
 // ─── GET /sync — incremental list deltas since a client cursor ──────────
 //
 // Drives the always-on list-sync polling. The SPA hits this every ~10s

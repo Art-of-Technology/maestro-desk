@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
 
 // Server-side report data. SLA breach evaluation itself stays client-side
 // (business-hours engine in web/js/tickets/sla.js); this endpoint only
@@ -10,6 +11,12 @@ import { getDb } from '../lib/db.js';
 export const reports = new Hono();
 
 reports.use('*', requireAuth);
+
+reports.get('/dashboard', async (c) => {
+  const period = parseReportPeriod(c.req.query('start'), c.req.query('end'), c.req.query('timezone'));
+  if (!period) return c.json({ error: 'Provide valid start/end timestamps and timezone.' }, 400);
+  return c.json({ period, report: await dashboardReport(c.get('workspaceId'), c.get('userId'), period) });
+});
 
 const ALLOWED_DAYS = new Set([7, 30, 90]);
 
