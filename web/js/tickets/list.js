@@ -184,8 +184,9 @@ export function renderTickets() {
   const scopes = history ? ['outstanding', 'history'] : ['outstanding'];
   for (const scope of scopes) {
     const state = workQueueState(scope);
-    if (!state.ready && !state.loading && !state.error) void loadWorkQueue(scope).then(() => {
-      if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+    // Join an existing badge-started request too; loadWorkQueue shares its promise.
+    if (!state.ready && !state.error) void loadWorkQueue(scope).then(() => {
+      if (workQueueState(scope) === state && CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
     });
   }
   const error = scopes.map(s => workQueueState(s).error).find(Boolean);
