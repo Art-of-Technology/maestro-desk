@@ -1,7 +1,7 @@
 import type { TriageOutput } from './triage.js';
-import { env } from './env.js';
 import { getDb } from './db.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
+import { resolveTicketReplyTo } from './ticket-reply-to.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 // postmark-outbound is external HTTP.
@@ -204,10 +204,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
       textBody: composed.text,
       htmlBody: composed.html,
       inReplyTo: sendContext.lastCustomerMessageId,
-      // Route customer replies back through the inbound webhook so they
-      // attach to this ticket rather than landing in the From mailbox.
-      // Empty string means use From as Reply-To (Postmark default).
-      replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
+      replyTo: await resolveTicketReplyTo(workspaceId, ticketId),
     });
     postmarkMessageId = result.messageId;
     rfcMessageId = result.rfcMessageId;

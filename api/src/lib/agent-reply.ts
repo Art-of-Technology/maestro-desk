@@ -10,7 +10,6 @@
 // regardless of the email outcome — a send failure never loses the reply, it
 // just reports back so the UI can show "saved, not emailed".
 
-import { env } from './env.js';
 import {
   isPostmarkConfigured,
   PostmarkSendError,
@@ -20,6 +19,7 @@ import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
+import { resolveTicketReplyTo } from './ticket-reply-to.js';
 import type { OutboundFile } from './message-attachments.js';
 
 export type AgentReplyDelivery =
@@ -90,9 +90,7 @@ export async function sendAgentReplyEmail(args: {
       textBody: composed.text,
       htmlBody: composed.html,
       inReplyTo: lastMsg?.external_message_id ?? null,
-      // Route the customer's reply back through the inbound webhook so it
-      // attaches to this ticket rather than landing in the From mailbox.
-      replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
+      replyTo: await resolveTicketReplyTo(workspaceId, ticketId),
       attachments: (args.attachments ?? []).map((f) => ({
         Name: f.filename,
         Content: f.base64,

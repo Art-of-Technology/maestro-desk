@@ -110,6 +110,84 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
 
   const closeTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}/close`, { method: 'POST', body: JSON.stringify(body) });
 
+  it('uses the public ticket inbox for agent replies, AI replies and surveys while preserving threading', async () => {
+    const tid = await seedTicket(`AR-${RUN}-public-inbox`, { email: `public-${RUN}@acme.test` });
+    const [channel] = await sql`insert into channels (workspace_id, display_id, name, type, address)
+      values (${ctx.wsId}, ${'CH-public-' + RUN}, 'Complaints', 'email', 'complaints@acme.test') returning id`;
+    await sql`update tickets set channel_id = ${channel.id} where id = ${tid}`;
+    const inboundId = `<public-${RUN}@customer.test>`;
+    await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
+      values (${ctx.wsId}, ${tid}, 'customer', 'Customer', 'Question', ${inboundId})`;
+    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Answer' }) });
+    expect(res.status).toBe(201);
+    expect((await res.json() as any).delivery.emailed).toBe(true);
+    expect(lastBody.ReplyTo).toBe('complaints@acme.test');
+    expect(lastBody.Headers).toContainEqual({ Name: 'In-Reply-To', Value: inboundId });
+
+    const { postAutoReply } = await import('./lib/auto-reply.js');
+    const auto = await postAutoReply({ workspaceId: ctx.wsId, ticketId: tid, draftReply: 'Automatic answer', confidence: 1, model: 'test', workspaceName: 'Test' });
+    expect(auto.posted).toBe(true);
+    expect(lastBody.ReplyTo).toBe('complaints@acme.test');
+    expect(lastBody.Headers).toContainEqual({ Name: 'In-Reply-To', Value: inboundId });
+
+    const { sendCsatSurvey } = await import('./lib/csat-survey.js');
+    await sql`update tickets set status_key = 'resolved', resolved_at = now() where id = ${tid}`;
+    expect((await sendCsatSurvey({ workspaceId: ctx.wsId, ticketId: tid })).sent).toBe(true);
+    expect(lastBody.ReplyTo).toBe('complaints@acme.test');
+    expect(postmarkCalls).toBe(3);
+  });
+
+  it('falls back within the brand for missing, inactive, deleted, non-email or invalid inboxes', async () => {
+    const { resolveTicketReplyTo } = await import('./lib/ticket-reply-to.js');
+    const { env } = await import('./lib/env.js');
+    const tid = await seedTicket(`AR-${RUN}-reply-fallback`, { email: `fallback-${RUN}@acme.test` });
+    expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(env.POSTMARK_INBOUND_REPLY_ADDRESS || null);
+    const domain = `reply-${RUN}.test`;
+    await sql`insert into workspace_email_domains (workspace_id, domain, verified_at) values (${ctx.wsId}, ${domain}, now())`;
+    try {
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      const [channel] = await sql`insert into channels (workspace_id, display_id, name, type, address)
+        values (${ctx.wsId}, ${'CH-fallback-' + RUN}, 'Inbox', 'email', 'inbox@acme.test') returning id`;
+      await sql`update tickets set channel_id = ${channel.id} where id = ${tid}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe('inbox@acme.test');
+      await sql`update channels set status = 'inactive' where id = ${channel.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      await sql`update channels set status = 'active', deleted_at = now() where id = ${channel.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      await sql`update channels set deleted_at = null, type = 'chat' where id = ${channel.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      await sql`update channels set type = 'email', address = ${'inbox@acme.test\r\nBcc: other@acme.test'} where id = ${channel.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      await sql`update channels set address = '' where id = ${channel.id}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(`support@${domain}`);
+      const sent = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Fallback answer' }) });
+      expect((await sent.json() as any).delivery.emailed).toBe(true);
+      expect(lastBody.ReplyTo).toBe(`support@${domain}`);
+      await sql`update tickets set deleted_at = now() where id = ${tid}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBeNull();
+    } finally {
+      await sql`delete from workspace_email_domains where workspace_id = ${ctx.wsId} and domain = ${domain}`;
+    }
+  });
+
+  it('never uses another workspace ticket or channel as Reply-To', async () => {
+    const { resolveTicketReplyTo } = await import('./lib/ticket-reply-to.js');
+    const { env } = await import('./lib/env.js');
+    const tid = await seedTicket(`AR-${RUN}-reply-isolation`, { email: `isolation-${RUN}@acme.test` });
+    const [{ provision_brand: otherId }] = await sql`select provision_brand(${'reply-other-' + RUN}, 'Other')`;
+    try {
+      const [channel] = await sql`insert into channels (workspace_id, display_id, name, type, address)
+        values (${otherId}, ${'CH-other-' + RUN}, 'Private inbox', 'email', 'private@other.test') returning id`;
+      await sql`update tickets set channel_id = ${channel.id} where id = ${tid}`;
+      expect(await resolveTicketReplyTo(ctx.wsId, tid)).toBe(env.POSTMARK_INBOUND_REPLY_ADDRESS || null);
+      expect(await resolveTicketReplyTo(otherId, tid)).toBeNull();
+      expect(await resolveTicketReplyTo(ctx.wsId, crypto.randomUUID())).toBeNull();
+    } finally {
+      await sql`update tickets set channel_id = null where id = ${tid}`;
+      await sql`delete from workspaces where id = ${otherId}`;
+    }
+  });
+
   it('publishes closure through shared realtime middleware and enqueues one subscribed webhook', async () => {
     const tid = await seedTicket(`AR-${RUN}-close-events`, { email: null });
     const pubby = await import('./lib/pubby.js');
