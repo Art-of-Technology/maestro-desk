@@ -27,10 +27,11 @@ code review and the repository's Octopus 4+/5 gate before merge.
 - [ ] Verify an incoming formatted email and attachment through customer/thread
   matching, agent reply and recipient download. Include multiple addresses and
   a bounced address. Use a designated test account/recipient for real emails.
-- [ ] Give saved response templates the existing rich-text editor, with supported
+- [x] Give saved response templates the existing rich-text editor, with supported
   formatting, images and variable insertion. Verify sanitisation, plain-text
   fallback and existing templates; the email composer alone does not finish this.
-  Implementation and local validation complete; review/deployment pending.
+  Implementation and validation complete in PR #494; Octopus 4/5, zero findings.
+  Deployment evidence is recorded on the PR after both production services pass.
   Evidence: [TEMPLATE-VALIDATION.md](TEMPLATE-VALIDATION.md).
 
 ## 3. URL navigation
