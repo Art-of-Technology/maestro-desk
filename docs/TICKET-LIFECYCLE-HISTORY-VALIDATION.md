@@ -20,7 +20,7 @@ Expiry remains processed through the existing browser wakeup path. The server ve
 - Complete API suite: **661 tests passed**, 79 files, on the isolated local PostgreSQL 17 database (not production).
 - Targeted lifecycle/history/date tests: **21 passed**, including 9 new lifecycle tests. Covers concurrent status updates, closure retries and audit snapshots, customer reopening, reason-only snooze edits, repeated and stale wakeups, reverse simultaneous merges, concurrent round-robin assignment, forced audit failure rollback, tenant isolation and audit-chain verification.
 - Frontend unit suite: **52 passed**.
-- Native browser lifecycle test: **14 checks passed**, exercising status, snooze, stale expiry response, manual wake, running assignment rules, closure, saved actor/timestamps, escaped text, full reload and both new Activity Log filters.
+- Native browser lifecycle test: **15 checks passed**, exercising status, snooze, stale expiry response, manual wake, running assignment rules, closure, saved actor/timestamps, snoozed-by name, escaped text, full reload and both new Activity Log filters.
 - Existing native browser history test: **13 checks passed**, including responsive rendering, pagination, exact ticket links and workspace switching.
 - Existing queue refresh regression: **17 checks passed**.
 - Frontend build, bridge/import checks, matching security headers, **24 route smokes** and **7 ticket detail smokes** passed.

@@ -83,6 +83,7 @@ export default async function checkLifecycleHistory(page) {
   await page.locator('[data-action="modal.confirm"]').click();
   await waitEvents(2);
   check((await snapshot()).snoozedAt === '2026-09-10T11:00:00Z', 'snooze uses server timestamps');
+  check((await snapshot()).snoozedBy === 'Fixture agent', 'snoozedBy retains its display-name meaning');
   check(await page.locator('#main-area img[src="x"]').count() === 0, 'snooze history escapes supplied text');
   await page.evaluate(async () => (await import('/js/tickets/snooze.js')).unsnoozeTicket('TK-506', true));
   check(Boolean((await snapshot()).snoozedUntil), 'stale wake response preserves the newer snooze');
