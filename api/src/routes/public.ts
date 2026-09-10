@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
 import { reopenOnCustomerReply } from '../lib/reopen-customer-reply.js';
+import { applyAssignmentRules } from '../lib/assign-rules-engine.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from '../lib/customer-contacts.js';
 import { scheduleLink } from '../lib/player-identity.js';
@@ -190,6 +191,11 @@ publicRoutes.post('/:slug/tickets', async (c) => {
     `;
     return t;
   }) as { id: string; display_id: string };
+
+  // Only new submissions are routed; replies retain the thread's owner.
+  // Keep the accepted ticket even if a rule cannot be evaluated.
+  try { await applyAssignmentRules({ workspaceId: ws.id, ticketId: ticket.id }); }
+  catch (err) { console.error('[public] ticket assignment failed:', err); }
 
   // Attach the contact to its Maestro player — same fire-and-forget hook as
   // the inbound-email path (lib/player-identity.ts), after the ticket has

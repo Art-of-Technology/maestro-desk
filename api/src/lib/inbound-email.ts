@@ -1,5 +1,6 @@
 import { getDb } from './db.js';
 import { reopenOnCustomerReply } from './reopen-customer-reply.js';
+import { applyAssignmentRules } from './assign-rules-engine.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
 import { scheduleLink } from './player-identity.js';
@@ -384,6 +385,11 @@ export async function processInboundEmail(args: {
   // 3'. Files + formatted body. Awaited (not fire-and-forget) so the ticket the
   //     agent opens moments later already has them; failures degrade to text.
   await persistRichBody({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body, payload, deps });
+
+  // Route new customer tickets before publishing them. A rule failure must
+  // not discard accepted mail; unmatched tickets remain unassigned.
+  try { await applyAssignmentRules({ workspaceId, ticketId: newTicket.id }); }
+  catch (err) { console.error('[inbound-email] assignment failed:', err); }
 
   // 3a. Attach the contact to its Maestro player (ids + username; fills blank
   //     VIP / country). Runs AFTER the ticket + message land so it never
