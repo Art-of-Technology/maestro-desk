@@ -10,6 +10,7 @@ import { serve } from '@hono/node-server';
 import app from './index.js';
 import { env } from './lib/env.js';
 import { startWebhookWorker, stopWebhookWorker } from './lib/outgoing-webhooks.js';
+import { snoozeWorker } from './lib/snooze-worker.js';
 
 // First webhook attempts fire inline at dispatch (lib/outgoing-webhooks.ts,
 // non-Vercel branch), so this poll only catches RETRIES, whose backoff is
@@ -27,6 +28,7 @@ const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   console.log(`respovia API (node) listening on :${info.port} — TRUST_PROXY=${env.TRUST_PROXY}`);
 });
 startWebhookWorker(RETRY_POLL_MS);
+snoozeWorker.start();
 
 // Graceful drain on Dokploy redeploys/restarts: stop the retry poll, stop
 // accepting new connections, let in-flight requests (AI triage runs ~12s)
@@ -35,7 +37,8 @@ startWebhookWorker(RETRY_POLL_MS);
 function shutdown(signal: string): void {
   console.log(`[server] ${signal} received — draining`);
   stopWebhookWorker();
-  server.close(() => process.exit(0));
+  const drained = new Promise<void>(resolve => server.close(() => resolve()));
+  void Promise.all([drained, snoozeWorker.stop()]).then(() => process.exit(0));
   setTimeout(() => process.exit(1), 9_000).unref();
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

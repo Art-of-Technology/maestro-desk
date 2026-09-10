@@ -664,6 +664,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   t.csatSubmittedAt    = d.csat_submitted_at ? isoDate(d.csat_submitted_at) : null;
   t.snoozedUntil    = d.snoozed_until || null;
   t.snoozedAt       = d.snoozed_at || null;
+  t.snoozeWokenAt   = d.snooze_woken_at || null;
   t.snoozeReason    = d.snooze_reason || '';
   t.resolvedAt      = d.resolved_at || null;
   t.closureReason = d.closure_reason || null;

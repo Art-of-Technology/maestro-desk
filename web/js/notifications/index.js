@@ -36,6 +36,7 @@ import { showToast } from '../core/toast.js';
 import { getWorkspaceId, getJwt } from '../core/api-client.js';
 import { workQueueState, loadWorkQueue } from '../tickets/work-queue.js';
 import { unassignedNotifications } from './unassigned.js';
+import { wakeNotification } from './wake.js';
 // setSettingsTab is reached via window to avoid a notifications↔settings
 // import cycle (settings imports refreshNotifBadge from here). Settings is
 // still bridged; this can become a direct import once Settings migrates.
@@ -75,7 +76,6 @@ function getNotifications() {
       out.push(...unassigned.filter(n => !NOTIFICATIONS_DISMISSED.has(n.id)));
     }
   }
-  const wakeWindowMs = 24 * 60 * 60 * 1000;
   // Mentions of the current session user across all tickets — emit before per-ticket
   // status notifications so they're not crowded out when an SLA breach also exists.
   if (SESSION?.name && NOTIF_PREFS.mention !== false) {
@@ -109,8 +109,9 @@ function getNotifications() {
   for (const t of TICKETS) {
     let n = null;
     // Snooze wake-up takes priority for ~24h after firing so an agent doesn't miss it.
-    if (t.snoozeWokenAt && NOTIF_PREFS.wake !== false && (Date.now() - new Date(t.snoozeWokenAt).getTime()) < wakeWindowMs) {
-      n = {id:'wake-'+t.id, type:'wake', color:'var(--blue)', title:'Snooze elapsed', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
+    const wake = NOTIF_PREFS.wake !== false ? wakeNotification(t) : null;
+    if (wake) {
+      n = wake;
     } else if (t.sla === 'breach' && NOTIF_PREFS.breach) {
       n = {id:'breach-'+t.id, type:'breach', color:'var(--red)', title:'SLA breach', body:`${t.id} — ${t.subject}`, ticketId:t.id, ts:t.updated};
     } else if (t.status === 'escalated' && NOTIF_PREFS.escalated) {

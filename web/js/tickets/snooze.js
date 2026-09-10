@@ -2,9 +2,9 @@
 // Snoozing pauses a ticket until a chosen wall-clock time. While snoozed:
 //  - SLA evaluation returns 'snoozed' instead of running the timers
 //  - The ticket shows a "💤 snoozed until X" indicator in the list and detail
-// On wake (snoozedUntil <= now), checkSnoozeWakeups clears the fields, logs
-// an event, refreshes SLA, and stamps snoozeWokenAt so a wake notification
-// shows in the bell for ~24h.
+// Live tickets wake on the server, even with no browser open. The sync feed
+// refreshes fields/history and brings the wake notification into the bell.
+// checkSnoozeWakeups retains local expiry only for demo tickets.
 //
 // External reaches (interim, via window): escHtml — still in app.js.
 // logTicketEvent, showModal, closeModal, openTicket, refreshNotifBadge and
@@ -98,6 +98,7 @@ export function checkSnoozeWakeups() {
   const now = Date.now();
   let anyWoke = false;
   TICKETS.forEach(t => {
+    if (t._uuid) return; // Server worker owns expiry for persisted tickets.
     if (t.snoozedUntil && new Date(t.snoozedUntil).getTime() <= now) {
       unsnoozeTicket(t.id, true);
       anyWoke = true;

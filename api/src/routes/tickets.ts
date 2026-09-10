@@ -1,4 +1,5 @@
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
+import { clearTicketSnooze } from '../lib/ticket-snooze.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -1013,32 +1014,10 @@ tickets.delete('/:id/snooze', async (c) => {
   const ticketId = c.req.param('id');
   const viaWakeup = c.req.query('via_wakeup') === 'true';
 
-  const result = await sql.begin(async sql => {
-    const [existing] = await sql`
-      select id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at,
-        snoozed_until <= clock_timestamp() as expired from tickets
-      where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
-    `;
-    if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
-    const { expired, ...unchanged } = existing;
-    if (!existing.snoozed_until || (viaWakeup && !expired)) return { ticket: unchanged, activity: [] };
-
-    const [updated] = await sql`
-      update tickets set
-        snoozed_until      = null,
-        snoozed_at         = null,
-        snoozed_by_user_id = null,
-        snooze_reason      = null,
-        snooze_woken_at    = ${viaWakeup ? sql`now()` : null}
-      where id = ${ticketId} and workspace_id = ${workspaceId}
-      returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
-    `;
-
-    const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: viaWakeup ? null : c.get('userId'),
-      kind: 'snooze', before: snoozeState(existing), after: null, ...(viaWakeup ? { source: 'snooze_expired' as const } : {}) });
-    return { ticket: updated, activity };
-  });
-  return result instanceof Response ? result : c.json(result);
+  const result = await sql.begin(tx => clearTicketSnooze(tx, {
+    workspaceId, ticketId, automatic: viaWakeup, actorId: c.get('userId'),
+  }));
+  return result ? c.json(result) : c.json({ error: 'Ticket not found' }, 404);
 });
 
 // ─── POST /:id/merge — merge this ticket into another as a duplicate ─────
