@@ -20,6 +20,7 @@ import { composeEmail } from './email-branding.js';
 import { makeUnsubscribeToken, unsubscribeUrl } from './unsubscribe.js';
 import { getDb } from './db.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
+import { resolveTicketReplyTo } from './ticket-reply-to.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 // Postmark send unchanged.
@@ -158,7 +159,7 @@ async function sendClaimedSurvey(args: {
       subject,
       textBody: composed.text,
       htmlBody: composed.html,
-      replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,
+      replyTo: await resolveTicketReplyTo(workspaceId, ticketId),
       extraHeaders: unsubUrl
         ? [
             { Name: 'List-Unsubscribe', Value: `<${unsubUrl}>` },
