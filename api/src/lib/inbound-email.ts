@@ -1,4 +1,5 @@
 import { getDb } from './db.js';
+import { reopenOnCustomerReply } from './reopen-customer-reply.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
 import { scheduleLink } from './player-identity.js';
@@ -460,11 +461,15 @@ async function attachReplyToTicket(args: {
   const sql = getDb();
 
   const authorLabel = name?.trim() || email;
-  const [replyMessage] = await sql<{ id: string }[]>`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
-    values (${workspaceId}, ${ticketId}, 'customer', ${authorLabel}, ${body}, ${externalMessageId})
-    returning id
-  `;
+  const replyMessage = await sql.begin(async (tx) => {
+    await reopenOnCustomerReply(tx, workspaceId, ticketId);
+    const [message] = await tx<{ id: string }[]>`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
+      values (${workspaceId}, ${ticketId}, 'customer', ${authorLabel}, ${body}, ${externalMessageId})
+      returning id
+    `;
+    return message;
+  });
   if (!replyMessage) throw new Error('Reply attach failed');
   void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
   await persistRichBody({ workspaceId, ticketId, messageId: replyMessage.id, body, payload, deps });
@@ -484,10 +489,6 @@ async function attachReplyToTicket(args: {
     console.warn('[inbound-email] player-link sender check failed on thread-attach:', err instanceof Error ? err.message : err);
   }
 
-  // A customer reply returns pending/resolved tickets to the open queue,
-  // matching the portal reply path. Clear the resolution timestamp when
-  // reopening so reports and retention do not treat the ticket as resolved.
-  // Preserve escalated, GDPR and closed statuses.
   // Unlike channel defaults, the reply address follows each accepted inbound
   // message from one of this customer's own addresses. Do not persist a third
   // party's address on their ticket (that party's erasure cannot reach it).
@@ -506,9 +507,7 @@ async function attachReplyToTicket(args: {
                 and cc.workspace_id = ${workspaceId} and cc.kind = 'email' and cc.deleted_at is null
             ))
           )
-      ) then ${email} else null end,
-      resolved_at = case when status_key in ('pending', 'resolved') then null else resolved_at end,
-      status_key = case when status_key in ('pending', 'resolved') then 'open' else status_key end
+      ) then ${email} else null end
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
   `;
 

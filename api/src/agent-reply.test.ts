@@ -225,7 +225,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     }
   });
 
-  it('keeps closure notes out of the authenticated customer portal and preserves closed status on replies', async () => {
+  it('reopens a closed portal ticket while preserving closure history privately', async () => {
     const display = `AR-${RUN}-close-portal`;
     const tid = await seedTicket(display, { email: `portal-${RUN}@acme.test` });
     const [ticket] = await sql`select customer_id from tickets where id = ${tid}`;
@@ -236,6 +236,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
       values (${ctx.wsId}, ${tid}, 'customer', 'Customer', 'Public question')`;
     await closeTicket(tid, { reason: 'duplicate', note: 'Internal assessment must remain private' });
+    const [closed] = await sql`select closed_at from tickets where id = ${tid}`;
     const path = `/api/v1/public/ar-${RUN}/customer/tickets/${display}`;
     const headers = { Authorization: `Bearer ${session.sessionToken}`, 'Content-Type': 'application/json' };
     const response = await app.request(path, { headers });
@@ -248,12 +249,59 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(data.ticket).not.toHaveProperty('closure_note');
     const reply = await app.request(`${path}/messages`, { method: 'POST', headers, body: JSON.stringify({ body: 'Customer follow-up' }) });
     expect(reply.status).toBe(201);
-    const [after] = await sql`select status_key from tickets where id = ${tid}`;
-    expect(after.status_key).toBe('closed');
+    const [after] = await sql`select status_key, closure_reason, closure_note, closed_at, closed_by_user_id from tickets where id = ${tid}`;
+    expect(after.status_key).toBe('open');
+    expect(after.closure_note).toBeNull();
+    expect(after.closure_reason).toBeNull();
+    expect(after.closed_at).toBeNull();
+    expect(after.closed_by_user_id).toBeNull();
+    const [note] = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note'`;
+    expect(note.body).toContain('Internal assessment must remain private');
+    expect(note.body).toContain('Reason: duplicate');
+    expect(note.body).toContain(admin.userId);
+    expect(note.body).toContain('Reply Agent');
+    expect(note.body).toContain(new Date(closed.closed_at).toISOString());
+    const visible: any = await (await app.request(path, { headers })).json();
+    expect(visible.ticket.status_key).toBe('open');
+    expect(JSON.stringify(visible)).not.toContain('Internal assessment');
+    expect(visible.ticket.messages).toHaveLength(2);
     expect(postmarkCalls).toBe(0);
   });
 
-  it('portal customer replies reopen pending/resolved tickets and preserve other statuses and assignment', async () => {
+  it('archives each closure once across concurrent replies and rolls back failed reopening', async () => {
+    const { reopenOnCustomerReply } = await import('./lib/reopen-customer-reply.js');
+    const tid = await seedTicket(`AR-${RUN}-audit-reopen`, { email: null });
+    await closeTicket(tid, { reason: 'other', note: 'First closure' });
+    // A wrong workspace cannot read or change the closure.
+    await sql.begin(tx => reopenOnCustomerReply(tx, crypto.randomUUID(), tid));
+    const [before] = await sql`select status_key from tickets where id = ${tid}`;
+    expect(before.status_key).toBe('closed');
+    await Promise.all([
+      sql.begin(tx => reopenOnCustomerReply(tx, ctx.wsId, tid)),
+      sql.begin(tx => reopenOnCustomerReply(tx, ctx.wsId, tid)),
+    ]);
+    let notes = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note'`;
+    expect(notes).toHaveLength(1);
+    expect(notes[0].body).toContain('First closure');
+    await closeTicket(tid, { reason: 'abuse', note: 'Second closure' });
+    await expect(sql.begin(async tx => {
+      await reopenOnCustomerReply(tx, ctx.wsId, tid);
+      throw new Error('Simulated reply persistence failure');
+    })).rejects.toThrow('Simulated reply persistence failure');
+    const [held] = await sql`select status_key, closure_note from tickets where id = ${tid}`;
+    expect(held.status_key).toBe('closed');
+    expect(held.closure_note).toBe('Second closure');
+    notes = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note'`;
+    expect(notes).toHaveLength(1);
+    await sql.begin(tx => reopenOnCustomerReply(tx, ctx.wsId, tid));
+    notes = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note' order by created_at`;
+    expect(notes).toHaveLength(2);
+    expect(notes[1].body).toContain('Second closure');
+    expect(notes[1].body).toContain('Reason: abuse');
+    expect(postmarkCalls).toBe(0);
+  });
+
+  it('portal customer replies reopen pending/resolved/closed tickets and preserve other statuses and assignment', async () => {
     const display = `AR-${RUN}-portal-status`;
     const tid = await seedTicket(display, { email: `portal-status-${RUN}@acme.test` });
     const [ticket] = await sql`select customer_id from tickets where id = ${tid}`;
@@ -271,7 +319,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
         { method: 'POST', headers, body: JSON.stringify({ body: `Follow-up for ${status}` }) });
       expect(res.status).toBe(201);
       const [after] = await sql`select status_key, resolved_at, priority_key, assigned_user_id from tickets where id = ${tid}`;
-      expect(after.status_key).toBe(['pending', 'resolved'].includes(status) ? 'open' : status);
+      expect(after.status_key).toBe(['pending', 'resolved', 'closed'].includes(status) ? 'open' : status);
       expect(after.resolved_at).toBeNull();
       expect(after.priority_key).toBe('high');
       expect(after.assigned_user_id).toBe(admin.userId);

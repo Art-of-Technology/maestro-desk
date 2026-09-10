@@ -3,6 +3,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from '../lib/db.js';
+import { reopenOnCustomerReply } from '../lib/reopen-customer-reply.js';
 import { nextDisplayId } from '../lib/display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from '../lib/customer-contacts.js';
 import { scheduleLink } from '../lib/player-identity.js';
@@ -542,17 +543,15 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
     ? `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || customer.email || 'Customer'
     : 'Customer';
 
-  const [message] = await sql`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
-    values (${ws.id}, ${ticket.id}, 'customer', ${authorLabel}, ${parsed.data.body})
-    returning id, role, author_label, body, created_at
-  `;
-
-  // Check the current status in SQL so a concurrent agent status change is
-  // respected. Mirrors inbound email: only pending/resolved tickets reopen.
-  await sql`update tickets set status_key = 'open', resolved_at = null
-    where id = ${ticket.id} and workspace_id = ${ws.id} and deleted_at is null
-      and status_key in ('pending', 'resolved')`;
+  const message = await sql.begin(async (tx) => {
+    await reopenOnCustomerReply(tx, ws.id, ticket.id);
+    const [reply] = await tx`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
+      values (${ws.id}, ${ticket.id}, 'customer', ${authorLabel}, ${parsed.data.body})
+      returning id, role, author_label, body, created_at
+    `;
+    return reply;
+  });
 
   return c.json({ message }, 201);
 });
