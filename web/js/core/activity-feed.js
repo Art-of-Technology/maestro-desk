@@ -56,8 +56,9 @@ export function renderSavedActivity() {
   if (!current.loaded && !current.loading && !current.error) void load();
   const h = window.escHtml, a = window.escAttr;
   const rows = current.rows.map(e => {
-    const href = formatRoute({ workspaceSlug: getWorkspaceSlug(), workspaceId: getWorkspaceId(),
-      page: e.entity === 'ticket' ? 'tickets' : 'customers', entityId: e.entity_uuid });
+    const workspaceSlug = getWorkspaceSlug();
+    const href = formatRoute({ workspaceSlug, workspaceId: getWorkspaceId(),
+      page: e.entity === 'ticket' ? 'tickets' : 'customers', entityId: workspaceSlug ? e.entity_id : e.entity_uuid });
     return `<tr><td style="white-space:nowrap">${h(new Date(e.created_at).toLocaleString('en-GB'))}</td>
       <td>${h(kinds[e.kind] || e.kind)}</td><td>${h(e.entity)}</td>
       <td><a href="${a(href)}">${h(e.entity_id)}</a> ${h(e.entity_name)}</td>

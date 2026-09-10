@@ -31,12 +31,16 @@ other action types retain their existing behavior and are outside this change.
   existing bulk-save regression suite.
 - App build, bridge collision, import audit and security-header checks pass.
 - All 24 route and seven ticket-detail smokes pass.
-- Native ES-module browser checks: 10 history checks, 19 bulk priority/tag
+- Native ES-module browser checks: 12 history checks, 19 bulk priority/tag
   checks, and 16 bulk assignment checks pass. Local browser fixtures intercept
   API requests; production acceptance is recorded separately on the PR.
 - The regression suite caught an early-returned survey timestamp. The response
   now reads delivery timestamps after the mailer completes while preserving the
   assignment/priority values confirmed by the transaction. Both survey tests pass.
+- Live acceptance caught activity links mixing readable workspace slugs with
+  UUID record IDs. Links now use display numbers with workspace slugs and UUIDs
+  with legacy workspace UUIDs. The browser regression follows the link to a
+  previously unloaded ticket and checks both URL formats.
 
 ## Code and security review
 

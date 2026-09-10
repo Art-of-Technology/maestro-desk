@@ -12,6 +12,12 @@ export default async function checkHistory(page, { screenshotPath } = {}) {
     entity_id: 'TK-503', entity_name: 'History fixture', details: 'Assigned: Unassigned → Original Agent <img src=x onerror=alert(1)>' };
   const queries = [];
   await page.route('**/api/**', route => route.fulfill({ json: {} }));
+  await page.route('**/api/v1/tickets/**', route => route.fulfill({ json: { ticket: {
+    id: event.entity_uuid, display_id: event.entity_id, subject: event.entity_name,
+    status_key: 'pending', priority_key: 'normal', customer_id: null,
+    created_at: event.created_at, updated_at: event.created_at,
+    messages: [], tags: [], activity: [event],
+  } } }));
   await page.route('**/api/v1/activity?*', async route => {
     const url = route.request().url(); queries.push(url);
     const otherWorkspace = route.request().headers()['x-workspace-id'] === 'other-history-fixture';
@@ -28,7 +34,8 @@ export default async function checkHistory(page, { screenshotPath } = {}) {
     (await import('/js/core/url-navigation.js')).discardRequestedRoute();
     window.login('Admin', 'History tester', 'HT');
     sessionStorage.setItem('maestro_jwt', 'history-fixture-token');
-    sessionStorage.setItem('maestro_workspace_id', 'history-fixture');
+    sessionStorage.setItem('maestro_workspace_id', '11111111-1111-4111-8111-111111111111');
+    (await import('/js/core/api-client.js')).setWorkspaceSlug('history-fixture');
     (await import('/js/core/router.js')).renderPage('activity');
   });
   await setup();
@@ -38,7 +45,22 @@ export default async function checkHistory(page, { screenshotPath } = {}) {
   await page.getByRole('link', { name: 'TK-503', exact: true }).waitFor();
   check((await page.locator('#main-area tbody').innerText()).includes('Original Agent'), 'saved actor shown');
   check(await page.locator('#main-area tbody img').count() === 0, 'activity text must be escaped');
-  check((await page.getByRole('link', { name: 'TK-503', exact: true }).getAttribute('href')).endsWith('/tickets/' + event.entity_uuid), 'unloaded tickets use routable UUID links');
+  check((await page.getByRole('link', { name: 'TK-503', exact: true }).getAttribute('href')) === '#/w/history-fixture/tickets/TK-503', 'readable workspace links use ticket numbers');
+  await page.getByRole('link', { name: 'TK-503', exact: true }).click();
+  await page.getByRole('button', { name: 'View all activity', exact: true }).waitFor();
+  check(await page.evaluate(async () => (await import('/js/core/state.js')).CURRENT_TICKET) === 'TK-503', 'activity link opens a previously unloaded ticket');
+  await page.getByRole('button', { name: 'View all activity', exact: true }).click();
+  await page.getByRole('button', { name: 'Show all activity' }).click();
+  await page.getByRole('link', { name: 'TK-503', exact: true }).waitFor();
+  await page.evaluate(async () => {
+    (await import('/js/core/api-client.js')).setWorkspaceSlug(null);
+    (await import('/js/core/router.js')).renderPage('activity');
+  });
+  check((await page.getByRole('link', { name: 'TK-503', exact: true }).getAttribute('href')) === '#/w/11111111-1111-4111-8111-111111111111/tickets/' + event.entity_uuid, 'legacy workspace links retain UUIDs');
+  await page.evaluate(async () => {
+    (await import('/js/core/api-client.js')).setWorkspaceSlug('history-fixture');
+    (await import('/js/core/router.js')).renderPage('activity');
+  });
   await page.getByRole('button', { name: 'Load more activity' }).click();
   await page.waitForFunction(() => document.querySelectorAll('#main-area tbody tr').length === 2);
   check(await page.locator('#main-area tbody tr').count() === 2, 'pagination de-duplicates returned IDs');
