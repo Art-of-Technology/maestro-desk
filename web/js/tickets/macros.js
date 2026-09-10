@@ -29,7 +29,8 @@ import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { navTo } from '../core/keybindings.js';
-import { insertMacro, openTicket, changeTicketStatus, changeTicketPriority, changeTicketAgent, addTicketTag } from './detail.js';
+import { insertMacro, openTicket, onComposeInput, changeTicketStatus, changeTicketPriority, changeTicketAgent, addTicketTag } from './detail.js';
+import { appendTemplate } from './template-content.js';
 import {
   registerActions, registerChangeActions,
   registerMousedownActions, registerInputActions,
@@ -102,12 +103,12 @@ export function showMacroPanel(id) {
   showModal('Insert canned response', `<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">{name} placeholders are auto-filled with the customer\'s first name.</div>${items}`, null, null);
 }
 
-function runMacro(macroId, ticketId) {
+async function runMacro(macroId, ticketId) {
   const macro = MACROS.find(m => m.id === macroId);
   const t = TICKETS.find(x => x.id === ticketId);
   if (!macro || !t) return;
   if (t.mergedInto) { alert(`${ticketId} is a merged duplicate. Open ${t.mergedInto} to apply macros.`); return; }
-  let replyAppended = '';
+  const replies = [];
   (macro.actions || []).forEach(a => {
     if (a.kind === 'status' && a.value)   changeTicketStatus(ticketId, a.value);
     else if (a.kind === 'priority' && a.value) changeTicketPriority(ticketId, a.value);
@@ -119,15 +120,7 @@ function runMacro(macroId, ticketId) {
     else if (a.kind === 'reply' && a.templateId) {
       const tpl = CANNED_RESPONSES.find(r => r.id === a.templateId);
       if (tpl) {
-        const cust = CUSTOMERS.find(c => c.id === t.customerId);
-        // Resolve the same {var} tokens the composer's "Insert" buttons offer
-        // so a reply-step macro produces the same text an agent would compose.
-        const text = tpl.text
-          .replace(/\{name\}/g,   cust ? cust.first : 'there')
-          .replace(/\{ticket\}/g, t.id)
-          .replace(/\{brand\}/g,  cust?.brand || '')
-          .replace(/\{agent\}/g,  t.agent || SESSION?.name || '');
-        replyAppended = replyAppended ? `${replyAppended}\n\n${text}` : text;
+        replies.push(tpl);
       }
     }
     else if (a.kind === 'note' && a.text) {
@@ -144,8 +137,9 @@ function runMacro(macroId, ticketId) {
   logTicketEvent(ticketId, 'system', `Macro applied: ${macro.name}`);
   if (CURRENT_TICKET === ticketId) {
     openTicket(ticketId);
-    if (replyAppended) {
-      appendText(ticketId, replyAppended);
+    for (const template of replies) {
+      if (CURRENT_TICKET !== ticketId) break;
+      if (await appendTemplate(t, template)) onComposeInput(ticketId);
     }
   }
 }

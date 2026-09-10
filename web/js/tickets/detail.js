@@ -1,4 +1,5 @@
 import { copyButton } from '../core/copy.js';
+import { appendTemplate } from './template-content.js';
 // ─── Ticket Detail ────────────────────────────────────────────────────────────
 // The per-ticket detail view: header banners (snooze / merged), full sidebar
 // (timing, SLA gauge, custom fields, mentions, attachments, linked tickets,
@@ -48,7 +49,7 @@ import { showMacroPanel, showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
 import { renderAttachmentChips } from './attachment-chips.js';
 import {
-  appendText, clear as clearComposer, getHtml, getPlainText, insertAtCursor,
+  clear as clearComposer, getHtml, getPlainText, insertAtCursor,
   isEmpty as isComposerEmpty, mountComposer,
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, clearPendingAttachments } from './attachments.js';
@@ -818,18 +819,12 @@ function toggleWatch(id) {
   openTicket(id);
 }
 
-export function insertMacro(ticketId, idx) {
+export async function insertMacro(ticketId, idx) {
   const r = CANNED_RESPONSES[idx];
   if (!r) return;
   const t = TICKETS.find(x => x.id === ticketId);
-  const cust = t ? CUSTOMERS.find(c => c.id === t.customerId) : null;
-  const text = r.text.replace('{name}', cust ? cust.first : 'there');
-  const el = document.getElementById('compose-' + ticketId);
-  if (el) {
-    appendText(ticketId, text);
-    onComposeInput(ticketId);
-  }
   closeModal();
+  if (t && await appendTemplate(t, r)) onComposeInput(ticketId);
 }
 
 export async function changeTicketStatus(id, val) {
