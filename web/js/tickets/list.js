@@ -34,7 +34,8 @@ import { showToast } from '../core/toast.js';
 import { clearAllDrafts } from './drafts.js';
 import { isOutstanding, compareUrgency, workQueueState, loadWorkQueue, refreshQueueUrgency, invalidateWorkQueue } from './work-queue.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
-import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { saveBulkAssignments } from './bulk-assignment.js';
 
 // Module-local filter / sort state. Nothing outside this module reads or
 // writes these, so they don't need to live in core/state.js.
@@ -606,24 +607,79 @@ function toggleAllTickets() {
 
 function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); renderPage('tickets'); }
 
+let bulkAssignmentBusy = false;
 function bulkAssignTickets() {
   if (TICKET_SELECTED_IDS.size === 0) return;
-  showModal(`Assign ${TICKET_SELECTED_IDS.size} ticket${TICKET_SELECTED_IDS.size===1?'':'s'}`, `
-    <div class="form-row"><label class="form-label">Assign to</label>
-      <select class="form-input" id="bulk-agent">${AGENTS.map(a => `<option value="${window.escAttr(a.name)}">${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}</select>
+  if (bulkAssignmentBusy) { showToast('Assignments are still saving.', 'info'); return; }
+  const jwt = getJwt(), workspace = getWorkspaceId(), session = SESSION;
+  const sameContext = () => getJwt() === jwt && getWorkspaceId() === workspace && SESSION === session;
+  let pending = [...TICKET_SELECTED_IDS].map(id => {
+    const ticket = TICKETS.find(t => t.id === id);
+    return { id, _uuid: ticket?._uuid };
+  });
+  const agents = AGENTS.filter(a => a.active !== false && (!jwt || a.userId))
+    .map((a, i) => ({ ...a, key: a.userId || `demo-${i}` }));
+  if (!agents.length) { showToast('No active agents are available for assignment.', 'warn'); return; }
+  showModal(`Assign ${pending.length} ticket${pending.length===1?'':'s'}`, `
+    <div class="form-row"><label class="form-label" for="bulk-agent">Assign to</label>
+      <select class="form-input" id="bulk-agent">${agents.map(a => `<option value="${window.escAttr(a.key)}">${window.escHtml(a.name)}${agents.some(other => other.key !== a.key && other.name === a.name) ? ` (${window.escHtml(a.email || a.userId || a.key)})` : ''}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}</select>
     </div>
-  `, () => {
-    const agent = document.getElementById('bulk-agent').value;
-    let changed = 0;
-    TICKETS.forEach(t => {
-      if (!TICKET_SELECTED_IDS.has(t.id)) return;
-      if (t.agent === agent) return;
-      logTicketEvent(t.id, 'assign', `Assigned: ${t.agent || 'Unassigned'} → ${agent} (bulk)`);
-      t.agent = agent;
-      changed++;
-    });
-    TICKET_SELECTED_IDS.clear();
-    closeModal(); renderPage('tickets');
+    <div id="bulk-assignment-result" role="status" style="font-size:13px;line-height:1.5"></div>
+  `, async () => {
+    if (bulkAssignmentBusy || !sameContext()) return;
+    const select = document.getElementById('bulk-agent');
+    const agent = agents.find(a => a.key === select?.value);
+    if (!agent) return;
+    const status = document.getElementById('bulk-assignment-result');
+    const confirm = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    const isCurrent = () => sameContext() && select.isConnected;
+    bulkAssignmentBusy = true;
+    select.disabled = true;
+    confirm.disabled = true;
+    confirm.textContent = 'Saving…';
+    status.textContent = `Saving ${pending.length} assignment${pending.length === 1 ? '' : 's'}…`;
+    try {
+      const result = await saveBulkAssignments({
+        tickets: pending, agentId: agent.key, isCurrent,
+        save: (ticket, agentId) => {
+          if (!jwt) return Promise.resolve({ ticket: { id: ticket._uuid || ticket.id, assigned_user_id: agentId } });
+          if (!ticket._uuid) throw new Error('This ticket is no longer available. Refresh the list.');
+          return apiPatch(`/api/v1/tickets/${ticket._uuid}`, { assigned_user_id: agentId });
+        },
+        onSaved: (ticket) => {
+          const t = TICKETS.find(t => ticket._uuid ? t._uuid === ticket._uuid : t.id === ticket.id);
+          if (t) {
+            if (t.assignedUserId !== agent.key) logTicketEvent(t.id, 'assign', `Assigned: ${t.agent || 'Unassigned'} → ${agent.name} (bulk)`);
+            t.agent = agent.name;
+            t.assignedUserId = agent.key;
+          }
+          TICKET_SELECTED_IDS.delete(ticket.id);
+        },
+      });
+      if (!isCurrent()) return;
+      pending = result.failed.map(f => f.ticket);
+      if (pending.length) {
+        status.innerHTML = `${result.saved.length} saved; ${pending.length} failed. Failed tickets remain selected.<ul>${result.failed.map(f => `<li>${window.escHtml(f.ticket.id)}: ${window.escHtml(f.message)}</li>`).join('')}</ul>`;
+      } else {
+        closeModal();
+        showToast(`Assigned ${result.saved.length} ticket${result.saved.length === 1 ? '' : 's'} to ${agent.name}.`, 'success');
+      }
+    } finally {
+      bulkAssignmentBusy = false;
+      if (select.isConnected) {
+        if (!sameContext()) closeModal();
+        else {
+          select.disabled = false;
+          confirm.disabled = false;
+          confirm.textContent = 'Retry failed';
+        }
+      }
+      if (sameContext()) {
+        invalidateWorkQueue();
+        updateNavBadges();
+        if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
+      }
+    }
   }, 'Assign');
 }
 

@@ -52,6 +52,9 @@ jobs:
       - name: Unassigned notification tests
         run: bun test scripts/unassigned-notifications.test.js
 
+      - name: Bulk assignment tests
+        run: bun test scripts/bulk-assignment.test.js
+
       # Catches a module that READS a shared state/data binding without
       # IMPORTING it — a bug the bundled smokes can't see (the bare name resolves
       # in the single bundle scope) but native ESM throws on in production.

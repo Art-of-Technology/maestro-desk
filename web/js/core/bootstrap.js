@@ -693,6 +693,7 @@ function replaceInPlace(target, source) {
 function mapAgentRow(a) {
   return {
     userId:   a.user_id,    // DB UUID — used by PATCH /tickets when assigning
+    email:    a.users?.email || '',
     name:     a.users?.name || a.users?.email || 'Unknown',
     initials: a.users?.initials || initialsFromName(a.users?.name || a.users?.email || ''),
     role:     a.roles?.name || 'Member',
