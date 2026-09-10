@@ -1,4 +1,4 @@
-import { recordTicketActivity } from '../lib/ticket-activity.js';
+import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -292,6 +292,7 @@ const CloseTicket = z.object({
 type ClosedTicketRow = {
   id: string; status_key: string; closure_reason: string | null; closure_note: string | null;
   closed_at: string | null; closed_by_user_id: string | null; survey_sending?: boolean;
+  snoozed_until?: string | null; snooze_reason?: string | null;
 };
 
 tickets.post('/:id/close', async (c) => {
@@ -300,12 +301,12 @@ tickets.post('/:id/close', async (c) => {
   const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
   const result = await getDb().begin(async (sql) => {
-    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id,
+    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id, snoozed_until, snooze_reason,
       (csat_send_claim is not null and csat_send_started_at >= now() - interval '10 minutes') as survey_sending
       from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null for update`;
     if (!ticket) return { ok: false as const, error: 'Ticket not found', status: 404 as const };
-    if (ticket.status_key === 'closed') return { ok: true as const, ticket, changed: false };
+    if (ticket.status_key === 'closed') return { ok: true as const, ticket, changed: false, activity: [] };
     // The mailer claims the same row before sending. Do not report a silent
     // closure while an already-started survey is still being delivered.
     if (ticket.survey_sending) return { ok: false as const, error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
@@ -320,7 +321,12 @@ tickets.post('/:id/close', async (c) => {
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body)
       values (${workspaceId}, ${ticketId}, 'system', ${c.get('userId')}, ${actor?.name || 'Agent'},
         ${`Closed without resolution: ${parsed.data.reason}.${parsed.data.note ? '\n' + parsed.data.note : ''}`})`;
-    return { ok: true as const, ticket: updated, changed: true };
+    const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'status', before: ticket.status_key, after: 'closed', source: 'close',
+      context: { reason: updated.closure_reason, note: updated.closure_note } });
+    activity.push(...await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'snooze', before: snoozeState(ticket), after: null, source: 'close' }));
+    return { ok: true as const, ticket: updated, changed: true, activity };
   });
   if (!result.ok) return c.json({ error: result.error }, result.status);
   // The router middleware publishes ticket.changed for this successful POST.
@@ -331,7 +337,7 @@ tickets.post('/:id/close', async (c) => {
   }
   const t = result.ticket;
   return c.json({ ticket: { id: t.id, status_key: t.status_key, closure_reason: t.closure_reason,
-    closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id } });
+    closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id }, activity: result.activity });
 });
 
 // ─── PATCH /:id — update status / priority / assignment / category ───────
@@ -424,6 +430,9 @@ tickets.patch('/:id', async (c) => {
     if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
 
     const activity = [];
+    if (updates.status_key !== undefined) activity.push(...await recordTicketActivity(sql, {
+      workspaceId, ticketId, actorId: c.get('userId'), kind: 'status', before: existing.status_key, after: updates.status_key,
+    }));
     if (updates.priority_key !== undefined) activity.push(...await recordTicketActivity(sql, {
       workspaceId, ticketId, actorId: c.get('userId'), kind: 'priority', before: existing.priority_key, after: updates.priority_key,
     }));
@@ -963,55 +972,73 @@ tickets.post('/:id/snooze', async (c) => {
     return c.json({ error: 'Snooze time must be in the future' }, 400);
   }
 
-  // Workspace-scope check.
-  const [existing] = await sql`
-    select id from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
+  const result = await sql.begin(async sql => {
+    const [existing] = await sql`
+      select id, snoozed_until, snooze_reason from tickets
+      where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
+    `;
+    if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
 
-  const [updated] = await sql`
-    update tickets set
-      snoozed_until      = ${until},
-      snoozed_at         = now(),
-      snoozed_by_user_id = ${userId},
-      snooze_reason      = ${reason || null},
-      snooze_woken_at    = null
-    where id = ${ticketId} and workspace_id = ${workspaceId}
-    returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
-  `;
+    const before = snoozeState(existing), after = snoozeState({ snoozed_until: until, snooze_reason: reason });
+    if (before === after) {
+      const [ticket] = await sql`select id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
+        from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+      return { ticket, activity: [] };
+    }
 
-  return c.json({ ticket: updated });
+    const [updated] = await sql`
+      update tickets set
+        snoozed_until      = ${until},
+        snoozed_at         = now(),
+        snoozed_by_user_id = ${userId},
+        snooze_reason      = ${reason || null},
+        snooze_woken_at    = null
+      where id = ${ticketId} and workspace_id = ${workspaceId}
+      returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
+    `;
+
+    const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: userId, kind: 'snooze', before, after });
+    return { ticket: updated, activity };
+  });
+  return result instanceof Response ? result : c.json(result);
 });
 
 // ─── DELETE /:id/snooze — clear snooze (manual or auto wakeup) ───────────
 //
-// ?via_wakeup=true → server stamps snooze_woken_at = now() so the activity
-// log can distinguish "snooze elapsed" from "agent un-snoozed manually".
+// The server verifies expiry under the row lock; a stale browser wakeup
+// must not clear a snooze that another agent has extended.
 tickets.delete('/:id/snooze', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
   const viaWakeup = c.req.query('via_wakeup') === 'true';
 
-  const [existing] = await sql`
-    select id from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
+  const result = await sql.begin(async sql => {
+    const [existing] = await sql`
+      select id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at,
+        snoozed_until <= clock_timestamp() as expired from tickets
+      where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
+    `;
+    if (!existing)  return c.json({ error: 'Ticket not found' }, 404);
+    const { expired, ...unchanged } = existing;
+    if (!existing.snoozed_until || (viaWakeup && !expired)) return { ticket: unchanged, activity: [] };
 
-  const [updated] = await sql`
-    update tickets set
-      snoozed_until      = null,
-      snoozed_at         = null,
-      snoozed_by_user_id = null,
-      snooze_reason      = null,
-      snooze_woken_at    = ${viaWakeup ? sql`now()` : null}
-    where id = ${ticketId} and workspace_id = ${workspaceId}
-    returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
-  `;
+    const [updated] = await sql`
+      update tickets set
+        snoozed_until      = null,
+        snoozed_at         = null,
+        snoozed_by_user_id = null,
+        snooze_reason      = null,
+        snooze_woken_at    = ${viaWakeup ? sql`now()` : null}
+      where id = ${ticketId} and workspace_id = ${workspaceId}
+      returning id, snoozed_until, snoozed_at, snoozed_by_user_id, snooze_reason, snooze_woken_at, updated_at
+    `;
 
-  return c.json({ ticket: updated });
+    const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: viaWakeup ? null : c.get('userId'),
+      kind: 'snooze', before: snoozeState(existing), after: null, ...(viaWakeup ? { source: 'snooze_expired' as const } : {}) });
+    return { ticket: updated, activity };
+  });
+  return result instanceof Response ? result : c.json(result);
 });
 
 // ─── POST /:id/merge — merge this ticket into another as a duplicate ─────
@@ -1045,60 +1072,66 @@ tickets.post('/:id/merge', async (c) => {
     return c.json({ error: 'Cannot merge a ticket into itself' }, 400);
   }
 
-  // Fetch both tickets in the workspace.
-  const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string | null; merged_into_id: string | null }[]>`
-    select id, display_id, subject, status_key, merged_into_id
-    from tickets
-    where id = any(${[sourceId, primaryId]}) and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  const source = rows.find((r) => r.id === sourceId);
-  const primary = rows.find((r) => r.id === primaryId);
-  if (!source)  return c.json({ error: 'Source ticket not found' }, 404);
-  if (!primary) return c.json({ error: 'Primary ticket not found' }, 404);
-  if (source.merged_into_id) {
-    return c.json({ error: 'Source is already merged' }, 409);
-  }
-  if (primary.merged_into_id) {
-    return c.json({ error: 'Primary is itself a duplicate — pick the chain primary instead' }, 409);
-  }
-
-  // 1. Update source row.
-  const wasResolved = source.status_key === 'resolved';
-  await sql`
-    update tickets set
-      merged_into_id      = ${primaryId},
-      merged_at           = now(),
-      status_before_merge = ${wasResolved ? null : source.status_key},
-      status_key          = 'resolved',
-      resolved_at         = coalesce(resolved_at, now())
-    where id = ${sourceId} and workspace_id = ${workspaceId}
-  `;
-
-  // 2. Copy source messages onto primary, tagged with merged_from_id.
-  const srcMsgs = await sql<{ role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
-    select role, author_user_id, author_label, body, mentions
-    from ticket_messages
-    where ticket_id = ${sourceId} and deleted_at is null
-    order by created_at asc
-  `;
-
-  // Merge marker first so it shows up at the top of the merged block.
-  await sql`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, mentions, merged_from_id)
-    values (${workspaceId}, ${primaryId}, 'system', 'System',
-            ${`── Merged from ${source.display_id}: "${source.subject}" ──`}, ${[]}, ${sourceId})
-  `;
-  for (const m of srcMsgs) {
-    await sql`
-      insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id)
-      values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
-              ${m.body}, ${m.mentions || []}, ${sourceId})
+  return sql.begin(async sql => {
+    // Lock both rows in a stable order, including reverse simultaneous merges.
+    const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string | null; merged_into_id: string | null }[]>`
+      select id, display_id, subject, status_key, merged_into_id
+      from tickets
+      where id = any(${[sourceId, primaryId]}) and workspace_id = ${workspaceId} and deleted_at is null
+      order by id for update
     `;
-  }
+    const source = rows.find((r) => r.id === sourceId);
+    const primary = rows.find((r) => r.id === primaryId);
+    if (!source)  return c.json({ error: 'Source ticket not found' }, 404);
+    if (!primary) return c.json({ error: 'Primary ticket not found' }, 404);
+    if (source.merged_into_id) {
+      return c.json({ error: 'Source is already merged' }, 409);
+    }
+    if (primary.merged_into_id) {
+      return c.json({ error: 'Primary is itself a duplicate — pick the chain primary instead' }, 409);
+    }
 
-  return c.json({
-    source: { id: sourceId, merged_into_display_id: primary.display_id },
-    primary: { id: primaryId, display_id: primary.display_id },
+    // 1. Update source row.
+    const wasResolved = source.status_key === 'resolved';
+    await sql`
+      update tickets set
+        merged_into_id      = ${primaryId},
+        merged_at           = now(),
+        status_before_merge = ${wasResolved ? null : source.status_key},
+        status_key          = 'resolved',
+        resolved_at         = coalesce(resolved_at, now())
+      where id = ${sourceId} and workspace_id = ${workspaceId}
+    `;
+
+    // 2. Copy source messages onto primary, tagged with merged_from_id.
+    const srcMsgs = await sql<{ role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
+      select role, author_user_id, author_label, body, mentions
+      from ticket_messages
+      where ticket_id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
+      order by created_at asc
+    `;
+
+    // Merge marker first so it shows up at the top of the merged block.
+    await sql`
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, mentions, merged_from_id)
+      values (${workspaceId}, ${primaryId}, 'system', 'System',
+              ${`── Merged from ${source.display_id}: "${source.subject}" ──`}, ${[]}, ${sourceId})
+    `;
+    for (const m of srcMsgs) {
+      await sql`
+        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id)
+        values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
+                ${m.body}, ${m.mentions || []}, ${sourceId})
+      `;
+    }
+
+    const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),
+      kind: 'status', before: source.status_key, after: 'resolved', source: 'merge', context: { primary_id: primaryId } });
+    return c.json({
+      activity,
+      source: { id: sourceId, merged_into_display_id: primary.display_id },
+      primary: { id: primaryId, display_id: primary.display_id },
+    });
   });
 });
 
@@ -1114,39 +1147,51 @@ tickets.post('/:id/unmerge', async (c) => {
   const workspaceId = c.get('workspaceId');
   const sourceId = c.req.param('id');
 
-  const [source] = await sql<{ id: string; merged_into_id: string | null; status_before_merge: string | null }[]>`
-    select id, merged_into_id, status_before_merge
-    from tickets
-    where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!source) return c.json({ error: 'Source ticket not found' }, 404);
-  if (!source.merged_into_id) {
-    return c.json({ error: 'Ticket is not merged' }, 409);
-  }
+  return sql.begin(async sql => {
+    // Discover the pair first, then lock in the same order as merge and re-read.
+    const [candidate] = await sql`select merged_into_id from tickets
+      where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null`;
+    if (!candidate) return c.json({ error: 'Source ticket not found' }, 404);
+    await sql`select id from tickets where workspace_id = ${workspaceId}
+      and id = any(${[sourceId, candidate.merged_into_id].filter(Boolean)}) order by id for update`;
+    const [source] = await sql<{ id: string; status_key: string; merged_into_id: string | null; status_before_merge: string | null }[]>`
+      select id, status_key, merged_into_id, status_before_merge
+      from tickets
+      where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
+    `;
+    if (!source) return c.json({ error: 'Source ticket not found' }, 404);
+    if (!source.merged_into_id) {
+      return c.json({ error: 'Ticket is not merged' }, 409);
+    }
+    if (source.merged_into_id !== candidate.merged_into_id) return c.json({ error: 'The merge changed. Refresh and try again.' }, 409);
 
-  // 1. Strip merged messages from the primary.
-  await sql`
-    delete from ticket_messages
-    where workspace_id = ${workspaceId} and ticket_id = ${source.merged_into_id} and merged_from_id = ${sourceId}
-  `;
+    // 1. Strip merged messages from the primary.
+    await sql`
+      delete from ticket_messages
+      where workspace_id = ${workspaceId} and ticket_id = ${source.merged_into_id} and merged_from_id = ${sourceId}
+    `;
 
-  // 2. Restore source row. restoredStatus is never 'resolved' (merge nulls
-  // status_before_merge for already-resolved sources), so the merge-time
-  // resolved_at stamp is always cleared with it.
-  const restoredStatus = source.status_before_merge || 'open';
-  await sql`
-    update tickets set
-      merged_into_id      = null,
-      merged_at           = null,
-      status_before_merge = null,
-      status_key          = ${restoredStatus},
-      resolved_at         = null
-    where id = ${sourceId} and workspace_id = ${workspaceId}
-  `;
+    // 2. Restore source row. restoredStatus is never 'resolved' (merge nulls
+    // status_before_merge for already-resolved sources), so the merge-time
+    // resolved_at stamp is always cleared with it.
+    const restoredStatus = source.status_before_merge || 'open';
+    await sql`
+      update tickets set
+        merged_into_id      = null,
+        merged_at           = null,
+        status_before_merge = null,
+        status_key          = ${restoredStatus},
+        resolved_at         = null
+      where id = ${sourceId} and workspace_id = ${workspaceId}
+    `;
 
-  return c.json({
-    source: { id: sourceId, status_key: restoredStatus },
-    primary: { id: source.merged_into_id },
+    const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),
+      kind: 'status', before: source.status_key, after: restoredStatus, source: 'unmerge', context: { primary_id: source.merged_into_id } });
+    return c.json({
+      activity,
+      source: { id: sourceId, status_key: restoredStatus },
+      primary: { id: source.merged_into_id },
+    });
   });
 });
 
@@ -1331,22 +1376,17 @@ tickets.delete('/:id/time/:entryId', async (c) => {
 // flat, no ticket update). Otherwise { matched: true, rule, ticket }
 // reflecting the post-engine state.
 tickets.post('/:id/apply-rules', async (c) => {
-  const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const ticketId = c.req.param('id');
 
-  const result = await applyAssignmentRules({ workspaceId, ticketId });
+  const result = await applyAssignmentRules({ workspaceId, ticketId, actorId: c.get('userId') });
   if (!result) return c.json({ matched: false });
-
-  const [ticket] = await sql`
-    select id, display_id, assigned_user_id, status_key, priority_key, category_key
-    from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
-  `;
 
   return c.json({
     matched:  true,
     rule:     { id: result.rule_id, name: result.rule_name },
-    ticket,
+    ticket: result.ticket,
+    activity: result.activity,
   });
 });
 

@@ -852,13 +852,14 @@ export async function changeTicketStatus(id, val) {
   if (t._uuid) {
     try {
       const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_key: val });
+      applySavedActivity(t, res);
       t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
       if (res.survey) notifySurveyResult(res.survey);
     }
     catch (err) { alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
-  logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
+  if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
   t.status = val;
   t.closureReason = null; t.closureNote = null; t.closedAt = null; t.closedByUserId = null;
   refreshTicketSLA(t);

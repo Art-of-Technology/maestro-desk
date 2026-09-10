@@ -7,7 +7,7 @@ import { registerActions, registerChangeActions } from './event-delegation.js';
 
 let feed;
 let filters = { kind: 'all', entity: 'all', q: '' };
-const kinds = { all: 'All types', agent: 'Assignment', priority: 'Priority', tag: 'Tag', created: 'Created', note: 'Note' };
+const kinds = { all: 'All types', status: 'Status', snooze: 'Snooze', agent: 'Assignment', priority: 'Priority', tag: 'Tag', created: 'Created', note: 'Note' };
 function context() { return JSON.stringify([getWorkspaceId(), getJwt(), SESSION]); }
 function state() {
   const key = context();

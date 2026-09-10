@@ -26,11 +26,22 @@ import { CURRENT_PAGE, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS } from '../c
 import { renderPage } from '../core/router.js';
 import { refreshNotifBadge } from '../notifications/index.js';
 import { logTicketEvent } from '../core/activity-log.js';
+import { applySavedActivity } from '../core/ticket-history.js';
 import { openTicket } from './detail.js';
 import { refreshTicketSLA } from './sla.js';
 import { apiPost, apiDelete } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { showModal, closeModal } from '../core/modal.js';
+
+function applySnoozeResponse(t, response) {
+  const saved = response.ticket;
+  t.snoozedUntil = saved.snoozed_until;
+  t.snoozedAt = saved.snoozed_at;
+  t.snoozedBy = saved.snoozed_by_user_id;
+  t.snoozeReason = saved.snooze_reason;
+  t.snoozeWokenAt = saved.snooze_woken_at;
+  applySavedActivity(t, response);
+}
 
 async function snoozeTicket(id, untilIso, reason) {
   const t = TICKETS.find(x => x.id === id);
@@ -41,16 +52,17 @@ async function snoozeTicket(id, untilIso, reason) {
     return;
   }
   if (t._uuid) {
-    try { await apiPost(`/api/v1/tickets/${t._uuid}/snooze`, { until: until.toISOString(), reason: reason || null }); }
+    try { applySnoozeResponse(t, await apiPost(`/api/v1/tickets/${t._uuid}/snooze`, { until: until.toISOString(), reason: reason || null })); }
     catch (err) { alert(`Couldn't snooze: ${err?.message || err}`); return; }
+  } else {
+    t.snoozedUntil = until.toISOString();
+    t.snoozedAt = new Date().toISOString();
+    t.snoozedBy = SESSION?.name || 'Agent';
+    t.snoozeReason = reason || null;
+    delete t.snoozeWokenAt;
+    logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
   }
-  t.snoozedUntil = until.toISOString();
-  t.snoozedAt = new Date().toISOString();
-  t.snoozedBy = SESSION?.name || 'Agent';
-  t.snoozeReason = reason || null;
-  delete t.snoozeWokenAt;
   refreshTicketSLA(t);
-  logTicketEvent(id, 'system', `Snoozed until ${formatSnoozeUntil(t.snoozedUntil)}${reason ? ' · ' + reason : ''}`);
   if (CURRENT_TICKET === id) openTicket(id);
   else renderPage(CURRENT_PAGE || 'tickets');
   refreshNotifBadge();
@@ -60,22 +72,24 @@ export async function unsnoozeTicket(id, viaWakeup) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || !t.snoozedUntil) return;
   if (t._uuid) {
-    try { await apiDelete(`/api/v1/tickets/${t._uuid}/snooze?via_wakeup=${viaWakeup ? 'true' : 'false'}`); }
+    try { applySnoozeResponse(t, await apiDelete(`/api/v1/tickets/${t._uuid}/snooze?via_wakeup=${viaWakeup ? 'true' : 'false'}`)); }
     catch (err) {
       // Auto-wake (viaWakeup=true) shouldn't bother the user with an alert
       // — the next poll will retry. Manual unsnooze gets the alert.
       if (!viaWakeup) alert(`Couldn't clear snooze: ${err?.message || err}`);
       return;
     }
+  } else {
+    delete t.snoozedUntil;
+    delete t.snoozedAt;
+    delete t.snoozedBy;
+    delete t.snoozeReason;
+    if (viaWakeup) t.snoozeWokenAt = new Date().toISOString();
+    logTicketEvent(id, 'system', viaWakeup ? 'Snooze elapsed — ticket woke up' : 'Snooze cleared by agent');
   }
-  delete t.snoozedUntil;
-  delete t.snoozedAt;
-  delete t.snoozedBy;
-  delete t.snoozeReason;
-  if (viaWakeup) t.snoozeWokenAt = new Date().toISOString();
   refreshTicketSLA(t);
-  logTicketEvent(id, 'system', viaWakeup ? 'Snooze elapsed — ticket woke up' : 'Snooze cleared by agent');
   if (CURRENT_TICKET === id) openTicket(id);
+  else if (CURRENT_PAGE === 'tickets') renderPage('tickets');
   refreshNotifBadge();
 }
 

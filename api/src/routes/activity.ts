@@ -6,7 +6,7 @@ import { getDb } from '../lib/db.js';
 export const activity = new Hono();
 activity.use('*', requireAuth);
 const Query = z.object({
-  kind: z.enum(['all', 'status', 'priority', 'agent', 'tag', 'note', 'created', 'system']).default('all'),
+  kind: z.enum(['all', 'status', 'snooze', 'priority', 'agent', 'tag', 'note', 'created', 'system']).default('all'),
   entity: z.enum(['all', 'ticket', 'customer']).default('all'),
   q: z.string().max(200).default(''),
   ticket: z.string().uuid().optional(),

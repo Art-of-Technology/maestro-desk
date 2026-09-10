@@ -1,4 +1,5 @@
 import type { TransactionSql } from 'postgres';
+import { recordTicketActivity } from './ticket-activity.js';
 
 // Lock the ticket so simultaneous replies archive each closure once. The note
 // and state change commit together: a failed archive must not erase history.
@@ -22,4 +23,6 @@ export async function reopenOnCustomerReply(sql: TransactionSql, workspaceId: st
   await sql`update tickets set status_key = 'open', resolved_at = null,
     closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null`;
+  await recordTicketActivity(sql, { workspaceId, ticketId, actorId: null, kind: 'status',
+    before: ticket.status_key, after: 'open', source: 'customer_reply' });
 }
