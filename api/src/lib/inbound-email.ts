@@ -484,13 +484,10 @@ async function attachReplyToTicket(args: {
     console.warn('[inbound-email] player-link sender check failed on thread-attach:', err instanceof Error ? err.message : err);
   }
 
-  // Customer reply un-resolves the ticket so agents see it back in the open
-  // queue — the same rule the portal reply path (routes/public.ts) applies,
-  // which was always documented as mirroring this path. Clearing resolved_at
-  // with it matters now that the column is real: a reopened ticket has no
-  // resolution time (SLA breach report) and must not look purge-eligible to
-  // the data-retention cron. Guarded on 'resolved' so other statuses are
-  // untouched.
+  // A customer reply returns pending/resolved tickets to the open queue,
+  // matching the portal reply path. Clear the resolution timestamp when
+  // reopening so reports and retention do not treat the ticket as resolved.
+  // Preserve escalated, GDPR and closed statuses.
   // Unlike channel defaults, the reply address follows each accepted inbound
   // message from one of this customer's own addresses. Do not persist a third
   // party's address on their ticket (that party's erasure cannot reach it).
@@ -510,8 +507,8 @@ async function attachReplyToTicket(args: {
             ))
           )
       ) then ${email} else null end,
-      resolved_at = case when status_key = 'resolved' then null else resolved_at end,
-      status_key = case when status_key = 'resolved' then 'open' else status_key end
+      resolved_at = case when status_key in ('pending', 'resolved') then null else resolved_at end,
+      status_key = case when status_key in ('pending', 'resolved') then 'open' else status_key end
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
   `;
 

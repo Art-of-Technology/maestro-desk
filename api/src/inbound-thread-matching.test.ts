@@ -115,6 +115,31 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     expect(t.resolved_at).toBeNull();
   });
 
+  it('reopens pending email threads once and preserves other workflow statuses and priority', async () => {
+    for (const status of ['pending', 'open', 'escalated', 'gdpr']) {
+      await sql`update tickets set status_key = ${status}, priority_key = 'high' where id = ${ctx.realTicket}`;
+      const payload = inbound({ from: ctx.realCustomerEmail, subject: 'Re: Original subject', text: 'Follow-up',
+        messageId: `<status-${status}-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID });
+      const result = await processInboundEmail({ workspaceId: ctx.bucket, payload });
+      expect(result.threaded).toBe(true);
+      const [ticket] = await sql`select status_key, priority_key, resolved_at from tickets where id = ${ctx.realTicket}`;
+      expect(ticket.status_key).toBe(status === 'pending' ? 'open' : status);
+      expect(ticket.priority_key).toBe('high');
+      if (status === 'pending') {
+        expect(ticket.resolved_at).toBeNull();
+        // An agent can put the ticket back on hold; retrying the same webhook
+        // must not reopen it again or append a second customer message.
+        await sql`update tickets set status_key = 'pending' where id = ${ctx.realTicket}`;
+        expect((await processInboundEmail({ workspaceId: ctx.bucket, payload })).deduped).toBe(true);
+        const [after] = await sql`select status_key from tickets where id = ${ctx.realTicket}`;
+        expect(after.status_key).toBe('pending');
+        const [{ count }] = await sql`select count(*)::int as count from ticket_messages
+          where ticket_id = ${ctx.realTicket} and external_message_id = ${`<status-${status}-${RUN}@cust.test>`}`;
+        expect(count).toBe(1);
+      }
+    }
+  });
+
   it('preserves a reply to a closed ticket without reopening it', async () => {
     await sql`update tickets set status_key = 'closed', closure_reason = 'spam', closed_at = now() where id = ${ctx.realTicket}`;
     const res = await processInboundEmail({

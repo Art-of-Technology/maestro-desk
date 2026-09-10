@@ -253,6 +253,32 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(postmarkCalls).toBe(0);
   });
 
+  it('portal customer replies reopen pending/resolved tickets and preserve other statuses and assignment', async () => {
+    const display = `AR-${RUN}-portal-status`;
+    const tid = await seedTicket(display, { email: `portal-status-${RUN}@acme.test` });
+    const [ticket] = await sql`select customer_id from tickets where id = ${tid}`;
+    const portal = await import('./lib/portal-auth.js');
+    const { token } = await portal.createMagicLink({ workspaceId: ctx.wsId, customerId: ticket.customer_id });
+    const session = await portal.verifyMagicLink({ workspaceId: ctx.wsId, token });
+    if (!session) throw new Error('Portal session fixture failed');
+    const headers = { Authorization: `Bearer ${session.sessionToken}`, 'Content-Type': 'application/json' };
+    for (const status of ['pending', 'resolved', 'open', 'escalated', 'gdpr', 'closed']) {
+      await sql`update tickets set status_key = ${status}, priority_key = 'high', assigned_user_id = ${admin.userId},
+        closure_reason = case when ${status} = 'closed' then 'duplicate' else null end,
+        closed_at = case when ${status} = 'closed' then now() else null end,
+        resolved_at = case when ${status} = 'resolved' then now() else null end where id = ${tid}`;
+      const res = await app.request(`/api/v1/public/ar-${RUN}/customer/tickets/${display}/messages`,
+        { method: 'POST', headers, body: JSON.stringify({ body: `Follow-up for ${status}` }) });
+      expect(res.status).toBe(201);
+      const [after] = await sql`select status_key, resolved_at, priority_key, assigned_user_id from tickets where id = ${tid}`;
+      expect(after.status_key).toBe(['pending', 'resolved'].includes(status) ? 'open' : status);
+      expect(after.resolved_at).toBeNull();
+      expect(after.priority_key).toBe('high');
+      expect(after.assigned_user_id).toBe(admin.userId);
+    }
+    expect(postmarkCalls).toBe(0);
+  });
+
   it('closes without email, records the agent and reason, and blocks every survey path', async () => {
     const tid = await seedTicket(`AR-${RUN}-close`, { email: `close-${RUN}@acme.test` });
     await sql`update tickets set snoozed_until = now() + interval '1 day', sla_state = 'breach' where id = ${tid}`;
