@@ -104,7 +104,7 @@ export function disposeComposer(id) { EDITORS.delete(id); }
 function quillFor(id) {
   const q = EDITORS.get(id);
   // A stale instance from a previous render of the same ticket.
-  if (q && !isRichHost(el(id))) { EDITORS.delete(id); return null; }
+  if (q && (!isRichHost(el(id)) || q.container !== el(id))) { EDITORS.delete(id); return null; }
   return q || null;
 }
 
@@ -161,6 +161,16 @@ export function appendText(id, text) {
   const node = el(id);
   if (!node) return;
   node.value = node.value ? `${node.value}\n\n${text}` : text;
+  focusEnd(id);
+}
+
+/** Append sanitized template HTML without replacing the current draft. */
+export function appendHtml(id, html, plain) {
+  const q = quillFor(id);
+  if (!q || !html) { appendText(id, plain); return; }
+  let at = Math.max(q.getLength() - 1, 0);
+  if (at) { q.insertText(at, '\n\n', 'user'); at += 2; }
+  q.clipboard.dangerouslyPasteHTML(at, html, 'user');
   focusEnd(id);
 }
 

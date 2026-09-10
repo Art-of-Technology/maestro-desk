@@ -13,8 +13,9 @@ import { CANNED_RESPONSES } from '../core/data.js';
 import { TPL_FILTER_CAT, TPL_QUERY, setTplFilterCat, setTplQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
-import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
+import { mountComposer, disposeComposer, getHtml, getPlainText, setText, insertAtCursor } from './composer.js';
 
 export function renderTemplates() {
   const admin = window.isAdmin();
@@ -58,10 +59,10 @@ export function renderTemplates() {
       </div>
       <div class="filter-bar">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${TPL_QUERY}" data-input-action="templates.setQuery" id="tpl-search"/>
+        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${window.escAttr(TPL_QUERY)}" data-input-action="templates.setQuery" id="tpl-search"/>
         <select class="filter-select" data-change-action="templates.setFilterCat">
           <option value="all" ${TPL_FILTER_CAT==='all'?'selected':''}>All categories</option>
-          ${cats.map(c => `<option value="${c}" ${TPL_FILTER_CAT===c?'selected':''}>${c}</option>`).join('')}
+          ${cats.map(c => `<option value="${window.escAttr(c)}" ${TPL_FILTER_CAT===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
         </select>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
@@ -88,18 +89,22 @@ function tplSetQuery(q) {
 
 function tplFormBody(t) {
   const cats = [...new Set(CANNED_RESPONSES.map(x => x.category || 'General'))];
-  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const esc = s => window.escAttr(s || '');
   return `
     <div class="form-grid">
-      <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="tpl-name" value="${esc(t?.name)}" placeholder="e.g. Outage acknowledgement"/></div>
-      <div class="form-row"><label class="form-label">Category</label>
+      <div class="form-row"><label class="form-label" for="tpl-name">Name</label><input class="form-input" id="tpl-name" value="${esc(t?.name)}" placeholder="e.g. Outage acknowledgement"/></div>
+      <div class="form-row"><label class="form-label" for="tpl-cat">Category</label>
         <input class="form-input" id="tpl-cat" list="tpl-cat-list" value="${esc(t?.category)}" placeholder="General"/>
         <datalist id="tpl-cat-list">${cats.map(c => `<option value="${window.escHtml(c)}">`).join('')}</datalist>
       </div>
     </div>
     <div class="form-row">
       <label class="form-label">Body</label>
-      <textarea class="form-input" id="tpl-text" style="min-height:160px;font-family:'Inter',sans-serif" placeholder="Write the template body. Use {name}, {ticket}, {brand}, {agent} for variables.">${window.escHtml(t?.text || '')}</textarea>
+      <div id="compose-template-editor" data-rich="1" style="min-height:160px"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px" aria-label="Insert a variable">
+        ${['name', 'ticket', 'brand', 'agent'].map(key => `<button type="button" class="btn btn-sm" data-action="templates.variable" data-variable="${key}">{${key}}</button>`).join('')}
+      </div>
+      <div id="tpl-editor-status" role="status" style="font-size:12px;margin-top:8px">Loading editor…</div>
     </div>`;
 }
 
@@ -109,7 +114,7 @@ function tplNextId() {
 }
 
 function tplApiBacked() {
-  return CANNED_RESPONSES.some((t) => t._uuid);
+  return !!getJwt();
 }
 
 function tplMapResponse(r) {
@@ -119,43 +124,87 @@ function tplMapResponse(r) {
     name:     r.name,
     category: r.category || '',
     text:     r.body || '',
+    html:     r.body_html || null,
   };
 }
 
 function tplNew() {
-  if (!window.isAdmin()) return;
-  showModal('New template', tplFormBody(null), async () => {
-    const name = document.getElementById('tpl-name').value.trim();
-    const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
-    const text = document.getElementById('tpl-text').value;
-    if (!name || !text.trim()) return;
-    if (tplApiBacked()) {
-      let resp;
-      try { resp = await apiPost('/api/v1/canned-responses', { name, category: cat, body: text }); }
-      catch (err) { alert(`Couldn't create: ${err?.message || err}`); return; }
-      CANNED_RESPONSES.unshift(tplMapResponse(resp.canned_response));
-    } else {
-      CANNED_RESPONSES.unshift({ id: tplNextId(), name, category:cat, text });
-    }
-    closeModal(); renderPage('templates');
-  }, 'Create');
+  tplOpen(null);
 }
 
 function tplEdit(id) {
-  if (!window.isAdmin()) return;
   const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
-  showModal(`Edit ${t.id}`, tplFormBody(t), async () => {
+  tplOpen(t);
+}
+
+function tplOpen(t) {
+  if (!window.isAdmin()) return;
+  const editorId = 'template-editor';
+  const workspace = getWorkspaceId();
+  const jwt = getJwt();
+  let ready = false;
+  let saving = false;
+  disposeComposer(editorId);
+  showModal(t ? `Edit ${t.id}` : 'New template', tplFormBody(t), async () => {
+    if (!ready || saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const name = document.getElementById('tpl-name').value.trim();
     const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
-    const text = document.getElementById('tpl-text').value;
-    if (!name || !text.trim()) return;
-    if (t._uuid) {
-      try { await apiPatch(`/api/v1/canned-responses/${t._uuid}`, { name, category: cat, body: text }); }
-      catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+    const text = getPlainText(editorId);
+    const html = getHtml(editorId);
+    if (!name || (!text.trim() && !html)) {
+      status.textContent = 'Enter a name and a template body.';
+      return;
     }
-    t.name = name; t.category = cat; t.text = text;
-    closeModal(); renderPage('templates');
-  }, 'Save');
+    saving = true;
+    button.disabled = true;
+    try {
+      let saved;
+      if (tplApiBacked()) {
+        const body = { name, category: cat, body: text, body_html: html };
+        const response = t?._uuid
+          ? await apiPatch(`/api/v1/canned-responses/${t._uuid}`, body)
+          : await apiPost('/api/v1/canned-responses', body);
+        saved = tplMapResponse(response.canned_response);
+      } else saved = { id: t?.id || tplNextId(), name, category: cat, text, html };
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      if (t) Object.assign(t, saved); else CANNED_RESPONSES.unshift(saved);
+      if (document.getElementById('tpl-name') === nameInput) {
+        disposeComposer(editorId);
+        closeModal(); renderPage('templates');
+      }
+    } catch (err) {
+      if (status.isConnected) status.textContent = `Couldn't save: ${err?.message || err}`;
+    } finally {
+      saving = false;
+      if (button.isConnected) button.disabled = false;
+    }
+  }, t ? 'Save' : 'Create', true);
+  const nameInput = document.getElementById('tpl-name');
+  const host = document.getElementById('compose-' + editorId);
+  const status = document.getElementById('tpl-editor-status');
+  const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  button.disabled = true;
+  mountComposer(editorId, { initialHtml: t?.html, placeholder: 'Write a response…' }).catch(() => null).then(q => {
+    if (document.getElementById('tpl-name') !== nameInput) return;
+    if (q) {
+      q.root.setAttribute('role', 'textbox');
+      q.root.setAttribute('aria-label', 'Template body');
+      q.root.setAttribute('aria-multiline', 'true');
+      if (!t?.html) setText(editorId, t?.text || '');
+      status.textContent = 'Variables fill in when you insert the response into a ticket.';
+    } else {
+      const fallback = document.createElement('textarea');
+      fallback.id = host.id;
+      fallback.className = 'form-input';
+      fallback.style.minHeight = '160px';
+      fallback.value = t?.text || '';
+      fallback.setAttribute('aria-label', 'Template body');
+      host.replaceWith(fallback);
+      status.textContent = 'Rich editor unavailable. Saving will use plain text.';
+    }
+    ready = true;
+    button.disabled = false;
+  });
 }
 
 function tplDuplicate(id) {
@@ -164,11 +213,11 @@ function tplDuplicate(id) {
   (async () => {
     if (orig._uuid) {
       let resp;
-      try { resp = await apiPost('/api/v1/canned-responses', { name: orig.name + ' (copy)', category: orig.category, body: orig.text }); }
+      try { resp = await apiPost('/api/v1/canned-responses', { name: orig.name + ' (copy)', category: orig.category, body: orig.text, body_html: orig.html || null }); }
       catch (err) { alert(`Couldn't duplicate: ${err?.message || err}`); return; }
       CANNED_RESPONSES.unshift(tplMapResponse(resp.canned_response));
     } else {
-      CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text });
+      CANNED_RESPONSES.unshift({ id:tplNextId(), name:orig.name + ' (copy)', category:orig.category, text:orig.text, html:orig.html || null });
     }
     renderPage('templates');
   })();
@@ -189,6 +238,9 @@ function tplDelete(id) {
 }
 
 registerActions({
+  'templates.variable': (ds) => {
+    if (['name', 'ticket', 'brand', 'agent'].includes(ds.variable)) insertAtCursor('template-editor', `{${ds.variable}}`);
+  },
   'templates.new':       () => tplNew(),
   'templates.edit':      (ds) => tplEdit(ds.tplId),
   'templates.duplicate': (ds) => tplDuplicate(ds.tplId),

@@ -450,6 +450,7 @@ export async function loadWorkspaceData() {
     name:     r.name,
     category: r.category || '',
     text:     r.body || '',
+    html:     r.body_html || null,
   }));
   replaceInPlace(CANNED_RESPONSES, mappedCanned);
 
