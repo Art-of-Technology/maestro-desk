@@ -548,11 +548,11 @@ publicRoutes.post('/:slug/customer/tickets/:displayId/messages', async (c) => {
     returning id, role, author_label, body, created_at
   `;
 
-  // Customer reply un-resolves the ticket so agents see it back in the
-  // open queue. Mirrors the normal inbound-email behaviour.
-  if (ticket.status_key === 'resolved') {
-    await sql`update tickets set status_key = 'open', resolved_at = null where id = ${ticket.id} and workspace_id = ${ws.id} and status_key = 'resolved'`;
-  }
+  // Check the current status in SQL so a concurrent agent status change is
+  // respected. Mirrors inbound email: only pending/resolved tickets reopen.
+  await sql`update tickets set status_key = 'open', resolved_at = null
+    where id = ${ticket.id} and workspace_id = ${ws.id} and deleted_at is null
+      and status_key in ('pending', 'resolved')`;
 
   return c.json({ message }, 201);
 });
