@@ -4,8 +4,9 @@ export async function saveBulkChanges({ tickets, save, validate, isCurrent, onSa
   const result = { saved: [], failed: [], cancelled: false };
   for (const ticket of tickets) {
     if (!isCurrent()) { result.cancelled = true; break; }
+    let response;
     try {
-      const response = await save(ticket);
+      response = await save(ticket);
       if (!validate(response, ticket)) throw new Error('The server did not confirm this change. Please retry.');
     } catch (error) {
       if (!isCurrent()) { result.cancelled = true; break; }
@@ -13,7 +14,7 @@ export async function saveBulkChanges({ tickets, save, validate, isCurrent, onSa
       continue;
     }
     if (!isCurrent()) { result.cancelled = true; break; }
-    onSaved(ticket);
+    onSaved(ticket, response);
     result.saved.push(ticket);
   }
   return result;

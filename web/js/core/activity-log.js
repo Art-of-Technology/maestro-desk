@@ -1,3 +1,5 @@
+import { renderSavedActivity } from './activity-feed.js';
+import { getJwt, getWorkspaceId } from './api-client.js';
 // ─── Activity log primitives ─────────────────────────────────────────────────
 // Every ticket-mutating module (time-tracking, snooze, linked, AI summarize,
 // composer reply, status/priority/agent/tag changes, …) writes to the log
@@ -124,6 +126,7 @@ function actGotoEntity(entity, id) {
 }
 
 export function renderActivityLog() {
+  if (getJwt() && getWorkspaceId()) return renderSavedActivity();
   const all = getAllActivity();
   let list = [...all];
   if (ACT_FILTER_TYPE   !== 'all') list = list.filter(e => e.kind   === ACT_FILTER_TYPE);
@@ -164,7 +167,7 @@ export function renderActivityLog() {
       </div>
       <div class="filter-bar" style="flex-wrap:wrap">
         <span class="filter-label">Filter</span>
-        <input class="filter-select" id="act-search" placeholder="Search events…" style="width:240px" value="${ACT_QUERY}" data-input-action="activity.setQuery"/>
+        <input class="filter-select" id="act-search" placeholder="Search events…" style="width:240px" value="${window.escAttr(ACT_QUERY)}" data-input-action="activity.setQuery"/>
         <select class="filter-select" data-change-action="activity.setFilterEntity">
           <option value="all"      ${ACT_FILTER_ENTITY==='all'?'selected':''}>All entities</option>
           <option value="ticket"   ${ACT_FILTER_ENTITY==='ticket'?'selected':''}>Tickets</option>

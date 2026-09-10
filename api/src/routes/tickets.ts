@@ -1,3 +1,4 @@
+import { recordTicketActivity } from '../lib/ticket-activity.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -243,7 +244,7 @@ tickets.get('/:id', async (c) => {
   `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg] = await Promise.all([
+  const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity] = await Promise.all([
     sql<{ id: string; body_html: string | null }[]>`
         select id, role, author_user_id, author_label, body, body_html, mentions, merged_from_id, sentiment, created_at
         from ticket_messages where ticket_id = ${ticketId} and deleted_at is null order by created_at asc`,
@@ -259,6 +260,9 @@ tickets.get('/:id', async (c) => {
     // Attachments per message with presigned URLs; body_html's cid: tokens are
     // swapped for the inline images' URLs in decorateMessages.
     loadAttachmentsForTicket(workspaceId, ticketId),
+    sql`select id, kind, author_user_id, author_label, details, created_at from events
+      where workspace_id = ${workspaceId} and entity_type = 'ticket' and entity_id = ${ticketId}
+      order by created_at desc, id desc limit 100`,
   ]);
 
   return c.json({
@@ -269,6 +273,7 @@ tickets.get('/:id', async (c) => {
       messages:     decorateMessages(msgs, attachmentsByMsg),
       tags:         tags.map((r: any) => r.tag),
       ai_tags:      aiTags,
+      activity,
       time_entries: time.map((te: any) => ({
         id: te.id, user_id: te.user_id, user_name: te.user_name || null,
         minutes: te.minutes, note: te.note, billable: te.billable, created_at: te.created_at,
@@ -365,56 +370,70 @@ tickets.patch('/:id', async (c) => {
     return c.json({ error: 'No fields to update' }, 400);
   }
 
-  // Workspace-scope check before the update; also captures the pre-update
-  // column values used below for change-detection (Slack / webhook events).
-  const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null }[]>`
-    select status_key, priority_key, category_key from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!existing) return c.json({ error: 'Ticket not found' }, 404);
-
-  if (updates.status_key === 'closed') return c.json({ error: 'Use Close without resolution and choose a reason.' }, 400);
-  if (existing.status_key === 'closed' && updates.status_key && !['closed', 'open'].includes(updates.status_key)) {
-    return c.json({ error: 'Reopen the ticket before changing its status.' }, 409);
-  }
-
-  // Reject assigning an unknown/disabled category (null clears; non-null must
-  // match an active row). Skipped when unchanged.
-  if (updates.category_key != null && updates.category_key !== existing.category_key) {
-    const [cat] = await sql`
-      select key from ticket_categories
-      where workspace_id = ${workspaceId} and key = ${updates.category_key} and is_active = true
+  const result = await sql.begin(async (sql) => {
+    // Workspace-scope check before the update; also captures the pre-update
+    // column values used below for change-detection (Slack / webhook events).
+    const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
+      select status_key, priority_key, category_key, assigned_user_id from tickets
+      where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
     `;
-    if (!cat) return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
-  }
+    if (!existing) return c.json({ error: 'Ticket not found' }, 404);
 
-  // Reject assigning the ticket to a user who isn't an active member of this
-  // workspace (advisory #9). null clears the assignment and needs no check;
-  // mirrors the customer_id membership check on create.
-  if (updates.assigned_user_id != null) {
-    const [member] = await sql`
-      select 1 from workspace_members
-      where user_id = ${updates.assigned_user_id} and workspace_id = ${workspaceId} and active = true
-    `;
-    if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
-  }
+    if (updates.status_key === 'closed') return c.json({ error: 'Use Close without resolution and choose a reason.' }, 400);
+    if (existing.status_key === 'closed' && updates.status_key && !['closed', 'open'].includes(updates.status_key)) {
+      return c.json({ error: 'Reopen the ticket before changing its status.' }, 409);
+    }
 
-  // resolved_at follows the status transitions: stamped on entry into
-  // 'resolved', cleared on the way out. The column powers the SLA breach
-  // report and the data-retention purge — before this it was never written
-  // (only the demo seed set it), so both features silently no-oped on live
-  // data. Kept idempotent: re-PATCHing 'resolved' on an already-resolved
-  // ticket is not a transition and leaves the original timestamp. Uses the
-  // DB clock (now()) like the merge path, not app-server time.
-  const statusTransition = updates.status_key !== undefined && updates.status_key !== existing.status_key;
-  const resolvedAtSet = !statusTransition ? sql`` :
-    updates.status_key === 'resolved' ? sql`, resolved_at = now()` :
-    existing.status_key === 'resolved' ? sql`, resolved_at = null` : sql``;
-  const reopenSet = statusTransition && existing.status_key === 'closed'
-    ? sql`, closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null` : sql``;
-  const [saved] = await sql`update tickets set ${sql(updates)}${resolvedAtSet}${reopenSet}
-    where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id`;
-  if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
+    // Reject assigning an unknown/disabled category (null clears; non-null must
+    // match an active row). Skipped when unchanged.
+    if (updates.category_key != null && updates.category_key !== existing.category_key) {
+      const [cat] = await sql`
+        select key from ticket_categories
+        where workspace_id = ${workspaceId} and key = ${updates.category_key} and is_active = true
+      `;
+      if (!cat) return c.json({ error: `Unknown or inactive category: ${updates.category_key}` }, 400);
+    }
+
+    // Reject assigning the ticket to a user who isn't an active member of this
+    // workspace (advisory #9). null clears the assignment and needs no check;
+    // mirrors the customer_id membership check on create.
+    if (updates.assigned_user_id != null) {
+      const [member] = await sql`
+        select 1 from workspace_members
+        where user_id = ${updates.assigned_user_id} and workspace_id = ${workspaceId} and active = true
+      `;
+      if (!member) return c.json({ error: 'Assignee is not an active member of this workspace' }, 400);
+    }
+
+    // resolved_at follows the status transitions: stamped on entry into
+    // 'resolved', cleared on the way out. The column powers the SLA breach
+    // report and the data-retention purge — before this it was never written
+    // (only the demo seed set it), so both features silently no-oped on live
+    // data. Kept idempotent: re-PATCHing 'resolved' on an already-resolved
+    // ticket is not a transition and leaves the original timestamp. Uses the
+    // DB clock (now()) like the merge path, not app-server time.
+    const statusTransition = updates.status_key !== undefined && updates.status_key !== existing.status_key;
+    const resolvedAtSet = !statusTransition ? sql`` :
+      updates.status_key === 'resolved' ? sql`, resolved_at = now()` :
+      existing.status_key === 'resolved' ? sql`, resolved_at = null` : sql``;
+    const reopenSet = statusTransition && existing.status_key === 'closed'
+      ? sql`, closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null` : sql``;
+    const [saved] = await sql`update tickets set ${sql(updates)}${resolvedAtSet}${reopenSet}
+      where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
+        csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at`;
+    if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
+
+    const activity = [];
+    if (updates.priority_key !== undefined) activity.push(...await recordTicketActivity(sql, {
+      workspaceId, ticketId, actorId: c.get('userId'), kind: 'priority', before: existing.priority_key, after: updates.priority_key,
+    }));
+    if (updates.assigned_user_id !== undefined) activity.push(...await recordTicketActivity(sql, {
+      workspaceId, ticketId, actorId: c.get('userId'), kind: 'agent', before: existing.assigned_user_id, after: updates.assigned_user_id,
+    }));
+    return { existing, updated: saved, activity };
+  });
+  if (result instanceof Response) return result;
+  const { existing, updated, activity } = result;
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
@@ -441,12 +460,15 @@ tickets.patch('/:id', async (c) => {
     catch (err) { console.warn('[outgoing-webhooks] urgent failed:', err); }
   }
 
-  const [updated] = await sql`
-    select id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
-           csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at
-    from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
-  `;
-  return c.json({ ticket: updated, survey });
+  // Survey delivery runs after commit and stamps these fields separately.
+  // Return its final timestamps without replacing the confirmed edit values
+  // with a subsequent concurrent agent's assignment or priority.
+  if (survey) {
+    const [delivery] = await sql`select csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at
+      from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+    if (delivery) Object.assign(updated, delivery);
+  }
+  return c.json({ ticket: updated, survey, activity });
 });
 
 function publicSurveyResult(result: CsatSurveyResult) {
@@ -813,19 +835,16 @@ tickets.post('/:id/tags', async (c) => {
   const tag = normaliseTag(parsed.data.tag);
   if (!tag) return c.json({ error: 'Tag is empty after normalisation' }, 400);
 
-  // Confirm ticket exists in this workspace.
-  const [ticket] = await sql`
-    select id from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
-
-  // Idempotent — ON CONFLICT does nothing because (ticket_id, tag) is the PK.
-  await sql`
-    insert into ticket_tags (workspace_id, ticket_id, tag)
-    values (${workspaceId}, ${ticketId}, ${tag})
-    on conflict (ticket_id, tag) do nothing
-  `;
+  const result = await sql.begin(async sql => {
+    const [ticket] = await sql`select id from tickets where id = ${ticketId}
+      and workspace_id = ${workspaceId} and deleted_at is null for update`;
+    if (!ticket) return null;
+    const [added] = await sql`insert into ticket_tags (workspace_id, ticket_id, tag)
+      values (${workspaceId}, ${ticketId}, ${tag}) on conflict (ticket_id, tag) do nothing returning tag`;
+    return added ? await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'tag', before: null, after: tag }) : [];
+  });
+  if (result === null) return c.json({ error: 'Ticket not found' }, 404);
 
   // Keep the workspace tag library populated. Best-effort — failure here
   // shouldn't fail the request because the ticket_tags row already landed.
@@ -839,7 +858,7 @@ tickets.post('/:id/tags', async (c) => {
     console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
   }
 
-  return c.json({ tag }, 201);
+  return c.json({ tag, activity: result }, 201);
 });
 
 // ─── DELETE /:id/tags/:tag — remove a manual tag ─────────────────────────
@@ -852,14 +871,17 @@ tickets.delete('/:id/tags/:tag', async (c) => {
   const ticketId = c.req.param('id');
   const tag = normaliseTag(c.req.param('tag'));
 
-  // Workspace-scope check.
-  const [ticket] = await sql`
-    select id from tickets
-    where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-  `;
-  if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
-
-  await sql`delete from ticket_tags where ticket_id = ${ticketId} and tag = ${tag}`;
+  const found = await sql.begin(async sql => {
+    const [ticket] = await sql`select id from tickets where id = ${ticketId}
+      and workspace_id = ${workspaceId} and deleted_at is null for update`;
+    if (!ticket) return false;
+    const [removed] = await sql`delete from ticket_tags where ticket_id = ${ticketId}
+      and workspace_id = ${workspaceId} and tag = ${tag} returning tag`;
+    if (removed) await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'tag', before: tag, after: null });
+    return true;
+  });
+  if (!found) return c.json({ error: 'Ticket not found' }, 404);
 
   return new Response(null, { status: 204 });
 });
@@ -887,28 +909,19 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
 
-  // Workspace-scope check + confirm the AI tag actually exists on this
-  // ticket. Catches stale UI submitting an accept for a tag the server
-  // no longer has. The inner join to tickets enforces the workspace +
-  // not-deleted constraint in one round trip.
-  const [existing] = await sql`
-    select at.tag
-    from ticket_ai_tags at
-    join tickets t on t.id = at.ticket_id
-    where at.ticket_id = ${ticketId} and at.tag = ${tag}
-      and t.workspace_id = ${workspaceId} and t.deleted_at is null
-  `;
-  if (!existing) return c.json({ error: 'AI tag not found' }, 404);
-
-  // 1. Flip accepted=true on the ai_tags row (no-op if already accepted).
-  await sql`update ticket_ai_tags set accepted = true where ticket_id = ${ticketId} and tag = ${tag}`;
-
-  // 2. Promote to a manual ticket_tags row. Idempotent via the PK.
-  await sql`
-    insert into ticket_tags (workspace_id, ticket_id, tag)
-    values (${workspaceId}, ${ticketId}, ${tag})
-    on conflict (ticket_id, tag) do nothing
-  `;
+  const activity = await sql.begin(async sql => {
+    const [ticket] = await sql`select id from tickets where id = ${ticketId}
+      and workspace_id = ${workspaceId} and deleted_at is null for update`;
+    if (!ticket) return null;
+    const [accepted] = await sql`update ticket_ai_tags set accepted = true
+      where ticket_id = ${ticketId} and workspace_id = ${workspaceId} and tag = ${tag} returning tag`;
+    if (!accepted) return null;
+    const [added] = await sql`insert into ticket_tags (workspace_id, ticket_id, tag)
+      values (${workspaceId}, ${ticketId}, ${tag}) on conflict (ticket_id, tag) do nothing returning tag`;
+    return added ? await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'tag', before: null, after: tag }) : [];
+  });
+  if (activity === null) return c.json({ error: 'AI tag not found' }, 404);
 
   // 3. Keep the workspace tag library populated. Best-effort.
   try {
@@ -921,7 +934,7 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
     console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
   }
 
-  return c.json({ tag, accepted: true });
+  return c.json({ tag, accepted: true, activity });
 });
 
 // ─── POST /:id/snooze — set snoozed_until + reason ───────────────────────

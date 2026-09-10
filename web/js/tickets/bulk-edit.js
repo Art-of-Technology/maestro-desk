@@ -1,3 +1,4 @@
+import { applySavedActivity } from '../core/ticket-history.js';
 import { TICKETS, TAG_LIBRARY } from '../core/data.js';
 import { SESSION, TICKET_SELECTED_IDS, CURRENT_PAGE, CURRENT_TICKET } from '../core/state.js';
 import { apiGet, apiPost, apiPatch, getJwt, getWorkspaceId } from '../core/api-client.js';
@@ -68,23 +69,24 @@ export function showBulkEdit(kind, initialValue = '') {
             : apiPatch(`/api/v1/tickets/${ticket._uuid}`, { priority_key: value });
         },
         validate: (response, ticket) => confirmsBulkEdit(kind, value, response, ticket),
-        onSaved: ticket => {
+        onSaved: (ticket, response) => {
           const t = TICKETS.find(t => ticket._uuid ? t._uuid === ticket._uuid : t.id === ticket.id);
           if (t && isTag) {
             t.tags ||= [];
             if (!t.tags.includes(value)) {
               t.tags.push(value);
-              logTicketEvent(t.id, 'tag', `Tagged: ${value} (bulk)`);
+              if (!jwt) logTicketEvent(t.id, 'tag', `Tagged: ${value} (bulk)`);
               if (!jwt) {
                 const lib = TAG_LIBRARY.find(t => t.tag === value);
                 if (lib) lib.count++; else TAG_LIBRARY.push({ tag: value, count: 1, type: 'manual', conf: null });
               }
             }
           } else if (t) {
-            if (t.priority !== value) logTicketEvent(t.id, 'priority', `Priority: ${t.priority} → ${value} (bulk)`);
+            if (!jwt && t.priority !== value) logTicketEvent(t.id, 'priority', `Priority: ${t.priority} → ${value} (bulk)`);
             t.priority = value;
             refreshTicketSLA(t);
           }
+          if (t && jwt) applySavedActivity(t, response);
           TICKET_SELECTED_IDS.delete(ticket.id);
         },
       });

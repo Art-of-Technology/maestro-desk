@@ -1,3 +1,5 @@
+import { applySavedActivity } from '../core/ticket-history.js';
+import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
 import { appendTemplate } from './template-content.js';
 // ─── Ticket Detail ────────────────────────────────────────────────────────────
@@ -378,13 +380,14 @@ export function openTicket(id) {
   const activityBlock = events.length ? `
     <div class="ts-section">
       <div class="ts-heading">Activity (${events.length})</div>
+      ${t._uuid ? `<button class="btn" data-action="td.savedActivity" data-ticket-uuid="${window.escAttr(t._uuid)}">View all activity</button>` : ''}
       <div style="max-height:240px;overflow-y:auto;margin-right:-4px;padding-right:4px">
         ${events.slice(0, 12).map(e => `
           <div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--rule)">
             <div style="width:6px;height:6px;border-radius:50%;background:${eventColors[e.type] || 'var(--ink4)'};margin-top:5px;flex-shrink:0"></div>
             <div style="flex:1;min-width:0">
               <div style="font-size:11px;color:var(--ink2);line-height:1.4;word-break:break-word">${window.escHtml(e.details)}</div>
-              <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:2px">${e.author === 'System' ? '' : window.escHtml(e.author) + ' · '}${e.ts}</div>
+              <div style="font-size:10px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:2px">${e.author === 'System' ? '' : window.escHtml(e.author) + ' · '}${window.escHtml(e.ts)}</div>
             </div>
           </div>`).join('')}
       </div>
@@ -900,11 +903,11 @@ export async function addTicketTag(id, raw) {
   if (!t.tags) t.tags = [];
   if (t.tags.includes(tag)) { openTicket(id); return; }
   if (t._uuid) {
-    try { await apiPost(`/api/v1/tickets/${t._uuid}/tags`, { tag }); }
+    try { applySavedActivity(t, await apiPost(`/api/v1/tickets/${t._uuid}/tags`, { tag })); }
     catch (err) { alert(`Couldn't add tag: ${err?.message || err}`); return; }
   }
   t.tags.push(tag);
-  logTicketEvent(id, 'tag', `Tagged: ${tag}`);
+  if (!t._uuid) logTicketEvent(id, 'tag', `Tagged: ${tag}`);
   const lib = TAG_LIBRARY.find(x => x.tag === tag);
   if (lib) lib.count++;
   else TAG_LIBRARY.push({ tag, count: 1, type: 'manual', conf: null });
@@ -917,7 +920,8 @@ async function removeTicketTag(id, tag) {
     try { await apiDelete(`/api/v1/tickets/${t._uuid}/tags/${encodeURIComponent(tag)}`); }
     catch (err) { alert(`Couldn't remove tag: ${err?.message || err}`); return; }
   }
-  logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
+  if (!t._uuid) logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
+  if (t._uuid) t._detailLoaded = false;
   t.tags = (t.tags || []).filter(x => x !== tag);
   const lib = TAG_LIBRARY.find(x => x.tag === tag);
   if (lib && lib.count > 0) lib.count--;
@@ -927,10 +931,10 @@ export async function changeTicketPriority(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.priority === val) return;
   if (t._uuid) {
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { priority_key: val }); }
+    try { applySavedActivity(t, await apiPatch(`/api/v1/tickets/${t._uuid}`, { priority_key: val })); }
     catch (err) { alert(`Couldn't change priority: ${err?.message || err}`); return; }
   }
-  logTicketEvent(id, 'priority', `Priority: ${t.priority} → ${val}`);
+  if (!t._uuid) logTicketEvent(id, 'priority', `Priority: ${t.priority} → ${val}`);
   t.priority = val;
   refreshTicketSLA(t);
   if (CURRENT_TICKET === id) openTicket(id);
@@ -945,11 +949,11 @@ export async function changeTicketAgent(id, val) {
     // for the API; empty/Unassigned → null to clear assignment.
     const assignee = val && val !== 'Unassigned' ? AGENTS.find(a => a.name === val) : null;
     const assignedUserId = assignee?.userId ?? null;
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}`, { assigned_user_id: assignedUserId }); }
+    try { applySavedActivity(t, await apiPatch(`/api/v1/tickets/${t._uuid}`, { assigned_user_id: assignedUserId })); }
     catch (err) { alert(`Couldn't reassign: ${err?.message || err}`); return; }
     t.assignedUserId = assignedUserId;
   }
-  logTicketEvent(id, 'agent', `Reassigned: ${old} → ${val}`);
+  if (!t._uuid) logTicketEvent(id, 'agent', `Reassigned: ${old} → ${val}`);
   t.agent = val;
   if (CURRENT_TICKET === id) openTicket(id);
   fireWebhook('ticket.assigned', { ...ticketPayload(t), previousAgent: old });
@@ -961,7 +965,7 @@ async function acceptAITag(ticketId, tagName) {
   const at = t.aiTags.find(x=>x.tag===tagName);
   if (!at || at.accepted) { openTicket(ticketId); return; }
   if (t._uuid) {
-    try { await apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(tagName)}`, { accepted: true }); }
+    try { applySavedActivity(t, await apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(tagName)}`, { accepted: true })); }
     catch (err) { alert(`Couldn't accept AI tag: ${err?.message || err}`); return; }
   }
   at.accepted = true;
@@ -976,7 +980,7 @@ async function acceptAllAITags(ticketId) {
   if (t._uuid) {
     try {
       await Promise.all(pending.map((at) =>
-        apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(at.tag)}`, { accepted: true })
+        apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(at.tag)}`, { accepted: true }).then(res => applySavedActivity(t, res))
       ));
     } catch (err) { alert(`Couldn't accept AI tags: ${err?.message || err}`); return; }
   }
@@ -1196,6 +1200,7 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.savedActivity': ds => showSavedTicketActivity(ds.ticketUuid),
   // Snooze + merge banners
   'td.unsnooze':       (ds) => unsnoozeTicket(ds.ticketId),
   'td.snooze':         (ds) => showSnoozeModal(ds.ticketId),
