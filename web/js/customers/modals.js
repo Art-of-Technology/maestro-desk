@@ -9,6 +9,8 @@
 import { CUSTOMERS } from '../core/data.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { renderPage } from '../core/router.js';
+import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { applyCustomerRow } from '../core/bootstrap.js';
 
 export function showGDPRModal(id) {
   showModal('GDPR actions', `
@@ -49,25 +51,53 @@ function nextCustomerId() {
 }
 
 export function showNewCustomerModal() {
+  const workspace = getWorkspaceId();
+  const jwt = getJwt();
+  let saving = false;
   showModal('New customer', `
     <div class="form-grid">
-      <div class="form-row"><label class="form-label">First name</label><input class="form-input" id="nc-first"/></div>
-      <div class="form-row"><label class="form-label">Last name</label><input class="form-input" id="nc-last"/></div>
+      <div class="form-row"><label class="form-label" for="nc-first">First name</label><input class="form-input" id="nc-first" maxlength="100" required/></div>
+      <div class="form-row"><label class="form-label" for="nc-last">Last name</label><input class="form-input" id="nc-last" maxlength="100" required/></div>
     </div>
-    <div class="form-row"><label class="form-label">Email</label><input class="form-input" id="nc-email" type="email"/></div>
+    <div class="form-row"><label class="form-label" for="nc-email">Email</label><input class="form-input" id="nc-email" type="email" maxlength="320"/></div>
     <div class="form-grid">
-      <div class="form-row"><label class="form-label">Brand</label><input class="form-input" id="nc-brand"/></div>
-      <div class="form-row"><label class="form-label">Jurisdiction</label><input class="form-input" id="nc-jurisdiction" placeholder="UK"/></div>
+      <div class="form-row"><label class="form-label" for="nc-brand">Brand</label><input class="form-input" id="nc-brand" maxlength="200"/></div>
+      <div class="form-row"><label class="form-label" for="nc-jurisdiction">Jurisdiction</label><input class="form-input" id="nc-jurisdiction" maxlength="100"/></div>
     </div>
-  `, () => {
+    <div id="nc-error" role="alert" style="color:var(--red);font-size:12px"></div>
+  `, async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const first = document.getElementById('nc-first').value.trim();
     const last  = document.getElementById('nc-last').value.trim();
-    if (!first || !last) return;
-    const id = nextCustomerId();
-    const jurisdiction = document.getElementById('nc-jurisdiction').value.trim() || 'UK';
-    CUSTOMERS.push({id,first,last,username:(first[0]+last).toLowerCase(),email:document.getElementById('nc-email').value,mobile:'',brand:document.getElementById('nc-brand').value,vip:'Bronze',jurisdiction,maestroUserId:'',memberId:'',consent:true,since:new Date().toISOString().slice(0,10),bo:'',custom:{}});
-    // Full re-render, not a tbody patch: a new customer moves the KPI bar
-    // and the "N of M" total as well as the rows.
-    closeModal(); renderPage('customers');
+    const emailInput = document.getElementById('nc-email');
+    const error = document.getElementById('nc-error');
+    if (!first || !last) { error.textContent = 'Enter a first and last name.'; return; }
+    if (!emailInput.checkValidity()) { emailInput.reportValidity(); return; }
+    const email = emailInput.value.trim();
+    const brand = document.getElementById('nc-brand').value.trim();
+    const jurisdiction = document.getElementById('nc-jurisdiction').value.trim();
+    const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    saving = true;
+    button.disabled = true;
+    error.textContent = '';
+    try {
+      let customer;
+      if (jwt) {
+        const { customer: row } = await apiPost('/api/v1/customers', { first_name: first, last_name: last, email: email || null, brand, jurisdiction });
+        customer = applyCustomerRow({ _uuid: row.id, id: row.display_id, custom: {}, notes: [] }, row);
+      } else {
+        customer = { id: nextCustomerId(), first, last, email, mobile: '', brand, jurisdiction,
+          username: '', vip: '', consent: false, since: '', maestroUserId: '', memberId: '', bo: '', custom: {}, notes: [] };
+      }
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      CUSTOMERS.push(customer);
+      if (document.getElementById('nc-first') === firstInput) { closeModal(); renderPage('customers'); }
+    } catch (err) {
+      if (error.isConnected) error.textContent = `Couldn't create customer: ${err?.message || err}`;
+    } finally {
+      saving = false;
+      if (button.isConnected) button.disabled = false;
+    }
   }, 'Create');
+  const firstInput = document.getElementById('nc-first');
 }

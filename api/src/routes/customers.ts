@@ -38,6 +38,47 @@ export const customers = new Hono();
 
 customers.use('*', requireAuth);
 
+const CreateCustomer = z.object({
+  first_name: z.string().trim().min(1).max(100),
+  last_name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(320).nullable().optional(),
+  brand: z.string().trim().max(200).optional(),
+  jurisdiction: z.string().trim().max(100).optional(),
+}).strict();
+
+// Manual profiles have no asserted player identity, VIP status or consent.
+customers.post('/', async (c) => {
+  const parsed = CreateCustomer.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid customer details', issues: parsed.error.issues }, 400);
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const input = parsed.data;
+  const email = input.email?.toLowerCase() || null;
+  if (email && await resolveCustomerByContact(sql, workspaceId, 'email', email)) {
+    return c.json({ error: 'That email already belongs to a customer in this workspace.' }, 409);
+  }
+  try {
+    const customer = await sql.begin(async (tx) => {
+      const displayId = await nextDisplayId(tx, workspaceId, 'customer');
+      const [row] = await tx`
+        insert into customers (workspace_id, display_id, first_name, last_name, email, brand, jurisdiction, consent)
+        values (${workspaceId}, ${displayId}, ${input.first_name}, ${input.last_name}, ${email},
+                ${input.brand || null}, ${input.jurisdiction || null}, false)
+        returning ${tx.unsafe(CUSTOMER_ROW_COLS)}
+      `;
+      await ensurePrimaryContacts(tx, { workspaceId, customerId: row.id, email, mobile: null }, { strict: true });
+      return { ...row, ...await contactsFor(tx, workspaceId, row.id) };
+    });
+    return c.json({ customer }, 201);
+  } catch (err) {
+    // Includes a concurrent create/add-contact winning the unique email claim.
+    if ((err as { code?: string })?.code === '23505' && email) {
+      return c.json({ error: 'That email already belongs to a customer in this workspace.' }, 409);
+    }
+    throw err;
+  }
+});
+
 // Create (or find) a local customer from a live Maestro player — so an agent can
 // proactively open a conversation with someone who has NEVER contacted support
 // (and therefore has no local record yet). The caller passes one lookup key; we
