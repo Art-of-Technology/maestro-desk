@@ -186,7 +186,9 @@ export function updateNavBadges() {
   if (!state.ready && !state.error) {
     // Shared promise also covers a load started by the Tickets page. Paint
     // only the badge when it finishes, and ignore a discarded workspace load.
-    void loadWorkQueue().then(() => { if (workQueueState() === state) paintTicketBadge(); });
+    void loadWorkQueue().then(() => {
+      if (workQueueState() === state) { paintTicketBadge(); refreshNotifBadge(); }
+    });
   }
   refreshNotifBadge();
 }

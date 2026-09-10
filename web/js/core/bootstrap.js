@@ -122,6 +122,7 @@ export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   t.priority      = row.priority_key;
   t.category      = labelCase(row.category_key) || 'Other';
   t.agent         = row.assigned_user_id == null ? '' : (userByUuid[row.assigned_user_id]?.name || t.agent);
+  t.assignedUserId = row.assigned_user_id ?? null;
   t.customerId    = customerByUuid[row.customer_id]?.id || customerByUuid[row.customer_id]?.display_id || t.customerId;
   t.updated       = fmtRelative(row.updated_at);
   t.sla           = row.sla_state || 'ok';
@@ -163,6 +164,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
     agent:           userByUuid[t.assigned_user_id]?.name || '',
+    assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
     updated:         fmtRelative(t.updated_at),
     sla:             t.sla_state || 'ok',
@@ -339,6 +341,7 @@ export async function loadWorkspaceData() {
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
     agent:           userByUuid[t.assigned_user_id]?.name || '',
+    assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
     updated:         fmtRelative(t.updated_at),
     sla:             t.sla_state || 'ok',
@@ -612,6 +615,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     t.priority   = d.priority_key;
     t.category   = labelCase(d.category_key) || 'Other';
     t.agent      = userByUuid[d.assigned_user_id]?.name || '';
+    t.assignedUserId = d.assigned_user_id ?? null;
     t.updated    = fmtRelative(d.updated_at);
     t.sla        = d.sla_state || 'ok';
     t._updatedAt = d.updated_at;     // raw ISO for live-sync diffing

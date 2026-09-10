@@ -41,6 +41,7 @@ export let NOTIF_PREFS = JSON.parse(localStorage.getItem('notif_prefs') || 'null
 if (typeof NOTIF_PREFS.wake === 'undefined') NOTIF_PREFS.wake = true;
 if (typeof NOTIF_PREFS.mention === 'undefined') NOTIF_PREFS.mention = true;
 if (typeof NOTIF_PREFS.response === 'undefined') NOTIF_PREFS.response = true;
+if (typeof NOTIF_PREFS.unassigned === 'undefined') NOTIF_PREFS.unassigned = true;
 export let ROLES_VIEW_AGENTS = null; // role name → show agents-in-role page; null → matrix
 export let SETTINGS_TAB = 'profile';
 export let LAYOUTS_TAB = 'ticket';

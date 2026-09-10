@@ -243,6 +243,7 @@ export async function runAssignmentRulesOnTicket(id) {
     try { resp = await apiPost(`/api/v1/tickets/${t._uuid}/apply-rules`, {}); }
     catch (err) { alert(`Couldn't apply rules: ${err?.message || err}`); return; }
     if (!resp.matched) { alert('No active rule matched this ticket.'); return; }
+    t.assignedUserId = resp.ticket.assigned_user_id ?? null;
     const userByUuid = Object.fromEntries(AGENTS.map((a) => [a.userId, a]));
     const oldAgent = t.agent || 'Unassigned';
     const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
@@ -280,6 +281,7 @@ async function bulkApplyAssignmentRules() {
       if (!t?._uuid) return false;
       const resp = await apiPost(`/api/v1/tickets/${t._uuid}/apply-rules`, {});
       if (!resp.matched) return false;
+      t.assignedUserId = resp.ticket.assigned_user_id ?? null;
       const newAgent = userByUuid[resp.ticket.assigned_user_id]?.name || '';
       if (newAgent) {
         if (t.agent !== newAgent) logTicketEvent(id, 'assign', `Assigned by rule ${resp.rule.name}: ${t.agent || 'Unassigned'} → ${newAgent}`);

@@ -33,6 +33,9 @@ import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { showToast } from '../core/toast.js';
+import { getWorkspaceId, getJwt } from '../core/api-client.js';
+import { workQueueState, loadWorkQueue } from '../tickets/work-queue.js';
+import { unassignedNotifications } from './unassigned.js';
 // setSettingsTab is reached via window to avoid a notifications↔settings
 // import cycle (settings imports refreshNotifBadge from here). Settings is
 // still bridged; this can become a direct import once Settings migrates.
@@ -41,9 +44,37 @@ const NOTIFICATIONS_READ = new Set();
 const NOTIFICATIONS_DISMISSED = new Set();
 let NOTIF_PAGE_FILTER_TYPE = 'all';
 let NOTIF_PAGE_FILTER_READ = 'all';
+let notificationContext = null;
+let surfaceSignature = null;
+
+function queueNotice() {
+  const state = workQueueState();
+  if (state.ready) return '';
+  return state.error
+    ? '<div role="status" style="padding:14px">Could not check unassigned tickets. <button class="btn btn-sm" data-action="notif.retry">Retry</button></div>'
+    : '<div role="status" style="padding:14px">Checking unassigned tickets…</div>';
+}
 
 function getNotifications() {
+  const context = `${getWorkspaceId() || ''}:${getJwt() || ''}:${SESSION?.name || ''}`;
+  if (notificationContext !== context) {
+    notificationContext = context;
+    NOTIFICATIONS_READ.clear();
+    NOTIFICATIONS_DISMISSED.clear();
+  }
   const out = [];
+  if (workQueueState().ready) {
+    const unassigned = unassignedNotifications(TICKETS);
+    const currentIds = new Set(unassigned.map(n => n.id));
+    // A later return to the unassigned queue is a fresh alert. Do not clear
+    // flags while an index is incomplete or a request has failed.
+    for (const flags of [NOTIFICATIONS_READ, NOTIFICATIONS_DISMISSED]) {
+      for (const id of flags) if (id.startsWith('unassigned-') && !currentIds.has(id)) flags.delete(id);
+    }
+    if (NOTIF_PREFS.unassigned !== false) {
+      out.push(...unassigned.filter(n => !NOTIFICATIONS_DISMISSED.has(n.id)));
+    }
+  }
   const wakeWindowMs = 24 * 60 * 60 * 1000;
   // Mentions of the current session user across all tickets — emit before per-ticket
   // status notifications so they're not crowded out when an SLA breach also exists.
@@ -137,11 +168,20 @@ export function maybeToastNewResponse(ticketUuid) {
 }
 
 export function refreshNotifBadge() {
+  const items = getNotifications();
+  const state = workQueueState();
+  const signature = JSON.stringify([notificationContext, state.ready, state.error, items, [...NOTIFICATIONS_READ]]);
+  if (signature !== surfaceSignature) {
+    surfaceSignature = signature;
+    if (document.getElementById('notif-dropdown')?.classList.contains('show')) renderNotifications();
+    if (document.body.dataset.currentPage === 'notifications') renderPage('notifications');
+  }
   const badge = document.getElementById('notif-badge');
   if (!badge) return;
-  const n = getNotifications().filter(x => !NOTIFICATIONS_READ.has(x.id)).length;
-  badge.textContent = n > 9 ? '9+' : String(n);
-  badge.style.display = n > 0 ? 'flex' : 'none';
+  const n = items.filter(x => !NOTIFICATIONS_READ.has(x.id)).length;
+  badge.textContent = !state.ready ? (state.error ? '?' : '…') : n > 9 ? '9+' : String(n);
+  badge.title = !state.ready ? (state.error ? 'Could not check unassigned tickets' : 'Checking unassigned tickets') : `${n} unread notifications`;
+  badge.style.display = n > 0 || !state.ready ? 'flex' : 'none';
 }
 
 function renderNotifications() {
@@ -154,17 +194,18 @@ function renderNotifications() {
       <div class="notif-title">Notifications ${items.length ? `<span class="notif-count">${unread.length} unread · ${items.length} total</span>` : ''}</div>
       ${unread.length ? `<div class="notif-mark" data-mousedown-action="notif.markAllRead">Mark all read</div>` : ''}
     </div>`;
+  html += queueNotice();
   if (!items.length) {
-    html += `<div class="notif-empty">All caught up — no notifications.</div>`;
+    if (workQueueState().ready) html += `<div class="notif-empty">All caught up — no notifications.</div>`;
   } else {
     html += items.map(n => `
-      <div class="notif-item ${NOTIFICATIONS_READ.has(n.id)?'read':''}" data-mousedown-action="notif.openFromDropdown" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
-        <div class="notif-dot" style="background:${n.color}"></div>
-        <div class="notif-body">
-          <div class="notif-row"><div class="notif-name">${window.escHtml(n.title)}</div><div class="notif-time">${n.ts}</div></div>
-          <div class="notif-text">${window.escHtml(n.body)}</div>
-        </div>
-      </div>`).join('');
+      <button type="button" class="notif-item ${NOTIFICATIONS_READ.has(n.id)?'read':''}" style="width:100%;text-align:left;font:inherit;color:inherit;border:0;border-bottom:1px solid var(--rule)" data-action="notif.openFromDropdown" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
+        <span class="notif-dot" style="background:${n.color}"></span>
+        <span class="notif-body">
+          <span class="notif-row"><span class="notif-name">${window.escHtml(n.title)}</span><span class="notif-time">${window.escHtml(n.ts || '')}</span></span>
+          <span class="notif-text" style="display:block">${window.escHtml(n.body)}</span>
+        </span>
+      </button>`).join('');
     html += `<div style="padding:10px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" data-mousedown-action="notif.closeAndGo" style="font-size:11px;font-weight:500">View all notifications →</span></div>`;
   }
   dd.innerHTML = html;
@@ -246,24 +287,24 @@ export function renderNotificationsPage() {
   const total = all.length;
   const unread = all.filter(n => !NOTIFICATIONS_READ.has(n.id)).length;
   const read = total - unread;
-  const types = { breach:0, escalated:0, gdpr:0, warn:0, response:0 };
+  const types = { breach:0, escalated:0, gdpr:0, warn:0, response:0, unassigned:0 };
   all.forEach(n => { if (types[n.type] !== undefined) types[n.type]++; });
   const highPri = types.breach + types.escalated + types.gdpr;
 
   const items = list.map(n => {
     const isRead = NOTIFICATIONS_READ.has(n.id);
     return `
-      <div style="display:flex;gap:12px;padding:14px;border:1px solid var(--rule);border-radius:var(--r);background:${isRead?'var(--off2)':'var(--off)'};transition:all .15s;align-items:stretch">
+      <div style="display:flex;flex-wrap:wrap;gap:12px;padding:14px;border:1px solid var(--rule);border-radius:var(--r);background:${isRead?'var(--off2)':'var(--off)'};transition:all .15s;align-items:stretch">
         <div style="width:4px;border-radius:2px;background:${n.color};flex-shrink:0;align-self:stretch"></div>
-        <div style="flex:1;min-width:0;cursor:pointer" data-action="notif.openFromPage" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
-          <div style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
+        <button type="button" style="flex:1 1 180px;min-width:0;min-height:44px;cursor:pointer;text-align:left;font:inherit;background:transparent;border:0;padding:0" data-action="notif.openFromPage" data-notif-id="${window.escAttr(n.id)}" data-ticket-id="${window.escAttr(n.ticketId)}">
+          <span style="display:flex;gap:10px;align-items:center;margin-bottom:4px">
             <span style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(n.title)}</span>
             ${!isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--purple);box-shadow:0 0 6px var(--purple);flex-shrink:0"></span>' : ''}
-            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${n.ts}</span>
-          </div>
-          <div style="font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(n.body)}</div>
-        </div>
-        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0" data-action="">
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${window.escHtml(n.ts || '')}</span>
+          </span>
+          <span style="display:block;font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(n.body)}</span>
+        </button>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center" data-action="">
           ${!isRead ? `<button class="btn btn-sm" data-action="notif.markRead" data-notif-id="${window.escAttr(n.id)}" title="Mark read">Mark read</button>` : ''}
           <button class="btn btn-sm btn-danger" data-action="notif.dismiss" data-notif-id="${window.escAttr(n.id)}" title="Dismiss">Dismiss</button>
         </div>
@@ -292,6 +333,7 @@ export function renderNotificationsPage() {
           <option value="gdpr"      ${NOTIF_PAGE_FILTER_TYPE==='gdpr'?'selected':''}>GDPR (${types.gdpr})</option>
           <option value="warn"      ${NOTIF_PAGE_FILTER_TYPE==='warn'?'selected':''}>SLA warning (${types.warn})</option>
           <option value="response"  ${NOTIF_PAGE_FILTER_TYPE==='response'?'selected':''}>New responses (${types.response})</option>
+          <option value="unassigned" ${NOTIF_PAGE_FILTER_TYPE==='unassigned'?'selected':''}>Unassigned (${types.unassigned})</option>
         </select>
         <select class="filter-select" data-change-action="notif.setFilterRead">
           <option value="all"    ${NOTIF_PAGE_FILTER_READ==='all'?'selected':''}>All statuses</option>
@@ -301,8 +343,9 @@ export function renderNotificationsPage() {
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div class="page-scroll">
+        ${queueNotice()}
         ${list.length === 0
-          ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">${total === 0 ? 'All caught up — no notifications' : 'No notifications match the filters'}</div><div class="empty-line"></div></div>`
+          ? (workQueueState().ready ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">${total === 0 ? 'All caught up — no notifications' : 'No notifications match the filters'}</div><div class="empty-line"></div></div>` : '')
           : `<div style="display:flex;flex-direction:column;gap:8px">${items}</div>
              <div style="font-size:11px;color:var(--ink3);text-align:center;margin-top:18px;line-height:1.6">Notifications are computed live from ticket state. Configure which types appear in <span class="link" data-action="notif.gotoSettingsNotif">Settings → Notifications</span>.</div>`}
       </div>
@@ -310,8 +353,15 @@ export function renderNotificationsPage() {
 }
 
 registerActions({
+  'notif.retry': async () => {
+    const pending = loadWorkQueue();
+    refreshNotifBadge();
+    await pending;
+    refreshNotifBadge();
+  },
   // top-bar bell button in static index.html
   'notif.toggle':          () => toggleNotifications(),
+  'notif.openFromDropdown': (ds) => openNotification(ds.notifId, ds.ticketId),
   'notif.openFromPage':    (ds) => openNotificationFromPage(ds.notifId, ds.ticketId),
   'notif.markRead':        (ds) => markNotifRead(ds.notifId),
   'notif.dismiss':         (ds) => dismissNotif(ds.notifId),
