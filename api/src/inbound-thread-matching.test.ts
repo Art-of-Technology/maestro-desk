@@ -140,20 +140,24 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     }
   });
 
-  it('preserves a reply to a closed ticket without reopening it', async () => {
-    await sql`update tickets set status_key = 'closed', closure_reason = 'spam', closed_at = now() where id = ${ctx.realTicket}`;
+  it('reopens a closed email thread and archives its closure only once', async () => {
+    await sql`update tickets set status_key = 'closed', closure_reason = 'spam', closure_note = 'Original assessment', closed_at = now() where id = ${ctx.realTicket}`;
+    const payload = inbound({ from: ctx.realCustomerEmail, subject: 'Re: Original subject', text: 'Customer follow-up', messageId: `<closed-reply-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID });
     const res = await processInboundEmail({
       workspaceId: ctx.bucket,
-      payload: inbound({ from: ctx.realCustomerEmail, subject: 'Re: Original subject', text: 'more spam', messageId: `<closed-reply-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID }),
+      payload,
     });
     expect(res.threaded).toBe(true);
-    expect(res.auto_triage_queued).toBe(false);
     const [ticket] = await sql`select status_key, closure_reason from tickets where id = ${ctx.realTicket}`;
-    expect(ticket.status_key).toBe('closed');
-    expect(ticket.closure_reason).toBe('spam');
-    const [message] = await sql`select id from ticket_messages where ticket_id = ${ctx.realTicket} and body = 'more spam'`;
+    expect(ticket.status_key).toBe('open');
+    expect(ticket.closure_reason).toBeNull();
+    const [message] = await sql`select id from ticket_messages where ticket_id = ${ctx.realTicket} and body = 'Customer follow-up'`;
     expect(message).toBeTruthy();
-    await sql`update tickets set status_key = 'open', closure_reason = null, closed_at = null where id = ${ctx.realTicket}`;
+    expect((await processInboundEmail({ workspaceId: ctx.bucket, payload })).deduped).toBe(true);
+    const notes = await sql`select body from ticket_messages where ticket_id = ${ctx.realTicket} and role = 'note'`;
+    expect(notes).toHaveLength(1);
+    expect(notes[0].body).toContain('Original assessment');
+    expect(notes[0].body).toContain('Reason: spam');
   });
 
   it('creates a ticket in the unrouted bucket for unmatched mail (no 500)', async () => {
