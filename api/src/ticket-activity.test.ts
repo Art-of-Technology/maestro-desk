@@ -129,4 +129,37 @@ run('permanent ticket history', () => {
     const retry: any = await (await request(`tickets/${ticket}/ai_tags/suggestion`, 'PATCH', { accepted: true })).json();
     expect(retry.activity).toHaveLength(0);
   });
+  it('pages every microsecond-precision entry, including identical timestamp UUID ties', async () => {
+    const marker = 'cursor-precision-' + suffix;
+    const timestamps = [
+      '2026-09-10T12:00:00.000789Z',
+      '2026-09-10T12:00:00.000789Z',
+      '2026-09-10T12:00:00.000456Z',
+      '2026-09-10T12:00:00.000123Z',
+      '2026-09-10T11:59:59.999999Z',
+    ];
+    for (const at of timestamps) {
+      await sql`insert into events(workspace_id, entity_type, entity_id, kind, author_label, details, created_at)
+        values (${ws}, 'ticket', ${ticket}, 'system', 'System', ${marker}, ${at}::text::timestamptz)`;
+    }
+    const expected = await sql`select id,
+      to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as at
+      from events where workspace_id = ${ws} and details = ${marker} order by created_at desc, id desc`;
+    expect(expected.map(e => e.at)).toEqual(timestamps);
+    for (const limit of [1, 2]) {
+      const ids: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const response = await request(`activity?ticket=${ticket}&q=${marker}&limit=${limit}`
+          + (cursor ? '&cursor=' + cursor : ''));
+        expect(response.status).toBe(200);
+        const body: any = await response.json();
+        ids.push(...body.events.map((e: any) => e.id));
+        cursor = body.next_cursor;
+        if (ids.length > expected.length) throw new Error('Cursor repeated entries');
+      } while (cursor);
+      expect(ids).toEqual(expected.map(e => e.id));
+      expect(new Set(ids).size).toBe(expected.length);
+    }
+  });
 });

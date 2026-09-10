@@ -46,7 +46,7 @@ activity.get('/', async c => {
     from feed where (${kind} = 'all' or kind = ${kind}) and (${entity} = 'all' or entity = ${entity})
     ${ticket ? sql`and entity = 'ticket' and entity_uuid = ${ticket}` : sql``}
     and (${q} = '' or strpos(lower(concat_ws(' ', details, author_label, entity_id, entity_name)), lower(${q})) > 0)
-    ${before ? sql`and (created_at, id) < (${before.at}::timestamptz, ${before.id}::uuid)` : sql``}
+    ${before ? sql`and (created_at, id) < (${before.at}::text::timestamptz, ${before.id}::uuid)` : sql``}
     order by feed.created_at desc, id desc limit ${limit + 1}`;
   const more = rows.length > limit, events = rows.slice(0, limit), last = events.at(-1);
   return c.json({ events, next_cursor: more && last
