@@ -13,7 +13,7 @@ const Query = z.object({
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
-const Cursor = z.object({ at: z.string().max(50).refine(v => Number.isFinite(Date.parse(v))), id: z.string().uuid() });
+const Cursor = z.object({ at: z.string().max(50).datetime({ offset: true }), id: z.string().uuid() });
 
 activity.get('/', async c => {
   const parsed = Query.safeParse(c.req.query());

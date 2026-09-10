@@ -115,6 +115,8 @@ run('permanent ticket history', () => {
     const filtered: any = await (await request('activity?kind=agent&q=Original')).json();
     expect(filtered.events).toHaveLength(1);
     expect((await request('activity?cursor=bad')).status).toBe(400);
+    const invalidDate = Buffer.from(JSON.stringify({ at: '0', id: ticket })).toString('base64url');
+    expect((await request('activity?cursor=' + invalidDate)).status).toBe(400);
     expect((await request('activity?limit=101')).status).toBe(400);
     const [verified] = await sql`select ok from audit_events_verify(${ws})`;
     expect(verified.ok).toBe(true);
