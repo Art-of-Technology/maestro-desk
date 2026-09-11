@@ -427,6 +427,11 @@ async function enterBrand(brandId) {
     setWorkspaceSlug(entered?.slug);
     setBrandId(entered?.maestro_brand_id || null);
     await loadWorkspaceData();
+    window.resetWorkspaceBrand?.();
+    window.applyWorkspaceBrand?.({
+      name: entered?.name, slug: entered?.slug,
+      logoUrl: entered?.logo_url, primaryColor: entered?.primary_color,
+    });
     if (typeof updateNavBadges === 'function') updateNavBadges();
     nav('dashboard', document.getElementById('nav-dashboard'));
   } catch (err) {

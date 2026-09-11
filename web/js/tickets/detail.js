@@ -34,7 +34,7 @@ import {
 } from './snooze.js';
 import {
   BUSINESS_HOURS, isWithinBusinessHours,
-  computeTicketSLA, refreshTicketSLA, fmtSLAMinutes,
+  computeTicketSLA, refreshTicketSLA, fmtSLAMinutes, findMatchingSLAPolicy,
 } from './sla.js';
 import {
   unlinkTicket, unmergeTicket,
@@ -526,7 +526,7 @@ export function openTicket(id) {
           <span class="tag tag-neutral">${window.escHtml(t.category)}</span>
           ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${window.escHtml(tg)}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
           <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase"/>
-          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="sla-${t.sla}">${t.status === 'closed' ? 'N/A' : t.sla.toUpperCase()}</span></span>
+          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="${t.status !== 'closed' && findMatchingSLAPolicy(t) ? `sla-${t.sla}` : ''}">${t.status === 'closed' ? 'N/A' : !findMatchingSLAPolicy(t) ? 'No matching policy' : t.sla.toUpperCase()}</span></span>
         </div>
       </div>
       <div class="ticket-layout">

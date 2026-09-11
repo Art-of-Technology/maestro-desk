@@ -17,12 +17,13 @@ import { KB_SELECTED, SESSION, setKbSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
-import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
+import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { startPresence } from '../core/presence.js';
 import { showModal, closeModal } from '../core/modal.js';
+import './sources.js';
 
 function kbApiBacked() {
-  return KB_ARTICLES.some((a) => a._uuid);
+  return !!(getJwt() && getWorkspaceId());
 }
 
 function mapKbResponse(a) {
@@ -213,6 +214,7 @@ export function renderKB() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Knowledge Base</div>
+        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Website & file sources</button>` : ''}
         ${admin ? `<button class="btn btn-solid btn-sm" data-action="kb.new">+ New Article</button>` : ''}
       </div>
       <div class="kb-layout">
@@ -350,15 +352,21 @@ function kbArticleForm(initial) {
 
 function kbNewArticle() {
   if (!window.isAdmin()) return;
+  const workspace = getWorkspaceId();
+  const jwt = getJwt();
+  let saving = false;
   showModal('New article', kbArticleForm(null), async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const title = document.getElementById('kb-title').value.trim();
     const cat   = document.getElementById('kb-cat').value.trim() || 'Getting Started';
     const body  = document.getElementById('kb-body').value;
     if (!title || !body.trim()) return;
     if (kbApiBacked()) {
       let resp;
+      saving = true;
       try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body }); }
-      catch (err) { alert(`Couldn't publish: ${err?.message || err}`); return; }
+      catch (err) { saving = false; alert(`Couldn't publish: ${err?.message || err}`); return; }
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
       KB_ARTICLES.unshift(mapKbResponse(resp.article));
     } else {
       const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
@@ -371,7 +379,10 @@ function kbNewArticle() {
 function kbEditArticle(id) {
   if (!window.isAdmin()) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
+  const workspace = getWorkspaceId();
+  const jwt = getJwt();
   showModal('Edit article', kbArticleForm(a), async () => {
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const title = document.getElementById('kb-title').value.trim();
     const cat   = document.getElementById('kb-cat').value.trim() || a.category;
     const body  = document.getElementById('kb-body').value;
@@ -379,6 +390,7 @@ function kbEditArticle(id) {
     if (a._uuid) {
       try { await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body }); }
       catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     }
     a.title = title; a.category = cat; a.body = body;
     a.updated = new Date().toISOString().slice(0,10);

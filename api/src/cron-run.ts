@@ -13,11 +13,22 @@
 //   node --import tsx src/cron-run.ts webhook-retry
 //   node --import tsx src/cron-run.ts retention
 //   node --import tsx src/cron-run.ts player-identity-backfill   # run-once; repeat until remaining = 0
-import { runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from './lib/cron-jobs.js';
+import { alertCronFailure, runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from './lib/cron-jobs.js';
+import { refreshDueKnowledgeSources } from './lib/knowledge-sources.js';
 
 const jobs: Record<string, () => Promise<unknown>> = {
   'webhook-retry': runWebhookRetryJob,
   retention: runRetentionJob,
+  'knowledge-refresh': async () => {
+    try {
+      const result = await refreshDueKnowledgeSources();
+      if (result.failed) throw new Error('Some knowledge sources could not be refreshed.');
+      return result;
+    } catch (error) {
+      await alertCronFailure('knowledge-refresh', error);
+      throw error;
+    }
+  },
   // Not scheduled — an operator runs it once after the maestro-ids migration
   // to link pre-existing contacts. New contacts link themselves on creation.
   'player-identity-backfill': () => runPlayerIdentityBackfill(),

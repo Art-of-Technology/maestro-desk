@@ -1,11 +1,12 @@
 import { getDb } from './db.js';
+import { publishedKnowledgeContext } from './knowledge-context.js';
 
 export type AIContextSource = 'tickets' | 'customers' | 'agents' | 'kb';
 
 // Read context from the authenticated workspace, never browser snapshots.
 // Account attributes are opt-in; AML, contact details and live balances are
 // deliberately absent. Free-form ticket text can still contain personal data.
-export async function buildAIContext(workspaceId: string, sources: AIContextSource[]): Promise<string> {
+export async function buildAIContext(workspaceId: string, sources: AIContextSource[], query = ''): Promise<string> {
   const sql = getDb();
   const [workspace] = await sql`select ai_player_enrichment from workspaces where id = ${workspaceId}`;
   const parts: string[] = [];
@@ -40,12 +41,7 @@ export async function buildAIContext(workspaceId: string, sources: AIContextSour
     parts.push('AGENTS (up to 100):\n' + JSON.stringify(rows));
   }
   if (sources.includes('kb')) {
-    const rows = await sql`
-      select display_id, left(title, 300) as title, category
-      from kb_articles where workspace_id = ${workspaceId} and status = 'published'
-      order by updated_at desc, id limit 100
-    `;
-    parts.push('PUBLISHED KNOWLEDGE BASE TITLES (up to 100):\n' + JSON.stringify(rows));
+    parts.unshift(await publishedKnowledgeContext(workspaceId, query));
   }
   return parts.length ? parts.join('\n\n').slice(0, 50000) : 'No workspace context selected.';
 }

@@ -64,6 +64,11 @@ jobs:
       - name: Import-completeness audit
         run: bun scripts/import-audit.mjs
 
+      - name: Knowledge article persistence regression
+        run: |
+          bun test scripts/kb-persistence.test.js
+          bun test scripts/kb-draft-routing.test.js
+
       # The SPA's security headers exist twice while both hosts do (Vercel
       # hosting config + the self-hosted nginx image) — hand-editing one file
       # would silently CSP-block the other host in production.
@@ -147,3 +152,10 @@ jobs:
         run: bun test
         env:
           EXPECT_LEGACY_KYC: absent
+
+      - name: Knowledge extraction fixtures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa
+          python3 scripts/knowledge_extract_test.py
+          node --import tsx --test scripts/knowledge-stream.node.ts

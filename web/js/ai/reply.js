@@ -77,6 +77,7 @@ export async function aiAction(id, action) {
 
   try {
     const { text, error } = await callClaude({
+      action: action === 'draft' ? 'kb_draft' : 'draft',
       system: systemMsg,
       messages: [{ role: 'user', content: userMsg }],
       maxTokens: 800,
