@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { TextDecoder } from 'node:util';
 import { Agent, fetch as safeFetch } from 'undici';
 import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
 
@@ -25,11 +26,50 @@ const publicErrors = new Set([
   'This is not a valid PDF.',
   'Web page exceeds the 2 MB import limit.',
   'Website lookup timed out.',
+  'Unsupported or oversized document XML.',
+  'Encrypted or unsupported archives cannot be imported.',
+  'Duplicate archive entries are not supported.',
+  'Unsupported presentation XML.',
+  'Unsupported slide reference.',
+  'Use PNG, JPEG, WebP, PDF, DOCX or PPTX. Convert older Office files first.',
+  'Use a public HTTPS page without credentials or a custom port.',
+  'Too many website redirects.',
+  'Website returned an invalid redirect.',
+  'Website returned no content.',
+  'Unable to read this file. Check its format and password protection.',
+  'Website uses an unsupported character encoding. Export or paste its text instead.',
 ]);
 export function publicKnowledgeError(error: unknown): string {
-  return error instanceof Error && publicErrors.has(error.message)
+  return error instanceof Error &&
+    (publicErrors.has(error.message) ||
+      /^Website could not be imported \(HTTP [1-5][0-9]{2}\)\. Use a public HTML page\.$/.test(
+        error.message,
+      ))
     ? error.message
     : 'Could not read the source. Check the URL or file and try again.';
+}
+export function normalizeKnowledgeHtml(bytes: Uint8Array, contentType = ''): Uint8Array {
+  // Honour a BOM first, then HTTP charset, then an HTML charset declaration.
+  // Re-encode once to UTF-8 so the offline extractor has a single input format.
+  const prefix = Buffer.from(bytes.subarray(0, 4096)).toString('latin1');
+  const charset = /charset\s*=\s*["']?\s*([a-z0-9._-]+)/i;
+  const label =
+    bytes[0] === 0xff && bytes[1] === 0xfe
+      ? 'utf-16le'
+      : bytes[0] === 0xfe && bytes[1] === 0xff
+        ? 'utf-16be'
+        : bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+          ? 'utf-8'
+          : contentType.match(charset)?.[1] ||
+            prefix.match(/<meta\b[^>]*charset\s*=\s*["']?\s*([a-z0-9._-]+)/i)?.[1] ||
+            'utf-8';
+  try {
+    return new TextEncoder().encode(new TextDecoder(label).decode(bytes));
+  } catch {
+    throw new Error(
+      'Website uses an unsupported character encoding. Export or paste its text instead.',
+    );
+  }
 }
 const agent = new Agent({
   connect: { lookup: safeLookup },
@@ -93,7 +133,7 @@ export async function fetchKnowledgePage(raw: string): Promise<Uint8Array> {
     } finally {
       await reader.cancel();
     }
-    return Buffer.concat(chunks);
+    return normalizeKnowledgeHtml(Buffer.concat(chunks), res.headers.get('content-type') || '');
   }
   throw new Error('Too many website redirects.');
 }
@@ -147,8 +187,9 @@ export async function extractKnowledge(bytes: Uint8Array, extension: string): Pr
         clearTimeout(timer);
         err ? reject(err) : resolve(data!);
       };
-      child.stdout.on('data', (data) => {
-        output += data.toString();
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (data: string) => {
+        output += data;
         if (output.length > 1_000_000) {
           kill();
           finish(new Error('Extracted content is too large.'));

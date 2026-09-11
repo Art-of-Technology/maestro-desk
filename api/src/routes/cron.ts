@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
 import { env, isLocalDev } from '../lib/env.js';
 import { verifyAuditChainsFull } from '../lib/audit-verify.js';
-import { alertCronFailure, runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
+import {
+  alertCronFailure,
+  runPlayerIdentityBackfill,
+  runRetentionJob,
+  runWebhookRetryJob,
+} from '../lib/cron-jobs.js';
 import { BackfillAbortError, BackfillBusyError } from '../lib/player-identity.js';
 import { refreshDueKnowledgeSources } from '../lib/knowledge-sources.js';
 
@@ -51,12 +56,19 @@ cron.get('/webhook-retry', async (c) => {
   }
 });
 
-cron.get('/knowledge-refresh',async c=>{
+cron.get('/knowledge-refresh', async (c) => {
   try {
-    const result=await refreshDueKnowledgeSources();
-    if(result.failed)await alertCronFailure('knowledge-refresh',new Error('Some knowledge sources could not be refreshed.'));
-    return c.json({ok:result.failed===0,...result});
-  }catch(error){await alertCronFailure('knowledge-refresh',error);return c.json({ok:false,error:'Knowledge refresh failed'},500);}
+    const result = await refreshDueKnowledgeSources();
+    if (result.failed)
+      await alertCronFailure(
+        'knowledge-refresh',
+        new Error('Some knowledge sources could not be refreshed.'),
+      );
+    return c.json({ ok: result.failed === 0, ...result });
+  } catch (error) {
+    await alertCronFailure('knowledge-refresh', error);
+    return c.json({ ok: false, error: 'Knowledge refresh failed' }, 500);
+  }
 });
 
 // Data-retention purge + piggybacked compliance sweeps (audit-chain verify,
@@ -118,16 +130,21 @@ const BACKFILL_MAX_LIMIT = 500;
 const BACKFILL_DEADLINE_MS = 60_000;
 cron.get('/player-identity-backfill', async (c) => {
   const raw = Number(c.req.query('limit') ?? BACKFILL_DEFAULT_LIMIT);
-  const limit = Number.isInteger(raw) && raw > 0 ? Math.min(raw, BACKFILL_MAX_LIMIT) : BACKFILL_DEFAULT_LIMIT;
+  const limit =
+    Number.isInteger(raw) && raw > 0 ? Math.min(raw, BACKFILL_MAX_LIMIT) : BACKFILL_DEFAULT_LIMIT;
   try {
     return c.json({
       ok: true,
       limit,
-      ...(await runPlayerIdentityBackfill({ maxAttempts: limit, deadlineMs: BACKFILL_DEADLINE_MS })),
+      ...(await runPlayerIdentityBackfill({
+        maxAttempts: limit,
+        deadlineMs: BACKFILL_DEADLINE_MS,
+      })),
     });
   } catch (err) {
     if (err instanceof BackfillBusyError) return c.json({ ok: false, error: err.message }, 409);
-    if (err instanceof BackfillAbortError) return c.json({ ok: false, error: err.message, ...err.result }, 500);
+    if (err instanceof BackfillAbortError)
+      return c.json({ ok: false, error: err.message, ...err.result }, 500);
     return c.json({ ok: false, error: 'player-identity-backfill failed' }, 500);
   }
 });

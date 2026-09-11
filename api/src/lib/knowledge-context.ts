@@ -9,7 +9,10 @@ export function selectKnowledgePassages(body: string, query: string, limit = 600
     const heading = section.match(/^## [^\n]+/)?.[0] || '';
     const chunks = [];
     for (let i = 0; i < section.length; i += 1800)
-      chunks.push({ text: heading + '\n' + section.slice(i, i + 2000), index: i });
+      chunks.push({
+        text: (i > 0 && heading ? heading + '\n' : '') + section.slice(i, i + 2000),
+        index: i,
+      });
     return chunks;
   });
   const ranked = parts

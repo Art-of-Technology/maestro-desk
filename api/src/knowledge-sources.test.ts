@@ -1,8 +1,26 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { knowledgeTerms, selectKnowledgePassages } from './lib/knowledge-context.js';
-import { canonicalKnowledgeUrl, publicKnowledgeError } from './lib/knowledge-import.js';
+import {
+  canonicalKnowledgeUrl,
+  publicKnowledgeError,
+  normalizeKnowledgeHtml,
+} from './lib/knowledge-import.js';
 
 describe('knowledge selection and URL boundaries', () => {
+  it('decodes HTTP and meta-declared legacy Spanish pages and honours UTF-8 BOM', () => {
+    const legacy = Buffer.from('<p>aprobaci\xf3n y retiro</p>', 'latin1');
+    const read = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+    expect(read(normalizeKnowledgeHtml(legacy, 'text/html; charset=iso-8859-1'))).toContain(
+      'aprobación',
+    );
+    const meta = Buffer.concat([Buffer.from('<meta charset="windows-1252">'), legacy]);
+    expect(read(normalizeKnowledgeHtml(meta))).toContain('aprobación');
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('aprobación')]);
+    expect(read(normalizeKnowledgeHtml(bom, 'text/html; charset=windows-1252'))).toBe('aprobación');
+    expect(() => normalizeKnowledgeHtml(legacy, 'text/html; charset=not-an-encoding')).toThrow(
+      'unsupported character encoding',
+    );
+  });
   it('exposes only approved application errors, not parser or storage details', () => {
     expect(publicKnowledgeError(new Error('Split PDFs longer than 30 pages.'))).toBe(
       'Split PDFs longer than 30 pages.',
@@ -13,6 +31,11 @@ describe('knowledge selection and URL boundaries', () => {
     expect(publicKnowledgeError(new Error('Cannot open /app/private/file.pdf'))).not.toContain(
       '/app',
     );
+    const httpError = 'Website could not be imported (HTTP 404). Use a public HTML page.';
+    expect(publicKnowledgeError(new Error(httpError))).toBe(httpError);
+    expect(publicKnowledgeError(new Error(httpError + ' secret'))).not.toContain('secret');
+    const encrypted = 'Encrypted or unsupported archives cannot be imported.';
+    expect(publicKnowledgeError(new Error(encrypted))).toBe(encrypted);
   });
   it('keeps page labels and finds relevant text late in a document', () => {
     const body =
@@ -23,6 +46,9 @@ describe('knowledge selection and URL boundaries', () => {
     expect(result).toContain('Page 9');
     expect(result).toContain('24 hours');
     expect(result.length).toBeLessThanOrEqual(6000);
+    expect(selectKnowledgePassages('## Page 1\nWithdrawal policy', 'withdrawal')).toBe(
+      '## Page 1\nWithdrawal policy',
+    );
   });
   it('normalizes anchors and rejects credentials, non-HTTPS and custom ports', () => {
     expect(canonicalKnowledgeUrl('https://example.com/policy#withdraw')).toBe(
@@ -168,6 +194,16 @@ db('knowledge source lifecycle and isolation', () => {
         )
       ).status,
     ).toBe(404);
+  });
+  it('refresh reports foreign or missing sources and busy imports distinctly', async () => {
+    expect((await request('/' + crypto.randomUUID() + '/refresh', 'POST', {})).status).toBe(404);
+    expect((await request('/' + sourceId + '/refresh', 'POST', {}, other)).status).toBe(404);
+    await sql`update knowledge_sources set lease_until=now()+interval '1 minute' where id=${sourceId} and workspace_id=${ws}`;
+    try {
+      expect((await request('/' + sourceId + '/refresh', 'POST', {})).status).toBe(409);
+    } finally {
+      await sql`update knowledge_sources set lease_until=null where id=${sourceId} and workspace_id=${ws}`;
+    }
   });
   it('failed refresh retains published content and records failure', async () => {
     await sql`update knowledge_sources set locator='https://127.0.0.1/private' where id=${sourceId}`;

@@ -183,7 +183,16 @@ knowledgeSources.post('/:id/refresh', async (c) => {
   const id = c.req.param('id');
   if (!z.string().uuid().safeParse(id).success) return c.json({ error: 'Source not found' }, 404);
   try {
-    return c.json({ refreshed: await refreshKnowledgeSource(c.get('workspaceId'), id) });
+    const workspaceId = c.get('workspaceId');
+    if (await refreshKnowledgeSource(workspaceId, id)) return c.json({ refreshed: true });
+    const [source] =
+      await getDb()`select id from knowledge_sources where id=${id} and workspace_id=${workspaceId}`;
+    return source
+      ? c.json(
+          { error: 'This source is being imported. Wait for it to finish before refreshing it.' },
+          409,
+        )
+      : c.json({ error: 'Source not found' }, 404);
   } catch (error) {
     return c.json(
       { error: publicKnowledgeError(error) + ' The last published version is unchanged.' },

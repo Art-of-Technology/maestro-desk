@@ -158,3 +158,4 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa
           python3 scripts/knowledge_extract_test.py
+          node --import tsx --test scripts/knowledge-stream.node.ts
