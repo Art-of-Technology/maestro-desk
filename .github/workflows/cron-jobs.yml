@@ -43,6 +43,7 @@ on:
     # wrong job.
     - cron: '0 3 * * *'   # webhook-retry
     - cron: '0 4 * * *'   # retention (+ audit-verify, GDPR object retry, email-domain sweep)
+    - cron: '*/5 * * * *' # process sources due for their hourly refresh
   workflow_dispatch:
     inputs:
       job:
@@ -55,6 +56,7 @@ on:
           - retention
           - audit-verify
           - player-identity-backfill
+          - knowledge-refresh
 
 permissions:
   contents: read
@@ -93,6 +95,7 @@ jobs:
             case "$SCHEDULE" in
               "0 3 * * *") job="webhook-retry" ;;
               "0 4 * * *") job="retention" ;;
+              "*/5 * * * *") job="knowledge-refresh" ;;
               *) echo "::error::Unmapped schedule '$SCHEDULE' — add it to the case in this step AND the schedule list."; exit 1 ;;
             esac
           fi

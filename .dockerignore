@@ -14,6 +14,7 @@
 !api/tsconfig.json
 !api/src
 !api/scripts/migrate.ts
+!api/scripts/knowledge_extract.py
 !db/migrations
 # Never ship tests, even though they live under the re-included api/src:
 api/src/**/*.test.ts

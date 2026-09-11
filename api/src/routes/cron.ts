@@ -3,6 +3,7 @@ import { env, isLocalDev } from '../lib/env.js';
 import { verifyAuditChainsFull } from '../lib/audit-verify.js';
 import { alertCronFailure, runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from '../lib/cron-jobs.js';
 import { BackfillAbortError, BackfillBusyError } from '../lib/player-identity.js';
+import { refreshDueKnowledgeSources } from '../lib/knowledge-sources.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -48,6 +49,14 @@ cron.get('/webhook-retry', async (c) => {
   } catch {
     return c.json({ ok: false, error: 'webhook-retry failed' }, 500);
   }
+});
+
+cron.get('/knowledge-refresh',async c=>{
+  try {
+    const result=await refreshDueKnowledgeSources();
+    if(result.failed)await alertCronFailure('knowledge-refresh',new Error('Some knowledge sources could not be refreshed.'));
+    return c.json({ok:result.failed===0,...result});
+  }catch(error){await alertCronFailure('knowledge-refresh',error);return c.json({ok:false,error:'Knowledge refresh failed'},500);}
 });
 
 // Data-retention purge + piggybacked compliance sweeps (audit-chain verify,
