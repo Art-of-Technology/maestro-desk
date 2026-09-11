@@ -34,7 +34,7 @@ export async function publishedKnowledgeContext(workspaceId: string, query: stri
     (s.latest_version_id is distinct from s.approved_version_id) as changes_pending
     from kb_articles a left join knowledge_sources s on s.article_id=a.id and s.workspace_id=a.workspace_id
     where a.workspace_id=${workspaceId} and a.status='published'
-      and (${!terms} or a.search_document @@ to_tsquery('simple',${terms}))
+      ${terms ? sql`and a.search_document @@ to_tsquery('simple',${terms})` : sql``}
     order by ts_rank(a.search_document,to_tsquery('simple',${terms})) desc,a.updated_at desc,a.id
     limit 6`;
   if (!rows.length) return 'No matching published knowledge is available. Do not invent policy.';
