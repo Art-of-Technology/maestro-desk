@@ -41,7 +41,13 @@ The server instructs the assistant to cite articles/pages/slides, treat source
 text as untrusted, flag conflicting or missing rules, and avoid inventing player
 statuses or policy. Drafts remain for agent review; model compliance is not a
 replacement for policy ownership. Existing external KB sidebar integration is
-unchanged; draft grounding now uses Respovia's published workspace articles.
+unchanged. The normal Draft action uses Respovia's published workspace articles;
+the optional external-KB reply action continues to use the configured external KB.
+
+Published articles have a stored, indexed search document, refreshed automatically
+when their title or body changes. Searches filter matches before ranking. Source
+article display IDs use UUID-derived suffixes deliberately: the legacy manual
+article helper uses only 9,000 random values and is not a sequential allocator.
 
 ## Operations
 
