@@ -123,7 +123,7 @@ db('knowledge source lifecycle and isolation', () => {
     await sql`insert into workspace_members(workspace_id,user_id,role_id,active) values(${ws},${memberId},${role.id},true)`;
     const [s] =
       await sql`insert into knowledge_sources(workspace_id,kind,title,locator,fingerprint,created_by)
-      values(${ws},'url','Withdrawal rules','https://example.com/withdraw','test',${user}) returning id`;
+      values(${ws},'file','Withdrawal rules','withdrawals.pdf','test',${user}) returning id`;
     sourceId = s.id;
   }, 30000);
   beforeEach(async () => {
@@ -206,11 +206,59 @@ db('knowledge source lifecycle and isolation', () => {
     }
   });
   it('failed refresh retains published content and records failure', async () => {
-    await sql`update knowledge_sources set locator='https://127.0.0.1/private' where id=${sourceId}`;
-    expect((await request('/' + sourceId + '/refresh', 'POST', {})).status).toBe(422);
-    const detail = (await (await request('/' + sourceId)).json()) as SourceDetail;
-    expect(detail.source.error).toBeTruthy();
-    expect(detail.source.approved_version_id).toBeTruthy();
+    const r2 = await import('./lib/r2.js');
+    const store = spyOn(r2, 'attachmentsStore').mockImplementation(() => {
+      throw new Error('Storage unavailable');
+    });
+    try {
+      expect((await request('/' + sourceId + '/refresh', 'POST', {})).status).toBe(422);
+      const detail = (await (await request('/' + sourceId)).json()) as SourceDetail;
+      expect(detail.source.error).toBe('Could not read the file. Check its format and try again.');
+      expect(detail.source.approved_version_id).toBeTruthy();
+    } finally {
+      store.mockRestore();
+    }
+  });
+  it('disables URL imports and scheduled checks without deleting historical content', async () => {
+    const { saveKnowledgeVersion, refreshDueKnowledgeSources, refreshKnowledgeSource } =
+      await import('./lib/knowledge-sources.js');
+    const extraction = await import('./lib/knowledge-import.js');
+    const fetchPage = spyOn(extraction, 'fetchKnowledgePage');
+    const [legacy] = await sql`insert into knowledge_sources(workspace_id,kind,title,locator,fingerprint,auto_refresh)
+      values(${ws},'url','Legacy policy','https://example.com/policy','legacy-url',true) returning id`;
+    await saveKnowledgeVersion(ws, legacy.id, { body: 'Historical policy.', warnings: [] });
+    const [version] = await sql`select latest_version_id as id from knowledge_sources where id=${legacy.id}`;
+    const [article] = await sql`insert into kb_articles(workspace_id,display_id,title,body,status)
+      values(${ws},'KB-legacy','Legacy policy','Historical policy.','published') returning id`;
+    await sql`update knowledge_sources set article_id=${article.id},approved_version_id=${version.id},next_check_at=now()-interval '1 hour'
+      where id=${legacy.id}`;
+    try {
+      const created = await request('', 'POST', {
+        title: 'New URL', category: 'General', language: 'en', jurisdiction: '',
+        url: 'https://example.com/new', auto_refresh: true,
+      });
+      expect(created.status).toBe(400);
+      expect(await created.json()).toEqual({ error: 'Upload a supported file up to 20 MB.' });
+      const list = await (await request('', 'GET')).json() as { sources: { id: string }[] };
+      expect(list.sources.some((s) => s.id === legacy.id)).toBe(false);
+      expect(list.sources.some((s) => s.id === sourceId)).toBe(true);
+      expect((await request('/' + legacy.id)).status).toBe(404);
+      expect((await request('/' + legacy.id + '/refresh', 'POST', {})).status).toBe(404);
+      expect((await request('/' + legacy.id, 'PATCH', { auto_refresh: true })).status).toBe(404);
+      expect((await request('/' + legacy.id + '/publish', 'POST', { version_id: version.id })).status).toBe(404);
+      expect(await refreshKnowledgeSource(ws, legacy.id)).toBe(false);
+      expect(await refreshDueKnowledgeSources()).toEqual({ processed: 0, failed: 0 });
+      expect(fetchPage).not.toHaveBeenCalled();
+      expect((await request('/' + legacy.id, 'DELETE')).status).toBe(204);
+      const [saved] = await sql`select article_id,approved_version_id,lease_until from knowledge_sources where id=${legacy.id}`;
+      expect(saved.article_id).toBe(article.id);
+      expect(saved.approved_version_id).toBe(version.id);
+      expect(saved.lease_until).toBeNull();
+      const [body] = await sql`select body from kb_articles where id=${article.id}`;
+      expect(body.body).toBe('Historical policy.');
+    } finally {
+      fetchPage.mockRestore();
+    }
   });
   it('deletion is tenant scoped and enqueues private file cleanup', async () => {
     const [f] =

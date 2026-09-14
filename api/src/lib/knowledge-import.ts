@@ -9,10 +9,13 @@ import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
 
 export const MAX_KNOWLEDGE_BYTES = 20 * 1024 * 1024;
 export type Extracted = { body: string; warnings: string[] };
+const websiteAccessRefused =
+  'This website refused Respovia access (HTTP 403). Try again later, or save the page as a PDF and upload it.';
 // Exact application-authored messages only; never expose arbitrary parser,
 // storage or network errors (which can contain paths, credentials or URLs).
 const publicErrors = new Set([
-  'Document extraction is busy. Try Refresh now shortly.',
+  websiteAccessRefused,
+  'Document extraction is busy. Try reprocessing the file shortly.',
   'Extraction timed out. Split the file into smaller parts.',
   'Document extraction is unavailable on this server.',
   'Extracted content is too large.',
@@ -46,7 +49,7 @@ export function publicKnowledgeError(error: unknown): string {
         error.message,
       ))
     ? error.message
-    : 'Could not read the source. Check the URL or file and try again.';
+    : 'Could not read the file. Check its format and try again.';
 }
 export function normalizeKnowledgeHtml(bytes: Uint8Array, contentType = ''): Uint8Array {
   // Honour a BOM first, then HTTP charset, then an HTML charset declaration.
@@ -115,7 +118,9 @@ export async function fetchKnowledgePage(raw: string): Promise<Uint8Array> {
     ) {
       await res.body?.cancel();
       throw new Error(
-        `Website could not be imported (HTTP ${res.status}). Use a public HTML page.`,
+        res.status === 403
+          ? websiteAccessRefused
+          : `Website could not be imported (HTTP ${res.status}). Use a public HTML page.`,
       );
     }
     const reader = res.body?.getReader();
@@ -147,7 +152,7 @@ export async function extractKnowledge(bytes: Uint8Array, extension: string): Pr
   // several workspaces to exhaust the API host; the saved source can be retried.
   const document = extension !== 'html';
   if (document && documentExtractions >= 2)
-    throw new Error('Document extraction is busy. Try Refresh now shortly.');
+    throw new Error('Document extraction is busy. Try reprocessing the file shortly.');
   if (document) documentExtractions++;
   let dir: string | undefined;
   try {

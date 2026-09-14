@@ -214,7 +214,7 @@ export function renderKB() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Knowledge Base</div>
-        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Website & file sources</button>` : ''}
+        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Uploaded files</button>` : ''}
         ${admin ? `<button class="btn btn-solid btn-sm" data-action="kb.new">+ New Article</button>` : ''}
       </div>
       <div class="kb-layout">
