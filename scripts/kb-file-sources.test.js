@@ -2,26 +2,52 @@
 import { test, expect, mock } from 'bun:test';
 
 const actions = {};
-let modal, uploaded, sources = [], source;
-let active = true, releaseUpload;
-const dialog = { classList: { add() {} }, setAttribute() {}, querySelector: () => ({ focus() {} }) };
+let modal,
+  uploaded,
+  sources = [],
+  source;
+let active = true,
+  releaseUpload;
+const dialog = {
+  classList: { add() {} },
+  setAttribute() {},
+  querySelector: () => ({ focus() {} }),
+};
 globalThis.window = { escHtml: String, escAttr: String };
 globalThis.document = {
   getElementById: (id) => ({
-    value: { 'ks-title': 'Policy', 'ks-category': 'General', 'ks-language': 'en' }[id],
+    value: {
+      'ks-title': 'Policy',
+      'ks-category': 'General',
+      'ks-language': 'en',
+      'ks-url': 'https://example.com/policy',
+    }[id],
     files: [new File(['policy'], 'policy.pdf')],
     isConnected: true,
-    focus() {}, closest: () => dialog,
+    focus() {},
+    closest: () => dialog,
   }),
 };
 mock.module('../web/js/core/api-client.js', () => ({
-  getJwt: () => 'session', getWorkspaceId: () => 'workspace',
-  apiGet: async (path) => path.endsWith('/knowledge-sources')
-    ? { sources } : { source, versions: [] },
-  apiPost() {}, apiDelete() {},
+  getJwt: () => 'session',
+  getWorkspaceId: () => 'workspace',
+  apiGet: async (path) =>
+    path.endsWith('/knowledge-sources') ? { sources } : { source, versions: [] },
+  apiPost: async (path, input) => {
+    uploaded = { path, input };
+    source = { id: 'url', kind: 'url', title: 'Policy', locator: input.url };
+    return { source };
+  },
+  apiPatch: async (path, input) => {
+    uploaded = { path, input };
+  },
+  apiDelete() {},
   apiCall: async (path, options) => {
     uploaded = { ...options, path };
-    if (releaseUpload) await new Promise((resolve) => { releaseUpload = resolve; });
+    if (releaseUpload)
+      await new Promise((resolve) => {
+        releaseUpload = resolve;
+      });
     source = { id: 'file', kind: 'file', title: 'Policy' };
     return { source };
   },
@@ -29,12 +55,17 @@ mock.module('../web/js/core/api-client.js', () => ({
 mock.module('../web/js/kb/file-picker.js', () => ({
   knowledgeFilePickerHtml: () => '<input type="file">',
   attachKnowledgeFilePicker: () => ({
-    getFile: () => new File(['policy'], 'policy.pdf'), setBusy() {}, isActive: () => active,
+    getFile: () => new File(['policy'], 'policy.pdf'),
+    setBusy() {},
+    isActive: () => active,
   }),
 }));
 mock.module('../web/js/core/modal.js', () => ({
-  showModal: (title, body, submit) => { modal = { title, body, submit }; },
-  closeModal() {}, showDangerConfirm() {},
+  showModal: (title, body, submit) => {
+    modal = { title, body, submit };
+  },
+  closeModal() {},
+  showDangerConfirm() {},
 }));
 mock.module('../web/js/core/event-delegation.js', () => ({
   registerActions: (registered) => Object.assign(actions, registered),
@@ -44,22 +75,42 @@ mock.module('../web/js/core/bootstrap.js', () => ({ loadWorkspaceData() {} }));
 mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
 const { openKnowledgeSources } = await import('../web/js/kb/sources.js');
 
-test('file management hides legacy website sources, even with an older API response', async () => {
-  const legacy = { id: 'url', kind: 'url', title: 'Old website', locator: 'https://example.com', auto_refresh: true };
-  sources = [legacy, { id: 'file', kind: 'file', title: 'Policy', locator: 'policy.pdf' }];
+test('source management exposes websites and retains file controls', async () => {
+  const website = {
+    id: 'url',
+    kind: 'url',
+    title: 'Website',
+    locator: 'https://example.com',
+    auto_refresh: false,
+  };
+  sources = [website, { id: 'file', kind: 'file', title: 'Policy', locator: 'policy.pdf' }];
   await openKnowledgeSources();
-  expect(modal.title).toBe('Uploaded files');
+  expect(modal.title).toBe('Knowledge sources');
   expect(modal.body).toContain('policy.pdf');
-  expect(modal.body).not.toMatch(/Old website|https:|hourly|ks\.url|ks\.auto/);
-  expect(actions['ks.url']).toBeUndefined();
-  expect(actions['ks.auto']).toBeUndefined();
-  sources = [legacy];
-  await openKnowledgeSources();
-  expect(modal.body).toContain('No files yet. Upload a file to get started.');
-  source = legacy;
-  const previous = modal;
+  expect(modal.body).toContain('Website');
+  expect(modal.body).toContain('Enable hourly checks');
+  expect(modal.body).toContain('Replace file');
+  source = website;
   await actions['ks.review']({ id: 'url' });
-  expect(modal).toBe(previous);
+  expect(modal.body).toContain('https://example.com');
+  expect(modal.body).toContain('Refresh now');
+  expect(modal.body).not.toMatch(/Download original|Replace file/);
+});
+
+test('website form submits JSON with automatic checks off by default', async () => {
+  actions['ks.url']();
+  expect(modal.title).toBe('Add website page');
+  expect(modal.body).toContain('ks-url');
+  expect(modal.body).not.toContain('type="file"');
+  await modal.submit();
+  expect(uploaded.input.url).toBe('https://example.com/policy');
+  expect(uploaded.input.auto_refresh).toBe(false);
+  expect(modal.title).toBe('Review: Policy');
+  await actions['ks.auto']({ id: 'url', enabled: 'true' });
+  expect(uploaded).toEqual({
+    path: '/api/v1/knowledge-sources/url',
+    input: { auto_refresh: true },
+  });
 });
 
 test('file form uploads multipart data and opens the file review', async () => {

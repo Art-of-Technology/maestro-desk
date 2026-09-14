@@ -52,7 +52,7 @@ export function publicKnowledgeError(error: unknown): string {
         error.message,
       ))
     ? error.message
-    : 'Could not read the file. Check its format and try again.';
+    : 'Could not read the source. Check the URL or file and try again.';
 }
 export function normalizeKnowledgeHtml(bytes: Uint8Array, contentType = ''): Uint8Array {
   // Honour a BOM first, then HTTP charset, then an HTML charset declaration.

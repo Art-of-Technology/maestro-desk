@@ -1,6 +1,7 @@
 import {
   apiGet,
   apiPost,
+  apiPatch,
   apiDelete,
   apiCall,
   getWorkspaceId,
@@ -29,13 +30,13 @@ async function perform(fn) {
     busy = false;
   }
 }
-function fields() {
-  return `<p>Upload a PDF, Word document, PowerPoint or image. Review the extracted text before publishing.</p>
+function fields(website = false) {
+  return `<p>${website ? 'Import one public HTTPS page, then review the text before publishing. Hourly checks are optional.' : 'Upload a PDF, Word document, PowerPoint or image. Review the extracted text before publishing.'}</p>
     <div class="form-row"><label for="ks-title" class="form-label">Article title</label><input id="ks-title" class="form-input" maxlength="300" required></div>
     <div class="form-row"><label for="ks-category" class="form-label">Category</label><input id="ks-category" class="form-input" value="Withdrawals" maxlength="100"></div>
     <div class="form-row"><label for="ks-language" class="form-label">Language code</label><input id="ks-language" class="form-input" value="en" placeholder="en or es-MX"></div>
     <div class="form-row"><label for="ks-region" class="form-label">Jurisdiction</label><input id="ks-region" class="form-input" maxlength="100" placeholder="For example, Mexico"></div>
-    ${knowledgeFilePickerHtml()}
+    ${website ? '<div class="form-row"><label for="ks-url" class="form-label">Public page URL</label><input id="ks-url" class="form-input" type="url" maxlength="2048" placeholder="https://…" required></div><label><input id="ks-auto" type="checkbox"> Check for changes hourly</label>' : knowledgeFilePickerHtml()}
     <p id="ks-progress" role="status"></p>`;
 }
 function newSource(source = null) {
@@ -78,14 +79,23 @@ function newSource(source = null) {
           const form = new FormData();
           if (!source) for (const [key, value] of Object.entries(input)) form.set(key, value);
           form.set('file', file);
-          result = await apiCall(source ? `/api/v1/knowledge-sources/${source.id}/replace` : '/api/v1/knowledge-sources', { method: 'POST', form });
+          result = await apiCall(
+            source ? `/api/v1/knowledge-sources/${source.id}/replace` : '/api/v1/knowledge-sources',
+            { method: 'POST', form },
+          );
         } finally {
           if (progress) progress.textContent = '';
           picker.setBusy(false);
           if (confirm) confirm.disabled = false;
         }
         if (started !== scope() || !progress?.isConnected) return;
-        if (result.duplicate) showToast(source ? 'This file is already current. Opening its review.' : 'This source already exists. Opening its review.', 'info');
+        if (result.duplicate)
+          showToast(
+            source
+              ? 'This file is already current. Opening its review.'
+              : 'This source already exists. Opening its review.',
+            'info',
+          );
         await reviewSource(result.source.id);
       }),
     'Import for review',
@@ -97,34 +107,90 @@ function newSource(source = null) {
   dialog.classList.add('ks-upload-modal');
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
-  dialog.setAttribute('aria-label', source ? `Replace file: ${source.title}` : 'Upload knowledge file');
+  dialog.setAttribute(
+    'aria-label',
+    source ? `Replace file: ${source.title}` : 'Upload knowledge file',
+  );
   confirm = dialog.querySelector('[data-action="modal.confirm"]');
-  (document.getElementById('ks-title') || dialog.querySelector('[data-action="ks.choose"]'))?.focus();
+  (
+    document.getElementById('ks-title') || dialog.querySelector('[data-action="ks.choose"]')
+  )?.focus();
+}
+function newWebsite() {
+  if (!getJwt() || !getWorkspaceId()) {
+    showToast('Sign in to import knowledge.', 'warn');
+    return;
+  }
+  const started = scope();
+  let root, confirm;
+  showModal(
+    'Add website page',
+    fields(true),
+    () =>
+      perform(async () => {
+        if (started !== scope() || !root?.isConnected) return;
+        const value = (id) => document.getElementById(id)?.value?.trim() || '';
+        const input = {
+          title: value('ks-title'),
+          category: value('ks-category'),
+          language: value('ks-language'),
+          jurisdiction: value('ks-region'),
+          url: value('ks-url'),
+          auto_refresh: document.getElementById('ks-auto')?.checked === true,
+        };
+        if (!input.title || !input.category || !input.language || !input.url) {
+          showToast('Add a title, category, language and page URL.', 'warn');
+          return;
+        }
+        const progress = document.getElementById('ks-progress');
+        if (progress) progress.textContent = 'Reading page… This can take up to 90 seconds.';
+        if (confirm) confirm.disabled = true;
+        let result;
+        try {
+          result = await apiPost('/api/v1/knowledge-sources', input);
+        } finally {
+          if (progress) progress.textContent = '';
+          if (confirm) confirm.disabled = false;
+        }
+        if (started !== scope() || !root.isConnected) return;
+        if (result.duplicate) showToast('This source already exists. Opening its review.', 'info');
+        await reviewSource(result.source.id);
+      }),
+    'Import for review',
+    true,
+  );
+  root = document.getElementById('ks-url');
+  const dialog = root.closest('.modal');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-label', 'Add website page');
+  confirm = dialog.querySelector('[data-action="modal.confirm"]');
+  document.getElementById('ks-title')?.focus();
 }
 export async function openKnowledgeSources() {
   const started = scope();
   const { sources } = await apiGet('/api/v1/knowledge-sources');
   if (started !== scope()) return;
   showModal(
-    'Uploaded files',
-    `<p>Use Replace file when your content changes, or upload a file for a new article. Published articles stay available while you review.</p>
-    <button class="btn btn-sm" data-action="ks.file">Upload file</button>
+    'Knowledge sources',
+    `<p>Add a website page or upload a file. Review changes before publishing. Published articles stay available if a check fails.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-action="ks.url">Add website page</button><button class="btn btn-sm" data-action="ks.file">Upload file</button></div>
     ${
       sources
-        .filter((s) => s.kind === 'file')
+        .filter((s) => s.kind === 'file' || s.kind === 'url')
         .map(
           (
             s,
           ) => `<section style="padding:16px 0;border-bottom:1px solid var(--rule)"><h3>${esc(s.title)}</h3>
       <p style="overflow-wrap:anywhere">${esc(s.locator)} · ${esc(s.language)} · ${esc(s.jurisdiction || 'Jurisdiction not specified')}</p>
-      <p>${s.error ? 'Processing failed' : s.latest_version_id ? (s.needs_review ? 'Ready for review' : 'Published') : 'Awaiting import'} · Last processed: ${esc(date(s.checked_at))}</p>
+      <p>${s.error ? 'Processing failed' : s.latest_version_id ? (s.needs_review ? 'Ready for review' : 'Published') : 'Awaiting import'} · Last successful check: ${esc(date(s.checked_at))}</p>
       ${s.error ? `<p role="status">${esc(s.error)}</p>` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-action="ks.review" data-id="${attr(s.id)}">Review & history</button>
-      <button class="btn btn-sm" data-action="ks.replace" data-id="${attr(s.id)}">Replace file</button>
-      <button class="btn btn-sm" data-action="ks.refresh" data-id="${attr(s.id)}">Reprocess file</button>
+      ${s.kind === 'file' ? `<button class="btn btn-sm" data-action="ks.replace" data-id="${attr(s.id)}">Replace file</button>` : `<button class="btn btn-sm" data-action="ks.auto" data-id="${attr(s.id)}" data-enabled="${s.auto_refresh ? 'false' : 'true'}">${s.auto_refresh ? 'Pause hourly checks' : 'Enable hourly checks'}</button>`}
+      <button class="btn btn-sm" data-action="ks.refresh" data-id="${attr(s.id)}">${s.kind === 'url' ? 'Refresh now' : 'Reprocess file'}</button>
       <button class="btn btn-sm" data-action="ks.remove" data-id="${attr(s.id)}">Remove</button></div></section>`,
         )
-        .join('') || '<p>No files yet. Upload a file to get started.</p>'
+        .join('') || '<p>No sources yet. Add a website page or upload a file.</p>'
     }`,
     null,
     '',
@@ -135,18 +201,13 @@ async function reviewSource(id, versionId) {
   const started = scope();
   const { source: s, versions } = await apiGet(`/api/v1/knowledge-sources/${id}`);
   if (started !== scope()) return;
-  if (s.kind !== 'file') {
-    showToast('Uploaded file not found.', 'error');
-    return;
-  }
   const v = versions.find((v) => v.id === (versionId || s.latest_version_id)) || versions[0];
   const approved = versions.find((v) => v.id === s.approved_version_id);
   showModal(
     `Review: ${s.title}`,
-    `<p>${esc(s.language)} · ${esc(s.jurisdiction || 'Jurisdiction not specified')} · Last processed: ${esc(date(s.checked_at))}</p>
+    `<p>${esc(s.language)} · ${esc(s.jurisdiction || 'Jurisdiction not specified')} · Last successful check: ${esc(date(s.checked_at))}</p>
     ${s.error ? `<p role="status">${esc(s.error)}</p>` : ''}
-    <button class="btn btn-sm" data-action="ks.download" data-id="${attr(id)}">Download original</button>
-    <button class="btn btn-sm" data-action="ks.replace" data-id="${attr(id)}">Replace file</button>
+    ${s.kind === 'file' ? `<button class="btn btn-sm" data-action="ks.download" data-id="${attr(id)}">Download original</button><button class="btn btn-sm" data-action="ks.replace" data-id="${attr(id)}">Replace file</button>` : `<p style="overflow-wrap:anywhere">Source URL: ${esc(s.locator)}</p><button class="btn btn-sm" data-action="ks.refresh" data-id="${attr(id)}">Refresh now</button>`}
     ${
       v
         ? `<p>${v.id === s.approved_version_id ? 'This version is published.' : 'Review this version before publishing. Publishing replaces this source’s article.'}</p>
@@ -155,7 +216,7 @@ async function reviewSource(id, versionId) {
       <textarea id="ks-extracted" class="form-input" readonly style="height:280px">${esc(v.body)}</textarea>
       ${approved && approved.id !== v.id ? `<details><summary>Compare with published version</summary><pre style="white-space:pre-wrap;max-height:250px;overflow:auto">${esc(approved.body)}</pre></details>` : ''}
       <h3>Version history</h3>${versions.map((item) => `<button class="btn btn-sm" data-action="ks.review" data-id="${attr(id)}" data-version="${attr(item.id)}">${esc(date(item.created_at))}${item.id === s.approved_version_id ? ' · published' : ''}</button>`).join('')}`
-        : '<p>No extracted content is available. Try reprocessing the file or upload another file.</p>'
+        : '<p>No extracted content is available. Refresh the website or reprocess the file from Knowledge sources.</p>'
     }`,
     v
       ? () =>
@@ -175,20 +236,28 @@ async function reviewSource(id, versionId) {
 }
 registerActions({
   'ks.open': () => perform(openKnowledgeSources),
+  'ks.url': () => newWebsite(),
+  'ks.auto': (ds) =>
+    perform(async () => {
+      const started = scope();
+      await apiPatch(`/api/v1/knowledge-sources/${ds.id}`, { auto_refresh: ds.enabled === 'true' });
+      if (started === scope()) await openKnowledgeSources();
+    }),
   'ks.file': () => newSource(),
   'ks.choose': () => document.getElementById('ks-file')?.click(),
-  'ks.replace': (ds) => perform(async () => {
-    const started = scope();
-    const { source } = await apiGet(`/api/v1/knowledge-sources/${ds.id}`);
-    if (started !== scope()) return;
-    if (source.kind !== 'file') throw new Error('Uploaded file not found.');
-    newSource(source);
-  }),
+  'ks.replace': (ds) =>
+    perform(async () => {
+      const started = scope();
+      const { source } = await apiGet(`/api/v1/knowledge-sources/${ds.id}`);
+      if (started !== scope()) return;
+      if (source.kind !== 'file') throw new Error('Uploaded file not found.');
+      newSource(source);
+    }),
   'ks.review': (ds) => perform(() => reviewSource(ds.id, ds.version)),
   'ks.refresh': (ds) =>
     perform(async () => {
       const started = scope();
-      showToast('Processing file…', 'info');
+      showToast('Checking source…', 'info');
       await apiPost(`/api/v1/knowledge-sources/${ds.id}/refresh`, {});
       if (started === scope()) await openKnowledgeSources();
     }),
@@ -209,7 +278,7 @@ registerActions({
     showDangerConfirm({
       title: 'Remove knowledge source?',
       bodyHtml:
-        '<p>This removes the source, its versions and its published article. The original file will be scheduled for deletion.</p>',
+        '<p>This removes the source, its versions and its published article. Any uploaded original file will be scheduled for deletion.</p>',
       onConfirm: () =>
         perform(async () => {
           if (started !== scope()) return;
