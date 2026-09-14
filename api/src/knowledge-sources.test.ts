@@ -312,7 +312,7 @@ db('knowledge source lifecycle and isolation', () => {
   });
   it('migration pauses legacy schedules without changing saved content', async () => {
     const migration = await Bun.file(
-      new URL('../../db/migrations/20260914160000_resume_website_knowledge.sql', import.meta.url),
+      new URL('../../db/migrations/20260914170000_resume_website_knowledge.sql', import.meta.url),
     ).text();
     const rollback = new Error('test rollback');
     try {

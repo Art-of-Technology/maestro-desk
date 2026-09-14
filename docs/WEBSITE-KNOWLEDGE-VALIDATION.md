@@ -6,7 +6,7 @@
 
 - Public HTTPS pages can be imported, refreshed, reviewed and explicitly published.
 - Existing website source records and version histories are visible again.
-- New sources default to manual checks. Migration 20260914160000 pauses legacy URL schedules; an administrator must enable hourly checks explicitly.
+- New sources default to manual checks. Migration 20260914170000 pauses legacy URL schedules; an administrator must enable hourly checks explicitly.
 - Scheduled claims recheck opt-in, due time and the existing lease before fetching. Updated text never automatically overwrites a published article.
 - File upload, drag-and-drop, replacement, private download and cleanup remain supported.
 
@@ -14,10 +14,10 @@
 
 - TypeScript check passed; frontend bundle, bridge collision, import audit and header parity passed.
 - All 24 route and 7 ticket-detail smokes passed.
-- Full API suite: 687 tests passed, 0 failures, 3300 assertions; PostgreSQL 17.
+- Full API suite: 696 tests passed, 0 failures, 3423 assertions; PostgreSQL 17.
 - Focused fetch/lifecycle suite: 17 tests and 147 assertions, including redirects, private-address rejection, non-HTML/oversized pages, 403 handling, URL deduplication, opt-in scheduling, tenant isolation and migration preservation.
 - Frontend source, file-picker, persistence and draft-routing tests passed.
-- Fresh apply of all 95 migrations under Node passed. Migration regression preserves saved policy text while pausing old schedules.
+- Fresh apply of all 96 migrations under Node passed. Migration regression preserves saved policy text while pausing old schedules.
 - Production Dockerfile builds. A Node container using the real API routes, real HTTPS fetch and Python extractor imported SpaceCasino's terms URL into an isolated test workspace: HTTP 201, one review version, 39,258 characters, unpublished, automatic checks off. Synthetic workspace and user cleaned up.
 - This live request used the local Docker host's connection. It does not establish Dokploy egress access or deployed behavior.
 
@@ -73,3 +73,7 @@ Loading, empty, failure and review states exist in source and behavior tests. Re
 ## Remediation plan
 
 Verify the form in the deployed UI during rollout. No redesign included.
+
+## Octopus follow-up
+
+Initial review scored 4/5. After merging current main, renamed the website migration to 20260914170000 to avoid the email-monitor timestamp, updated its regression test, and replaced any-typed mocks with typed DNS overloads and undici Responses. Fresh PostgreSQL 17 apply of all 96 migrations, typecheck, full 696-test API suite and 24-route/7-detail smokes passed.
