@@ -46,11 +46,24 @@ const STATE = {
   addDomainResult: null, // last successful add { domain, dns_setup }
   // Per-domain action state (verifying / deleting / verify result)
   domainAction: {}, // { [domainId]: { pending: bool, error: string|null, dns: {} | null } }
+  emailUsage: null,
+  emailUsageLoading: false,
+  emailUsageFetched: 0,
+  emailUsageError: false,
 };
+
+// Refresh the cached status while the admin panel is visible. Reads never
+// trigger provider calls or send alerts; the hourly server job owns those.
+const usagePoll = setInterval(() => {
+  if (document.body.dataset.currentPage === 'god') void refreshEmailUsage();
+}, 60_000);
+// Node/Bun smoke runners should not be kept alive by a browser UI timer.
+usagePoll?.unref?.();
 
 // ─── Entry point (called from app.js renderPage) ──────────────────────────
 
 export function renderGod() {
+  if (Date.now() - STATE.emailUsageFetched > 60_000) void refreshEmailUsage();
   // Entering the god panel = leaving any in-progress workspace context.
   // Clear workspace_id so a refresh-from-god lands back on god (via the
   // platform-admin auto-resume) rather than slipping into the agent
@@ -95,9 +108,55 @@ function renderHtml() {
         </div>
       </div>
       <div class="page-scroll">
+        ${renderEmailUsage()}
         ${STATE.view === 'list' ? renderList() : renderDetail()}
       </div>
     </div>`;
+}
+
+function renderEmailUsage() {
+  const usage = STATE.emailUsage;
+  const labels = { unconfigured: 'Setup needed', pending: 'Waiting for first check',
+    unavailable: 'Check failed', stale: 'Count is outdated', warning: 'Usage warning', current: 'Up to date' };
+  const state = usage?.state;
+  const snapshot = usage?.snapshot;
+  const number = value => Number(value).toLocaleString();
+  return `<section id="email-usage-summary" class="card" aria-label="Email usage" style="padding:16px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <strong>Email usage</strong>
+      <span role="status">${STATE.emailUsageError ? 'Status unavailable' : labels[state] || 'Loading status…'}</span>
+    </div>
+    ${snapshot ? `<p style="margin:12px 0"><strong>${number(snapshot.total)} / ${number(snapshot.allowance)}</strong> estimated emails
+      ${snapshot.threshold ? ` · ${number(snapshot.threshold)}% threshold reached` : ''}</p>
+      <p style="font-size:12px;color:var(--ink2)">${number(snapshot.inbound)} incoming · ${number(snapshot.outbound)} outgoing · ${number(snapshot.servers)} servers<br>
+      Cycle: ${escAttr(snapshot.start)} to ${escAttr(snapshot.end)} (Eastern time). Last checked: ${escAttr(new Date(usage.checked_at).toLocaleString())}.</p>` : ''}
+    ${state === 'unconfigured' ? '<p>Set the allowance and renewal day to enable monitoring.</p>' : ''}
+    ${state === 'pending' ? '<p>The hourly check has not completed yet.</p>' : ''}
+    ${state === 'stale' || state === 'unavailable' || STATE.emailUsageError ? '<p role="alert">Current usage is unknown. Check Postmark before relying on the previous count.</p>' : ''}
+    <p style="font-size:12px;color:var(--ink2)">Includes available incoming and outgoing records across this Postmark account. Deleted servers or expired records can make the estimate lower than billed usage. Paid-plan overages may apply; reaching the allowance does not mean email will stop.</p>
+    <p style="font-size:12px">${usage ? (usage.slack_configured ? 'Slack destination configured for 80%, 90% and 100% warnings.' : 'Slack warnings are not configured. Usage warnings appear here.') : ''}
+      <a href="https://account.postmarkapp.com/account/subscription" target="_blank" rel="noopener noreferrer">View Postmark plan</a></p>
+  </section>`;
+}
+
+async function refreshEmailUsage() {
+  if (STATE.emailUsageLoading) return;
+  STATE.emailUsageLoading = true;
+  try {
+    STATE.emailUsage = await apiGet('/api/v1/god/email-usage');
+    STATE.emailUsageError = false;
+  } catch {
+    STATE.emailUsage = null;
+    STATE.emailUsageError = true;
+  } finally {
+    STATE.emailUsageFetched = Date.now();
+    STATE.emailUsageLoading = false;
+    // Do not rebuild the brand form and discard unsaved edits on a timer.
+    if (document.body.dataset.currentPage === 'god') {
+      const panel = document.getElementById('email-usage-summary');
+      if (panel && !panel.contains(document.activeElement)) panel.outerHTML = renderEmailUsage();
+    }
+  }
 }
 
 function renderList() {
@@ -310,6 +369,7 @@ function dnsRow(label, rec) {
 // ─── Data loaders ─────────────────────────────────────────────────────────
 
 async function refreshList() {
+  void refreshEmailUsage();
   STATE.brandsLoading = true;
   STATE.brandsError = null;
   reRender();

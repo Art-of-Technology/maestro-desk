@@ -45,6 +45,10 @@ const Env = z.object({
   // domains row but skips Postmark provisioning; the brand can re-trigger
   // via POST /api/v1/god/brands/:id/domains/:domainId/verify once configured.
   POSTMARK_ACCOUNT_TOKEN: z.string().default(''),
+  EMAIL_USAGE_ALLOWANCE: z.coerce.number().int().positive().default(10000),
+  // Zero leaves monitoring unconfigured until the actual renewal day is known.
+  EMAIL_USAGE_RENEWAL_DAY: z.coerce.number().int().min(0).max(31).default(0),
+  EMAIL_USAGE_SLACK_WEBHOOK_URL: z.string().url().optional(),
   // Postmark inbound stream address — set as Reply-To on outbound so
   // customer replies route back through the webhook (closing the loop).
   // Find under Postmark → Servers → <server> → Default Inbound Stream →
