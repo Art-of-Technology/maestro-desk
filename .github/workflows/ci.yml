@@ -68,6 +68,7 @@ jobs:
         run: |
           bun test scripts/kb-persistence.test.js
           bun test scripts/kb-draft-routing.test.js
+          bun test scripts/kb-file-sources.test.js
 
       # The SPA's security headers exist twice while both hosts do (Vercel
       # hosting config + the self-hosted nginx image) — hand-editing one file
