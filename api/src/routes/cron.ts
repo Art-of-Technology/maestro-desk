@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { runEmailUsageJob } from '../lib/email-usage.js';
 import { env, isLocalDev } from '../lib/env.js';
 import { verifyAuditChainsFull } from '../lib/audit-verify.js';
 import {
@@ -43,6 +44,11 @@ cron.use('*', async (c, next) => {
     return c.json({ error: 'Unauthorized' }, 401);
   }
   await next();
+});
+
+cron.get('/email-usage', async c => {
+  try { return c.json(await runEmailUsageJob()); }
+  catch { return c.json({ ok: false, error: 'Email usage check failed.' }, 500); }
 });
 
 // The job bodies live in lib/cron-jobs.ts, shared with the self-hosted CLI
