@@ -142,6 +142,18 @@
 .qs-empty{padding:30px 18px;color:var(--ink3);font-size:12px;text-align:center;font-style:italic}
 .modal{background:var(--off);border:1px solid var(--rule2);border-radius:var(--r2);width:520px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 24px rgba(19,14,48,0.10)}
 .modal-lg{width:720px}
+.ks-upload-modal .modal-body>p{margin-bottom:16px}
+.ks-upload-modal .btn{min-height:44px}
+.ks-upload-modal .btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.ks-current-file{overflow-wrap:anywhere}
+.ks-picker{margin:16px 0}
+.ks-drop-zone{display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px 16px;border:2px dashed var(--ink3);border-radius:var(--r);background:var(--w);text-align:center;color:var(--ink2)}
+.ks-drop-zone.is-dragging{border-style:solid;border-color:var(--ink);background:var(--off2)}
+.ks-picker[aria-busy="true"] .ks-drop-zone{opacity:.7}
+#ks-file-selection{max-width:100%;overflow-wrap:anywhere;color:var(--ink);font-weight:600}
+#ks-file-help{margin-top:12px;color:var(--ink2);font-size:12px;line-height:1.6}
+.ks-file-error{margin-top:8px;color:var(--red);font-size:13px}
+.ks-file-error:empty{margin:0}
 .modal-head{padding:16px 20px;border-bottom:1px solid var(--rule);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .modal-title{font-family:var(--font-sans);font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.025em}
 .modal-close{cursor:pointer;color:var(--ink3);font-size:18px;line-height:1;padding:2px 6px;border-radius:var(--r)}

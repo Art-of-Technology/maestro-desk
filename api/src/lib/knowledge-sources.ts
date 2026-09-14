@@ -13,37 +13,40 @@ export async function saveKnowledgeVersion(
   workspaceId: string,
   sourceId: string,
   extracted: Extracted,
+  leaseToken?: string,
 ) {
   const sql = getDb();
-  await sql.begin(async (tx) => {
+  return sql.begin(async (tx) => {
     const [source] =
-      await tx`select id from knowledge_sources where id=${sourceId} and workspace_id=${workspaceId} for update`;
-    if (!source) throw new Error('Source was removed.');
+      await tx`select id from knowledge_sources where id=${sourceId} and workspace_id=${workspaceId}
+      and (${leaseToken ?? null}::timestamptz is null or (lease_until=${leaseToken ?? null}::timestamptz and lease_until>now())) for update`;
+    if (!source) return false;
     const [version] =
       await tx`insert into knowledge_source_versions(workspace_id,source_id,content_hash,body,warnings)
       values(${workspaceId},${sourceId},${contentHash(extracted.body)},${extracted.body},${tx.json(extracted.warnings)})
       on conflict(source_id,content_hash) do update set content_hash=excluded.content_hash returning id`;
     await tx`update knowledge_sources set latest_version_id=${version.id},checked_at=now(), next_check_at=now()+interval '1 hour',error=null,lease_until=null
       where id=${sourceId} and workspace_id=${workspaceId}`;
+    return true;
   });
 }
 export async function refreshKnowledgeSource(workspaceId: string, id: string): Promise<boolean> {
   const sql = getDb();
-  const [s] = await sql`update knowledge_sources set lease_until=now()+interval '3 minutes'
-    where id=${id} and workspace_id=${workspaceId} and kind='file' and (lease_until is null or lease_until<now()) returning *`;
+  const [s] = await sql`update knowledge_sources set lease_until=date_trunc('milliseconds',now())+interval '3 minutes'
+    where id=${id} and workspace_id=${workspaceId} and kind='file' and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
   if (!s) return false;
   try {
     const bytes = (await attachmentsStore().getObject(s.storage_key)).bytes;
     const extension = String(s.locator).split('.').pop()!.toLowerCase();
-    await saveKnowledgeVersion(workspaceId, id, await extractKnowledge(bytes, extension));
+    return await saveKnowledgeVersion(workspaceId, id, await extractKnowledge(bytes, extension), s.lease_token);
   } catch (error) {
     // Never return raw upstream/parser details containing signed URLs or internal paths.
     const message = publicKnowledgeError(error);
     await sql`update knowledge_sources set error=${message},
-      next_check_at=now()+interval '1 hour',lease_until=null where id=${id} and workspace_id=${workspaceId}`;
+      next_check_at=now()+interval '1 hour',lease_until=null where id=${id} and workspace_id=${workspaceId}
+      and lease_until=${s.lease_token}::timestamptz`;
     throw new Error(message);
   }
-  return true;
 }
 export async function refreshDueKnowledgeSources() {
   // Keep existing scheduler calls compatible while automatic imports are disabled.

@@ -272,6 +272,116 @@ db('knowledge source lifecycle and isolation', () => {
     expect(queued.storage_key).toBe(f.storage_key);
     await sql`delete from pending_object_deletions where storage_key=${f.storage_key}`;
   });
+  it('replaces files atomically, preserves published history, and isolates failures and concurrent work', async () => {
+    const r2 = await import('./lib/r2.js');
+    const extraction = await import('./lib/knowledge-import.js');
+    const { saveKnowledgeVersion, contentHash } = await import('./lib/knowledge-sources.js');
+    let failStorage = false;
+    let pause: (() => void) | undefined;
+    let started: (() => void) | undefined;
+    const keys: string[] = [];
+    const oldKey = `knowledge/${ws}/${sourceId}/old.pdf`;
+    await sql`update knowledge_sources set storage_key=${oldKey},error=null where id=${sourceId} and workspace_id=${ws}`;
+    const [original] = await sql`select * from knowledge_sources where id=${sourceId} and workspace_id=${ws}`;
+    const [originalArticle] = await sql`select body from kb_articles where id=${original.article_id} and workspace_id=${ws}`;
+    const store = spyOn(r2, 'attachmentsStore').mockReturnValue({
+      putObject: async (key) => { keys.push(key); if (failStorage) throw new Error('storage private details'); },
+      getObject: async () => ({ bytes: new Uint8Array(), contentType: 'application/octet-stream' }),
+      deleteKeys: async () => {}, listKeys: async () => [],
+      presignGet: async (key) => `https://example.com/${key}`,
+    });
+    const parse = spyOn(extraction, 'extractKnowledge').mockImplementation(async (bytes) => {
+      const body = new TextDecoder().decode(bytes);
+      if (body === 'bad') throw new Error('This is not a valid PDF.');
+      if (body.startsWith('paused')) await new Promise<void>((resolve) => { pause = resolve; started?.(); });
+      return { body, warnings: [] };
+    });
+    const replace = (body: string, workspace = ws, tok = token, name = 'updated.pdf', multiple = false) => {
+      const form = new FormData();
+      form.set('file', new File([body], name));
+      if (multiple) form.append('file', new File([body], 'extra.pdf'));
+      form.set('title', 'Must not change metadata');
+      return app.request(`/api/v1/knowledge-sources/${sourceId}/replace`, {
+        method: 'POST', headers: { Authorization: `Bearer ${tok}`, 'X-Workspace-Id': workspace }, body: form,
+      });
+    };
+    const clearRate = () => sql`delete from rate_limit_hits where bucket=${'knowledge-import:' + ws}`;
+    const current = async () => (await sql`select * from knowledge_sources where id=${sourceId} and workspace_id=${ws}`)[0];
+    try {
+      expect((await replace('new', other)).status).toBe(404);
+      expect((await replace('new', ws, memberToken)).status).toBe(403);
+      expect((await replace('new', ws, token, 'bad.exe')).status).toBe(400);
+      expect((await replace('new', ws, token, 'updated.pdf', true)).status).toBe(400);
+      expect(parse).not.toHaveBeenCalled();
+      expect((await replace('bad')).status).toBe(422);
+      expect((await current()).storage_key).toBe(oldKey);
+      expect((await current()).latest_version_id).toBe(original.latest_version_id);
+      expect(keys).toHaveLength(0);
+      await clearRate();
+      failStorage = true;
+      const failed = await replace('new');
+      expect(failed.status).toBe(422);
+      expect(JSON.stringify(await failed.json())).not.toContain('private details');
+      expect((await current()).lease_until).toBeNull();
+      expect((await current()).storage_key).toBe(oldKey);
+      const [orphan] = await sql`select storage_key from pending_object_deletions where storage_key=${keys[0]}`;
+      expect(orphan.storage_key).toBe(keys[0]);
+      failStorage = false;
+      expect((await replace('Updated withdrawal policy.')).status).toBe(200);
+      const replaced = await current();
+      expect(replaced.storage_key).not.toBe(oldKey);
+      expect(replaced.locator).toBe('updated.pdf');
+      for (const field of ['title', 'category', 'language', 'jurisdiction', 'article_id', 'approved_version_id'])
+        expect(replaced[field]).toBe(original[field]);
+      expect(replaced.latest_version_id).not.toBe(original.latest_version_id);
+      const [oldVersion] = await sql`select id from knowledge_source_versions where id=${original.latest_version_id} and workspace_id=${ws}`;
+      expect(oldVersion.id).toBe(original.latest_version_id);
+      const [article] = await sql`select body from kb_articles where id=${original.article_id} and workspace_id=${ws}`;
+      expect(article.body).toBe(originalArticle.body);
+      const [cleanup] = await sql`select storage_key from pending_object_deletions where storage_key=${oldKey}`;
+      expect(cleanup.storage_key).toBe(oldKey);
+      const calls = parse.mock.calls.length;
+      expect((await (await replace('Updated withdrawal policy.')).json()) as unknown).toMatchObject({ duplicate: true });
+      expect(parse.mock.calls.length).toBe(calls);
+      const download = await (await request('/' + sourceId + '/download')).json() as { url: string };
+      expect(download.url).toContain(replaced.storage_key);
+      expect((await request('/' + sourceId + '/publish', 'POST', { version_id: replaced.latest_version_id })).status).toBe(200);
+      const [published] = await sql`select body from kb_articles where id=${original.article_id} and workspace_id=${ws}`;
+      expect(published.body).toContain('Updated withdrawal policy.');
+      await clearRate();
+      const duplicateFingerprint = contentHash(`file:${contentHash(new TextEncoder().encode('duplicate'))}:${original.language}:${original.jurisdiction}`);
+      await sql`insert into knowledge_sources(workspace_id,kind,title,locator,fingerprint)
+        values(${ws},'file','Other file','other.pdf',${duplicateFingerprint})`;
+      expect((await replace('duplicate')).status).toBe(409);
+      expect((await current()).storage_key).toBe(replaced.storage_key);
+
+      let entered = new Promise<void>((resolve) => { started = resolve; });
+      const pending = replace('paused concurrent');
+      await entered;
+      expect((await replace('competing')).status).toBe(409);
+      expect((await request('/' + sourceId + '/refresh', 'POST', {})).status).toBe(409);
+      expect((await request('/' + sourceId, 'DELETE')).status).toBe(409);
+      pause!();
+      expect((await pending).status).toBe(200);
+      await clearRate();
+      const beforeStale = await current();
+      entered = new Promise<void>((resolve) => { started = resolve; });
+      const stale = replace('paused stale');
+      await entered;
+      const [lease] = await sql`select lease_until::text as token from knowledge_sources where id=${sourceId} and workspace_id=${ws}`;
+      await sql`update knowledge_sources set lease_until=now()+interval '4 minutes' where id=${sourceId} and workspace_id=${ws}`;
+      pause!();
+      expect((await stale).status).toBe(409);
+      expect((await current()).lease_until).not.toBeNull();
+      expect((await current()).storage_key).toBe(beforeStale.storage_key);
+      expect(await saveKnowledgeVersion(ws, sourceId, { body: 'Stale refresh', warnings: [] }, lease.token)).toBe(false);
+      expect((await current()).latest_version_id).toBe(beforeStale.latest_version_id);
+    } finally {
+      pause?.(); store.mockRestore(); parse.mockRestore();
+      await sql`update knowledge_sources set lease_until=null where id=${sourceId} and workspace_id=${ws}`;
+      for (const key of [oldKey, ...keys]) await sql`delete from pending_object_deletions where storage_key=${key}`;
+    }
+  }, 20000);
   it('uploads privately, previews without publishing, and deduplicates the same file', async () => {
     const r2 = await import('./lib/r2.js');
     const extraction = await import('./lib/knowledge-import.js');

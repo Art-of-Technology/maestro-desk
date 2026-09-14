@@ -14,6 +14,9 @@ const websiteAccessRefused =
 // Exact application-authored messages only; never expose arbitrary parser,
 // storage or network errors (which can contain paths, credentials or URLs).
 const publicErrors = new Set([
+  'Choose one file to upload.',
+  'Choose a non-empty file up to 20 MB.',
+  'Use PNG, JPEG, WebP, PDF, DOCX or PPTX.',
   websiteAccessRefused,
   'Document extraction is busy. Try reprocessing the file shortly.',
   'Extraction timed out. Split the file into smaller parts.',
