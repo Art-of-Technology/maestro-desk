@@ -20,7 +20,7 @@ import { runEmailUsageJob } from './lib/email-usage.js';
 const jobs: Record<string, () => Promise<unknown>> = {
   'email-usage': async () => {
     const result = await runEmailUsageJob();
-    if (!result.ok) throw new Error('Email usage check failed.');
+    if (!result.ok) throw new Error(result.error || 'Email usage check failed.');
     return result;
   },
   'webhook-retry': runWebhookRetryJob,
