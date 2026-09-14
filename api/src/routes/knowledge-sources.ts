@@ -9,6 +9,8 @@ import { contentHash, refreshKnowledgeSource } from '../lib/knowledge-sources.js
 import { attachmentsStore, contentDispositionFor } from '../lib/r2.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { enqueueObjectDeletions } from '../lib/object-outbox.js';
+import { readKnowledgeFile } from '../lib/knowledge-file.js';
+import { replaceKnowledgeFile } from '../lib/knowledge-replacement.js';
 
 export const knowledgeSources = new Hono();
 knowledgeSources.use('*', requireAuth);
@@ -83,22 +85,13 @@ knowledgeSources.post('/', async (c) => {
     bytes: Uint8Array;
   try {
     const form = await c.req.formData();
-    const file = form.get('file');
-    if (!file || typeof file === 'string' || !file.size || file.size > MAX_KNOWLEDGE_BYTES)
-      throw new Error('Choose a file up to 20 MB.');
     metadata = Metadata.parse({
       title: form.get('title'),
       category: form.get('category'),
       language: form.get('language'),
       jurisdiction: form.get('jurisdiction') || '',
     });
-    locator = file.name
-      .replace(/^.*[\\/]/, '')
-      .replace(/[\x00-\x1f]/g, '')
-      .slice(0, 200);
-    if (!/\.(pdf|docx|pptx|png|jpg|jpeg|webp)$/i.test(locator))
-      throw new Error('Use PNG, JPEG, WebP, PDF, DOCX or PPTX.');
-    bytes = new Uint8Array(await file.arrayBuffer());
+    ({ filename: locator, bytes } = await readKnowledgeFile(form));
   } catch {
     return c.json(
       {
@@ -154,6 +147,29 @@ knowledgeSources.post('/', async (c) => {
     await sql`update knowledge_sources set error=${message},lease_until=null
       where id=${id} and workspace_id=${ws}`;
     return c.json({ source: { ...source, error: message } }, 201);
+  }
+});
+knowledgeSources.post('/:id/replace', async (c) => {
+  const id = c.req.param('id');
+  if (!z.string().uuid().safeParse(id).success) return c.json({ error: 'File not found.' }, 404);
+  if (!(c.req.header('content-type') || '').startsWith('multipart/form-data'))
+    return c.json({ error: 'Choose one file to upload.' }, 400);
+  let file: Awaited<ReturnType<typeof readKnowledgeFile>>;
+  try {
+    file = await readKnowledgeFile(await c.req.formData());
+  } catch (error) {
+    return c.json({ error: publicKnowledgeError(error) }, 400);
+  }
+  try {
+    const result = await replaceKnowledgeFile(c.get('workspaceId'), id, file.filename, file.bytes);
+    if (result.status === 'missing') return c.json({ error: 'File not found.' }, 404);
+    if (result.status === 'busy')
+      return c.json({ error: 'This file is being processed or has changed. Reopen it and try again.' }, 409);
+    if (result.status === 'duplicate')
+      return c.json({ error: 'This file already belongs to another knowledge source. Your current file is unchanged.' }, 409);
+    return c.json({ source: { id }, duplicate: result.duplicate });
+  } catch (error) {
+    return c.json({ error: `${publicKnowledgeError(error)} Your published article is unchanged. Reopen the source to check its current file before trying again.` }, 422);
   }
 });
 knowledgeSources.post('/:id/refresh', async (c) => {
