@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { getDb } from './db.js';
 import {
   extractKnowledge,
+  fetchKnowledgePage,
   publicKnowledgeError,
   type Extracted,
 } from './knowledge-import.js';
@@ -30,15 +31,28 @@ export async function saveKnowledgeVersion(
     return true;
   });
 }
-export async function refreshKnowledgeSource(workspaceId: string, id: string): Promise<boolean> {
+export async function refreshKnowledgeSource(
+  workspaceId: string,
+  id: string,
+  scheduled = false,
+): Promise<boolean> {
   const sql = getDb();
-  const [s] = await sql`update knowledge_sources set lease_until=date_trunc('milliseconds',now())+interval '3 minutes'
-    where id=${id} and workspace_id=${workspaceId} and kind='file' and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
+  const [s] =
+    await sql`update knowledge_sources set lease_until=date_trunc('milliseconds',now())+interval '3 minutes'
+    where id=${id} and workspace_id=${workspaceId} and (not ${scheduled} or (kind='url' and auto_refresh and (next_check_at is null or next_check_at<=now()))) and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
   if (!s) return false;
   try {
-    const bytes = (await attachmentsStore().getObject(s.storage_key)).bytes;
-    const extension = String(s.locator).split('.').pop()!.toLowerCase();
-    return await saveKnowledgeVersion(workspaceId, id, await extractKnowledge(bytes, extension), s.lease_token);
+    const bytes =
+      s.kind === 'url'
+        ? await fetchKnowledgePage(s.locator)
+        : (await attachmentsStore().getObject(s.storage_key)).bytes;
+    const extension = s.kind === 'url' ? 'html' : String(s.locator).split('.').pop()!.toLowerCase();
+    return await saveKnowledgeVersion(
+      workspaceId,
+      id,
+      await extractKnowledge(bytes, extension),
+      s.lease_token,
+    );
   } catch (error) {
     // Never return raw upstream/parser details containing signed URLs or internal paths.
     const message = publicKnowledgeError(error);
@@ -49,7 +63,21 @@ export async function refreshKnowledgeSource(workspaceId: string, id: string): P
   }
 }
 export async function refreshDueKnowledgeSources() {
-  // Keep existing scheduler calls compatible while automatic imports are disabled.
-  // Preserve historical sources and their settings without making network requests.
-  return { processed: 0, failed: 0 };
+  const sql = getDb();
+  const rows =
+    await sql`select id,workspace_id from knowledge_sources where kind='url' and auto_refresh
+    and (next_check_at is null or next_check_at<=now()) and (lease_until is null or lease_until<now()) order by next_check_at nulls first limit 10`;
+  let processed = 0,
+    failed = 0;
+  // Bounded concurrency; request is well below the edge timeout for ordinary HTML pages.
+  await Promise.all(
+    rows.map(async (s) => {
+      try {
+        if (await refreshKnowledgeSource(s.workspace_id, s.id, true)) processed++;
+      } catch {
+        failed++;
+      }
+    }),
+  );
+  return { processed, failed };
 }
