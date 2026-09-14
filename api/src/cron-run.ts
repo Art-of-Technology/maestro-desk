@@ -15,8 +15,14 @@
 //   node --import tsx src/cron-run.ts player-identity-backfill   # run-once; repeat until remaining = 0
 import { alertCronFailure, runPlayerIdentityBackfill, runRetentionJob, runWebhookRetryJob } from './lib/cron-jobs.js';
 import { refreshDueKnowledgeSources } from './lib/knowledge-sources.js';
+import { runEmailUsageJob } from './lib/email-usage.js';
 
 const jobs: Record<string, () => Promise<unknown>> = {
+  'email-usage': async () => {
+    const result = await runEmailUsageJob();
+    if (!result.ok) throw new Error('Email usage check failed.');
+    return result;
+  },
   'webhook-retry': runWebhookRetryJob,
   retention: runRetentionJob,
   'knowledge-refresh': async () => {

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
+import { readEmailUsage } from '../lib/email-usage.js';
 import { auth } from '../lib/auth.js';
 import { deriveNameFromEmail, randomPassword } from '../lib/invite.js';
 import {
@@ -25,6 +26,8 @@ import {
 export const god = new Hono();
 
 god.use('*', requirePlatformAdmin);
+
+god.get('/email-usage', async c => c.json(await readEmailUsage()));
 
 // Columns returned for a brand (workspace) — kept consistent across handlers.
 // Module-level constant, never caller-controlled, so sql.unsafe() interpolation

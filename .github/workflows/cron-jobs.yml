@@ -44,6 +44,7 @@ on:
     - cron: '0 3 * * *'   # webhook-retry
     - cron: '0 4 * * *'   # retention (+ audit-verify, GDPR object retry, email-domain sweep)
     - cron: '*/5 * * * *' # process sources due for their hourly refresh
+    - cron: '17 * * * *'  # account-wide email usage
   workflow_dispatch:
     inputs:
       job:
@@ -57,6 +58,7 @@ on:
           - audit-verify
           - player-identity-backfill
           - knowledge-refresh
+          - email-usage
 
 permissions:
   contents: read
@@ -96,6 +98,7 @@ jobs:
               "0 3 * * *") job="webhook-retry" ;;
               "0 4 * * *") job="retention" ;;
               "*/5 * * * *") job="knowledge-refresh" ;;
+              "17 * * * *") job="email-usage" ;;
               *) echo "::error::Unmapped schedule '$SCHEDULE' — add it to the case in this step AND the schedule list."; exit 1 ;;
             esac
           fi
