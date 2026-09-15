@@ -207,6 +207,9 @@ test('review filters and publishing preserve drafts on failure and ignore late w
   expect(patchCalls.at(-1)).toEqual({ path: '/api/v1/kb-articles/draft-uuid', body: { status: 'published' } });
   expect(articles[0].status).toBe('published');
   expect(articles[0].author).toBe('Jodi');
+  actions['kb.edit']({ id: 'KB-draft' });
+  await confirm();
+  expect(articles[0].updated).toBe('2026-09-15T12:00:00Z');
   const prior = patchCalls.length;
   actions['kb.publish']({ id: 'KB-live' });
   expect(patchCalls).toHaveLength(prior);

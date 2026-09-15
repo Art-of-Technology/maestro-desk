@@ -428,8 +428,7 @@ export async function loadWorkspaceData() {
   replaceInPlace(TAG_LIBRARY, mappedTags);
 
   // ─── KB_ARTICLES ────────────────────────────────────────────────────────
-  // updated_at is timestamptz; data.js used 'YYYY-MM-DD'. Keep that shape
-  // for the existing sort + display code that does localeCompare on it.
+  // Preserve the timestamp for card dates and chronological sorting.
   const mappedKb = kbRaw.map((a) => ({
     _uuid:           a.id,
     id:              a.display_id,
@@ -438,7 +437,7 @@ export async function loadWorkspaceData() {
     body:            a.body || '',
     status:          a.status || 'draft',
     author:          a.author_name || 'Unknown',
-    updated:         isoDate(a.updated_at),
+    updated:         a.updated_at || '',
     viewCount:       a.view_count || 0,
     helpfulCount:    a.helpful_count || 0,
     unhelpfulCount:  a.unhelpful_count || 0,
