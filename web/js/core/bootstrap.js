@@ -436,6 +436,7 @@ export async function loadWorkspaceData() {
     title:           a.title,
     category:        a.category || '',
     body:            a.body || '',
+    status:          a.status || 'draft',
     author:          a.author_name || 'Unknown',
     updated:         isoDate(a.updated_at),
     viewCount:       a.view_count || 0,

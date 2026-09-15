@@ -21,6 +21,7 @@ import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/ap
 import { startPresence } from '../core/presence.js';
 import { showModal, closeModal } from '../core/modal.js';
 import './sources.js';
+import { articleStatus, ARTICLE_STATUS_LABELS, articleLink } from './article-state.js';
 
 function kbApiBacked() {
   return !!(getJwt() && getWorkspaceId());
@@ -33,6 +34,7 @@ function mapKbResponse(a) {
     title:    a.title,
     category: a.category || '',
     body:     a.body || '',
+    status:   a.status || 'draft',
     author:   a.author_name || 'Unknown',
     updated:  (a.updated_at || '').slice(0, 10),
   };
@@ -40,6 +42,12 @@ function mapKbResponse(a) {
 
 let KB_QUERY = '';
 let KB_FILTER_CAT = 'all';
+let KB_FILTER_STATUS = 'all';
+
+function statusBadge(a) {
+  const status = articleStatus(a);
+  return `<span class="kb-status kb-status-${status}">${ARTICLE_STATUS_LABELS[status]}</span>`;
+}
 
 let KB_VOTES = (() => { try { return JSON.parse(localStorage.getItem('kb_votes') || '{}'); } catch { return {}; } })();
 let KB_USER_VOTES = (() => { try { return JSON.parse(localStorage.getItem('kb_user_votes') || '{}'); } catch { return {}; } })();
@@ -177,6 +185,9 @@ export function renderKB() {
 
   let list = KB_ARTICLES.filter(a => KB_FILTER_CAT === 'all' || a.category === KB_FILTER_CAT);
   if (ql) list = list.filter(a => a.title.toLowerCase().includes(ql) || a.body.toLowerCase().includes(ql) || a.category.toLowerCase().includes(ql) || a.id.toLowerCase().includes(ql));
+  const statusCounts = { all: list.length, draft: 0, published: 0, archived: 0 };
+  list.forEach(a => statusCounts[articleStatus(a)]++);
+  if (KB_FILTER_STATUS !== 'all') list = list.filter(a => articleStatus(a) === KB_FILTER_STATUS);
   list.sort((a, b) => {
     if (a.featured && !b.featured) return -1;
     if (!a.featured && b.featured) return 1;
@@ -192,6 +203,7 @@ export function renderKB() {
       <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(a.id)}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <div class="kb-card-cat" style="margin:0">${window.escHtml(a.category)}</div>
+          ${statusBadge(a)}
           ${a.featured ? '<span style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-weight:600">★ Featured</span>' : ''}
         </div>
         <div class="kb-card-t">${titleHtml}</div>
@@ -235,9 +247,14 @@ export function renderKB() {
           </div>
         </aside>
         <div class="kb-main">
+          <div class="kb-status-filters" role="group" aria-label="Article status">
+            ${Object.entries({ all: 'All articles', ...ARTICLE_STATUS_LABELS }).map(([status, label]) => `
+              <button class="btn btn-sm" aria-pressed="${KB_FILTER_STATUS === status}" data-action="kb.setStatus" data-status="${status}">${label} <span>${statusCounts[status]}</span></button>
+            `).join('')}
+          </div>
           <div class="filter-bar">
             <span class="filter-label">Search</span>
-            <input class="filter-select" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
+            <input class="filter-select" aria-label="Search articles" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
             <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
           </div>
           <div class="page-scroll">
@@ -264,6 +281,8 @@ function renderKBArticle(id) {
   const reading = readingTime(a.body);
   const wordCount = (a.body || '').split(/\s+/).filter(Boolean).length;
   const related = getRelatedArticles(a);
+  const status = articleStatus(a);
+  const link = articleLink(a.body);
   return `
     <div class="page">
       <div class="topbar">
@@ -288,15 +307,19 @@ function renderKBArticle(id) {
             ${a.featured ? '<span style="color:var(--amber);font-weight:600">★ Featured</span>' : ''}
           </div>
           <h1 class="kb-article-h">${window.escHtml(a.title)}</h1>
+          <div class="kb-review-banner">
+            <div>${statusBadge(a)}<p>${status === 'draft' ? 'Review the content, then publish it to make it available to AI.' : status === 'published' ? 'AI can use this article in customer replies.' : 'This article is archived and unavailable to AI.'}</p></div>
+            ${admin && status === 'draft' ? `<button class="btn btn-solid" data-action="kb.publish" data-id="${window.escAttr(a.id)}">Publish article</button>` : ''}
+          </div>
           <div class="kb-article-meta">
             <span>${a.id}</span>
             <span>By ${window.escHtml(a.author)}</span>
             <span>Updated ${a.updated}</span>
             <span>${views} view${views===1?'':'s'}</span>
-            <span>${reading} min read · ${wordCount} words</span>
+            ${link ? '' : `<span>${reading} min read · ${wordCount} words</span>`}
             ${votes !== 0 ? `<span style="color:${votes>0?'var(--green)':'var(--red)'}">${votes>0?'+':''}${votes} helpful</span>` : ''}
           </div>
-          <div class="ai-md">${renderMarkdown(a.body)}</div>
+          ${link ? `<a class="kb-article-link" href="${window.escAttr(link)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${window.escAttr(a.title)}" title="${window.escAttr(link)}"><strong>${new URL(link).pathname.includes('/games/') ? 'Open game' : 'Open link'} ↗</strong><span>${window.escHtml(new URL(link).hostname)}</span></a>` : `<div class="ai-md">${renderMarkdown(a.body)}</div>`}
 
           <div class="kb-helpful-card">
             <div style="font-size:13px;font-weight:500;color:var(--ink);margin-bottom:12px">Was this article helpful?</div>
@@ -314,6 +337,7 @@ function renderKBArticle(id) {
               ${related.map(r => `
                 <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(r.id)}" style="padding:12px">
                   <div class="kb-card-cat" style="margin-bottom:6px">${window.escHtml(r.category)}</div>
+                  ${statusBadge(r)}
                   <div class="kb-card-t" style="font-size:13px">${window.escHtml(r.title)}</div>
                 </div>`).join('')}
             </div>
@@ -335,6 +359,11 @@ function kbSetQuery(q) {
   }
 }
 function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
+function kbSetStatus(status) {
+  if (status !== 'all' && !Object.hasOwn(ARTICLE_STATUS_LABELS, status)) return;
+  KB_FILTER_STATUS = status;
+  renderPage('kb');
+}
 function openKBArticle(id) { incrementKBView(id); setKbSelected(id); renderPage('kb'); }
 function closeKBArticle()  { setKbSelected(null); renderPage('kb'); }
 
@@ -342,12 +371,13 @@ function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
   const a = initial || {title:'', category:cats[0]||'Getting Started', body:''};
   return `
-    <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="kb-title" value="${window.escAttr(a.title)}"/></div>
-    <div class="form-row"><label class="form-label">Category</label>
+    <div class="form-row"><label class="form-label" for="kb-title">Title</label><input class="form-input" id="kb-title" value="${window.escAttr(a.title)}"/></div>
+    <div class="form-row"><label class="form-label" for="kb-cat">Category</label>
       <input class="form-input" id="kb-cat" list="kb-cat-list" value="${window.escAttr(a.category)}"/>
       <datalist id="kb-cat-list">${cats.map(c => `<option value="${window.escAttr(c)}">`).join('')}</datalist>
     </div>
-    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${window.escHtml(a.body)}</textarea></div>`;
+    <div class="form-row"><label class="form-label" for="kb-body">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${window.escHtml(a.body)}</textarea></div>
+    <p class="kb-form-note">${!initial || articleStatus(initial) === 'draft' ? 'Saved as a draft. AI can use it after you review and publish it.' : articleStatus(initial) === 'published' ? 'Changes to this published article will be available to AI as soon as you save.' : 'Saving changes keeps this article archived.'}</p>`;
 }
 
 function kbNewArticle() {
@@ -364,16 +394,17 @@ function kbNewArticle() {
     if (kbApiBacked()) {
       let resp;
       saving = true;
-      try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body }); }
-      catch (err) { saving = false; alert(`Couldn't publish: ${err?.message || err}`); return; }
+      try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body, status: 'draft' }); }
+      catch (err) { saving = false; alert(`Couldn't save draft: ${err?.message || err}`); return; }
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
       KB_ARTICLES.unshift(mapKbResponse(resp.article));
     } else {
       const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
-      KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+      KB_ARTICLES.unshift({id, title, category:cat, body, status:'draft', author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
     }
+    setKbSelected(KB_ARTICLES[0].id);
     closeModal(); renderPage('kb');
-  }, 'Publish', true);
+  }, 'Save draft', true);
 }
 
 function kbEditArticle(id) {
@@ -395,7 +426,38 @@ function kbEditArticle(id) {
     a.title = title; a.category = cat; a.body = body;
     a.updated = new Date().toISOString().slice(0,10);
     closeModal(); renderPage('kb');
-  }, 'Save changes', true);
+  }, articleStatus(a) === 'draft' ? 'Save draft' : 'Save changes', true);
+}
+
+function kbPublishArticle(id) {
+  if (!window.isAdmin()) return;
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (!a || articleStatus(a) !== 'draft') return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Publish article', `<p>Publish <strong>${window.escHtml(a.title)}</strong>?</p><p>AI will be able to use this content in customer replies.</p>`, async () => {
+    if (saving || !window.isAdmin() || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    saving = true;
+    const button = document.querySelector?.('#modal-container [data-action="modal.confirm"]');
+    if (button) { button.disabled = true; button.textContent = 'Publishing…'; }
+    if (a._uuid) {
+      try {
+        const { article } = await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' });
+        if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+        if (article.status !== 'published') throw new Error('The article was not published. Try again.');
+        a.status = article.status;
+        a.updated = (article.updated_at || '').slice(0, 10);
+      } catch (err) {
+        saving = false;
+        if (button?.isConnected) { button.disabled = false; button.textContent = 'Publish article'; }
+        alert(`Couldn't publish: ${err?.message || err}`);
+        return;
+      }
+    } else {
+      a.status = 'published';
+    }
+    closeModal(); renderPage('kb');
+  }, 'Publish article');
 }
 
 function kbDeleteArticle(id) {
@@ -418,9 +480,11 @@ registerActions({
   'kb.close':          () => closeKBArticle(),
   'kb.new':            () => kbNewArticle(),
   'kb.edit':           (ds) => kbEditArticle(ds.id),
+  'kb.publish':        (ds) => kbPublishArticle(ds.id),
   'kb.delete':         (ds) => kbDeleteArticle(ds.id),
   'kb.toggleFeatured': (ds) => toggleKBFeatured(ds.id),
   'kb.setCat':         (ds) => kbSetCat(ds.cat),
+  'kb.setStatus':      (ds) => kbSetStatus(ds.status),
   'kb.vote':           (ds) => voteKB(ds.id, ds.vote),
 });
 

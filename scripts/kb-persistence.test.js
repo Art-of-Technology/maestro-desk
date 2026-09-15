@@ -8,6 +8,7 @@ let jwt = 'session',
   posts = 0,
   fail = false,
   release;
+let postBody, patchCalls = [], patchFail = false, patchRelease, modalLabel;
 globalThis.localStorage = { getItem: () => null };
 globalThis.window = { isAdmin: () => true, escHtml: String, escAttr: String };
 globalThis.alert = () => {};
@@ -34,8 +35,9 @@ mock.module('../web/js/core/event-delegation.js', () => ({
 }));
 mock.module('../web/js/core/presence.js', () => ({ startPresence() {} }));
 mock.module('../web/js/core/modal.js', () => ({
-  showModal: (_t, _b, cb) => {
+  showModal: (_t, _b, cb, label) => {
     confirm = cb;
+    modalLabel = label;
   },
   closeModal() {},
 }));
@@ -43,9 +45,15 @@ mock.module('../web/js/kb/sources.js', () => ({}));
 mock.module('../web/js/core/api-client.js', () => ({
   getJwt: () => jwt,
   getWorkspaceId: () => workspace,
-  apiPatch() {},
+  async apiPatch(path, body) {
+    patchCalls.push({ path, body });
+    if (patchFail) throw new Error('Offline');
+    if (patchRelease) await new Promise(resolve => { patchRelease = resolve; });
+    return { article: { status: 'published', updated_at: '2026-09-15T12:00:00Z' } };
+  },
   apiDelete() {},
-  apiPost: async () => {
+  apiPost: async (_path, body) => {
+    postBody = body;
     posts++;
     if (fail) throw new Error('Offline');
     if (release)
@@ -58,14 +66,18 @@ mock.module('../web/js/core/api-client.js', () => ({
         display_id: 'KB-server',
         title: 'Withdrawal policy',
         body: 'Allow 24 hours after approval.',
+        status: body.status,
       },
     };
   },
 }));
-await import('../web/js/kb/index.js');
+const { renderKB } = await import('../web/js/kb/index.js');
 test('first live article persists, failures do not fake success, and late responses stay in their workspace', async () => {
   actions['kb.new']();
+  expect(modalLabel).toBe('Save draft');
   await confirm();
+  expect(postBody.status).toBe('draft');
+  expect(articles[0].status).toBe('draft');
   expect(posts).toBe(1);
   expect(articles[0]._uuid).toBe('server-id');
   articles.length = 0;
@@ -94,4 +106,42 @@ test('first live article persists, failures do not fake success, and late respon
   await confirm();
   expect(posts).toBe(before);
   expect(articles[0].id).toBe('KB-001');
+});
+
+test('review filters and publishing preserve drafts on failure and ignore late workspace responses', async () => {
+  jwt = 'session'; workspace = 'brand-a';
+  articles.splice(0, articles.length,
+    { id: 'KB-draft', _uuid: 'draft-uuid', title: 'Review me', body: 'Policy', category: 'Help', status: 'draft', author: 'Jodi' },
+    { id: 'KB-live', _uuid: 'live-uuid', title: 'Live policy', body: 'Policy', category: 'Help', status: 'published' },
+    { id: 'KB-old', _uuid: 'old-uuid', title: 'Old policy', body: 'Policy', category: 'Help', status: 'archived' });
+  expect(renderKB()).toContain('Awaiting review');
+  actions['kb.setStatus']({ status: 'draft' });
+  expect(renderKB()).toContain('Review me');
+  expect(renderKB()).not.toContain('Live policy');
+  actions['kb.setStatus']({ status: 'published' });
+  expect(renderKB()).toContain('Live policy');
+  expect(renderKB()).not.toContain('Review me');
+  actions['kb.setStatus']({ status: 'all' });
+  patchFail = true;
+  actions['kb.publish']({ id: 'KB-draft' });
+  expect(modalLabel).toBe('Publish article');
+  await confirm();
+  expect(articles[0].status).toBe('draft');
+  patchFail = false;
+  patchRelease = true;
+  const pending = confirm();
+  const count = patchCalls.length;
+  await confirm();
+  expect(patchCalls).toHaveLength(count);
+  workspace = 'brand-b'; patchRelease(); await pending;
+  expect(articles[0].status).toBe('draft');
+  workspace = 'brand-a'; patchRelease = null;
+  actions['kb.publish']({ id: 'KB-draft' });
+  await confirm();
+  expect(patchCalls.at(-1)).toEqual({ path: '/api/v1/kb-articles/draft-uuid', body: { status: 'published' } });
+  expect(articles[0].status).toBe('published');
+  expect(articles[0].author).toBe('Jodi');
+  const prior = patchCalls.length;
+  actions['kb.publish']({ id: 'KB-live' });
+  expect(patchCalls).toHaveLength(prior);
 });
