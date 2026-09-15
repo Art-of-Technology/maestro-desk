@@ -2,23 +2,28 @@ import { test, expect, mock } from 'bun:test';
 
 const requests = [];
 let lookups = 0;
+const editor = { isConnected: true, style: {}, classList: { add() {}, remove() {} } };
 globalThis.document = {
-  getElementById: () => ({ style: {}, classList: { add() {}, remove() {} } }),
+  getElementById: () => editor,
 };
 mock.module('../web/js/core/data.js', () => ({
   TICKETS: [{ id: 'TK-test', subject: 'Withdrawal timing', msgs: [] }],
 }));
-mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, setAiThinking() {} }));
+mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB: 'reply', setAiThinking() {} }));
+mock.module('../web/js/core/api-client.js', () => ({ getJwt: () => 'test-session', getWorkspaceId: () => 'test-workspace' }));
+mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null }));
+mock.module('../web/js/ai/reply-review.js', () => ({ showReplyReview() {} }));
 mock.module('../web/js/ai/client.js', () => ({
   callClaude: async (input) => {
     requests.push(input);
-    return { text: 'Test draft' };
+    return { text: 'Customer reply', data: { internal: { references: [], notes: [] } } };
   },
 }));
 mock.module('../web/js/tickets/detail.js', () => ({ onComposeInput() {} }));
 mock.module('../web/js/tickets/composer.js', () => ({
   focusEnd() {},
   getPlainText: () => '',
+  getHtml: () => '',
   setText() {},
 }));
 mock.module('../web/js/kb-integration/index.js', () => ({
