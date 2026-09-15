@@ -7,13 +7,13 @@ function safeLink(value) {
   } catch { return null; }
 }
 
-export function renderReplyReview(id, value = loadDraftReview(id)) {
+export function renderReplyReview(id, value = loadDraftReview(id), saved = false) {
   if (!value) return '';
   const refs = value.references.filter(r => r && typeof r.title === 'string').slice(0, 20);
   const notes = value.notes.filter(n => typeof n === 'string').slice(0, 10);
-  return `<details class="reply-internal-review" open>
+  return `<details class="reply-internal-review" ${saved ? '' : 'open'}>
     <summary>Internal references — not sent</summary>
-    <p>For agents only. Review these alongside the reply before sending.</p>
+    <p>${saved ? 'Saved with this reply for agents only. These sources and notes accompanied the suggestion; the reply may have been edited before sending.' : 'For agents only. Review these alongside the reply before sending.'}</p>
     ${refs.length ? `<ul>${refs.map(r => {
       const url = safeLink(r.url);
       const title = `${r.id || ''} · ${r.title}`;

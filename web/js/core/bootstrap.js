@@ -638,6 +638,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     // Sanitised HTML body + its files (rich email). Null/[] for plain-text
     // messages and notes, which keep rendering as escaped text.
     html:       m.body_html || null,
+    internalReview: m.internal_review || null,
     attachments: m.attachments || [],
     ts:         fmtTime(m.created_at),
     mentions:   m.mentions || [],

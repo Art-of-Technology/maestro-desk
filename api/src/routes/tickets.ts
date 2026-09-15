@@ -12,6 +12,7 @@ import { ticketListCols } from '../lib/ticket-cols.js';
 import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
+import { ReplyReview } from '../lib/reply-review.js';
 import { publishTicketChanged } from '../lib/pubby.js';
 import { hasDeletePermission } from '../lib/authz.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -247,8 +248,11 @@ tickets.get('/:id', async (c) => {
 
   const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity] = await Promise.all([
     sql<{ id: string; body_html: string | null }[]>`
-        select id, role, author_user_id, author_label, body, body_html, mentions, merged_from_id, sentiment, created_at
-        from ticket_messages where ticket_id = ${ticketId} and deleted_at is null order by created_at asc`,
+        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at,
+          r.review as internal_review
+        from ticket_messages m left join reply_internal_reviews r
+          on r.message_id=m.id and r.workspace_id=m.workspace_id
+        where m.ticket_id = ${ticketId} and m.workspace_id=${workspaceId} and m.deleted_at is null order by m.created_at asc`,
     sql`select tag from ticket_tags where ticket_id = ${ticketId}`,
     sql`select tag, confidence, accepted from ticket_ai_tags where ticket_id = ${ticketId} order by confidence desc`,
     sql`select te.id, te.user_id, te.minutes, te.note, te.billable, te.created_at, u.name as user_name
@@ -600,6 +604,7 @@ const PostMessage = z.object({
   // Ids from POST /:id/attachments, still unclaimed.
   attachment_ids: z.array(z.string().uuid()).max(20).optional(),
   mentions: z.array(z.string().uuid()).optional(),
+  internal_review: ReplyReview.optional(),
 }).refine((v) => (v.body && v.body.trim()) || (v.body_html && v.body_html.trim()), {
   message: 'Either body or body_html is required',
 });
@@ -693,13 +698,17 @@ tickets.post('/:id/messages', async (c) => {
   let message;
   try {
     message = await sql.begin(async (tx) => {
-      const [row] = await tx`
+      const [row] = await tx<{ id: string; body_html: string | null; [key: string]: unknown }[]>`
         insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions)
         values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []})
         returning id, role, author_user_id, author_label, body, body_html, mentions, created_at
       `;
       await claimAttachments(tx, { workspaceId, ticketId, messageId: row.id, ids: claimIds });
-      return row;
+      if (input.internal_review) {
+        await tx`insert into reply_internal_reviews(message_id, workspace_id, review)
+          values (${row.id}, ${workspaceId}, ${tx.json(input.internal_review)})`;
+      }
+      return { ...row, internal_review: input.internal_review || null };
     });
   } catch (err) {
     if (err instanceof AttachmentClaimError) return c.json({ error: err.message }, 400);
@@ -1083,8 +1092,8 @@ tickets.post('/:id/merge', async (c) => {
     `;
 
     // 2. Copy source messages onto primary, tagged with merged_from_id.
-    const srcMsgs = await sql<{ role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
-      select role, author_user_id, author_label, body, mentions
+    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
+      select id, role, author_user_id, author_label, body, mentions
       from ticket_messages
       where ticket_id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
       order by created_at asc
@@ -1097,11 +1106,15 @@ tickets.post('/:id/merge', async (c) => {
               ${`── Merged from ${source.display_id}: "${source.subject}" ──`}, ${[]}, ${sourceId})
     `;
     for (const m of srcMsgs) {
-      await sql`
+      const [copy] = await sql`
         insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id)
         values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
                 ${m.body}, ${m.mentions || []}, ${sourceId})
+        returning id
       `;
+      await sql`insert into reply_internal_reviews(message_id, workspace_id, review, saved_at)
+        select ${copy.id}, workspace_id, review, saved_at from reply_internal_reviews
+        where message_id=${m.id} and workspace_id=${workspaceId}`;
     }
 
     const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),

@@ -74,7 +74,7 @@ export async function aiAction(id, action) {
       throw new Error('The reply format was incomplete. Please generate it again.');
     }
     const review = data.internal;
-    if (!text.trim()) review.notes = ['No new reply was inserted. Review the notes below.', ...review.notes];
+    if (!text.trim()) review.notes = ['No new reply was inserted. Review the notes below.', ...review.notes].slice(0, 10);
     if (text.trim()) {
       setText(id, text);
       onComposeInput(id);
