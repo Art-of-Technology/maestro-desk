@@ -6,60 +6,45 @@
   <title>Help — loading...</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Hedvig+Letters+Serif:opsz@12..24&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <style>
-    /* Self-contained styling so the public portal can be deployed
-       independently of the SPA's CSS. Ditto design system (see DESIGN.md),
-       tone-matches the SPA but avoids importing styles/* to keep this
-       file portable. Light-only. --accent is the per-workspace brand
-       override target (portal.js boot()); primary CTAs stay fixed yellow. */
+    /* White & Violet; standalone portal styles mirror the app tokens. */
     :root {
-      --bg:        #f9fbf2;
-      --card:      #eff2e5;
-      --ink:       #130e30;
-      --ink2:      #413d54;
-      --ink3:      #5f5c6e;
+      --bg:        #f5f0ff;
+      --card:      #ffffff;
+      --ink:       #201238;
+      --ink2:      #493b60;
+      --ink3:      #685a7c;
       --rule:      rgba(19,14,48,0.08);
       --rule2:     rgba(19,14,48,0.14);
-      --accent:    #130e30;
-      --accent-lt: rgba(19,14,48,0.06);
+      --accent:    #6d28d9;
+      --accent-lt: #f0e8ff;
       /* Status colours — MUST stay byte-equal to styles/tokens.css so the
          same ticket does not render two different greens to the customer
          and the agent (issue #447 review). */
       --red:       #9e1e16;
-      --red-lt:    rgba(226,97,89,0.28);
+      --red-lt:    #fce9e7;
       --green:     #0f6b3a;
-      --green-lt:  rgba(89,226,93,0.30);
+      --green-lt:  #e6f5ec;
       --amber:     #6d4a00;
-      --amber-lt:  rgba(230,196,30,0.42);
-      --cyan:      #05505e;
-      --cyan-lt:   rgba(64,196,214,0.28);
+      --amber-lt:  #fff3d6;
+      --cyan:      #2247b8;
+      --cyan-lt:   #e8efff;
       --escalate:  #7d1580;
-      --escalate-lt: rgba(226,97,229,0.22);
-      --cta:       #ffe228;
-      --cta-ink:   #130e30;
-      --cta-hover: #f2d500;
-      /* Decoration only — mirrors the deco/blob tokens in styles/tokens.css */
-      --deco-moss:    #59e25d;
-      --deco-fuchsia: #e261e5;
-      --blob-a: 62% 38% 55% 45% / 48% 60% 40% 52%;
-      --blob-b: 41% 59% 48% 52% / 55% 42% 58% 45%;
+      --escalate-lt: #f8e7fa;
+      --cta:       #6d28d9;
+      --cta-ink:   #ffffff;
+      --cta-hover: #5b21b6;
       --radius:    24px;
       --radius-sm: 16px;
       --pill:      999px;
       --font-sans:  'Inter', sans-serif;
-      --font-serif: 'Hedvig Letters Serif', Georgia, serif;
+      --font-serif: var(--font-sans);
       --font-mono:  'DM Mono', monospace;
     }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-sans); font-size: 14px; line-height: 1.6; }
-    /* Soft Ditto garden blobs behind the content (decoration only — the
-       --deco-* locals are fixed hexes on purpose so blobs never follow the
-       per-workspace --accent). z-index:-1 paints above the canvas fill
-       (body bg propagates to html) but below all content. */
-    body::before, body::after { content: ''; position: fixed; z-index: -1; }
-    body::before { width: 340px; height: 290px; background: var(--deco-moss); opacity: .32; border-radius: var(--blob-a); left: -110px; top: -70px; transform: rotate(-14deg); }
-    body::after { width: 260px; height: 220px; background: var(--deco-fuchsia); opacity: .30; border-radius: var(--blob-b); right: -80px; top: 30px; transform: rotate(12deg); }
     main { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
     .brand { font-family: var(--font-serif); font-weight: 400; font-size: 22px; color: var(--ink); }
@@ -70,9 +55,9 @@
     .row { display: flex; gap: 12px; }
     .row > * { flex: 1; }
     label { display: block; font-size: 12px; color: var(--ink2); margin-bottom: 4px; font-weight: 500; }
-    input, select { width: 100%; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--pill); font: inherit; color: var(--ink); background: #fff; outline: none; }
-    textarea { width: 100%; padding: 10px 16px; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; color: var(--ink); background: #fff; outline: none; }
-    input:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-lt); }
+    input, select { width: 100%; padding: 10px 16px; border: 1px solid var(--rule2); border-radius: var(--pill); font: inherit; color: var(--ink); background: #fff; outline: none; }
+    textarea { width: 100%; padding: 10px 16px; border: 1px solid var(--rule2); border-radius: var(--radius-sm); font: inherit; color: var(--ink); background: #fff; outline: none; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-lt); }
     textarea { min-height: 120px; resize: vertical; }
     .form-row { margin-bottom: 14px; }
     button { padding: 11px 22px; border: 0; border-radius: var(--pill); background: var(--cta); color: var(--cta-ink); font: inherit; font-weight: 600; cursor: pointer; transition: background .12s; }
@@ -81,7 +66,7 @@
     .err { color: var(--red); font-size: 12px; margin-top: 8px; }
     .ok  { background: var(--green-lt); color: var(--green); padding: 10px 16px; border-radius: var(--radius-sm); margin-top: 12px; font-size: 13px; }
     .kb-list { display: flex; flex-direction: column; gap: 8px; }
-    .kb-row { display: block; padding: 12px 16px; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
+    .kb-row { display: block; padding: 12px 16px; background: #fff; border: 1px solid var(--rule2); border-radius: var(--radius-sm); cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
     .kb-row:hover { border-color: var(--accent); }
     .kb-title { font-weight: 500; }
     .kb-meta  { font-size: 11px; color: var(--ink3); margin-top: 2px; }
@@ -95,7 +80,7 @@
     .ai-panel { margin-top: 12px; padding: 14px 16px; background: var(--accent-lt); border: none; border-radius: var(--radius-sm); display: none; }
     .ai-panel.shown { display: block; }
     .ai-panel-head { font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
-    .ai-sugg { display: block; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 6px; cursor: pointer; text-decoration: none; color: inherit; transition: border-color .12s; }
+    .ai-sugg { display: block; background: #fff; border: 1px solid var(--rule2); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 6px; cursor: pointer; text-decoration: none; color: inherit; transition: border-color .12s; }
     .ai-sugg:hover { border-color: var(--accent); }
     .ai-sugg-title { font-weight: 500; font-size: 13px; }
     .ai-sugg-reason { font-size: 12px; color: var(--ink2); margin-top: 4px; }
@@ -111,7 +96,7 @@
     .session-pill { font-size: 12px; color: var(--ink3); display: flex; gap: 10px; align-items: center; }
     .session-pill button { background: transparent; color: var(--accent); padding: 4px 8px; font-size: 12px; font-weight: 500; }
     .session-pill button:hover { background: var(--accent-lt); }
-    .ticket-row { display: block; padding: 14px 16px; background: #fff; border: 1px solid transparent; border-radius: var(--radius-sm); margin-bottom: 8px; cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
+    .ticket-row { display: block; padding: 14px 16px; background: #fff; border: 1px solid var(--rule2); border-radius: var(--radius-sm); margin-bottom: 8px; cursor: pointer; transition: border-color .12s; text-decoration: none; color: inherit; }
     .ticket-row:hover { border-color: var(--accent); }
     .ticket-row-head { display: flex; gap: 10px; align-items: baseline; }
     .ticket-row-id { font-family: var(--font-mono); font-size: 11px; color: var(--ink3); }

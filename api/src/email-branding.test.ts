@@ -24,9 +24,9 @@ describe('email-branding text/HTML helpers', () => {
     expect(html).toContain('</a>.');
   });
 
-  it('links are ink by default and take a caller-supplied color (footer)', () => {
-    expect(textToHtml('https://acme.com')).toContain('color:#130e30');
-    expect(textToHtml('https://acme.com', '#5f5c6e')).toContain('color:#5f5c6e');
+  it('links are violet by default and take a caller-supplied color (footer)', () => {
+    expect(textToHtml('https://acme.com')).toContain('color:#6d28d9');
+    expect(textToHtml('https://acme.com', '#685a7c')).toContain('color:#685a7c');
   });
 
   it('injects no markup from user content beyond the anchors it adds', () => {
@@ -179,7 +179,7 @@ runDbTests('email branding (DB-backed)', () => {
     // auto-linkified underline anchor.
     const anchors = composed.html!.match(/<a /g) ?? [];
     expect(anchors).toHaveLength(1);
-    expect(composed.html!).toContain('display:inline-block;background:#ffe228;color:#130e30;border-radius:999px');
+    expect(composed.html!).toContain('display:inline-block;background:#6d28d9;color:#ffffff;border-radius:999px');
     expect(composed.html!).toContain('>View my tickets</a>');
     expect(composed.html!).not.toContain('text-decoration:underline');
     // The decorative garden strip was removed — brand logos own the header.
@@ -213,8 +213,8 @@ runDbTests('email branding (DB-backed)', () => {
     expect(composed.html).not.toBeNull();
     expect(composed.html!).toContain('&lt;Rate&gt; &amp; &quot;review&quot;');
     expect(composed.html!).not.toContain('<Rate>');
-    // Ditto shell markers: cream canvas, 24px card, meadow header band.
-    expect(composed.html!).toContain('background:#f9fbf2');
+    // White & Violet shell: lavender canvas and white 24px card.
+    expect(composed.html!).toContain('background:#f5f0ff');
     expect(composed.html!).toContain('border-radius:24px');
   });
 });

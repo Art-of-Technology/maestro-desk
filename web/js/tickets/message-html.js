@@ -54,11 +54,11 @@ function attachmentOrigins(attachments) {
 const FRAME_CSS = `
 html,body{margin:0;padding:0;background:transparent}
 html{overflow-y:auto}
-body{font:14px/1.65 'Inter',system-ui,sans-serif;color:#130e30;word-break:break-word;overflow-x:auto;display:flow-root}
+body{font:14px/1.65 'Inter',system-ui,sans-serif;color:#201238;word-break:break-word;overflow-x:auto;display:flow-root}
 img{max-width:100%;height:auto}
 table{max-width:100%}
-a{color:#130e30}
-blockquote{margin:8px 0;padding-left:10px;border-left:2px solid rgba(19,14,48,.14);color:#413d54}
+a{color:#6d28d9}
+blockquote{margin:8px 0;padding-left:10px;border-left:2px solid rgba(19,14,48,.14);color:#493b60}
 `;
 
 /**
