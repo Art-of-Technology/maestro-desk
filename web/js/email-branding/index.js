@@ -88,28 +88,24 @@ function ebTemplateRow(t, isAdmin) {
 }
 
 function ebPreview(tpl) {
-  // Mirrors composeEmail's Ditto shell in api/src/lib/email-branding.ts —
-  // keep the two in sync or this preview lies: cream canvas, white card
-  // (16px here vs the email's 24px — the preview is a scaled-down 480px
-  // rendition), meadow header band with the serif header, solid #e7e5ec
-  // divider, muted grey footer.
+  // Mirrors the White & Violet shell in api/src/lib/email-branding.ts.
   const esc = window.escHtml;
   const logo = (tpl?.show_logo !== false && EB_LOGO_URL)
     ? `<img src="${window.escAttr(EB_LOGO_URL)}" alt="" style="max-height:40px;max-width:180px;display:block" onerror="this.style.display='none'"/>`
     : '';
-  const header = tpl?.header_text ? `<div style="margin-top:${logo ? '10px' : '0'};font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.3;color:#130e30">${esc(tpl.header_text).replace(/\n/g, '<br>')}</div>` : '';
+  const header = tpl?.header_text ? `<div style="margin-top:${logo ? '10px' : '0'};font-family:Arial,Helvetica,sans-serif;font-weight:600;font-size:20px;line-height:1.3;color:#201238">${esc(tpl.header_text).replace(/\n/g, '<br>')}</div>` : '';
   const headerBand = (logo || header)
-    ? `<div style="background:#eff2e5;padding:16px 20px">${logo}${header}</div>`
+    ? `<div style="background:#ffffff;padding:16px 20px">${logo}${header}</div>`
     : '';
-  const footer = tpl?.footer_text ? `<div style="padding:12px 20px 16px;border-top:1px solid #e7e5ec;color:#5f5c6e;font-size:11px">${esc(tpl.footer_text).replace(/\n/g, '<br>')}</div>` : '';
+  const footer = tpl?.footer_text ? `<div style="padding:12px 20px 16px;border-top:1px solid #e7def4;color:#685a7c;font-size:11px">${esc(tpl.footer_text).replace(/\n/g, '<br>')}</div>` : '';
   return `
     <div class="settings-section">
       <div class="settings-h">Preview</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">How the ${tpl ? 'default' : 'currently-unbranded'} email wraps a sample message.</div>
-      <div style="background:#f9fbf2;border-radius:var(--r2);padding:18px">
-        <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;font:13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#130e30">
+      <div style="background:#f5f0ff;border-radius:var(--r2);padding:18px">
+        <div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;font:13px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#201238">
           ${headerBand}
-          <div style="padding:16px 20px;color:#130e30">Hi there,<br><br>Thanks for getting in touch — here's a sample of the message body your customers will read.<br><br><span style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:9px 22px;font-weight:600">Sample action</span></div>
+          <div style="padding:16px 20px;color:#201238">Hi there,<br><br>Thanks for getting in touch — here's a sample of the message body your customers will read.<br><br><span style="display:inline-block;background:#6d28d9;color:#ffffff;border-radius:999px;padding:9px 22px;font-weight:600">Sample action</span></div>
           ${footer}
         </div>
       </div>

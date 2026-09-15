@@ -143,12 +143,9 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   const text = textParts.join('\n\n');
 
   // ── HTML assembly ──
-  // Ditto design system (DESIGN.md), constrained to email-client reality:
-  // solid dividers (#e7e5ec) instead of rgba (Outlook mangles alpha), Georgia
-  // as the serif stand-in for Hedvig (no webfonts in email), and the yellow
-  // CTA as an inline-styled pill anchor (Outlook renders it square — accepted).
+  // White & Violet, with solid colours and inline styles for mail clients.
   const headerHtml = template?.header_html?.trim() || (headerText ? textToHtml(headerText) : '');
-  const footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText, '#5f5c6e') : '');
+  const footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText, '#685a7c') : '');
   const sigHtml    = signature?.body_html?.trim()  || (sigText ? textToHtml(sigText) : '');
   // An agent's rich reply is already HTML (and already sanitised) — escaping it
   // again would show the customer their own markup as text.
@@ -156,7 +153,7 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
 
   if (cta) {
     const ctaButton =
-      `<a href="${escapeAttr(cta.url)}" style="display:inline-block;background:#ffe228;color:#130e30;border-radius:999px;padding:13px 30px;font-weight:600;text-decoration:none">${escapeHtml(cta.label)}</a>`;
+      `<a href="${escapeAttr(cta.url)}" style="display:inline-block;background:#6d28d9;color:#ffffff;border-radius:999px;padding:13px 30px;font-weight:600;text-decoration:none">${escapeHtml(cta.label)}</a>`;
     // Swap the auto-linkified anchor for this exact URL with the pill button,
     // so the HTML shows one styled CTA where the caller placed the link.
     // Built by the same linkAnchor() textToHtml uses, so the two can't drift.
@@ -174,31 +171,32 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
     ? `<img src="${escapeAttr(logoUrl)}" alt="${escapeAttr(ws?.name ?? '')}" style="max-height:48px;max-width:220px;height:auto;border:0;display:block" />`
     : '';
 
-  // Header band: meadow surface with the brand header set in the serif at
-  // 22px — the email counterpart of the app's serif page headings.
+  // White header keeps uploaded logos clear; lavender frames the email.
   const headerBlock = (logoBlock || headerHtml)
-    ? `<tr><td style="padding:24px 32px;background:#eff2e5">${logoBlock}${headerHtml ? `<div style="margin-top:${logoBlock ? '12px' : '0'};font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.3;color:#130e30">${headerHtml}</div>` : ''}</td></tr>`
+    ? `<tr><td style="padding:24px 32px;background:#ffffff">${logoBlock}${headerHtml ? `<div style="margin-top:${logoBlock ? '12px' : '0'};font-family:Arial,Helvetica,sans-serif;font-weight:600;font-size:22px;line-height:1.3;color:#201238">${headerHtml}</div>` : ''}</td></tr>`
     : '';
 
   const sigBlock = sigHtml
-    ? `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e7e5ec;color:#413d54">${sigHtml}</div>`
+    ? `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #e7def4;color:#493b60">${sigHtml}</div>`
     : '';
 
   const footerBlock = footerHtml
-    ? `<tr><td style="padding:16px 32px 24px;border-top:1px solid #e7e5ec;color:#5f5c6e;font-size:12px;line-height:1.5">${footerHtml}</td></tr>`
+    ? `<tr><td style="padding:16px 32px 24px;border-top:1px solid #e7def4;color:#685a7c;font-size:12px;line-height:1.5">${footerHtml}</td></tr>`
     : '';
 
   const html = `<!doctype html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f9fbf2;-webkit-text-size-adjust:100%">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fbf2;padding:24px 0">
+<body style="margin:0;padding:0;background:#f5f0ff;-webkit-text-size-adjust:100%">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f0ff;padding:24px 0">
     <tr><td align="center">
-      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:100%;background:#ffffff;border-radius:24px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+      <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:24px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
         ${headerBlock}
-        <tr><td style="padding:${headerBlock ? '24px' : '32px'} 32px 24px;color:#130e30;font-size:15px;line-height:1.6">${bodyHtml}${sigBlock}</td></tr>
+        <tr><td style="padding:${headerBlock ? '24px' : '32px'} 32px 24px;color:#201238;font-size:15px;line-height:1.6">${bodyHtml}${sigBlock}</td></tr>
         ${footerBlock}
       </table>
+      <!--[if mso]></td></tr></table><![endif]-->
     </td></tr>
   </table>
 </body>
@@ -214,12 +212,12 @@ function escapeAttr(s: string): string {
   return escapeHtml(s);
 }
 
-// The two link colors the shell uses — body links are ink (Ditto), footer
+// The two link colors the shell uses — body links are violet, footer
 // links take the footer's muted grey. A closed union rather than an open
 // string: linkColor is interpolated into a style attribute, so arbitrary
 // values have no business here.
-const BODY_LINK_COLOR = '#130e30';
-const FOOTER_LINK_COLOR = '#5f5c6e';
+const BODY_LINK_COLOR = '#6d28d9';
+const FOOTER_LINK_COLOR = '#685a7c';
 type LinkColor = typeof BODY_LINK_COLOR | typeof FOOTER_LINK_COLOR;
 
 // Single source of truth for the anchor markup textToHtml emits — the CTA

@@ -3,7 +3,7 @@
 .settings-side{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--rule);padding-right:16px}
 .settings-tab{padding:9px 16px;font-size:13px;color:var(--ink2);cursor:pointer;border-radius:var(--r-pill);transition:all .1s}
 .settings-tab:hover{background:var(--purple-lt);color:var(--ink)}
-.settings-tab.active{background:rgba(19,14,48,0.10);color:var(--purple);font-weight:500}
+.settings-tab.active{background:var(--purple-lt);color:var(--purple);font-weight:500}
 .settings-panel{min-width:0}
 .settings-section + .settings-section{border-top:1px solid var(--rule);margin-top:24px;padding-top:24px}
 .settings-h{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
@@ -65,7 +65,7 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .ai-conv-empty{padding:18px 12px;font-size:11px;color:var(--ink3);text-align:center}
 .ai-conv-item{padding:9px 12px;border-radius:var(--r-pill);cursor:pointer;margin-bottom:3px;display:flex;align-items:center;gap:6px;transition:background .1s}
 .ai-conv-item:hover{background:var(--purple-lt)}
-.ai-conv-item.active{background:rgba(19,14,48,0.10)}
+.ai-conv-item.active{background:var(--purple-lt)}
 .ai-conv-item.active .ai-conv-title{color:var(--purple);font-weight:500}
 .ai-conv-title{flex:1;min-width:0;font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ai-conv-del{opacity:0;color:var(--ink3);font-size:13px;background:transparent;border:none;cursor:pointer;padding:2px 6px;border-radius:var(--r-pill);transition:all .1s;line-height:1}
@@ -154,7 +154,7 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .kb-cat-list{padding:6px}
 .kb-cat-item{padding:7px 14px;cursor:pointer;border-radius:var(--r-pill);font-size:12.5px;color:var(--ink2);display:flex;align-items:center;justify-content:space-between;gap:8px;transition:background .1s;margin-bottom:2px}
 .kb-cat-item:hover{background:var(--purple-lt);color:var(--ink)}
-.kb-cat-item.active{background:rgba(19,14,48,0.10);color:var(--purple);font-weight:500}
+.kb-cat-item.active{background:var(--purple-lt);color:var(--purple);font-weight:500}
 .kb-cat-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kb-cat-count{font-family:var(--font-mono);font-size:10px;color:var(--ink3)}
 .kb-cat-item.active .kb-cat-count{color:var(--purple)}
@@ -173,11 +173,11 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 /* ── Ticket detail ── */
 .ticket-layout{flex:1;display:flex;overflow:hidden}
 .ticket-main{flex:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--rule)}
-.ticket-sidebar{width:240px;min-width:240px;overflow-y:auto;padding:16px}
+.ticket-sidebar{background:var(--off);width:240px;min-width:240px;overflow-y:auto;padding:16px}
 .thread{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:2px}
 .msg{padding:12px 16px;font-size:14px;line-height:1.65;max-width:78%;border-radius:var(--r2)}
-.msg-customer{background:var(--off2);border-left:2px solid var(--rule2);color:var(--ink2)}
-.msg-agent{background:var(--off);border:1px solid var(--rule);border-left:2px solid var(--purple);align-self:flex-end;color:var(--ink)}
+.msg-customer{background:var(--off);border:1px solid var(--rule);border-left:2px solid var(--rule2);color:var(--ink2)}
+.msg-agent{background:var(--purple-lt);border:1px solid var(--rule);border-left:2px solid var(--purple);align-self:flex-end;color:var(--ink)}
 .msg-ai{background:var(--off);border:1px solid var(--green-lt);border-left:2px solid var(--green);align-self:flex-end;color:var(--ink)}
 .msg-note{background:var(--amber-lt);border-left:2px solid var(--amber);color:var(--amber)}
 .msg-from{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--ink3);margin-bottom:5px;display:flex;align-items:center;gap:5px}
@@ -193,6 +193,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .att-chip-dead{opacity:.6;cursor:default}
 /* Rich compose box (Quill mounts into .compose-rich; its own snow theme CSS
    is loaded on first use by tickets/composer.js). */
+.compose-rich:focus-within{outline:2px solid var(--purple);outline-offset:2px}
 .compose-rich{min-height:120px;max-height:340px;overflow-y:auto;padding:0}
 .compose-rich .ql-editor{min-height:100px;font-family:var(--font-sans);font-size:14px;line-height:1.6;color:var(--ink);padding:10px 12px}
 .compose-rich .ql-editor.ql-blank::before{color:var(--ink4);font-style:normal;left:12px;right:12px}
@@ -212,14 +213,14 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .portal-tabs{display:flex;gap:2px;padding:8px 20px;background:var(--off);flex-shrink:0}
 .portal-tab{padding:8px 16px;font-size:12px;color:var(--ink2);cursor:pointer;border-radius:var(--r-pill);transition:all .15s}
 .portal-tab:hover{background:var(--off2);color:var(--ink)}
-.portal-tab.active{background:rgba(19,14,48,0.10);color:var(--purple);font-weight:500}
+.portal-tab.active{background:var(--purple-lt);color:var(--purple);font-weight:500}
 .portal-card{background:var(--off);border:none;border-radius:var(--r-card);padding:18px 20px;margin-bottom:12px;cursor:pointer;transition:all .15s}
 .portal-card:hover{background:var(--off2)}
 .portal-card--static{cursor:default}
 .portal-card--static:hover{background:var(--off)}
 .portal-msg-customer{background:var(--purple-lt);color:var(--ink);padding:10px 14px;border-radius:var(--r2);max-width:75%;align-self:flex-end;margin-left:auto;font-size:13px;line-height:1.55}
 .portal-msg-agent{background:var(--off2);color:var(--ink);padding:10px 14px;border-radius:var(--r2);max-width:75%;font-size:13px;line-height:1.55}
-.mention{display:inline-block;padding:1px 6px;border-radius:var(--r-pill);background:rgba(19,14,48,0.10);color:var(--purple);font-weight:500}
+.mention{display:inline-block;padding:1px 6px;border-radius:var(--r-pill);background:var(--purple-lt);color:var(--purple);font-weight:500}
 .mention.self{background:var(--amber-lt);color:var(--amber)}
 .mention-dd{position:absolute;background:var(--off);border:1px solid var(--rule2);border-radius:var(--r);max-height:220px;overflow-y:auto;z-index:30;box-shadow:0 8px 24px rgba(19,14,48,0.10);min-width:200px}
 .mention-dd-item{padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px}
@@ -259,7 +260,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-thread-tools>strong{font-weight:600}
 .ticket-language-toggle{display:flex;gap:4px;flex-wrap:wrap}
 .ticket-page .ticket-language-toggle .btn{min-height:44px}
-.ticket-language-toggle [aria-pressed="true"]{background:var(--ink);color:var(--off);border-color:var(--ink)}
+.ticket-language-toggle [aria-pressed="true"]{background:var(--purple-lt);color:var(--purple);border-color:var(--purple)}
 .ticket-language-toggle .btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .ticket-message-language{margin-top:6px;font-size:11px;color:var(--ink2)}
 .ticket-translation-notice{padding:6px 16px;font-size:12px;color:var(--ink2);border-bottom:1px solid var(--rule)}
@@ -272,7 +273,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-popover-panel>.btn{justify-content:flex-start;white-space:normal;text-align:left}
 .ticket-language .ticket-popover-panel>span:empty{display:none}
 .ticket-language .auth-check{align-items:flex-start}
-.ticket-page .composer{background:var(--w);position:relative;min-height:0;display:flex;flex-direction:column}
+.ticket-page .composer{background:var(--off);position:relative;min-height:0;display:flex;flex-direction:column}
 .composer-launcher{display:none;align-items:center;gap:8px;padding:10px 16px;min-height:52px}
 .composer-launch-hint{font-size:12px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ticket-page[data-compose-mode="read"] .composer-launcher{display:flex}
@@ -295,7 +296,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page[data-compose-mode="expanded"] .compose-area{height:auto;max-height:none;flex:1}
 .ticket-page .composer[data-compose-tab="note"]{border-top:2px solid var(--amber)}
 .ticket-page .composer[data-compose-tab="note"] .ctab.active{color:var(--amber);border-bottom-color:var(--amber)}
-.ticket-page .ticket-sidebar{width:260px;min-width:260px;background:var(--w)}
+.ticket-page .ticket-sidebar{width:260px;min-width:260px;background:var(--off)}
 .ticket-details-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:16px;font-size:12px}
 .ticket-page[data-details="hide"] .ticket-sidebar{display:none}
 .ticket-secondary>summary{cursor:pointer;color:var(--ink2);font-size:12px;font-weight:500;padding:4px 0}
@@ -435,19 +436,6 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 /* ── Pinned AI responses ── */
 .pinned-response{padding:10px 12px;border:1px solid var(--amber);border-radius:var(--r2);background:var(--amber-lt);margin-bottom:8px}
 .pinned-label{font-family:var(--font-sans);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);margin-bottom:4px}
-/* ── Dashboard garden topbar ── */
-/* Bigger composition on the greeting bar only: a full-strength moss blob
-   behind the greeting (ink-on-moss is 9.9:1 AA) alongside the global sun
-   lobe every .topbar carries. ::after because the shared .topbar rule in
-   shell.css owns ::before. */
-.topbar-garden::after{content:'';position:absolute;z-index:-1;pointer-events:none;width:220px;height:130px;background:var(--deco-moss);border-radius:var(--blob-a);left:-60px;top:-42px;transform:rotate(-10deg)}
-/* ── Config hub garden cards ── */
-/* Small full-strength blob clipped behind each card's chevron edge, colors
-   cycling by grid position. No violet (it matches the text/chevron ink). */
-.confighub-card{position:relative;overflow:hidden;isolation:isolate}
-.confighub-card::before{content:'';position:absolute;z-index:-1;pointer-events:none;width:86px;height:74px;background:var(--deco-moss);border-radius:var(--blob-b);right:-30px;top:-22px;transform:rotate(12deg)}
-.confighub-card:nth-child(3n)::before{background:var(--deco-fuchsia);border-radius:var(--blob-d);transform:rotate(-14deg)}
-.confighub-card:nth-child(3n+1)::before{background:var(--deco-sun);border-radius:var(--blob-c);transform:rotate(7deg)}
 /* ── Pinned details card (customer profile, Phase 4 PR 6) ── */
 /* A direct child of .page-scroll (the scroll container), so sticky spans the
    whole profile. The 1px sentinel above it leaves the scrollport on the first
