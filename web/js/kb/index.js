@@ -512,32 +512,40 @@ function kbPublishSelected() {
     <p id="kb-bulk-progress" role="status" aria-live="polite">Closing this dialog stops after the current request. Completed articles stay published.</p>`, async () => {
     if (bulkRunning || !sameSession() || scope !== bulkScope()) return;
     bulkRunning = true;
-    const progress = document.getElementById('kb-bulk-progress');
-    const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
-    button.disabled = true;
-    button.textContent = 'Publishing…';
-    const cancel = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
-    if (cancel) cancel.textContent = 'Stop after current article';
-    progress.textContent = `Publishing 0 of ${selected.length}…`;
-    const result = await publishDrafts(selected, {
-      active: sameSession,
-      shouldContinue: () => progress.isConnected,
-      publish: a => apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' }),
-      onSuccess: (a, response) => {
-        a.status = response.status;
-        a.updated = (response.updated_at || '').slice(0, 10);
-        bulkSelection.ids.delete(a._uuid);
-      },
-      onProgress: result => {
-        if (progress.isConnected) progress.textContent = `${result.published} of ${selected.length} published. ${result.failures.length} failed.`;
-      },
-    });
-    bulkRunning = false;
-    if (!sameSession()) return;
-    bulkMessage = `${result.published} published. ${selected.length - result.published} not published.`;
-    if (CURRENT_PAGE === 'kb') renderPage('kb');
-    if (!progress.isConnected) return;
-    showModal('Publishing results', `<p>${window.escHtml(bulkMessage)}</p>${result.failures.length ? `<p>Failed articles remain selected so you can retry.</p><ul class="kb-bulk-titles">${result.failures.map(f => `<li>${window.escHtml(f.article.title)}: ${window.escHtml(f.message)}</li>`).join('')}</ul>` : ''}`, null);
+    try {
+      const progress = document.getElementById('kb-bulk-progress');
+      const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+      button.disabled = true;
+      button.textContent = 'Publishing…';
+      const cancel = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
+      if (cancel) cancel.textContent = 'Stop after current article';
+      progress.textContent = `Publishing 0 of ${selected.length}…`;
+      const result = await publishDrafts(selected, {
+        active: sameSession,
+        shouldContinue: () => progress.isConnected,
+        publish: a => apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' }),
+        onSuccess: (a, response) => {
+          a.status = response.status;
+          a.updated = (response.updated_at || '').slice(0, 10);
+          bulkSelection.ids.delete(a._uuid);
+        },
+        onProgress: result => {
+          if (progress.isConnected) progress.textContent = `${result.published} of ${selected.length} published. ${result.failures.length} failed.`;
+        },
+      });
+      bulkRunning = false;
+      if (!sameSession()) return;
+      bulkMessage = `${result.published} published. ${selected.length - result.published} not published.`;
+      if (CURRENT_PAGE === 'kb') renderPage('kb');
+      if (!progress.isConnected) return;
+      showModal('Publishing results', `<p>${window.escHtml(bulkMessage)}</p>${result.failures.length ? `<p>Failed articles remain selected so you can retry.</p><ul class="kb-bulk-titles">${result.failures.map(f => `<li>${window.escHtml(f.article.title)}: ${window.escHtml(f.message)}</li>`).join('')}</ul>` : ''}`, null);
+    } catch (error) {
+      if (sameSession()) {
+        alert(`Publishing stopped: ${error?.message || error}. Reopen Publish selected to retry remaining drafts.`);
+      }
+    } finally {
+      bulkRunning = false;
+    }
   }, `Publish ${countLabel}`, true);
 }
 
