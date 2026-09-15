@@ -74,6 +74,11 @@ jobs:
           bun test scripts/kb-file-sources.test.js
           bun test scripts/kb-file-picker.test.js
 
+      - name: Customer reply separation
+        run: |
+          bun test scripts/ai-reply-separation.test.js
+          bun test scripts/ai-review-storage.test.js
+
       # The SPA's security headers exist twice while both hosts do (Vercel
       # hosting config + the self-hosted nginx image) — hand-editing one file
       # would silently CSP-block the other host in production.

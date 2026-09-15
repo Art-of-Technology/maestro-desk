@@ -105,6 +105,23 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(row.external_message_id).toMatch(/^<.+@.+>$/);
   });
 
+  it('emails only customer text from a structured suggestion, without internal evidence', async () => {
+    const { parseCustomerReply } = await import('./lib/customer-reply.js');
+    const suggested = parseCustomerReply({
+      customerReply: 'Play here: https://www.spacecasino.com/en-ca/games/netent/starburst/123',
+      referenceIds: ['KB-INTERNAL-ONLY'], internalNotes: ['INTERNAL-REVIEW-MARKER'],
+    }, [{ id: 'KB-INTERNAL-ONLY', title: 'Internal game directory' }]);
+    const tid = await seedTicket(`AR-${RUN}-clean-suggestion`, { email: `clean-${RUN}@acme.test` });
+    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: suggested.text }) });
+    expect(res.status).toBe(201);
+    expect(postmarkCalls).toBe(1);
+    expect(lastBody.TextBody).toContain(suggested.text);
+    expect(JSON.stringify(lastBody)).not.toContain('KB-INTERNAL-ONLY');
+    expect(JSON.stringify(lastBody)).not.toContain('INTERNAL-REVIEW-MARKER');
+    const [message] = await sql`select body from ticket_messages where ticket_id=${tid} and role='agent'`;
+    expect(message.body).toBe(suggested.text);
+  });
+
   const patchTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify(body) });
   const requestSurvey = (tid: string) => as(`/api/v1/tickets/${tid}/csat`, { method: 'POST', body: '{}' });
 
