@@ -13,7 +13,7 @@
 // still in app.js.
 
 import { KB_ARTICLES } from '../core/data.js';
-import { KB_SELECTED, SESSION, setKbSelected } from '../core/state.js';
+import { KB_SELECTED, SESSION, CURRENT_PAGE, setKbSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
@@ -22,6 +22,7 @@ import { startPresence } from '../core/presence.js';
 import { showModal, closeModal } from '../core/modal.js';
 import './sources.js';
 import { articleStatus, ARTICLE_STATUS_LABELS, articleLink } from './article-state.js';
+import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from './bulk-review.js';
 
 function kbApiBacked() {
   return !!(getJwt() && getWorkspaceId());
@@ -43,6 +44,25 @@ function mapKbResponse(a) {
 let KB_QUERY = '';
 let KB_FILTER_CAT = 'all';
 let KB_FILTER_STATUS = 'all';
+let KB_FILTER_MARKET = 'all';
+const bulkSelection = new DraftSelection();
+let bulkRunning = false;
+let bulkMessage = '';
+let bulkContext = '';
+
+function bulkScope() {
+  return JSON.stringify([getWorkspaceId(), getJwt(), window.isAdmin(), KB_FILTER_CAT, KB_FILTER_MARKET, KB_FILTER_STATUS, KB_QUERY]);
+}
+function matchingKB(status = KB_FILTER_STATUS) {
+  return matchingArticles(KB_ARTICLES, { category: KB_FILTER_CAT, market: KB_FILTER_MARKET, status, query: KB_QUERY });
+}
+function syncBulkSelection() {
+  const context = JSON.stringify([getWorkspaceId(), getJwt()]);
+  if (bulkContext !== context) { bulkMessage = ''; bulkContext = context; }
+  const scope = bulkScope();
+  if (bulkSelection.scope !== scope) bulkMessage = '';
+  bulkSelection.sync(scope, matchingKB());
+}
 
 function statusBadge(a) {
   const status = articleStatus(a);
@@ -179,12 +199,12 @@ function highlightSearch(text, query) {
 }
 
 export function renderKB() {
+  syncBulkSelection();
   if (KB_SELECTED) return renderKBArticle(KB_SELECTED);
   const admin = window.isAdmin();
   const ql = KB_QUERY.toLowerCase().trim();
 
-  let list = KB_ARTICLES.filter(a => KB_FILTER_CAT === 'all' || a.category === KB_FILTER_CAT);
-  if (ql) list = list.filter(a => a.title.toLowerCase().includes(ql) || a.body.toLowerCase().includes(ql) || a.category.toLowerCase().includes(ql) || a.id.toLowerCase().includes(ql));
+  let list = matchingKB('all');
   const statusCounts = { all: list.length, draft: 0, published: 0, archived: 0 };
   list.forEach(a => statusCounts[articleStatus(a)]++);
   if (KB_FILTER_STATUS !== 'all') list = list.filter(a => articleStatus(a) === KB_FILTER_STATUS);
@@ -204,6 +224,7 @@ export function renderKB() {
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <div class="kb-card-cat" style="margin:0">${window.escHtml(a.category)}</div>
           ${statusBadge(a)}
+          ${admin && a._uuid && articleStatus(a) === 'draft' ? `<label class="kb-select-draft" data-action=""><input type="checkbox" data-action="kb.selectDraft" data-uuid="${window.escAttr(a._uuid)}" aria-label="Select ${window.escAttr(a.title)}" ${bulkSelection.ids.has(a._uuid) ? 'checked' : ''} ${bulkRunning ? 'disabled' : ''}/> Select</label>` : ''}
           ${a.featured ? '<span style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-weight:600">★ Featured</span>' : ''}
         </div>
         <div class="kb-card-t">${titleHtml}</div>
@@ -253,10 +274,22 @@ export function renderKB() {
             `).join('')}
           </div>
           <div class="filter-bar">
+            <label for="kb-market">Market / language</label>
+            <select id="kb-market" class="filter-select" data-input-action="kb.setMarket">
+              <option value="all">All markets / languages</option>
+              ${[...new Set(KB_ARTICLES.map(articleMarket))].sort().map(m => `<option value="${window.escAttr(m)}" ${KB_FILTER_MARKET === m ? 'selected' : ''}>${m === 'unassigned' ? 'Unassigned' : window.escHtml(m)}</option>`).join('')}
+            </select>
             <span class="filter-label">Search</span>
             <input class="filter-select" aria-label="Search articles" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
             <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
           </div>
+          ${admin && kbApiBacked() ? `<div class="kb-bulk-bar">
+            <button class="btn btn-sm" data-action="kb.selectMatching" ${bulkRunning || !list.some(a => a._uuid && articleStatus(a) === 'draft') ? 'disabled' : ''}>Select all matching drafts</button>
+            <button class="btn btn-sm" data-action="kb.clearSelection" ${bulkRunning || !bulkSelection.ids.size ? 'disabled' : ''}>Clear selection</button>
+            <span>${bulkSelection.ids.size} selected</span>
+            <button class="btn btn-solid btn-sm" data-action="kb.publishSelected" ${bulkRunning || !bulkSelection.ids.size ? 'disabled' : ''}>Publish selected</button>
+            <span role="status" aria-live="polite">${window.escHtml(bulkMessage)}</span>
+          </div>` : ''}
           <div class="page-scroll">
             ${list.length ? `<div class="kb-grid">${cards}</div>` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No articles match</div><div class="empty-line"></div></div>`}
           </div>
@@ -460,6 +493,54 @@ function kbPublishArticle(id) {
   }, 'Publish article');
 }
 
+function kbPublishSelected() {
+  if (bulkRunning || !window.isAdmin() || !kbApiBacked()) return;
+  syncBulkSelection();
+  const selected = bulkSelection.selected(matchingKB());
+  if (!selected.length) return;
+  const countLabel = `${selected.length} article${selected.length === 1 ? '' : 's'}`;
+  const scope = bulkScope();
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const sameSession = () => workspace === getWorkspaceId() && jwt === getJwt() && window.isAdmin()
+    && selected.every(a => KB_ARTICLES.includes(a));
+  const markets = {};
+  selected.forEach(a => { const m = articleMarket(a); markets[m] = (markets[m] || 0) + 1; });
+  showModal('Publish selected articles', `
+    <p>Publish <strong>${countLabel}</strong>? AI will be able to use them in customer replies.</p>
+    <ul>${Object.entries(markets).sort().map(([m, n]) => `<li>${window.escHtml(m === 'unassigned' ? 'Unassigned' : m)}: ${n}</li>`).join('')}</ul>
+    <details><summary>Review selected titles</summary><ul class="kb-bulk-titles">${selected.map(a => `<li>${window.escHtml(a.title)}</li>`).join('')}</ul></details>
+    <p id="kb-bulk-progress" role="status" aria-live="polite">Closing this dialog stops after the current request. Completed articles stay published.</p>`, async () => {
+    if (bulkRunning || !sameSession() || scope !== bulkScope()) return;
+    bulkRunning = true;
+    const progress = document.getElementById('kb-bulk-progress');
+    const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    button.disabled = true;
+    button.textContent = 'Publishing…';
+    const cancel = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
+    if (cancel) cancel.textContent = 'Stop after current article';
+    progress.textContent = `Publishing 0 of ${selected.length}…`;
+    const result = await publishDrafts(selected, {
+      active: sameSession,
+      shouldContinue: () => progress.isConnected,
+      publish: a => apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' }),
+      onSuccess: (a, response) => {
+        a.status = response.status;
+        a.updated = (response.updated_at || '').slice(0, 10);
+        bulkSelection.ids.delete(a._uuid);
+      },
+      onProgress: result => {
+        if (progress.isConnected) progress.textContent = `${result.published} of ${selected.length} published. ${result.failures.length} failed.`;
+      },
+    });
+    bulkRunning = false;
+    if (!sameSession()) return;
+    bulkMessage = `${result.published} published. ${selected.length - result.published} not published.`;
+    if (CURRENT_PAGE === 'kb') renderPage('kb');
+    if (!progress.isConnected) return;
+    showModal('Publishing results', `<p>${window.escHtml(bulkMessage)}</p>${result.failures.length ? `<p>Failed articles remain selected so you can retry.</p><ul class="kb-bulk-titles">${result.failures.map(f => `<li>${window.escHtml(f.article.title)}: ${window.escHtml(f.message)}</li>`).join('')}</ul>` : ''}`, null);
+  }, `Publish ${countLabel}`, true);
+}
+
 function kbDeleteArticle(id) {
   if (!window.isAdmin()) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
@@ -476,6 +557,26 @@ function kbDeleteArticle(id) {
 }
 
 registerActions({
+  'kb.selectDraft': (ds, el) => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    const a = matchingKB().find(a => a._uuid === ds.uuid && articleStatus(a) === 'draft');
+    if (!a) return;
+    if (el.checked) bulkSelection.ids.add(a._uuid); else bulkSelection.ids.delete(a._uuid);
+    const scrollTop = document.querySelector?.('.kb-main .page-scroll')?.scrollTop || 0;
+    renderPage('kb');
+    const scroller = document.querySelector?.('.kb-main .page-scroll');
+    if (scroller) scroller.scrollTop = scrollTop;
+    document.querySelector?.(`[data-action="kb.selectDraft"][data-uuid="${a._uuid}"]`)?.focus({ preventScroll: true });
+  },
+  'kb.selectMatching': () => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft').forEach(a => bulkSelection.ids.add(a._uuid));
+    renderPage('kb');
+  },
+  'kb.clearSelection': () => { if (!bulkRunning) { bulkSelection.ids.clear(); renderPage('kb'); } },
+  'kb.publishSelected': () => kbPublishSelected(),
   'kb.open':           (ds) => openKBArticle(ds.id),
   'kb.close':          () => closeKBArticle(),
   'kb.new':            () => kbNewArticle(),
@@ -489,5 +590,6 @@ registerActions({
 });
 
 registerInputActions({
+  'kb.setMarket': (ds, el) => { KB_FILTER_MARKET = el.value; renderPage('kb'); document.getElementById('kb-market')?.focus(); },
   'kb.setQuery': (ds, el) => kbSetQuery(el.value),
 });

@@ -68,6 +68,7 @@ jobs:
         run: |
           bun test scripts/kb-persistence.test.js
           bun test scripts/kb-article-state.test.js
+          bun test scripts/kb-bulk-review.test.js
           bun test scripts/kb-draft-routing.test.js
           bun test scripts/kb-file-sources.test.js
           bun test scripts/kb-file-picker.test.js
