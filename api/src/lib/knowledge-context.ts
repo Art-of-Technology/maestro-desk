@@ -3,6 +3,22 @@ import { getDb } from './db.js';
 export function knowledgeTerms(query: string) {
   return [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,40}/gu) || [])].slice(0, 40);
 }
+
+// A small relevance-ranked candidate set replaces the portal's full-library
+// prompt. Game URLs remain individual searchable articles behind grouped cards.
+export async function suggestedKnowledgeArticles(workspaceId: string, query: string) {
+  const terms = knowledgeTerms(query.slice(0, 4000)).join(' | ');
+  if (!terms) return [];
+  const sql = getDb();
+  return sql<{ id: string; display_id: string; title: string; category: string | null; body: string }[]>`
+    select id,display_id,title,category,left(body,600) as body
+    from kb_articles
+    where workspace_id=${workspaceId} and status='published'
+      and search_document @@ to_tsquery('simple',${terms})
+    order by ts_rank(to_tsvector('simple',title),to_tsquery('simple',${terms})) desc,
+      ts_rank(search_document,to_tsquery('simple',${terms})) desc,updated_at desc,id
+    limit 12`;
+}
 export function selectKnowledgePassages(body: string, query: string, limit = 6000) {
   const terms = knowledgeTerms(query);
   const parts = body.split(/(?=^## )/m).flatMap((section) => {
@@ -33,7 +49,7 @@ export async function publishedKnowledgeMaterial(workspaceId: string, query: str
   const sql = getDb();
   const terms = knowledgeTerms(query).join(' | ');
   const rows =
-    await sql`select a.display_id,a.title,a.body,s.locator,s.language,s.jurisdiction,s.checked_at,s.error,
+    await sql`select a.display_id,a.title,a.category,a.body,s.locator,s.language,s.jurisdiction,s.checked_at,s.error,
     (s.latest_version_id is distinct from s.approved_version_id) as changes_pending
     from kb_articles a left join knowledge_sources s on s.article_id=a.id and s.workspace_id=a.workspace_id
     where a.workspace_id=${workspaceId} and a.status='published'
@@ -47,6 +63,7 @@ export async function publishedKnowledgeMaterial(workspaceId: string, query: str
       rows.map((a) => ({
         id: a.display_id,
         title: a.title,
+        category: a.category,
         source: a.locator || 'Internal article',
         language: a.language,
         jurisdiction: a.jurisdiction,

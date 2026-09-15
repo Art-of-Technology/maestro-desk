@@ -573,3 +573,16 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .reply-internal-review summary:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
 .reply-internal-review p { margin:8px 0; }
 .reply-internal-review ul { margin:8px 0; padding-left:20px; }
+.kb-updated { font-size:12px; color:var(--ink2); margin:8px 0; }
+.kb-directory { align-self:start; }
+.kb-directory summary { cursor:pointer; }
+.kb-directory summary:focus-visible { outline:2px solid var(--ink); outline-offset:4px; }
+.kb-directory-status { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.kb-directory-hint { font-size:12px; color:var(--ink2); margin-bottom:12px; }
+.kb-directory-list { list-style:none; padding:0; margin:12px 0 0; max-height:480px; overflow:auto; }
+.kb-directory-list li { display:flex; flex-wrap:wrap; gap:8px; padding:12px 0; border-top:1px solid var(--rule); }
+.kb-directory-game { flex:1 1 160px; min-width:0; overflow-wrap:anywhere; }
+.kb-directory-game a { color:var(--ink); text-decoration:underline; }
+.kb-directory-actions { display:flex; align-items:center; gap:8px; }
+.kb-directory .btn, .kb-directory-game a { min-height:44px; }
+.kb-directory-game a { display:inline-flex; align-items:center; }

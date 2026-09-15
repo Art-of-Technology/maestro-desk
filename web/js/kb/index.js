@@ -23,6 +23,7 @@ import { showModal, closeModal } from '../core/modal.js';
 import './sources.js';
 import { articleStatus, ARTICLE_STATUS_LABELS, articleLink } from './article-state.js';
 import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from './bulk-review.js';
+import { cardTitle, updatedLabel, directoryCards, gameDirectory, cardMatchesQuery } from './card-presentation.js';
 
 function kbApiBacked() {
   return !!(getJwt() && getWorkspaceId());
@@ -37,7 +38,7 @@ function mapKbResponse(a) {
     body:     a.body || '',
     status:   a.status || 'draft',
     author:   a.author_name || 'Unknown',
-    updated:  (a.updated_at || '').slice(0, 10),
+    updated:  a.updated_at || '',
   };
 }
 
@@ -54,7 +55,7 @@ function bulkScope() {
   return JSON.stringify([getWorkspaceId(), getJwt(), window.isAdmin(), KB_FILTER_CAT, KB_FILTER_MARKET, KB_FILTER_STATUS, KB_QUERY]);
 }
 function matchingKB(status = KB_FILTER_STATUS) {
-  return matchingArticles(KB_ARTICLES, { category: KB_FILTER_CAT, market: KB_FILTER_MARKET, status, query: KB_QUERY });
+  return matchingArticles(KB_ARTICLES, { category: KB_FILTER_CAT, market: KB_FILTER_MARKET, status }).filter(a => cardMatchesQuery(a, KB_QUERY));
 }
 function syncBulkSelection() {
   const context = JSON.stringify([getWorkspaceId(), getJwt()]);
@@ -198,6 +199,40 @@ function highlightSearch(text, query) {
   return out;
 }
 
+function renderGameDirectory(group, admin) {
+  const drafts = group.articles.filter(a => a._uuid && articleStatus(a) === 'draft');
+  const selected = drafts.filter(a => bulkSelection.ids.has(a._uuid)).length;
+  return `<details class="kb-card kb-directory" data-directory="${window.escAttr(group.key)}">
+    <summary>
+      <div class="kb-card-cat">Games · ${window.escHtml(group.market)}</div>
+      <div class="kb-card-t">${window.escHtml(group.title)}</div>
+      <div class="kb-updated">${window.escHtml(updatedLabel(group.updated))}</div>
+      <div class="kb-directory-status">${Object.entries(group.counts).filter(([, n]) => n).map(([s, n]) => `<span class="kb-status kb-status-${s}">${n} ${ARTICLE_STATUS_LABELS[s]}</span>`).join('')}</div>
+      <div class="kb-directory-hint">${group.articles.length} game links</div>
+    </summary>
+    ${admin && drafts.length ? `<button class="btn btn-sm" data-action="kb.selectDirectory" data-directory="${window.escAttr(group.key)}" ${bulkRunning ? 'disabled' : ''}>${selected === drafts.length ? 'Clear' : 'Select'} ${drafts.length} matching drafts</button>` : ''}
+    <ul class="kb-directory-list">${group.articles.map(a => `<li>
+      <div class="kb-directory-game"><a href="${window.escAttr(articleLink(a.body))}" target="_blank" rel="noopener noreferrer">${window.escHtml(cardTitle(a))} ↗</a>
+        <div class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</div>${statusBadge(a)}</div>
+      <div class="kb-directory-actions"><button class="btn btn-sm" data-action="kb.open" data-id="${window.escAttr(a.id)}">Review</button>
+      ${admin && a._uuid && articleStatus(a) === 'draft' ? `<label class="kb-select-draft" data-action=""><input type="checkbox" data-action="kb.selectDraft" data-uuid="${window.escAttr(a._uuid)}" aria-label="Select ${window.escAttr(cardTitle(a))}" ${bulkSelection.ids.has(a._uuid) ? 'checked' : ''} ${bulkRunning ? 'disabled' : ''}/> Select</label>` : ''}</div>
+    </li>`).join('')}</ul>
+  </details>`;
+}
+
+function renderSelection(focusUuid) {
+  const open = [...(document.querySelectorAll?.('.kb-directory[open]') || [])].map(el => ({ key: el.dataset.directory, scroll: el.querySelector('.kb-directory-list')?.scrollTop || 0 }));
+  const scrollTop = document.querySelector?.('.kb-main .page-scroll')?.scrollTop || 0;
+  renderPage('kb');
+  for (const entry of open) {
+    const el = document.querySelector?.(`[data-directory="${entry.key}"].kb-directory`);
+    if (el) { el.open = true; el.querySelector('.kb-directory-list').scrollTop = entry.scroll; }
+  }
+  const scroller = document.querySelector?.('.kb-main .page-scroll');
+  if (scroller) scroller.scrollTop = scrollTop;
+  if (focusUuid) document.querySelector?.(`[data-action="kb.selectDraft"][data-uuid="${focusUuid}"]`)?.focus({ preventScroll: true });
+}
+
 export function renderKB() {
   syncBulkSelection();
   if (KB_SELECTED) return renderKBArticle(KB_SELECTED);
@@ -214,10 +249,13 @@ export function renderKB() {
     return (b.updated || '').localeCompare(a.updated || '');
   });
 
-  const cards = list.map(a => {
+  const grouped = directoryCards(list);
+  const cards = grouped.map(card => {
+    if (!card.article) return renderGameDirectory(card, admin);
+    const a = card.article;
     const views = getKBViews(a.id);
     const votes = getKBNetVote(a.id);
-    const titleHtml   = ql ? highlightSearch(window.escHtml(a.title),         KB_QUERY) : window.escHtml(a.title);
+    const titleHtml   = ql ? highlightSearch(window.escHtml(cardTitle(a)),         KB_QUERY) : window.escHtml(cardTitle(a));
     const snippetHtml = ql ? highlightSearch(window.escHtml(articleSnippet(a)), KB_QUERY) : window.escHtml(articleSnippet(a));
     return `
       <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(a.id)}">
@@ -228,6 +266,7 @@ export function renderKB() {
           ${a.featured ? '<span style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-weight:600">★ Featured</span>' : ''}
         </div>
         <div class="kb-card-t">${titleHtml}</div>
+        <div class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</div>
         <div class="kb-card-snippet">${snippetHtml}</div>
         <div class="kb-card-meta">
           <span>${a.id}</span>
@@ -281,7 +320,7 @@ export function renderKB() {
             </select>
             <span class="filter-label">Search</span>
             <input class="filter-select" aria-label="Search articles" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
-            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${grouped.length} cards · ${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
           </div>
           ${admin && kbApiBacked() ? `<div class="kb-bulk-bar">
             <button class="btn btn-sm" data-action="kb.selectMatching" ${bulkRunning || !list.some(a => a._uuid && articleStatus(a) === 'draft') ? 'disabled' : ''}>Select all matching drafts</button>
@@ -339,7 +378,7 @@ function renderKBArticle(id) {
             <span>${window.escHtml(a.category)}</span>
             ${a.featured ? '<span style="color:var(--amber);font-weight:600">★ Featured</span>' : ''}
           </div>
-          <h1 class="kb-article-h">${window.escHtml(a.title)}</h1>
+          <h1 class="kb-article-h">${window.escHtml(cardTitle(a))}</h1>
           <div class="kb-review-banner">
             <div>${statusBadge(a)}<p>${status === 'draft' ? 'Review the content, then publish it to make it available to AI.' : status === 'published' ? 'AI can use this article in customer replies.' : 'This article is archived and unavailable to AI.'}</p></div>
             ${admin && status === 'draft' ? `<button class="btn btn-solid" data-action="kb.publish" data-id="${window.escAttr(a.id)}">Publish article</button>` : ''}
@@ -347,7 +386,7 @@ function renderKBArticle(id) {
           <div class="kb-article-meta">
             <span>${a.id}</span>
             <span>By ${window.escHtml(a.author)}</span>
-            <span>Updated ${a.updated}</span>
+            <span>${window.escHtml(updatedLabel(a.updated))}</span>
             <span>${views} view${views===1?'':'s'}</span>
             ${link ? '' : `<span>${reading} min read · ${wordCount} words</span>`}
             ${votes !== 0 ? `<span style="color:${votes>0?'var(--green)':'var(--red)'}">${votes>0?'+':''}${votes} helpful</span>` : ''}
@@ -371,7 +410,7 @@ function renderKBArticle(id) {
                 <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(r.id)}" style="padding:12px">
                   <div class="kb-card-cat" style="margin-bottom:6px">${window.escHtml(r.category)}</div>
                   ${statusBadge(r)}
-                  <div class="kb-card-t" style="font-size:13px">${window.escHtml(r.title)}</div>
+                  <div class="kb-card-t" style="font-size:13px">${window.escHtml(cardTitle(r))}</div><div class="kb-updated">${window.escHtml(updatedLabel(r.updated))}</div>
                 </div>`).join('')}
             </div>
           </div>` : ''}
@@ -433,7 +472,7 @@ function kbNewArticle() {
       KB_ARTICLES.unshift(mapKbResponse(resp.article));
     } else {
       const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
-      KB_ARTICLES.unshift({id, title, category:cat, body, status:'draft', author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+      KB_ARTICLES.unshift({id, title, category:cat, body, status:'draft', author:SESSION?.name||'Unknown', updated:new Date().toISOString()});
     }
     setKbSelected(KB_ARTICLES[0].id);
     closeModal(); renderPage('kb');
@@ -451,13 +490,17 @@ function kbEditArticle(id) {
     const cat   = document.getElementById('kb-cat').value.trim() || a.category;
     const body  = document.getElementById('kb-body').value;
     if (!title || !body.trim()) return;
+    let updated = new Date().toISOString();
     if (a._uuid) {
-      try { await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body }); }
+      try {
+        const { article } = await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body });
+        updated = article.updated_at || a.updated;
+      }
       catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     }
     a.title = title; a.category = cat; a.body = body;
-    a.updated = new Date().toISOString().slice(0,10);
+    a.updated = updated;
     closeModal(); renderPage('kb');
   }, articleStatus(a) === 'draft' ? 'Save draft' : 'Save changes', true);
 }
@@ -479,7 +522,7 @@ function kbPublishArticle(id) {
         if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
         if (article.status !== 'published') throw new Error('The article was not published. Try again.');
         a.status = article.status;
-        a.updated = (article.updated_at || '').slice(0, 10);
+        a.updated = article.updated_at || '';
       } catch (err) {
         saving = false;
         if (button?.isConnected) { button.disabled = false; button.textContent = 'Publish article'; }
@@ -526,7 +569,7 @@ function kbPublishSelected() {
         publish: a => apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' }),
         onSuccess: (a, response) => {
           a.status = response.status;
-          a.updated = (response.updated_at || '').slice(0, 10);
+          a.updated = response.updated_at || '';
           bulkSelection.ids.delete(a._uuid);
         },
         onProgress: result => {
@@ -565,17 +608,21 @@ function kbDeleteArticle(id) {
 }
 
 registerActions({
+  'kb.selectDirectory': ds => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    const drafts = matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft' && gameDirectory(a)?.key === ds.directory);
+    const clear = drafts.every(a => bulkSelection.ids.has(a._uuid));
+    drafts.forEach(a => { if (clear) bulkSelection.ids.delete(a._uuid); else bulkSelection.ids.add(a._uuid); });
+    renderSelection();
+  },
   'kb.selectDraft': (ds, el) => {
     if (bulkRunning || !window.isAdmin()) return;
     syncBulkSelection();
     const a = matchingKB().find(a => a._uuid === ds.uuid && articleStatus(a) === 'draft');
     if (!a) return;
     if (el.checked) bulkSelection.ids.add(a._uuid); else bulkSelection.ids.delete(a._uuid);
-    const scrollTop = document.querySelector?.('.kb-main .page-scroll')?.scrollTop || 0;
-    renderPage('kb');
-    const scroller = document.querySelector?.('.kb-main .page-scroll');
-    if (scroller) scroller.scrollTop = scrollTop;
-    document.querySelector?.(`[data-action="kb.selectDraft"][data-uuid="${a._uuid}"]`)?.focus({ preventScroll: true });
+    renderSelection(a._uuid);
   },
   'kb.selectMatching': () => {
     if (bulkRunning || !window.isAdmin()) return;

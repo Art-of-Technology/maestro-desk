@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import { getDb } from './db.js';
+import { suggestedKnowledgeArticles } from './knowledge-context.js';
 
 // Migration to Neon — Step 3 (portal batch). DB via getDb().
 
@@ -59,14 +60,7 @@ export async function suggestKbForQuestion(args: {
   const { workspaceId, question } = args;
   const sql = getDb();
 
-  // Pull the workspace's published articles. Body is truncated server-
-  // side to keep input tokens bounded — the model just needs the gist.
-  const articles = await sql<{ id: string; display_id: string; title: string; category: string | null; body: string | null }[]>`
-    select id, display_id, title, category, body
-    from kb_articles
-    where workspace_id = ${workspaceId} and status = 'published'
-    order by updated_at desc
-  `;
+  const articles = await suggestedKnowledgeArticles(workspaceId, question);
   if (articles.length === 0) {
     return { suggestions: [], cost_micro: 0 };
   }
@@ -93,7 +87,7 @@ export async function suggestKbForQuestion(args: {
       type: 'text',
       text: `You are a customer-support routing assistant. Given a customer question and a list of KB articles, identify the up-to-three articles that best resolve the question. Be strict: only return suggestions where you're confident (>= 40) the article answers the question. If none do, return an empty list — the customer will submit a ticket.
 
-Always use the suggest_kb_articles tool. Refer to articles by their display id (e.g. "KB-001").`,
+Always use the suggest_kb_articles tool. Refer to articles by their display id (e.g. "KB-001"). Keep language and jurisdiction codes in mind: do not assume a market-specific game link applies to another market. If the market is unknown and the link requires it, omit that suggestion.`,
     },
     {
       type: 'text',
