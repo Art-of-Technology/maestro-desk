@@ -1,7 +1,7 @@
 // Run separately: module mocks must not affect the API suite or render smokes.
 import { test, expect, mock } from 'bun:test';
 const articles = [],
-  actions = {};
+  actions = {}, inputs = {};
 let jwt = 'session',
   workspace = 'brand-a',
   confirm,
@@ -23,6 +23,7 @@ globalThis.document = {
 };
 mock.module('../web/js/core/data.js', () => ({ KB_ARTICLES: articles }));
 mock.module('../web/js/core/state.js', () => ({
+  CURRENT_PAGE: 'kb',
   KB_SELECTED: null,
   SESSION: { name: 'Test' },
   setKbSelected() {},
@@ -31,7 +32,7 @@ mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
 mock.module('../web/js/ai/page.js', () => ({ renderMarkdown: String }));
 mock.module('../web/js/core/event-delegation.js', () => ({
   registerActions: (a) => Object.assign(actions, a),
-  registerInputActions() {},
+  registerInputActions: a => Object.assign(inputs, a),
 }));
 mock.module('../web/js/core/presence.js', () => ({ startPresence() {} }));
 mock.module('../web/js/core/modal.js', () => ({
@@ -106,6 +107,71 @@ test('first live article persists, failures do not fake success, and late respon
   await confirm();
   expect(posts).toBe(before);
   expect(articles[0].id).toBe('KB-001');
+});
+
+test('bulk UI selects only matching drafts, clears filters, guards confirmation and retries failures', async () => {
+  const originalGetElementById = document.getElementById;
+  const originalQuerySelector = document.querySelector;
+  const originalIsAdmin = window.isAdmin;
+  try {
+    jwt = 'session'; workspace = 'brand-a'; patchCalls = []; patchRelease = null; patchFail = false;
+    const progress = { isConnected: true, textContent: '' };
+    document.getElementById = () => progress;
+    document.querySelector = () => null;
+    articles.splice(0, articles.length,
+      { id: 'KB-a', _uuid: 'a', title: 'A', body: 'Link', category: 'Games · en-ca', status: 'draft' },
+      { id: 'KB-b', _uuid: 'b', title: 'B', body: 'Link', category: 'Website · en-ca', status: 'draft' },
+      { id: 'KB-c', _uuid: 'c', title: 'C', body: 'Link', category: 'Games · pt-br', status: 'draft' },
+      { id: 'KB-d', _uuid: 'd', title: 'D', body: 'Link', category: 'Games · en-ca', status: 'published' });
+    actions['kb.setStatus']({ status: 'all' });
+    renderKB();
+    actions['kb.selectMatching']();
+    expect(renderKB()).toContain('3 selected');
+    actions['kb.setCat']({ cat: 'Games · en-ca' });
+    expect(renderKB()).toContain('0 selected');
+    actions['kb.selectMatching']();
+    actions['kb.publishSelected']();
+    expect(modalLabel).toBe('Publish 1 article');
+    workspace = 'other';
+    await confirm();
+    expect(patchCalls).toHaveLength(0);
+    workspace = 'brand-a';
+    actions['kb.publishSelected']();
+    const button = { disabled: false, textContent: '' };
+    document.querySelector = () => { throw new Error('Unexpected DOM failure'); };
+    await confirm();
+    expect(patchCalls).toHaveLength(0);
+    document.querySelector = () => button;
+    patchFail = true;
+    await confirm();
+    expect(articles[0].status).toBe('draft');
+    expect(renderKB()).toContain('1 selected');
+    patchFail = false; patchRelease = true;
+    actions['kb.publishSelected']();
+    const callback = confirm;
+    const pending = callback();
+    await callback();
+    expect(patchCalls).toHaveLength(2);
+    patchRelease(); await pending; patchRelease = null;
+    expect(articles[0].status).toBe('published');
+    expect(articles[1].status).toBe('draft');
+    expect(articles[2].status).toBe('draft');
+    expect(renderKB()).toContain('0 selected');
+    actions['kb.setCat']({ cat: 'all' });
+    window.isAdmin = () => false;
+    renderKB();
+    actions['kb.selectMatching']();
+    expect(renderKB()).not.toContain('kb.publishSelected');
+    const previousConfirm = confirm;
+    actions['kb.publishSelected']();
+    expect(confirm).toBe(previousConfirm);
+    window.isAdmin = () => true;
+  } finally {
+    document.getElementById = originalGetElementById;
+    document.querySelector = originalQuerySelector;
+    window.isAdmin = originalIsAdmin;
+    actions['kb.setCat']({ cat: 'all' });
+  }
 });
 
 test('review filters and publishing preserve drafts on failure and ignore late workspace responses', async () => {
