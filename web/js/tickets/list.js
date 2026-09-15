@@ -44,8 +44,8 @@ let FILTER_STATUS = 'outstanding';
 let FILTER_VIEW = 'all';
 let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
-let SORT_COL = 'urgency';
-let SORT_DIR = 1;
+let SORT_COL = 'created';
+let SORT_DIR = -1;
 let VISIBLE_LIMIT = 50;
 // The four advanced selects live behind "More filters" (issue #447). Closed by
 // default; anything actually filtering is still visible as a removal chip in
@@ -307,6 +307,7 @@ export function renderTickets() {
         <button class="kpi" data-action="tickets.focusQueue" data-focus="escalated"><span class="kpi-n c-purple">${escalatedN}</span><span class="kpi-l">Escalated</span></button>
       </div>
       <p class="report-note">All unfinished tickets, including pending and GDPR, regardless of age. Out of SLA and escalated can overlap.
+        <button class="btn btn-sm" data-action="tickets.newestSort" ${SORT_COL === 'created' && SORT_DIR === -1 ? 'disabled' : ''}>Newest first</button>
         <button class="btn btn-sm" data-action="tickets.urgencySort" ${SORT_COL === 'urgency' ? 'disabled' : ''}>Urgency first</button>
         <button class="btn btn-sm" data-action="tickets.retryQueue">Refresh</button></p>
       ${bulkBar}
@@ -576,6 +577,10 @@ function getFilteredTickets() {
   }
   list.sort((a, b) => {
     if (SORT_COL === 'urgency') return compareUrgency(a, b);
+    if (SORT_COL === 'created') {
+      const createdMs = t => Date.parse(t._createdAt || t.created) || 0;
+      return (createdMs(a) - createdMs(b)) * SORT_DIR;
+    }
     let av = a[SORT_COL] || '', bv = b[SORT_COL] || '';
     return typeof av === 'string' ? av.localeCompare(bv) * SORT_DIR : (av - bv) * SORT_DIR;
   });
@@ -794,6 +799,7 @@ function exportTicketList() {
 registerActions({
   'tickets.retryQueue': () => { invalidateWorkQueue(); renderPage('tickets'); },
   'tickets.urgencySort': () => { SORT_COL = 'urgency'; SORT_DIR = 1; renderPage('tickets'); },
+  'tickets.newestSort': () => { SORT_COL = 'created'; SORT_DIR = -1; renderPage('tickets'); },
   'tickets.focusQueue': ds => {
     FILTER_STATUS = ds.focus === 'escalated' ? 'escalated' : 'outstanding';
     FILTER_VIEW = ds.focus === 'overdue' ? 'overdue' : 'all';
