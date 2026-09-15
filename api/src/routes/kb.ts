@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 
-// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
+// Members can read and vote; article management requires workspace admin access.
 export const kb = new Hono();
 
 kb.use('*', requireAuth);
@@ -41,6 +42,8 @@ kb.get('/', async (c) => {
 
 // ─── POST / — create ──────────────────────────────────────────────────────
 kb.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
@@ -77,6 +80,8 @@ const PatchKb = z.object({
 }).strict();
 
 kb.patch('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -106,6 +111,8 @@ kb.patch('/:id', async (c) => {
 
 // ─── DELETE /:id ─────────────────────────────────────────────────────────
 kb.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
