@@ -8,12 +8,9 @@ name: Post-deploy health-check
 # API; the legacy Vercel projects only serve staging/PR previews.
 #
 # The frontend job verifies the actual served files against this checkout.
-# LIMITATION: API health endpoints carry no git-SHA marker, so API checks
-# prove availability and DB connectivity, not the deployed API version.
-# Migrations run at API-container boot: a bad
-# migration aborts the new container before it serves, the previous deployment
-# keeps running, and readiness stays green — so this check cannot catch a
-# migration that failed to apply, only one that broke readiness.
+# The API version job requires the expected build fingerprint on both health
+# and database readiness responses. A failed build or migration leaves the old
+# container healthy, but its fingerprint cannot pass this deployment check.
 #
 # ROLLBACK is manual: redeploy the previous build of the affected app in the
 # Dokploy panel (paas.weez.boo, LAN/VPN). See PROD_SETUP.md → Rollback.
@@ -40,6 +37,18 @@ env:
   SLEEP_SECONDS: "15"
 
 jobs:
+  api-version:
+    name: verify deployed API version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for expected API build and database readiness
+        run: node scripts/api-deployment-check.mjs
+
   frontend:
     name: verify deployed frontend version
     runs-on: ubuntu-latest
