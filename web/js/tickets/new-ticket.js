@@ -555,7 +555,7 @@ function createDemoTicket(snap, { message, send }) {
     priority: snap.priority,
     category: snap.categoryLabel || catOptions()[0]?.label || 'General',
     agent: snap.agentName || '',
-    created: new Date().toISOString().slice(0, 10), updated: 'just now',
+    created: new Date().toISOString().slice(0, 10), _createdAt: new Date().toISOString(), updated: 'just now',
     sla: 'ok', tags: [], aiTags: [], csat: null,
     msgs: (send && message) ? [{ from: SESSION.name, r: 'agent', t: message, ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }] : [],
   });
