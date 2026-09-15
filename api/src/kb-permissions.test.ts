@@ -111,6 +111,41 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
     expect((await request('PATCH', '/' + article.id, { status: 'published' }, 1, 1)).status).toBe(403);
   });
 
+  it('updates timestamps only for content or status changes, not views, votes or no-op saves', async () => {
+    const article = await create();
+    const stamp = async () => (await sql`select updated_at::text as stamp from kb_articles where id=${article.id}`)[0].stamp;
+    const original = await stamp();
+    await request('POST', '/' + article.id + '/view', undefined, 1);
+    await request('POST', '/' + article.id + '/vote', { direction: 'up' }, 1);
+    await request('PATCH', '/' + article.id, { body: content.body });
+    expect(await stamp()).toBe(original);
+    await request('PATCH', '/' + article.id, { body: 'Edited content' });
+    const edited = await stamp();
+    expect(edited).not.toBe(original);
+    await request('PATCH', '/' + article.id, { status: 'published' });
+    expect(await stamp()).not.toBe(edited);
+  });
+
+  it('retrieves a bounded set of matching published entries with full game URLs', async () => {
+    const { suggestedKnowledgeArticles } = await import('./lib/knowledge-context.js');
+    const link = 'https://www.spacecasino.com/en-ca/games/netent/quasarfixture-special/123';
+    const rows = Array.from({ length: 150 }, (_, i) => ({ workspace_id: workspaces[0], display_id: 'SEARCH-' + i,
+      title: i === 0 ? '[en-ca] quasarfixture special' : i < 30 ? `quasarfixture ${i}` : `Unrelated ${i}`,
+      body: i === 0 ? link : 'Unrelated information. '.repeat(40), category: 'Games · en-ca', status: 'published' }));
+    await sql`insert into kb_articles ${sql(rows)}`;
+    await sql`insert into kb_articles (workspace_id,display_id,title,body,status) values
+      (${workspaces[0]},'SEARCH-DRAFT','quasarfixture special','Draft secret','draft'),
+      (${workspaces[1]},'SEARCH-OTHER','quasarfixture special','Other workspace secret','published')`;
+    const result = await suggestedKnowledgeArticles(workspaces[0], 'quasarfixture special');
+    expect(result).toHaveLength(12);
+    expect(result[0].body).toBe(link);
+    expect(result.some(a => a.display_id === 'SEARCH-DRAFT' || a.display_id === 'SEARCH-OTHER')).toBe(false);
+    expect(result.every(a => a.title.includes('quasarfixture') && a.body.length <= 600)).toBe(true);
+    expect(JSON.stringify(result).length).toBeLessThan(JSON.stringify(rows).length / 5);
+    expect(await suggestedKnowledgeArticles(workspaces[0], 'zzznomatchingterm')).toHaveLength(0);
+    expect(await suggestedKnowledgeArticles(workspaces[0], '!?')).toHaveLength(0);
+  });
+
   it('keeps reading, viewing and helpfulness voting available to members', async () => {
     const article = await create('published');
     expect((await request('GET', '', undefined, 1)).status).toBe(200);
