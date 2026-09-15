@@ -7,10 +7,10 @@ name: Post-deploy health-check
 # Tunnel (PROD_SETUP.md §3), with the dedicated Dokploy Postgres behind the
 # API; the legacy Vercel projects only serve staging/PR previews.
 #
-# LIMITATION: the health endpoints carry no git-SHA marker, so this verifies
-# the API is UP and its database is REACHABLE after the push — NOT that this
-# exact commit is live (a Dokploy rebuild may land later; the check still
-# gates that prod didn't regress). Migrations run at API-container boot: a bad
+# The frontend job verifies the actual served files against this checkout.
+# LIMITATION: API health endpoints carry no git-SHA marker, so API checks
+# prove availability and DB connectivity, not the deployed API version.
+# Migrations run at API-container boot: a bad
 # migration aborts the new container before it serves, the previous deployment
 # keeps running, and readiness stays green — so this check cannot catch a
 # migration that failed to apply, only one that broke readiness.
@@ -40,8 +40,20 @@ env:
   SLEEP_SECONDS: "15"
 
 jobs:
+  frontend:
+    name: verify deployed frontend version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Wait for expected frontend files
+        run: node scripts/frontend-deployment-check.mjs
+
   healthcheck:
-    name: poll live deployment
+    name: API and site availability
     runs-on: ubuntu-latest
     # Worst case (both probes time out every attempt): 30 + 16×(10+10+15) ≈ 9.8 min,
     # comfortably under 15 — so a hard-down deploy fails via the clean ::error::
@@ -132,7 +144,7 @@ jobs:
               else
                 echo "::warning::SPA root returned http ${spa_code} (soft check — not failing the job)"
               fi
-              echo "✅ deployment healthy after ${attempt} attempt(s)."
+              echo "API healthy after ${attempt} attempt(s); frontend version is checked separately."
               exit 0
             fi
 

@@ -49,6 +49,9 @@ jobs:
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 
+      - name: Ticket date sorting and frontend deployment verification
+        run: bun test scripts/ticket-date-sort.test.js scripts/frontend-deployment-check.test.js
+
       - name: Unassigned notification tests
         run: bun test scripts/unassigned-notifications.test.js
 

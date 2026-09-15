@@ -1,4 +1,5 @@
 import { applySavedActivity } from '../core/ticket-history.js';
+import { ticketDateMs } from './date-sort.js';
 import { copyButton } from '../core/copy.js';
 // ─── Tickets list ────────────────────────────────────────────────────────────
 // The Tickets index page: KPI bar, status tab bar, filter/group/view chips,
@@ -575,11 +576,11 @@ function getFilteredTickets() {
         || (t.agent || '').toLowerCase().includes(q);
     });
   }
+  const sortNow = Date.now();
   list.sort((a, b) => {
     if (SORT_COL === 'urgency') return compareUrgency(a, b);
-    if (SORT_COL === 'created') {
-      const createdMs = t => Date.parse(t._createdAt || t.created) || 0;
-      return (createdMs(a) - createdMs(b)) * SORT_DIR;
+    if (SORT_COL === 'created' || SORT_COL === 'updated') {
+      return (ticketDateMs(a, SORT_COL, sortNow) - ticketDateMs(b, SORT_COL, sortNow)) * SORT_DIR;
     }
     let av = a[SORT_COL] || '', bv = b[SORT_COL] || '';
     return typeof av === 'string' ? av.localeCompare(bv) * SORT_DIR : (av - bv) * SORT_DIR;

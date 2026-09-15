@@ -126,6 +126,7 @@ export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   t.assignedUserId = row.assigned_user_id ?? null;
   t.customerId    = customerByUuid[row.customer_id]?.id || customerByUuid[row.customer_id]?.display_id || t.customerId;
   t.updated       = fmtRelative(row.updated_at);
+  t._listUpdatedAt = row.updated_at;
   t.sla           = row.sla_state || 'ok';
   t.snoozedUntil  = row.snoozed_until  || null;
   t.snoozedAt     = row.snoozed_at     || null;
@@ -168,6 +169,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
     _createdAt:      t.created_at,
+    _listUpdatedAt:  t.updated_at,
     updated:         fmtRelative(t.updated_at),
     sla:             t.sla_state || 'ok',
     snoozedUntil:    t.snoozed_until || null,
@@ -346,6 +348,7 @@ export async function loadWorkspaceData() {
     assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
     _createdAt:      t.created_at,
+    _listUpdatedAt:  t.updated_at,
     updated:         fmtRelative(t.updated_at),
     sla:             t.sla_state || 'ok',
     snoozedUntil:    t.snoozed_until || null,
@@ -606,6 +609,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   const res = await apiGet(`/api/v1/tickets/${t._uuid}`);
   const d = res.ticket;
   if (!d) return t;
+  t._listUpdatedAt = d.updated_at;
 
   // Refresh top-level fields on a force-reload so live-sync reflects
   // status/assignment/category changes another agent made.
