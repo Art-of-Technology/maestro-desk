@@ -12,6 +12,9 @@
 !api/bun.lock
 !api/bunfig.toml
 !api/tsconfig.json
+!.dockerignore
+!api/Dockerfile
+!api/scripts/build-fingerprint.mjs
 !api/src
 !api/scripts/migrate.ts
 !api/scripts/knowledge_extract.py

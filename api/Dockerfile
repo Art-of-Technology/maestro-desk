@@ -18,11 +18,17 @@ WORKDIR /app/api
 COPY api/package.json api/bun.lock api/bunfig.toml ./
 RUN bun install --frozen-lockfile --production
 
+FROM node:22-slim AS fingerprint
+WORKDIR /source
+COPY . .
+RUN node api/scripts/build-fingerprint.mjs > /api-build-info.json
+
 FROM node:22-slim
 RUN apt-get update && apt-get install -y --no-install-recommends python3 poppler-utils tesseract-ocr tesseract-ocr-eng tesseract-ocr-spa && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/api
 ENV NODE_ENV=production
 COPY --from=deps /app/api/node_modules ./node_modules
+COPY --from=fingerprint /api-build-info.json ./build-info.json
 COPY api/package.json api/tsconfig.json ./
 COPY api/src ./src
 COPY api/scripts/migrate.ts ./scripts/migrate.ts
