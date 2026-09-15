@@ -7,6 +7,7 @@ import {
   type Extracted,
 } from './knowledge-import.js';
 import { attachmentsStore } from './r2.js';
+import { assertKnowledgeMarket, UnsupportedKnowledgeMarket } from './knowledge-market-policy.js';
 
 export const contentHash = (text: string | Uint8Array) =>
   createHash('sha256').update(text).digest('hex');
@@ -19,9 +20,10 @@ export async function saveKnowledgeVersion(
   const sql = getDb();
   return sql.begin(async (tx) => {
     const [source] =
-      await tx`select id from knowledge_sources where id=${sourceId} and workspace_id=${workspaceId}
+      await tx`select * from knowledge_sources where id=${sourceId} and workspace_id=${workspaceId}
       and (${leaseToken ?? null}::timestamptz is null or (lease_until=${leaseToken ?? null}::timestamptz and lease_until>now())) for update`;
     if (!source) return false;
+    assertKnowledgeMarket(workspaceId, { ...source, body: extracted.body });
     const [version] =
       await tx`insert into knowledge_source_versions(workspace_id,source_id,content_hash,body,warnings)
       values(${workspaceId},${sourceId},${contentHash(extracted.body)},${extracted.body},${tx.json(extracted.warnings)})
@@ -42,9 +44,10 @@ export async function refreshKnowledgeSource(
     where id=${id} and workspace_id=${workspaceId} and (not ${scheduled} or (kind='url' and auto_refresh and (next_check_at is null or next_check_at<=now()))) and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
   if (!s) return false;
   try {
+    assertKnowledgeMarket(workspaceId, s);
     const bytes =
       s.kind === 'url'
-        ? await fetchKnowledgePage(s.locator)
+        ? await fetchKnowledgePage(s.locator, workspaceId)
         : (await attachmentsStore().getObject(s.storage_key)).bytes;
     const extension = s.kind === 'url' ? 'html' : String(s.locator).split('.').pop()!.toLowerCase();
     return await saveKnowledgeVersion(
@@ -57,6 +60,7 @@ export async function refreshKnowledgeSource(
     // Never return raw upstream/parser details containing signed URLs or internal paths.
     const message = publicKnowledgeError(error);
     await sql`update knowledge_sources set error=${message},
+      auto_refresh=${error instanceof UnsupportedKnowledgeMarket ? sql`false` : sql`auto_refresh`},
       next_check_at=now()+interval '1 hour',lease_until=null where id=${id} and workspace_id=${workspaceId}
       and lease_until=${s.lease_token}::timestamptz`;
     throw new Error(message);

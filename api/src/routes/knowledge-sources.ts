@@ -15,6 +15,7 @@ import { enforceRateLimit } from '../lib/rate-limit.js';
 import { enqueueObjectDeletions } from '../lib/object-outbox.js';
 import { readKnowledgeFile } from '../lib/knowledge-file.js';
 import { replaceKnowledgeFile } from '../lib/knowledge-replacement.js';
+import { knowledgeMarketBlocked, UNSUPPORTED_KNOWLEDGE_MARKET } from '../lib/knowledge-market-policy.js';
 
 export const knowledgeSources = new Hono();
 knowledgeSources.use('*', requireAuth);
@@ -120,6 +121,8 @@ knowledgeSources.post('/', async (c) => {
       400,
     );
   }
+  if (knowledgeMarketBlocked(ws, { ...metadata, locator }))
+    return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
   const id = crypto.randomUUID(),
     fingerprint = contentHash(
       `${kind}:${kind === 'url' ? locator : contentHash(bytes!)}:${metadata.language}:${metadata.jurisdiction}`,
@@ -236,6 +239,11 @@ knowledgeSources.patch('/:id', async (c) => {
     .strict()
     .safeParse(await c.req.json().catch(() => null));
   if (!input.success) return c.json({ error: 'Choose whether to refresh automatically.' }, 400);
+  if (input.data.auto_refresh) {
+    const [existing] = await getDb()`select * from knowledge_sources where id=${id} and workspace_id=${c.get('workspaceId')}`;
+    if (existing && knowledgeMarketBlocked(c.get('workspaceId'), existing))
+      return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
+  }
   const [source] =
     await getDb()`update knowledge_sources set auto_refresh=${input.data.auto_refresh},next_check_at=now()
     where id=${id} and workspace_id=${c.get('workspaceId')} and kind='url' returning id`;
@@ -258,6 +266,7 @@ knowledgeSources.post('/:id/publish', async (c) => {
     const [v] =
       await tx`select * from knowledge_source_versions where id=${input.data.version_id} and source_id=${id} and workspace_id=${ws}`;
     if (!v) return null;
+    if (knowledgeMarketBlocked(ws, { ...s, body: v.body })) return { blocked: true };
     // Explicit version selection supports both approving an update and rolling back.
     const body = `Source: ${s.title}\nLanguage: ${s.language}\nJurisdiction: ${s.jurisdiction || 'Not specified'}\n${s.kind === 'url' ? `URL: ${s.locator}\n` : ''}Imported: ${new Date(v.created_at).toISOString()}\n\n${v.body}`;
     let articleId = s.article_id;
@@ -273,6 +282,8 @@ knowledgeSources.post('/:id/publish', async (c) => {
     await tx`update knowledge_source_versions set approved_at=now(),approved_by=${c.get('userId')} where id=${v.id} and workspace_id=${ws}`;
     return articleId;
   });
+  if (typeof result === 'object' && result?.blocked)
+    return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
   return result
     ? c.json({ article_id: result })
     : c.json({ error: 'Source version not found' }, 404);

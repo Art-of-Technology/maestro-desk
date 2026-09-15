@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { TextDecoder } from 'node:util';
 import { Agent, fetch as safeFetch } from 'undici';
 import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
+import { assertKnowledgeMarket, UNSUPPORTED_KNOWLEDGE_MARKET } from './knowledge-market-policy.js';
 
 export const MAX_KNOWLEDGE_BYTES = 20 * 1024 * 1024;
 export type Extracted = { body: string; warnings: string[] };
@@ -14,6 +15,7 @@ const websiteAccessRefused =
 // Exact application-authored messages only; never expose arbitrary parser,
 // storage or network errors (which can contain paths, credentials or URLs).
 const publicErrors = new Set([
+  UNSUPPORTED_KNOWLEDGE_MARKET,
   'Choose one file to upload.',
   'Choose a non-empty file up to 20 MB.',
   'Use PNG, JPEG, WebP, PDF, DOCX or PPTX.',
@@ -90,10 +92,11 @@ export function canonicalKnowledgeUrl(raw: string): string {
   u.hash = '';
   return u.href;
 }
-export async function fetchKnowledgePage(raw: string): Promise<Uint8Array> {
+export async function fetchKnowledgePage(raw: string, workspaceId?: string): Promise<Uint8Array> {
   let url = canonicalKnowledgeUrl(raw);
   const signal = AbortSignal.timeout(20000);
   for (let i = 0; i < 5; i++) {
+    assertKnowledgeMarket(workspaceId, { locator: url });
     signal.throwIfAborted();
     await new Promise<void>((resolve, reject) => {
       const abort = () => reject(new Error('Website lookup timed out.'));
