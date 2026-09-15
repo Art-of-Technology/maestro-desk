@@ -93,6 +93,9 @@ runDbTests('data retention (DB-backed)', () => {
   it('purges only expired resolved tickets, cascading their children and deleting their R2 objects', async () => {
     const before = await sql<{ n: number }[]>`select count(*)::int as n from ticket_messages where ticket_id = ${ctx.expired}`;
     expect(before[0].n).toBe(1);
+    const [review] = await sql`insert into reply_internal_reviews(message_id,workspace_id,review)
+      select id,workspace_id,'{"references":[],"notes":["Internal evidence"]}'::jsonb
+      from ticket_messages where ticket_id=${ctx.expired} returning message_id`;
     // An attachment on the expiring ticket and one on a surviving ticket: only
     // the former's object key must reach the deleter.
     const expiredKey = `att/${ctx.wsId}/${ctx.expired}/k1/old.pdf`;
@@ -120,6 +123,7 @@ runDbTests('data retention (DB-backed)', () => {
     // Child messages of the purged ticket are gone (FK cascade).
     const after = await sql<{ n: number }[]>`select count(*)::int as n from ticket_messages where ticket_id = ${ctx.expired}`;
     expect(after[0].n).toBe(0);
+    expect(await sql`select message_id from reply_internal_reviews where message_id=${review.message_id}`).toHaveLength(0);
   });
 
   it('purges a large backlog across multiple batches', async () => {

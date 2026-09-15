@@ -112,7 +112,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       referenceIds: ['KB-INTERNAL-ONLY'], internalNotes: ['INTERNAL-REVIEW-MARKER'],
     }, [{ id: 'KB-INTERNAL-ONLY', title: 'Internal game directory' }]);
     const tid = await seedTicket(`AR-${RUN}-clean-suggestion`, { email: `clean-${RUN}@acme.test` });
-    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: suggested.text }) });
+    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: suggested.text, internal_review: suggested.internal }) });
     expect(res.status).toBe(201);
     expect(postmarkCalls).toBe(1);
     expect(lastBody.TextBody).toContain(suggested.text);
@@ -120,6 +120,64 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(JSON.stringify(lastBody)).not.toContain('INTERNAL-REVIEW-MARKER');
     const [message] = await sql`select body from ticket_messages where ticket_id=${tid} and role='agent'`;
     expect(message.body).toBe(suggested.text);
+    const saved = await res.json() as any;
+    expect(saved.message.internal_review).toEqual(suggested.internal);
+    const detail = await (await as(`/api/v1/tickets/${tid}`)).json() as any;
+    expect(detail.ticket.messages[0].internal_review).toEqual(suggested.internal);
+    const [{ customer_id }] = await sql`select customer_id from tickets where id=${tid}`;
+    const { createMagicLink, verifyMagicLink } = await import('./lib/portal-auth.js');
+    const link = await createMagicLink({ workspaceId: ctx.wsId, customerId: customer_id });
+    const session = await verifyMagicLink({ workspaceId: ctx.wsId, token: link.token });
+    const portal = await app.request(`/api/v1/public/ar-${RUN}/customer/tickets/AR-${RUN}-clean-suggestion`, {
+      headers: { Authorization: `Bearer ${session!.sessionToken}` },
+    });
+    expect(portal.status).toBe(200);
+    const portalText = await portal.text();
+    expect(portalText).toContain(suggested.text);
+    expect(portalText).not.toContain('INTERNAL-REVIEW-MARKER');
+    expect(portalText).not.toContain('KB-INTERNAL-ONLY');
+    expect(portalText).not.toContain('internal_review');
+    expect((await app.request(`/api/v1/tickets/${tid}`, { headers: { Authorization: `Bearer ${session!.sessionToken}`, 'X-Workspace-Id': ctx.wsId } })).status).toBe(401);
+    const [{ provision_brand: other }] = await sql`select provision_brand(${'review-other-'+RUN}, ${'review-other-'+RUN}) as provision_brand`;
+    try {
+      const [role] = await sql`select id from roles where workspace_id=${other} and is_admin=true limit 1`;
+      await sql`insert into workspace_members(workspace_id,user_id,role_id,active) values (${other},${admin.userId},${role.id},true)`;
+      const denied = await app.request(`/api/v1/tickets/${tid}`, { headers: { Authorization: `Bearer ${admin.token}`, 'X-Workspace-Id': other } });
+      expect(denied.status).toBe(404);
+    } finally { await sql`delete from workspaces where id=${other}`; }
+    await sql`delete from tickets where id=${tid}`;
+    expect(await sql`select message_id from reply_internal_reviews where message_id=${saved.message.id}`).toHaveLength(0);
+  });
+
+  it('rejects unsafe or oversized internal metadata before saving or emailing', async () => {
+    const tid = await seedTicket(`AR-${RUN}-invalid-review`, { email: `invalid-review-${RUN}@acme.test` });
+    for (const internal_review of [
+      { references: [{ id: 'KB-1', title: 'Source', url: 'javascript:alert(1)' }], notes: [] },
+      { references: [{ id: 'KB-1', title: 'Source', url: 'not a URL' }], notes: [] },
+      { references: [], notes: ['x'.repeat(2001)] },
+      { references: [], notes: [], workspace_id: ctx.wsId },
+    ]) {
+      const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Reply', internal_review }) });
+      expect(response.status).toBe(400);
+    }
+    expect(postmarkCalls).toBe(0);
+    expect(await sql`select id from ticket_messages where ticket_id=${tid}`).toHaveLength(0);
+  });
+
+  it('preserves reference snapshots on merge and removes only the copied snapshot on unmerge', async () => {
+    const source = await seedTicket(`AR-${RUN}-review-source`, { email: null });
+    const target = await seedTicket(`AR-${RUN}-review-target`, { email: null });
+    const internal_review = { references: [{ id: 'KB-1', title: 'Original source title' }], notes: ['Agent evidence'] };
+    const sent = await as(`/api/v1/tickets/${source}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Answer', internal_review }) });
+    const { message } = await sent.json() as any;
+    expect((await as(`/api/v1/tickets/${source}/merge`, { method: 'POST', body: JSON.stringify({ into_id: target }) })).status).toBe(200);
+    const detail = await (await as(`/api/v1/tickets/${target}`)).json() as any;
+    const copy = detail.ticket.messages.find((m: any) => m.role === 'agent');
+    expect(copy.internal_review).toEqual(internal_review);
+    expect(copy.id).not.toBe(message.id);
+    expect((await as(`/api/v1/tickets/${source}/unmerge`, { method: 'POST', body: '{}' })).status).toBe(200);
+    expect(await sql`select message_id from reply_internal_reviews where message_id=${copy.id}`).toHaveLength(0);
+    expect(await sql`select message_id from reply_internal_reviews where message_id=${message.id}`).toHaveLength(1);
   });
 
   const patchTicket = (tid: string, body: unknown) => as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify(body) });

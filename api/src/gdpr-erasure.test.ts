@@ -84,6 +84,9 @@ runDbTests('GDPR erasure (DB-backed)', () => {
 
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'customer', 'Jane Doe', 'Hi, my email is jane@player.test')`;
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'agent', 'Support Agent', 'Replied to Jane')`;
+    await sql`insert into reply_internal_reviews(message_id,workspace_id,review)
+      select id,workspace_id,'{"references":[],"notes":["Private details about Jane"]}'::jsonb
+      from ticket_messages where ticket_id=${tk.id} and role='agent'`;
     await sql`insert into customer_notes (workspace_id, customer_id, text) values (${wsId}, ${cust.id}, 'VIP, lives in Valletta')`;
 
     const [ch] = await sql<{ id: string }[]>`
@@ -161,6 +164,8 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     const agent_msg = msgs.find((m) => m.role === 'agent');
     expect(cust_msg.author_label).toBe('[erased]');
     expect(agent_msg.author_label).toBe('Support Agent'); // staff label kept
+    const reviews = await sql`select message_id from reply_internal_reviews where workspace_id=${ctx.wsId}`;
+    expect(reviews).toHaveLength(0);
 
     const notes = await sql<any[]>`select count(*)::int as n from customer_notes where customer_id = ${ctx.customerId}`;
     expect(notes[0].n).toBe(0);

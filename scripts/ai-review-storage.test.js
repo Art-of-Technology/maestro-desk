@@ -20,6 +20,9 @@ test('internal metadata is separate, scoped, escaped and cleared after sending',
   expect(output).toContain('Internal references — not sent');
   expect(output).not.toContain('<script>');
   expect(output).not.toContain('javascript:');
+  const saved = renderReplyReview('T1', review, true);
+  expect(saved).toContain('Saved with this reply for agents only.');
+  expect(saved).not.toContain(' open>');
   workspace = 'two'; expect(loadDraftReview('T1')).toBeNull();
   workspace = 'one'; session.userId = 'agent-two'; expect(loadDraftReview('T1')).toBeNull();
   session.userId = 'agent-one'; clearDraft('T1');

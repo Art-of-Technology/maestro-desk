@@ -45,7 +45,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { loadDraft, saveDraft, clearDraft, clearAllDrafts } from './drafts.js';
+import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadDraftReview } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
@@ -428,6 +428,7 @@ export function openTicket(id) {
       ${bodyHtml}
       ${attachHtml}
       ${bodyNote}
+      ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
     </div>`;
   }).join('');
 
@@ -1131,6 +1132,7 @@ async function sendCompose(id) {
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         mentions: isNote ? (mentions || []).map((m) => m.userId).filter(Boolean) : undefined,
+        internal_review: loadDraftReview(id) || undefined,
       });
       message = res.message;
       delivery = res.delivery;
@@ -1149,6 +1151,7 @@ async function sendCompose(id) {
       // Same shape GET /tickets/:id returns, so the sent reply renders exactly
       // as it will after a refetch (formatting, inline images, file chips).
       html: message.body_html || null,
+      internalReview: message.internal_review || null,
       attachments: message.attachments || [],
       tOriginal: original,
       translatedTo,
