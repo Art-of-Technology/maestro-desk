@@ -28,7 +28,21 @@ export function saveDraft(id, value, tab) {
   else localStorage.removeItem(key);
 }
 
-export function clearDraft(id, tab) { localStorage.removeItem(getDraftKey(id, tab)); }
+export function clearDraft(id, tab) {
+  localStorage.removeItem(getDraftKey(id, tab));
+  localStorage.removeItem(getDraftKey(id, tab) + ':ai-review');
+}
+
+export function loadDraftReview(id, tab) {
+  try {
+    const value = JSON.parse(localStorage.getItem(getDraftKey(id, tab) + ':ai-review') || 'null');
+    return value && Array.isArray(value.references) && Array.isArray(value.notes) ? value : null;
+  } catch { return null; }
+}
+
+export function saveDraftReview(id, value, tab) {
+  try { localStorage.setItem(getDraftKey(id, tab) + ':ai-review', JSON.stringify(value)); } catch { /* The panel still shows for this render. */ }
+}
 
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB

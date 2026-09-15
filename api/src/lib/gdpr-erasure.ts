@@ -115,6 +115,9 @@ export async function eraseCustomer(args: {
     let attachmentsDeleted = 0;
 
     if (ticketIds.length) {
+      await sql`delete from reply_internal_reviews r using ticket_messages m
+        where r.message_id=m.id and r.workspace_id=${workspaceId}
+          and m.workspace_id=${workspaceId} and m.ticket_id in ${sql(ticketIds)}`;
       const msgs = await sql`
         update ticket_messages set
           body = ${ERASED},

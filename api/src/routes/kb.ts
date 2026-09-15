@@ -2,8 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { knowledgeMarketBlocked, UNSUPPORTED_KNOWLEDGE_MARKET } from '../lib/knowledge-market-policy.js';
 
-// Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
+// Members can read and vote; article management requires workspace admin access.
 export const kb = new Hono();
 
 kb.use('*', requireAuth);
@@ -41,6 +43,8 @@ kb.get('/', async (c) => {
 
 // ─── POST / — create ──────────────────────────────────────────────────────
 kb.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
@@ -51,6 +55,7 @@ kb.post('/', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
+  if (knowledgeMarketBlocked(workspaceId, input)) return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
 
   // CTE so we can return the joined author name in one round-trip.
   const [article] = await sql`
@@ -77,6 +82,8 @@ const PatchKb = z.object({
 }).strict();
 
 kb.patch('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
@@ -89,6 +96,11 @@ kb.patch('/:id', async (c) => {
   if (Object.keys(parsed.data).length === 0) {
     return c.json({ error: 'No fields to update' }, 400);
   }
+
+  const [current] = await sql`select title,category,body from kb_articles where id=${id} and workspace_id=${workspaceId}`;
+  if (!current) return c.json({ error: 'Article not found' }, 404);
+  if (knowledgeMarketBlocked(workspaceId, { ...current, ...parsed.data }))
+    return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
 
   const [article] = await sql`
     with upd as (
@@ -106,6 +118,8 @@ kb.patch('/:id', async (c) => {
 
 // ─── DELETE /:id ─────────────────────────────────────────────────────────
 kb.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');

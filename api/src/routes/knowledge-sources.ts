@@ -4,13 +4,18 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
-import { MAX_KNOWLEDGE_BYTES, publicKnowledgeError } from '../lib/knowledge-import.js';
+import {
+  canonicalKnowledgeUrl,
+  MAX_KNOWLEDGE_BYTES,
+  publicKnowledgeError,
+} from '../lib/knowledge-import.js';
 import { contentHash, refreshKnowledgeSource } from '../lib/knowledge-sources.js';
 import { attachmentsStore, contentDispositionFor } from '../lib/r2.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { enqueueObjectDeletions } from '../lib/object-outbox.js';
 import { readKnowledgeFile } from '../lib/knowledge-file.js';
 import { replaceKnowledgeFile } from '../lib/knowledge-replacement.js';
+import { knowledgeMarketBlocked, UNSUPPORTED_KNOWLEDGE_MARKET } from '../lib/knowledge-market-policy.js';
 
 export const knowledgeSources = new Hono();
 knowledgeSources.use('*', requireAuth);
@@ -58,7 +63,7 @@ knowledgeSources.get('/', async (c) => {
     await getDb()`select s.*, v.id as latest_version_id, v.content_hash, v.created_at as version_at,
     (v.id is distinct from s.approved_version_id) as needs_review
     from knowledge_sources s left join knowledge_source_versions v on v.id=s.latest_version_id and v.workspace_id=s.workspace_id
-    where s.workspace_id=${c.get('workspaceId')} and s.kind='file' order by s.created_at desc`;
+    where s.workspace_id=${c.get('workspaceId')} order by s.created_at desc`;
   return c.json({ sources });
 });
 knowledgeSources.get('/:id', async (c) => {
@@ -67,7 +72,7 @@ knowledgeSources.get('/:id', async (c) => {
   if (!z.string().uuid().safeParse(c.req.param('id')).success)
     return c.json({ error: 'Source not found' }, 404);
   const [source] =
-    await sql`select * from knowledge_sources where id=${c.req.param('id')} and workspace_id=${ws} and kind='file'`;
+    await sql`select * from knowledge_sources where id=${c.req.param('id')} and workspace_id=${ws}`;
   if (!source) return c.json({ error: 'Source not found' }, 404);
   const versions =
     await sql`select * from knowledge_source_versions where source_id=${source.id} and workspace_id=${ws}
@@ -76,35 +81,53 @@ knowledgeSources.get('/:id', async (c) => {
   return c.json({ source, versions });
 });
 knowledgeSources.post('/', async (c) => {
-  if (!(c.req.header('content-type') || '').startsWith('multipart/form-data'))
-    return c.json({ error: 'Upload a supported file up to 20 MB.' }, 400);
   const ws = c.get('workspaceId'),
     sql = getDb();
   let metadata: z.infer<typeof Metadata>,
     locator: string,
-    bytes: Uint8Array;
+    bytes: Uint8Array | undefined,
+    kind: 'file' | 'url' = 'file',
+    auto = false;
   try {
-    const form = await c.req.formData();
-    metadata = Metadata.parse({
-      title: form.get('title'),
-      category: form.get('category'),
-      language: form.get('language'),
-      jurisdiction: form.get('jurisdiction') || '',
-    });
-    ({ filename: locator, bytes } = await readKnowledgeFile(form));
+    if ((c.req.header('content-type') || '').startsWith('multipart/form-data')) {
+      const form = await c.req.formData();
+      metadata = Metadata.parse({
+        title: form.get('title'),
+        category: form.get('category'),
+        language: form.get('language'),
+        jurisdiction: form.get('jurisdiction') || '',
+      });
+      ({ filename: locator, bytes } = await readKnowledgeFile(form));
+    } else {
+      const input = z
+        .object({
+          ...Metadata.shape,
+          url: z.string().max(2048),
+          auto_refresh: z.boolean().default(false),
+        })
+        .strict()
+        .parse(await c.req.json());
+      metadata = input;
+      locator = canonicalKnowledgeUrl(input.url);
+      kind = 'url';
+      auto = input.auto_refresh;
+    }
   } catch {
     return c.json(
       {
-        error: 'Check the title, category and language, and choose a supported file up to 20 MB.',
+        error:
+          'Check the title, category and language. Use a public HTTPS page or a supported file up to 20 MB.',
       },
       400,
     );
   }
+  if (knowledgeMarketBlocked(ws, { ...metadata, locator }))
+    return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
   const id = crypto.randomUUID(),
     fingerprint = contentHash(
-      `file:${contentHash(bytes)}:${metadata.language}:${metadata.jurisdiction}`,
+      `${kind}:${kind === 'url' ? locator : contentHash(bytes!)}:${metadata.language}:${metadata.jurisdiction}`,
     );
-  const key = `knowledge/${ws}/${id}/${locator}`;
+  const key = kind === 'file' ? `knowledge/${ws}/${id}/${locator}` : null;
   // Serialize the per-workspace cap and duplicate check, including concurrent uploads.
   const source = await sql.begin(async (tx) => {
     await tx`select id from workspaces where id=${ws} for update`;
@@ -112,22 +135,23 @@ knowledgeSources.post('/', async (c) => {
       await tx`select * from knowledge_sources where workspace_id=${ws} and fingerprint=${fingerprint}`;
     if (existing) return existing;
     const [count] =
-      await tx`select count(*)::int as n from knowledge_sources where workspace_id=${ws} and kind='file'`;
+      await tx`select count(*)::int as n from knowledge_sources where workspace_id=${ws}`;
     if (count.n >= 100) return null;
     const [s] =
       await tx`insert into knowledge_sources(id,workspace_id,kind,title,category,language,jurisdiction,locator,fingerprint,storage_key,auto_refresh,created_by,lease_until)
-      values(${id},${ws},'file',${metadata.title},${metadata.category},${metadata.language},${metadata.jurisdiction},${locator},${fingerprint},${key},false,${c.get('userId')},now()+interval '3 minutes') returning *`;
+      values(${id},${ws},${kind},${metadata.title},${metadata.category},${metadata.language},${metadata.jurisdiction},${locator},${fingerprint},${key},${auto},${c.get('userId')},now()+interval '3 minutes') returning *`;
     return s;
   });
   if (!source)
-    return c.json({ error: 'This workspace has reached its limit of 100 uploaded files.' }, 409);
+    return c.json({ error: 'This workspace has reached its limit of 100 knowledge sources.' }, 409);
   if (source.id !== id) return c.json({ source, duplicate: true });
-  let stored = false;
+  let stored = !key;
   try {
-    await attachmentsStore().putObject(key, bytes, {
-      contentType: 'application/octet-stream',
-      contentDisposition: contentDispositionFor('attachment', locator),
-    });
+    if (key && bytes)
+      await attachmentsStore().putObject(key, bytes, {
+        contentType: 'application/octet-stream',
+        contentDisposition: contentDispositionFor('attachment', locator),
+      });
     stored = true;
     await sql`update knowledge_sources set lease_until=null where id=${id} and workspace_id=${ws}`;
     await refreshKnowledgeSource(ws, id);
@@ -137,13 +161,13 @@ knowledgeSources.post('/', async (c) => {
       await sql`delete from knowledge_sources where id=${id} and workspace_id=${ws}`;
       // A timed-out PUT may still have reached storage. Queue cleanup even if
       // a concurrent workspace deletion already removed the source row.
-      await enqueueObjectDeletions(sql, [key], 'orphan');
+      if (key) await enqueueObjectDeletions(sql, [key], 'orphan');
       return c.json({ error: 'The file could not be stored. Try the upload again.' }, 502);
     }
     const message = publicKnowledgeError(error);
     const [present] =
       await sql`select id from knowledge_sources where id=${id} and workspace_id=${ws}`;
-    if (!present) await enqueueObjectDeletions(sql, [key], 'orphan');
+    if (!present && key) await enqueueObjectDeletions(sql, [key], 'orphan');
     await sql`update knowledge_sources set error=${message},lease_until=null
       where id=${id} and workspace_id=${ws}`;
     return c.json({ source: { ...source, error: message } }, 201);
@@ -164,12 +188,26 @@ knowledgeSources.post('/:id/replace', async (c) => {
     const result = await replaceKnowledgeFile(c.get('workspaceId'), id, file.filename, file.bytes);
     if (result.status === 'missing') return c.json({ error: 'File not found.' }, 404);
     if (result.status === 'busy')
-      return c.json({ error: 'This file is being processed or has changed. Reopen it and try again.' }, 409);
+      return c.json(
+        { error: 'This file is being processed or has changed. Reopen it and try again.' },
+        409,
+      );
     if (result.status === 'duplicate')
-      return c.json({ error: 'This file already belongs to another knowledge source. Your current file is unchanged.' }, 409);
+      return c.json(
+        {
+          error:
+            'This file already belongs to another knowledge source. Your current file is unchanged.',
+        },
+        409,
+      );
     return c.json({ source: { id }, duplicate: result.duplicate });
   } catch (error) {
-    return c.json({ error: `${publicKnowledgeError(error)} Your published article is unchanged. Reopen the source to check its current file before trying again.` }, 422);
+    return c.json(
+      {
+        error: `${publicKnowledgeError(error)} Your published article is unchanged. Reopen the source to check its current file before trying again.`,
+      },
+      422,
+    );
   }
 });
 knowledgeSources.post('/:id/refresh', async (c) => {
@@ -179,7 +217,7 @@ knowledgeSources.post('/:id/refresh', async (c) => {
     const workspaceId = c.get('workspaceId');
     if (await refreshKnowledgeSource(workspaceId, id)) return c.json({ refreshed: true });
     const [source] =
-      await getDb()`select id from knowledge_sources where id=${id} and workspace_id=${workspaceId} and kind='file'`;
+      await getDb()`select id from knowledge_sources where id=${id} and workspace_id=${workspaceId}`;
     return source
       ? c.json(
           { error: 'This source is being imported. Wait for it to finish before refreshing it.' },
@@ -193,6 +231,24 @@ knowledgeSources.post('/:id/refresh', async (c) => {
     );
   }
 });
+knowledgeSources.patch('/:id', async (c) => {
+  const id = c.req.param('id');
+  if (!z.string().uuid().safeParse(id).success) return c.json({ error: 'Source not found' }, 404);
+  const input = z
+    .object({ auto_refresh: z.boolean() })
+    .strict()
+    .safeParse(await c.req.json().catch(() => null));
+  if (!input.success) return c.json({ error: 'Choose whether to refresh automatically.' }, 400);
+  if (input.data.auto_refresh) {
+    const [existing] = await getDb()`select * from knowledge_sources where id=${id} and workspace_id=${c.get('workspaceId')}`;
+    if (existing && knowledgeMarketBlocked(c.get('workspaceId'), existing))
+      return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
+  }
+  const [source] =
+    await getDb()`update knowledge_sources set auto_refresh=${input.data.auto_refresh},next_check_at=now()
+    where id=${id} and workspace_id=${c.get('workspaceId')} and kind='url' returning id`;
+  return source ? c.json({ ok: true }) : c.json({ error: 'Website source not found' }, 404);
+});
 knowledgeSources.post('/:id/publish', async (c) => {
   const id = c.req.param('id'),
     ws = c.get('workspaceId'),
@@ -205,13 +261,14 @@ knowledgeSources.post('/:id/publish', async (c) => {
     return c.json({ error: 'Choose a source version.' }, 400);
   const result = await sql.begin(async (tx) => {
     const [s] =
-      await tx`select * from knowledge_sources where id=${id} and workspace_id=${ws} and kind='file' for update`;
+      await tx`select * from knowledge_sources where id=${id} and workspace_id=${ws} for update`;
     if (!s) return null;
     const [v] =
       await tx`select * from knowledge_source_versions where id=${input.data.version_id} and source_id=${id} and workspace_id=${ws}`;
     if (!v) return null;
+    if (knowledgeMarketBlocked(ws, { ...s, body: v.body })) return { blocked: true };
     // Explicit version selection supports both approving an update and rolling back.
-    const body = `Source: ${s.title}\nLanguage: ${s.language}\nJurisdiction: ${s.jurisdiction || 'Not specified'}\nImported: ${new Date(v.created_at).toISOString()}\n\n${v.body}`;
+    const body = `Source: ${s.title}\nLanguage: ${s.language}\nJurisdiction: ${s.jurisdiction || 'Not specified'}\n${s.kind === 'url' ? `URL: ${s.locator}\n` : ''}Imported: ${new Date(v.created_at).toISOString()}\n\n${v.body}`;
     let articleId = s.article_id;
     if (articleId)
       await tx`update kb_articles set title=${s.title},category=${s.category},body=${body},status='published',updated_at=now() where id=${articleId} and workspace_id=${ws}`;
@@ -225,6 +282,8 @@ knowledgeSources.post('/:id/publish', async (c) => {
     await tx`update knowledge_source_versions set approved_at=now(),approved_by=${c.get('userId')} where id=${v.id} and workspace_id=${ws}`;
     return articleId;
   });
+  if (typeof result === 'object' && result?.blocked)
+    return c.json({ error: UNSUPPORTED_KNOWLEDGE_MARKET }, 400);
   return result
     ? c.json({ article_id: result })
     : c.json({ error: 'Source version not found' }, 404);
@@ -244,7 +303,7 @@ knowledgeSources.delete('/:id', async (c) => {
   const ws = c.get('workspaceId');
   const removed = await getDb().begin(async (tx) => {
     const [s] =
-      await tx`select * from knowledge_sources where id=${c.req.param('id')} and workspace_id=${ws} and kind='file' for update`;
+      await tx`select * from knowledge_sources where id=${c.req.param('id')} and workspace_id=${ws} for update`;
     if (!s) return true;
     if (s.lease_until && new Date(s.lease_until).getTime() > Date.now()) return false;
     if (s.article_id)

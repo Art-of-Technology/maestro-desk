@@ -13,7 +13,7 @@
 // still in app.js.
 
 import { KB_ARTICLES } from '../core/data.js';
-import { KB_SELECTED, SESSION, setKbSelected } from '../core/state.js';
+import { KB_SELECTED, SESSION, CURRENT_PAGE, setKbSelected } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { renderMarkdown } from '../ai/page.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
@@ -21,6 +21,9 @@ import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/ap
 import { startPresence } from '../core/presence.js';
 import { showModal, closeModal } from '../core/modal.js';
 import './sources.js';
+import { articleStatus, ARTICLE_STATUS_LABELS, articleLink } from './article-state.js';
+import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from './bulk-review.js';
+import { cardTitle, updatedLabel, directoryCards, gameDirectory, cardMatchesQuery } from './card-presentation.js';
 
 function kbApiBacked() {
   return !!(getJwt() && getWorkspaceId());
@@ -33,13 +36,39 @@ function mapKbResponse(a) {
     title:    a.title,
     category: a.category || '',
     body:     a.body || '',
+    status:   a.status || 'draft',
     author:   a.author_name || 'Unknown',
-    updated:  (a.updated_at || '').slice(0, 10),
+    updated:  a.updated_at || '',
   };
 }
 
 let KB_QUERY = '';
 let KB_FILTER_CAT = 'all';
+let KB_FILTER_STATUS = 'all';
+let KB_FILTER_MARKET = 'all';
+const bulkSelection = new DraftSelection();
+let bulkRunning = false;
+let bulkMessage = '';
+let bulkContext = '';
+
+function bulkScope() {
+  return JSON.stringify([getWorkspaceId(), getJwt(), window.isAdmin(), KB_FILTER_CAT, KB_FILTER_MARKET, KB_FILTER_STATUS, KB_QUERY]);
+}
+function matchingKB(status = KB_FILTER_STATUS) {
+  return matchingArticles(KB_ARTICLES, { category: KB_FILTER_CAT, market: KB_FILTER_MARKET, status }).filter(a => cardMatchesQuery(a, KB_QUERY));
+}
+function syncBulkSelection() {
+  const context = JSON.stringify([getWorkspaceId(), getJwt()]);
+  if (bulkContext !== context) { bulkMessage = ''; bulkContext = context; }
+  const scope = bulkScope();
+  if (bulkSelection.scope !== scope) bulkMessage = '';
+  bulkSelection.sync(scope, matchingKB());
+}
+
+function statusBadge(a) {
+  const status = articleStatus(a);
+  return `<span class="kb-status kb-status-${status}">${ARTICLE_STATUS_LABELS[status]}</span>`;
+}
 
 let KB_VOTES = (() => { try { return JSON.parse(localStorage.getItem('kb_votes') || '{}'); } catch { return {}; } })();
 let KB_USER_VOTES = (() => { try { return JSON.parse(localStorage.getItem('kb_user_votes') || '{}'); } catch { return {}; } })();
@@ -170,31 +199,74 @@ function highlightSearch(text, query) {
   return out;
 }
 
+function renderGameDirectory(group, admin) {
+  const drafts = group.articles.filter(a => a._uuid && articleStatus(a) === 'draft');
+  const selected = drafts.filter(a => bulkSelection.ids.has(a._uuid)).length;
+  return `<details class="kb-card kb-directory" data-directory="${window.escAttr(group.key)}">
+    <summary>
+      <div class="kb-card-cat">Games · ${window.escHtml(group.market)}</div>
+      <div class="kb-card-t">${window.escHtml(group.title)}</div>
+      <div class="kb-updated">${window.escHtml(updatedLabel(group.updated))}</div>
+      <div class="kb-directory-status">${Object.entries(group.counts).filter(([, n]) => n).map(([s, n]) => `<span class="kb-status kb-status-${s}">${n} ${ARTICLE_STATUS_LABELS[s]}</span>`).join('')}</div>
+      <div class="kb-directory-hint">${group.articles.length} game links</div>
+    </summary>
+    ${admin && drafts.length ? `<button class="btn btn-sm" data-action="kb.selectDirectory" data-directory="${window.escAttr(group.key)}" ${bulkRunning ? 'disabled' : ''}>${selected === drafts.length ? 'Clear' : 'Select'} ${drafts.length} matching drafts</button>` : ''}
+    <ul class="kb-directory-list">${group.articles.map(a => `<li>
+      <div class="kb-directory-game"><a href="${window.escAttr(articleLink(a.body))}" target="_blank" rel="noopener noreferrer">${window.escHtml(cardTitle(a))} ↗</a>
+        <div class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</div>${statusBadge(a)}</div>
+      <div class="kb-directory-actions"><button class="btn btn-sm" data-action="kb.open" data-id="${window.escAttr(a.id)}">Review</button>
+      ${admin && a._uuid && articleStatus(a) === 'draft' ? `<label class="kb-select-draft" data-action=""><input type="checkbox" data-action="kb.selectDraft" data-uuid="${window.escAttr(a._uuid)}" aria-label="Select ${window.escAttr(cardTitle(a))}" ${bulkSelection.ids.has(a._uuid) ? 'checked' : ''} ${bulkRunning ? 'disabled' : ''}/> Select</label>` : ''}</div>
+    </li>`).join('')}</ul>
+  </details>`;
+}
+
+function renderSelection(focusUuid) {
+  const open = [...(document.querySelectorAll?.('.kb-directory[open]') || [])].map(el => ({ key: el.dataset.directory, scroll: el.querySelector('.kb-directory-list')?.scrollTop || 0 }));
+  const scrollTop = document.querySelector?.('.kb-main .page-scroll')?.scrollTop || 0;
+  renderPage('kb');
+  for (const entry of open) {
+    const el = document.querySelector?.(`[data-directory="${entry.key}"].kb-directory`);
+    if (el) { el.open = true; el.querySelector('.kb-directory-list').scrollTop = entry.scroll; }
+  }
+  const scroller = document.querySelector?.('.kb-main .page-scroll');
+  if (scroller) scroller.scrollTop = scrollTop;
+  if (focusUuid) document.querySelector?.(`[data-action="kb.selectDraft"][data-uuid="${focusUuid}"]`)?.focus({ preventScroll: true });
+}
+
 export function renderKB() {
+  syncBulkSelection();
   if (KB_SELECTED) return renderKBArticle(KB_SELECTED);
   const admin = window.isAdmin();
   const ql = KB_QUERY.toLowerCase().trim();
 
-  let list = KB_ARTICLES.filter(a => KB_FILTER_CAT === 'all' || a.category === KB_FILTER_CAT);
-  if (ql) list = list.filter(a => a.title.toLowerCase().includes(ql) || a.body.toLowerCase().includes(ql) || a.category.toLowerCase().includes(ql) || a.id.toLowerCase().includes(ql));
+  let list = matchingKB('all');
+  const statusCounts = { all: list.length, draft: 0, published: 0, archived: 0 };
+  list.forEach(a => statusCounts[articleStatus(a)]++);
+  if (KB_FILTER_STATUS !== 'all') list = list.filter(a => articleStatus(a) === KB_FILTER_STATUS);
   list.sort((a, b) => {
     if (a.featured && !b.featured) return -1;
     if (!a.featured && b.featured) return 1;
     return (b.updated || '').localeCompare(a.updated || '');
   });
 
-  const cards = list.map(a => {
+  const grouped = directoryCards(list);
+  const cards = grouped.map(card => {
+    if (!card.article) return renderGameDirectory(card, admin);
+    const a = card.article;
     const views = getKBViews(a.id);
     const votes = getKBNetVote(a.id);
-    const titleHtml   = ql ? highlightSearch(window.escHtml(a.title),         KB_QUERY) : window.escHtml(a.title);
+    const titleHtml   = ql ? highlightSearch(window.escHtml(cardTitle(a)),         KB_QUERY) : window.escHtml(cardTitle(a));
     const snippetHtml = ql ? highlightSearch(window.escHtml(articleSnippet(a)), KB_QUERY) : window.escHtml(articleSnippet(a));
     return `
       <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(a.id)}">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
           <div class="kb-card-cat" style="margin:0">${window.escHtml(a.category)}</div>
+          ${statusBadge(a)}
+          ${admin && a._uuid && articleStatus(a) === 'draft' ? `<label class="kb-select-draft" data-action=""><input type="checkbox" data-action="kb.selectDraft" data-uuid="${window.escAttr(a._uuid)}" aria-label="Select ${window.escAttr(a.title)}" ${bulkSelection.ids.has(a._uuid) ? 'checked' : ''} ${bulkRunning ? 'disabled' : ''}/> Select</label>` : ''}
           ${a.featured ? '<span style="font-size:9px;color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-weight:600">★ Featured</span>' : ''}
         </div>
         <div class="kb-card-t">${titleHtml}</div>
+        <div class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</div>
         <div class="kb-card-snippet">${snippetHtml}</div>
         <div class="kb-card-meta">
           <span>${a.id}</span>
@@ -214,7 +286,7 @@ export function renderKB() {
     <div class="page">
       <div class="topbar">
         <div class="tb-title">Knowledge Base</div>
-        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Uploaded files</button>` : ''}
+        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Knowledge sources</button>` : ''}
         ${admin ? `<button class="btn btn-solid btn-sm" data-action="kb.new">+ New Article</button>` : ''}
       </div>
       <div class="kb-layout">
@@ -235,11 +307,28 @@ export function renderKB() {
           </div>
         </aside>
         <div class="kb-main">
-          <div class="filter-bar">
-            <span class="filter-label">Search</span>
-            <input class="filter-select" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
-            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
+          <div class="kb-status-filters" role="group" aria-label="Article status">
+            ${Object.entries({ all: 'All articles', ...ARTICLE_STATUS_LABELS }).map(([status, label]) => `
+              <button class="btn btn-sm" aria-pressed="${KB_FILTER_STATUS === status}" data-action="kb.setStatus" data-status="${status}">${label} <span>${statusCounts[status]}</span></button>
+            `).join('')}
           </div>
+          <div class="filter-bar">
+            <label for="kb-market">Market / language</label>
+            <select id="kb-market" class="filter-select" data-input-action="kb.setMarket">
+              <option value="all">All markets / languages</option>
+              ${[...new Set(KB_ARTICLES.map(articleMarket))].sort().map(m => `<option value="${window.escAttr(m)}" ${KB_FILTER_MARKET === m ? 'selected' : ''}>${m === 'unassigned' ? 'Unassigned' : window.escHtml(m)}</option>`).join('')}
+            </select>
+            <span class="filter-label">Search</span>
+            <input class="filter-select" aria-label="Search articles" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${grouped.length} cards · ${list.length} of ${KB_ARTICLES.length} articles${KB_FILTER_CAT!=='all'?` · ${window.escHtml(KB_FILTER_CAT)}`:''}</span>
+          </div>
+          ${admin && kbApiBacked() ? `<div class="kb-bulk-bar">
+            <button class="btn btn-sm" data-action="kb.selectMatching" ${bulkRunning || !list.some(a => a._uuid && articleStatus(a) === 'draft') ? 'disabled' : ''}>Select all matching drafts</button>
+            <button class="btn btn-sm" data-action="kb.clearSelection" ${bulkRunning || !bulkSelection.ids.size ? 'disabled' : ''}>Clear selection</button>
+            <span>${bulkSelection.ids.size} selected</span>
+            <button class="btn btn-solid btn-sm" data-action="kb.publishSelected" ${bulkRunning || !bulkSelection.ids.size ? 'disabled' : ''}>Publish selected</button>
+            <span role="status" aria-live="polite">${window.escHtml(bulkMessage)}</span>
+          </div>` : ''}
           <div class="page-scroll">
             ${list.length ? `<div class="kb-grid">${cards}</div>` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No articles match</div><div class="empty-line"></div></div>`}
           </div>
@@ -264,6 +353,8 @@ function renderKBArticle(id) {
   const reading = readingTime(a.body);
   const wordCount = (a.body || '').split(/\s+/).filter(Boolean).length;
   const related = getRelatedArticles(a);
+  const status = articleStatus(a);
+  const link = articleLink(a.body);
   return `
     <div class="page">
       <div class="topbar">
@@ -287,16 +378,20 @@ function renderKBArticle(id) {
             <span>${window.escHtml(a.category)}</span>
             ${a.featured ? '<span style="color:var(--amber);font-weight:600">★ Featured</span>' : ''}
           </div>
-          <h1 class="kb-article-h">${window.escHtml(a.title)}</h1>
+          <h1 class="kb-article-h">${window.escHtml(cardTitle(a))}</h1>
+          <div class="kb-review-banner">
+            <div>${statusBadge(a)}<p>${status === 'draft' ? 'Review the content, then publish it to make it available to AI.' : status === 'published' ? 'AI can use this article in customer replies.' : 'This article is archived and unavailable to AI.'}</p></div>
+            ${admin && status === 'draft' ? `<button class="btn btn-solid" data-action="kb.publish" data-id="${window.escAttr(a.id)}">Publish article</button>` : ''}
+          </div>
           <div class="kb-article-meta">
             <span>${a.id}</span>
             <span>By ${window.escHtml(a.author)}</span>
-            <span>Updated ${a.updated}</span>
+            <span>${window.escHtml(updatedLabel(a.updated))}</span>
             <span>${views} view${views===1?'':'s'}</span>
-            <span>${reading} min read · ${wordCount} words</span>
+            ${link ? '' : `<span>${reading} min read · ${wordCount} words</span>`}
             ${votes !== 0 ? `<span style="color:${votes>0?'var(--green)':'var(--red)'}">${votes>0?'+':''}${votes} helpful</span>` : ''}
           </div>
-          <div class="ai-md">${renderMarkdown(a.body)}</div>
+          ${link ? `<a class="kb-article-link" href="${window.escAttr(link)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${window.escAttr(a.title)}" title="${window.escAttr(link)}"><strong>${new URL(link).pathname.includes('/games/') ? 'Open game' : 'Open link'} ↗</strong><span>${window.escHtml(new URL(link).hostname)}</span></a>` : `<div class="ai-md">${renderMarkdown(a.body)}</div>`}
 
           <div class="kb-helpful-card">
             <div style="font-size:13px;font-weight:500;color:var(--ink);margin-bottom:12px">Was this article helpful?</div>
@@ -314,7 +409,8 @@ function renderKBArticle(id) {
               ${related.map(r => `
                 <div class="kb-card" data-action="kb.open" data-id="${window.escAttr(r.id)}" style="padding:12px">
                   <div class="kb-card-cat" style="margin-bottom:6px">${window.escHtml(r.category)}</div>
-                  <div class="kb-card-t" style="font-size:13px">${window.escHtml(r.title)}</div>
+                  ${statusBadge(r)}
+                  <div class="kb-card-t" style="font-size:13px">${window.escHtml(cardTitle(r))}</div><div class="kb-updated">${window.escHtml(updatedLabel(r.updated))}</div>
                 </div>`).join('')}
             </div>
           </div>` : ''}
@@ -335,6 +431,11 @@ function kbSetQuery(q) {
   }
 }
 function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
+function kbSetStatus(status) {
+  if (status !== 'all' && !Object.hasOwn(ARTICLE_STATUS_LABELS, status)) return;
+  KB_FILTER_STATUS = status;
+  renderPage('kb');
+}
 function openKBArticle(id) { incrementKBView(id); setKbSelected(id); renderPage('kb'); }
 function closeKBArticle()  { setKbSelected(null); renderPage('kb'); }
 
@@ -342,12 +443,13 @@ function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
   const a = initial || {title:'', category:cats[0]||'Getting Started', body:''};
   return `
-    <div class="form-row"><label class="form-label">Title</label><input class="form-input" id="kb-title" value="${window.escAttr(a.title)}"/></div>
-    <div class="form-row"><label class="form-label">Category</label>
+    <div class="form-row"><label class="form-label" for="kb-title">Title</label><input class="form-input" id="kb-title" value="${window.escAttr(a.title)}"/></div>
+    <div class="form-row"><label class="form-label" for="kb-cat">Category</label>
       <input class="form-input" id="kb-cat" list="kb-cat-list" value="${window.escAttr(a.category)}"/>
       <datalist id="kb-cat-list">${cats.map(c => `<option value="${window.escAttr(c)}">`).join('')}</datalist>
     </div>
-    <div class="form-row"><label class="form-label">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${window.escHtml(a.body)}</textarea></div>`;
+    <div class="form-row"><label class="form-label" for="kb-body">Body</label><textarea class="form-input" id="kb-body" style="min-height:240px;font-family:'Inter',sans-serif">${window.escHtml(a.body)}</textarea></div>
+    <p class="kb-form-note">${!initial || articleStatus(initial) === 'draft' ? 'Saved as a draft. AI can use it after you review and publish it.' : articleStatus(initial) === 'published' ? 'Changes to this published article will be available to AI as soon as you save.' : 'Saving changes keeps this article archived.'}</p>`;
 }
 
 function kbNewArticle() {
@@ -364,16 +466,17 @@ function kbNewArticle() {
     if (kbApiBacked()) {
       let resp;
       saving = true;
-      try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body }); }
-      catch (err) { saving = false; alert(`Couldn't publish: ${err?.message || err}`); return; }
+      try { resp = await apiPost('/api/v1/kb-articles', { title, category: cat, body, status: 'draft' }); }
+      catch (err) { saving = false; alert(`Couldn't save draft: ${err?.message || err}`); return; }
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
       KB_ARTICLES.unshift(mapKbResponse(resp.article));
     } else {
       const id = 'KB-' + String(KB_ARTICLES.length + 1).padStart(3, '0');
-      KB_ARTICLES.unshift({id, title, category:cat, body, author:SESSION?.name||'Unknown', updated:new Date().toISOString().slice(0,10)});
+      KB_ARTICLES.unshift({id, title, category:cat, body, status:'draft', author:SESSION?.name||'Unknown', updated:new Date().toISOString()});
     }
+    setKbSelected(KB_ARTICLES[0].id);
     closeModal(); renderPage('kb');
-  }, 'Publish', true);
+  }, 'Save draft', true);
 }
 
 function kbEditArticle(id) {
@@ -387,15 +490,106 @@ function kbEditArticle(id) {
     const cat   = document.getElementById('kb-cat').value.trim() || a.category;
     const body  = document.getElementById('kb-body').value;
     if (!title || !body.trim()) return;
+    let updated = new Date().toISOString();
     if (a._uuid) {
-      try { await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body }); }
+      try {
+        const { article } = await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { title, category: cat, body });
+        updated = article.updated_at || a.updated;
+      }
       catch (err) { alert(`Couldn't save: ${err?.message || err}`); return; }
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     }
     a.title = title; a.category = cat; a.body = body;
-    a.updated = new Date().toISOString().slice(0,10);
+    a.updated = updated;
     closeModal(); renderPage('kb');
-  }, 'Save changes', true);
+  }, articleStatus(a) === 'draft' ? 'Save draft' : 'Save changes', true);
+}
+
+function kbPublishArticle(id) {
+  if (!window.isAdmin()) return;
+  const a = KB_ARTICLES.find(x => x.id === id);
+  if (!a || articleStatus(a) !== 'draft') return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Publish article', `<p>Publish <strong>${window.escHtml(a.title)}</strong>?</p><p>AI will be able to use this content in customer replies.</p>`, async () => {
+    if (saving || !window.isAdmin() || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    saving = true;
+    const button = document.querySelector?.('#modal-container [data-action="modal.confirm"]');
+    if (button) { button.disabled = true; button.textContent = 'Publishing…'; }
+    if (a._uuid) {
+      try {
+        const { article } = await apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' });
+        if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+        if (article.status !== 'published') throw new Error('The article was not published. Try again.');
+        a.status = article.status;
+        a.updated = article.updated_at || '';
+      } catch (err) {
+        saving = false;
+        if (button?.isConnected) { button.disabled = false; button.textContent = 'Publish article'; }
+        alert(`Couldn't publish: ${err?.message || err}`);
+        return;
+      }
+    } else {
+      a.status = 'published';
+    }
+    closeModal(); renderPage('kb');
+  }, 'Publish article');
+}
+
+function kbPublishSelected() {
+  if (bulkRunning || !window.isAdmin() || !kbApiBacked()) return;
+  syncBulkSelection();
+  const selected = bulkSelection.selected(matchingKB());
+  if (!selected.length) return;
+  const countLabel = `${selected.length} article${selected.length === 1 ? '' : 's'}`;
+  const scope = bulkScope();
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const sameSession = () => workspace === getWorkspaceId() && jwt === getJwt() && window.isAdmin()
+    && selected.every(a => KB_ARTICLES.includes(a));
+  const markets = {};
+  selected.forEach(a => { const m = articleMarket(a); markets[m] = (markets[m] || 0) + 1; });
+  showModal('Publish selected articles', `
+    <p>Publish <strong>${countLabel}</strong>? AI will be able to use them in customer replies.</p>
+    <ul>${Object.entries(markets).sort().map(([m, n]) => `<li>${window.escHtml(m === 'unassigned' ? 'Unassigned' : m)}: ${n}</li>`).join('')}</ul>
+    <details><summary>Review selected titles</summary><ul class="kb-bulk-titles">${selected.map(a => `<li>${window.escHtml(a.title)}</li>`).join('')}</ul></details>
+    <p id="kb-bulk-progress" role="status" aria-live="polite">Closing this dialog stops after the current request. Completed articles stay published.</p>`, async () => {
+    if (bulkRunning || !sameSession() || scope !== bulkScope()) return;
+    bulkRunning = true;
+    try {
+      const progress = document.getElementById('kb-bulk-progress');
+      const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+      button.disabled = true;
+      button.textContent = 'Publishing…';
+      const cancel = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
+      if (cancel) cancel.textContent = 'Stop after current article';
+      progress.textContent = `Publishing 0 of ${selected.length}…`;
+      const result = await publishDrafts(selected, {
+        active: sameSession,
+        shouldContinue: () => progress.isConnected,
+        publish: a => apiPatch(`/api/v1/kb-articles/${a._uuid}`, { status: 'published' }),
+        onSuccess: (a, response) => {
+          a.status = response.status;
+          a.updated = response.updated_at || '';
+          bulkSelection.ids.delete(a._uuid);
+        },
+        onProgress: result => {
+          if (progress.isConnected) progress.textContent = `${result.published} of ${selected.length} published. ${result.failures.length} failed.`;
+        },
+      });
+      bulkRunning = false;
+      if (!sameSession()) return;
+      bulkMessage = `${result.published} published. ${selected.length - result.published} not published.`;
+      if (CURRENT_PAGE === 'kb') renderPage('kb');
+      if (!progress.isConnected) return;
+      showModal('Publishing results', `<p>${window.escHtml(bulkMessage)}</p>${result.failures.length ? `<p>Failed articles remain selected so you can retry.</p><ul class="kb-bulk-titles">${result.failures.map(f => `<li>${window.escHtml(f.article.title)}: ${window.escHtml(f.message)}</li>`).join('')}</ul>` : ''}`, null);
+    } catch (error) {
+      if (sameSession()) {
+        alert(`Publishing stopped: ${error?.message || error}. Reopen Publish selected to retry remaining drafts.`);
+      }
+    } finally {
+      bulkRunning = false;
+    }
+  }, `Publish ${countLabel}`, true);
 }
 
 function kbDeleteArticle(id) {
@@ -414,16 +608,43 @@ function kbDeleteArticle(id) {
 }
 
 registerActions({
+  'kb.selectDirectory': ds => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    const drafts = matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft' && gameDirectory(a)?.key === ds.directory);
+    const clear = drafts.every(a => bulkSelection.ids.has(a._uuid));
+    drafts.forEach(a => { if (clear) bulkSelection.ids.delete(a._uuid); else bulkSelection.ids.add(a._uuid); });
+    renderSelection();
+  },
+  'kb.selectDraft': (ds, el) => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    const a = matchingKB().find(a => a._uuid === ds.uuid && articleStatus(a) === 'draft');
+    if (!a) return;
+    if (el.checked) bulkSelection.ids.add(a._uuid); else bulkSelection.ids.delete(a._uuid);
+    renderSelection(a._uuid);
+  },
+  'kb.selectMatching': () => {
+    if (bulkRunning || !window.isAdmin()) return;
+    syncBulkSelection();
+    matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft').forEach(a => bulkSelection.ids.add(a._uuid));
+    renderPage('kb');
+  },
+  'kb.clearSelection': () => { if (!bulkRunning) { bulkSelection.ids.clear(); renderPage('kb'); } },
+  'kb.publishSelected': () => kbPublishSelected(),
   'kb.open':           (ds) => openKBArticle(ds.id),
   'kb.close':          () => closeKBArticle(),
   'kb.new':            () => kbNewArticle(),
   'kb.edit':           (ds) => kbEditArticle(ds.id),
+  'kb.publish':        (ds) => kbPublishArticle(ds.id),
   'kb.delete':         (ds) => kbDeleteArticle(ds.id),
   'kb.toggleFeatured': (ds) => toggleKBFeatured(ds.id),
   'kb.setCat':         (ds) => kbSetCat(ds.cat),
+  'kb.setStatus':      (ds) => kbSetStatus(ds.status),
   'kb.vote':           (ds) => voteKB(ds.id, ds.vote),
 });
 
 registerInputActions({
+  'kb.setMarket': (ds, el) => { KB_FILTER_MARKET = el.value; renderPage('kb'); document.getElementById('kb-market')?.focus(); },
   'kb.setQuery': (ds, el) => kbSetQuery(el.value),
 });

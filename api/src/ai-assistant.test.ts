@@ -153,6 +153,39 @@ dbTests('authenticated AI assistant', () => {
     expect(createSpy.mock.calls[1][0].system).not.toContain('Foreign Customer');
   });
 
+  it('returns structured customer text separately from validated internal references', async () => {
+    await sql`insert into kb_articles(workspace_id,display_id,title,body,status) values
+      (${workspaceId},'KB-REPLY','Withdrawal source','Withdrawal processing takes 24 hours.','published'),
+      (${workspaceId},'KB-HIDDEN','Withdrawal draft','Never include this.','draft'),
+      (${otherWorkspaceId},'KB-FOREIGN','Withdrawal foreign','Never include this either.','published')`;
+    createSpy.mockImplementation(async () => ({ ...response, content: [
+      { type: 'text', text: 'Draft: internal provider preamble must be ignored' },
+      { type: 'tool_use', id: 'test-tool', name: 'compose_customer_reply', input: {
+        customerReply: 'Processing takes 24 hours.', referenceIds: ['KB-REPLY'], internalNotes: ['Verify account approval separately.'],
+      } },
+    ] }));
+    const result = await request('/messages', { ...payload, action: 'kb_draft', messages: [{ role: 'user', content: 'Withdrawal processing?' }] });
+    expect(result.status).toBe(200);
+    const data = await result.json() as any;
+    expect(data.text).toBe('Processing takes 24 hours.');
+    expect(data.internal.references).toEqual([{ id: 'KB-REPLY', title: 'Withdrawal source' }]);
+    expect(data.internal.notes).toEqual(['Verify account approval separately.']);
+    const sent = createSpy.mock.calls[0][0];
+    expect(sent.tool_choice).toEqual({ type: 'tool', name: 'compose_customer_reply' });
+    expect(sent.system).not.toContain('KB-HIDDEN');
+    expect(sent.system).not.toContain('KB-FOREIGN');
+    expect(sent.system).toContain('no Draft/Reply labels');
+  });
+
+  it('refuses malformed customer output without falling back to raw provider text', async () => {
+    const before = await balance();
+    const result = await request('/messages', { ...payload, replyFormat: true });
+    expect(result.status).toBe(502);
+    expect(await result.text()).not.toContain('Test response');
+    // A completed generation is still charged even if its format is invalid.
+    expect(await balance()).toBe(before - cost);
+  });
+
   it('rate-limits paid calls before invoking the provider', async () => {
     for (let i = 0; i < 60; i++) await sql`select check_rate_limit(${'ai-assistant:' + workspaceId + ':' + userId}, 60, 60)`;
     expect((await request()).status).toBe(429);

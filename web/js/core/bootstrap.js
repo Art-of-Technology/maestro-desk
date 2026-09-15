@@ -430,16 +430,16 @@ export async function loadWorkspaceData() {
   replaceInPlace(TAG_LIBRARY, mappedTags);
 
   // ─── KB_ARTICLES ────────────────────────────────────────────────────────
-  // updated_at is timestamptz; data.js used 'YYYY-MM-DD'. Keep that shape
-  // for the existing sort + display code that does localeCompare on it.
+  // Preserve the timestamp for card dates and chronological sorting.
   const mappedKb = kbRaw.map((a) => ({
     _uuid:           a.id,
     id:              a.display_id,
     title:           a.title,
     category:        a.category || '',
     body:            a.body || '',
+    status:          a.status || 'draft',
     author:          a.author_name || 'Unknown',
-    updated:         isoDate(a.updated_at),
+    updated:         a.updated_at || '',
     viewCount:       a.view_count || 0,
     helpfulCount:    a.helpful_count || 0,
     unhelpfulCount:  a.unhelpful_count || 0,
@@ -640,6 +640,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     // Sanitised HTML body + its files (rich email). Null/[] for plain-text
     // messages and notes, which keep rendering as escaped text.
     html:       m.body_html || null,
+    internalReview: m.internal_review || null,
     attachments: m.attachments || [],
     ts:         fmtTime(m.created_at),
     mentions:   m.mentions || [],

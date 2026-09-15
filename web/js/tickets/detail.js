@@ -45,7 +45,8 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { loadDraft, saveDraft, clearDraft, clearAllDrafts } from './drafts.js';
+import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadDraftReview } from './drafts.js';
+import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
@@ -427,6 +428,7 @@ export function openTicket(id) {
       ${bodyHtml}
       ${attachHtml}
       ${bodyNote}
+      ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
     </div>`;
   }).join('');
 
@@ -555,6 +557,7 @@ export function openTicket(id) {
                 ? `<div class="compose-area compose-rich" id="compose-${id}" data-rich="1" data-ticket-id="${window.escAttr(id)}"></div>`
                 : `<textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
+              <div id="reply-review-${id}" role="status" aria-live="polite">${renderReplyReview(id)}</div>
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
@@ -1129,6 +1132,7 @@ async function sendCompose(id) {
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         mentions: isNote ? (mentions || []).map((m) => m.userId).filter(Boolean) : undefined,
+        internal_review: loadDraftReview(id) || undefined,
       });
       message = res.message;
       delivery = res.delivery;
@@ -1147,6 +1151,7 @@ async function sendCompose(id) {
       // Same shape GET /tickets/:id returns, so the sent reply renders exactly
       // as it will after a refetch (formatting, inline images, file chips).
       html: message.body_html || null,
+      internalReview: message.internal_review || null,
       attachments: message.attachments || [],
       tOriginal: original,
       translatedTo,
