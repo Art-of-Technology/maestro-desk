@@ -3,6 +3,7 @@ import dns from 'node:dns/promises';
 import type { LookupAddress, LookupAllOptions, LookupOneOptions, LookupOptions } from 'node:dns';
 import * as undici from 'undici';
 import { fetchKnowledgePage } from './lib/knowledge-import.js';
+import { SPACE_CASINO_WORKSPACE } from './lib/knowledge-market-policy.js';
 
 const mocks: { mockRestore(): void }[] = [];
 afterEach(() => {
@@ -50,6 +51,20 @@ test('blocks redirects into internal addresses before a second request', async (
     new undici.Response(null, { status: 302, headers: { Location: 'https://127.0.0.1/private' } }),
   ]);
   await expect(fetchKnowledgePage('https://example.com')).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test('blocks excluded Space Casino markets before fetching and after redirects', async () => {
+  const fetch = setup([new undici.Response(null, { status: 302, headers: { Location: '/es-pe/help' } })]);
+  await expect(fetchKnowledgePage('https://www.spacecasino.com/pt-br/help', SPACE_CASINO_WORKSPACE)).rejects.toThrow('no longer supported');
+  expect(fetch).toHaveBeenCalledTimes(0);
+  await expect(fetchKnowledgePage('https://www.spacecasino.com/help', SPACE_CASINO_WORKSPACE)).rejects.toThrow('no longer supported');
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test('does not apply Space Casino exclusions to a different workspace', async () => {
+  const fetch = setup([new undici.Response('<h1>Help</h1>', { headers: { 'content-type': 'text/html' } })]);
+  expect(new TextDecoder().decode(await fetchKnowledgePage('https://www.spacecasino.com/pt-br/help', 'other-workspace'))).toContain('Help');
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 test('reports refusals and rejects non-HTML and oversized pages', async () => {

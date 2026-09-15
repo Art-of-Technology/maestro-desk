@@ -3,6 +3,7 @@ import { extractKnowledge } from './knowledge-import.js';
 import { contentHash } from './knowledge-sources.js';
 import { attachmentsStore, contentDispositionFor } from './r2.js';
 import { enqueueObjectDeletions } from './object-outbox.js';
+import { assertKnowledgeMarket } from './knowledge-market-policy.js';
 
 export async function replaceKnowledgeFile(workspaceId: string, id: string, filename: string, bytes: Uint8Array) {
   const sql = getDb();
@@ -17,11 +18,13 @@ export async function replaceKnowledgeFile(workspaceId: string, id: string, file
   let newKey: string | undefined;
   let committed = false;
   try {
+    assertKnowledgeMarket(workspaceId, source);
     const fingerprint = contentHash(`file:${contentHash(bytes)}:${source.language}:${source.jurisdiction}`);
     if (fingerprint === source.fingerprint && source.latest_version_id)
       return { status: 'ok', duplicate: true } as const;
 
     const extracted = await extractKnowledge(bytes, filename.split('.').pop()!.toLowerCase());
+    assertKnowledgeMarket(workspaceId, { ...source, body: extracted.body });
     newKey = `knowledge/${workspaceId}/${id}/${crypto.randomUUID()}/${filename}`;
     await attachmentsStore().putObject(newKey, bytes, {
       contentType: 'application/octet-stream',
