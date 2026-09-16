@@ -4,7 +4,7 @@ import type { ReplyExample } from './previous-replies.js';
 // Lock eligible target/source customers and tickets while creating the snapshot.
 // Concurrent erasure waits, then the deletion triggers purge the new snapshot.
 export async function recordReplySuggestion(workspaceId: string, userId: string, ticketId: string,
-  reply: string, examples: ReplyExample[] = []) {
+  reply: string, examples: ReplyExample[] = []): Promise<string | null> {
   const sql = getDb();
   return sql.begin(async tx => {
     const replyIds = examples.map(e => e.replyId);

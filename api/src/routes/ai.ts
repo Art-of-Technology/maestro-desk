@@ -252,7 +252,7 @@ ai.post('/messages', async (c) => {
       if (search?.notes.length) result.internal.notes = [...search.notes, ...result.internal.notes].slice(0, 10);
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
       const suggestionId = !generic && input.ticketId && result.text.trim()
-        ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : []) : null;
+        ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : []).catch(() => null) : null;
       return c.json({ ...result, ...(suggestionId ? { suggestionId } : {}), ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
