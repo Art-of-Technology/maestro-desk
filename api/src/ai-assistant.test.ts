@@ -168,7 +168,9 @@ dbTests('authenticated AI assistant', () => {
     expect(result.status).toBe(200);
     const data = await result.json() as any;
     expect(data.text).toBe('Processing takes 24 hours.');
-    expect(data.internal.references).toEqual([{ id: 'KB-REPLY', title: 'Withdrawal source' }]);
+    expect(data.internal.references).toHaveLength(1);
+    expect(data.internal.references[0]).toMatchObject({ id: 'KB-REPLY', title: 'Withdrawal source',kind:'article' });
+    expect(data.internal.references[0].datedAt).toBeTruthy();
     expect(data.internal.notes).toEqual(['Verify account approval separately.']);
     const sent = createSpy.mock.calls[0][0];
     expect(sent.tool_choice).toEqual({ type: 'tool', name: 'compose_customer_reply' });

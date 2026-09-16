@@ -154,6 +154,10 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .kb-quality-item p{margin:8px 0}
 .kb-quality-item>label{display:block;margin-top:12px}
 .kb-quality-item textarea{min-height:64px}
+.reply-evidence-source{margin:12px 0;overflow-wrap:anywhere}
+.reply-evidence-source p{margin:4px 0;font-size:12px;color:var(--ink2)}
+.reply-evidence-source .btn{white-space:normal;text-align:left;min-height:36px}
+.reply-evidence-warnings{color:var(--red)}
 .kb-library-page .kb-cat-item{width:100%;border:0;background:transparent;text-align:left;min-height:44px}
 .kb-library-page .kb-cat-item.active{background:var(--purple-lt)}
 .kb-library-page .filter-bar{flex-wrap:wrap;gap:8px}

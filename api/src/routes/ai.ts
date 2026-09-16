@@ -10,6 +10,7 @@ import { buildAIContext } from '../lib/ai-context.js';
 import { publishedKnowledgeMaterial } from '../lib/knowledge-context.js';
 import { previousReplyMaterial, genericDetails } from '../lib/previous-replies.js';
 import { meaningfulReplies } from '../lib/meaningful-replies.js';
+import { historicalReferences } from '../lib/reply-evidence.js';
 import { recordReplySuggestion } from '../lib/reply-feedback.js';
 import { replyFeedback } from './reply-feedback.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
@@ -143,7 +144,7 @@ ai.post('/messages', async (c) => {
   }
   const replyFormat = input.replyFormat || input.action === 'kb_draft' || historical || generic;
   const material = input.action === 'kb_draft' || historical ? await publishedKnowledgeMaterial(workspaceId, previous?.query || query) : null;
-  const replySources = historical ? [...material!.references, ...previous!.examples.map(({ id, title }) => ({ id, title }))] : generic ? [] : material?.references || input.replySources;
+  const replySources = historical ? [...material!.references, ...await historicalReferences(workspaceId,previous!.examples,previous!.ticket)] : generic ? [] : material?.references || input.replySources;
   const context =
     input.action === 'chat'
       ? await buildAIContext(workspaceId, input.sources, query)
