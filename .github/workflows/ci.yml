@@ -76,6 +76,7 @@ jobs:
           bun test scripts/kb-article-state.test.js
           bun test scripts/kb-bulk-review.test.js
           bun test scripts/kb-card-presentation.test.js
+          bun test scripts/kb-saved-filters.test.js
           bun test scripts/kb-draft-routing.test.js
           bun test scripts/kb-file-sources.test.js
           bun test scripts/kb-file-picker.test.js
