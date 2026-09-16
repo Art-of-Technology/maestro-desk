@@ -37,6 +37,7 @@ const RequestBody = z
     replyLanguage: z.enum(['English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian']).optional(),
     replySources: z.array(ReplySource).max(12).default([]),
     ticketId: z.string().uuid().optional(),
+    replyContext: z.enum(['reply','note']).optional(),
     action: z
       .enum(['draft', 'kb_draft', 'similar_reply', 'generic_template', 'summarize', 'translate', 'detect_language', 'chat'])
       .default('draft'),
@@ -252,7 +253,8 @@ ai.post('/messages', async (c) => {
       if (search?.notes.length) result.internal.notes = [...search.notes, ...result.internal.notes].slice(0, 10);
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
       const suggestionId = !generic && input.ticketId && result.text.trim()
-        ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : []).catch(() => null) : null;
+        ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : [],
+          { context: input.replyContext, costMicro: cost + (search?.costMicro || 0) }).catch(() => null) : null;
       return c.json({ ...result, ...(suggestionId ? { suggestionId } : {}), ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);

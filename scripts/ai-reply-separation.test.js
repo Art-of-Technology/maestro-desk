@@ -1,11 +1,12 @@
 import { test, expect, mock } from 'bun:test';
 let workspace = 'one', text = 'Existing reply', html = '<p>Existing reply</p>', review, lastRequest, thinking = false;
 let result, fail, lookupError, release;
+const shownEvents = [];
 const editor = { isConnected: true };
 globalThis.document = { getElementById: id => id === 'compose-T1' ? editor : null };
 mock.module('../web/js/core/data.js', () => ({ TICKETS: [{ id: 'T1', subject: 'Help', msgs: [] }] }));
 mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB: 'reply', setAiThinking: value => { thinking = value; } }));
-mock.module('../web/js/core/api-client.js', () => ({ getJwt: () => 'session', getWorkspaceId: () => workspace }));
+mock.module('../web/js/core/api-client.js', () => ({ apiPost: async (path,body) => { shownEvents.push({path,body});return {}; }, getJwt: () => 'session', getWorkspaceId: () => workspace }));
 mock.module('../web/js/tickets/detail.js', () => ({ onComposeInput() {} }));
 mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
 mock.module('../web/js/tickets/composer.js', () => ({ focusEnd() {}, getPlainText: () => text, getHtml: () => html, setText: (_id, value) => { text = value; html = null; } }));
@@ -22,12 +23,15 @@ const { aiAction } = await import('../web/js/ai/reply.js');
 
 test('only customer text enters the composer; internal references remain separate', async () => {
   result = { text: 'Here is your game: https://example.com/game', data: { internal: { references: [{ id: 'KB-1', title: 'Game source' }], notes: ['Check jurisdiction.'] } } };
+  result.data.suggestionId='a0000000-0000-4000-8000-000000000001';
   await aiAction('T1', 'draft');
   expect(text).toBe(result.text);
   expect(text).not.toContain('KB-1');
   expect(review).toEqual(result.data.internal);
   expect(lastRequest.replyFormat).toBe(true);
   expect(lastRequest.replyLanguage).toBe('Spanish');
+  expect(lastRequest.replyContext).toBe('reply');
+  expect(shownEvents).toEqual([{path:'/api/v1/ai/reply-feedback/a0000000-0000-4000-8000-000000000001/shown',body:{}}]);
   expect(thinking).toBe(false);
 });
 
@@ -58,6 +62,8 @@ test('internal-only results leave customer text untouched', async () => {
 
 test('late results cannot overwrite edits or cross workspace boundaries', async () => {
   result = { text: 'Late result', data: { internal: { references: [], notes: [] } } };
+  result.data.suggestionId='a0000000-0000-4000-8000-000000000002';
+  const beforeShown=shownEvents.length;
   release = true;
   const edited = aiAction('T1', 'draft');
   await Promise.resolve();
@@ -72,4 +78,5 @@ test('late results cannot overwrite edits or cross workspace boundaries', async 
   expect(text).toBe('Agent edit');
   expect(review).toBe(prior);
   expect(thinking).toBe(false);
+  expect(shownEvents.length).toBe(beforeShown);
 });

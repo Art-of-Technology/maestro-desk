@@ -18,6 +18,7 @@ import { REPORT_LAYOUT } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
 import { downloadCSV } from '../core/csv.js';
+import { renderReplyPerformance } from './reply-performance.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
@@ -28,6 +29,7 @@ import { STATUS_COLORS, PRIORITY_COLORS, SENTIMENT_COLORS } from '../core/colors
 // Timeframe filter — only the Reports page reads or writes this, so it
 // stays module-local rather than going to core/state.js.
 let REPORT_TF = '30d';
+let AI_REPORT = false;
 
 function setReportTF(v) { REPORT_TF = v; renderPage('reports'); }
 
@@ -285,6 +287,7 @@ function exportReport() {
 }
 
 export function renderReports() {
+  if (AI_REPORT && window.isAdmin()) return renderReplyPerformance();
   const tf = REPORT_TF;
   const tickets = getReportTickets();
   const s = computeReportStats(tickets);
@@ -303,6 +306,7 @@ export function renderReports() {
           <option value="all" ${tf==='all'?'selected':''}>All time</option>
         </select>
         <button class="btn btn-sm" data-action="reports.export">Export CSV</button>
+        ${window.isAdmin() ? '<button type="button" class="btn btn-sm" data-action="reports.openAi">AI reply performance</button>' : ''}
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${s.total}</div><div class="kpi-l">Total tickets</div></div>
@@ -319,6 +323,8 @@ export function renderReports() {
 
 registerActions({
   'reports.export': () => exportReport(),
+  'reports.openAi': () => { AI_REPORT=true;renderPage('reports'); },
+  'reports.closeAi': () => { AI_REPORT=false;renderPage('reports'); },
 });
 
 registerWidgetCatalog('report', REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT);

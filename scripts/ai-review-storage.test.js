@@ -6,8 +6,8 @@ globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v
 globalThis.window = { escHtml: s => String(s).replaceAll('<', '&lt;').replaceAll('>', '&gt;'), escAttr: String };
 mock.module('../web/js/core/state.js', () => ({ COMPOSE_TAB: 'reply', SESSION: session }));
 mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace, getJwt: () => 'test', apiPost() {} }));
-mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {} }));
-const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview } = await import('../web/js/tickets/drafts.js');
+mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {}, registerChangeActions() {} }));
+const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion } = await import('../web/js/tickets/drafts.js');
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
 test('internal metadata is separate, scoped, escaped and cleared after sending', () => {
@@ -17,6 +17,10 @@ test('internal metadata is separate, scoped, escaped and cleared after sending',
   expect(loadDraft('T1')).toBe('<p>Customer reply</p>');
   expect(loadDraftReview('T1')).toEqual(review);
   expect(loadMessageReview('T1')).toEqual({ references: review.references, notes: review.notes });
+  expect(confirmedReplySuggestion('T1')).toBeUndefined();
+  saveDraftReview('T1',{...review,confirmedUse:true});
+  expect(confirmedReplySuggestion('T1')).toBe(review.suggestionId);
+  expect(confirmedReplySuggestion('T1','note')).toBeUndefined();
   expect(loadDraftReview('T1', 'note')).toBeNull();
   const output = renderReplyReview('T1');
   expect(output).toContain('Internal references — not sent');

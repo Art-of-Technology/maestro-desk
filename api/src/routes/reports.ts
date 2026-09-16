@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { ReplyPerformanceQuery, replyPerformance } from '../lib/reply-performance.js';
 
 // Server-side report data. SLA breach evaluation itself stays client-side
 // (business-hours engine in web/js/tickets/sla.js); this endpoint only
@@ -11,6 +13,17 @@ import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
 export const reports = new Hono();
 
 reports.use('*', requireAuth);
+
+reports.get('/reply-performance', async c => {
+  c.header('Cache-Control','no-store');
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const parsed = ReplyPerformanceQuery.safeParse(c.req.query());
+  if (!parsed.success) return c.json({error:'Choose valid filters and a date range of up to 366 days.'},400);
+  const report = await replyPerformance(c.get('workspaceId'),parsed.data);
+  if (!report) return c.json({error:'More than 10,000 suggestions match. Narrow the date range or filters before exporting.'},422);
+  return c.json(report);
+});
 
 reports.get('/dashboard', async (c) => {
   const period = parseReportPeriod(c.req.query('start'), c.req.query('end'), c.req.query('timezone'));

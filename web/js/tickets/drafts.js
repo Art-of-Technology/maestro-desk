@@ -50,6 +50,11 @@ export function loadMessageReview(id, tab) {
   return review ? { references: review.references, notes: review.notes } : undefined;
 }
 
+export function confirmedReplySuggestion(id, tab = COMPOSE_TAB) {
+  const review = loadDraftReview(id, tab);
+  return tab === 'reply' && review?.confirmedUse === true ? review.suggestionId : undefined;
+}
+
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB
 // would leave the other tab's draft orphaned in localStorage forever.

@@ -6,7 +6,7 @@ import { formatRoute } from '../core/route-location.js';
 export function settingsReplyFeedback() {
   if (!window.isAdmin()) return '<p>Admin permission is required to review feedback.</p>';
   setTimeout(() => loadReplyFeedback(0), 0);
-  return '<h2 class="settings-h">Reply feedback</h2><p>Review suggestions agents marked Not helpful. Ratings help your team spot problems; they don’t automatically change future replies.</p><div id="reply-feedback-list" aria-live="polite"><p>Loading feedback…</p></div>';
+  return '<h2 class="settings-h">Reply feedback</h2><p>Review suggestions agents marked Not helpful. Ratings help your team spot problems; they don’t automatically change future replies.</p><button type="button" class="btn" data-action="reports.openAi">View AI reply performance report</button><div id="reply-feedback-list" aria-live="polite"><p>Loading feedback…</p></div>';
 }
 
 export async function loadReplyFeedback(offset = 0) {

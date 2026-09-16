@@ -13,6 +13,7 @@ import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../li
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { ReplyReview } from '../lib/reply-review.js';
+import { recordReplyUse } from '../lib/reply-feedback.js';
 import { publishTicketChanged } from '../lib/pubby.js';
 import { hasDeletePermission } from '../lib/authz.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -605,6 +606,7 @@ const PostMessage = z.object({
   attachment_ids: z.array(z.string().uuid()).max(20).optional(),
   mentions: z.array(z.string().uuid()).optional(),
   internal_review: ReplyReview.optional(),
+  reply_suggestion_id: z.string().uuid().optional(),
 }).refine((v) => (v.body && v.body.trim()) || (v.body_html && v.body_html.trim()), {
   message: 'Either body or body_html is required',
 });
@@ -716,6 +718,12 @@ tickets.post('/:id/messages', async (c) => {
   } catch (err) {
     if (err instanceof AttachmentClaimError) return c.json({ error: err.message }, 400);
     throw err;
+  }
+
+  if (input.role === 'agent' && input.reply_suggestion_id) {
+    // Optional analytics must never fail or resend an already-saved message.
+    await recordReplyUse(workspaceId, userId, ticketId, input.reply_suggestion_id, message.id)
+      .catch(() => console.warn('[reply-feedback] Use tracking unavailable'));
   }
 
   // Fire-and-forget email notifications when a note @mentions other

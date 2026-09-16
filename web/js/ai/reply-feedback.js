@@ -1,7 +1,7 @@
 import { apiPost, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { COMPOSE_TAB } from '../core/state.js';
 import { loadDraftReview, saveDraftReview } from '../tickets/drafts.js';
-import { registerActions } from '../core/event-delegation.js';
+import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 export const FEEDBACK_REASONS = { wrong_match: 'Wrong match', outdated_advice: 'Outdated advice', wrong_language: 'Wrong language', other: 'Other' };
 const pending = new Set();
@@ -15,6 +15,7 @@ export function renderReplyFeedback(id, review) {
     <div class="reply-feedback-controls">${[true, false].map(helpful => `<button type="button" class="btn btn-ghost" data-action="replyFeedback.rate" data-ticket-id="${window.escAttr(id)}" data-helpful="${helpful}" aria-pressed="${selected?.helpful === helpful}">${helpful ? 'Helpful' : 'Not helpful'}</button>`).join('')}
     <label>Reason (optional)<select class="form-select" data-feedback-reason><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label]) => `<option value="${key}" ${selected?.reason === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
     <p class="reply-feedback-status" role="status">${selected ? 'Feedback saved. Choose a rating again to update it.' : 'Feedback is for your team and won’t change your draft.'}</p>
+    ${COMPOSE_TAB === 'reply' ? `<label class="reply-use-confirm"><input type="checkbox" data-change-action="replyFeedback.confirmUse" data-ticket-id="${window.escAttr(id)}" ${review.confirmedUse ? 'checked' : ''}>This reply uses the suggestion (for reporting)</label>` : ''}
   </div>`;
 }
 
@@ -52,3 +53,8 @@ export async function rateReply(ds, button) {
   }
 }
 registerActions({ 'replyFeedback.rate': rateReply });
+registerChangeActions({ 'replyFeedback.confirmUse': (ds, el) => {
+  const review = loadDraftReview(ds.ticketId);
+  if (review?.suggestionId === el.closest('.reply-feedback')?.dataset.suggestionId)
+    saveDraftReview(ds.ticketId, { ...review, confirmedUse: el.checked });
+} });

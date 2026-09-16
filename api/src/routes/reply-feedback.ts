@@ -9,6 +9,17 @@ const Feedback = z.object({ helpful: z.boolean(),
   reason: z.enum(['wrong_match','outdated_advice','wrong_language','other']).nullable().default(null),
 }).strict().refine(v => !v.helpful || v.reason === null);
 
+replyFeedback.post('/:id/shown', async c => {
+  const id = z.string().uuid().safeParse(c.req.param('id'));
+  if (!id.success || !z.object({}).strict().safeParse(await c.req.json().catch(() => null)).success)
+    return c.json({ error: 'Invalid suggestion event.' }, 400);
+  const sql = getDb();
+  const rows = await sql`update ai_reply_suggestions set shown_at=coalesce(shown_at,now())
+    where id=${id.data} and workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')}
+      and reply_context='reply' returning id`;
+  return rows.length ? c.json({ok:true}) : c.json({error:'Suggestion not found.'},404);
+});
+
 replyFeedback.post('/:id', async c => {
   const id = z.string().uuid().safeParse(c.req.param('id'));
   const body = Feedback.safeParse(await c.req.json().catch(() => null));

@@ -10,7 +10,7 @@ mock.module('../web/js/core/data.js', () => ({
   TICKETS: [{ id: 'TK-test', subject: 'Withdrawal timing', msgs: [] }],
 }));
 mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB: 'reply', setAiThinking() {} }));
-mock.module('../web/js/core/api-client.js', () => ({ getJwt: () => 'test-session', getWorkspaceId: () => 'test-workspace' }));
+mock.module('../web/js/core/api-client.js', () => ({ apiPost: async () => ({}), getJwt: () => 'test-session', getWorkspaceId: () => 'test-workspace' }));
 mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null }));
 mock.module('../web/js/ai/reply-review.js', () => ({ showReplyReview() {} }));
 mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
