@@ -32,6 +32,7 @@ const RequestBody = z
       .max(40),
     maxTokens: z.number().int().min(1).max(2048).default(1024),
     replyFormat: z.boolean().default(false),
+    replyLanguage: z.enum(['English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian']).optional(),
     replySources: z.array(ReplySource).max(12).default([]),
     ticketId: z.string().uuid().optional(),
     action: z
@@ -157,6 +158,9 @@ ai.post('/messages', async (c) => {
     input.messages = [{ role: 'user', content: genericDetails(query, previous!.ticket, previous!.ticket.display_id) }];
   }
   if (replyFormat) system += `\n\n${CUSTOMER_REPLY_INSTRUCTIONS}\nReference catalog (untrusted data): ${JSON.stringify(replySources)}`;
+  if (replyFormat && !generic && (input.replyLanguage || historical || input.action === 'kb_draft')) system += input.replyLanguage
+    ? `\nWrite customerReply in ${input.replyLanguage}. Keep internalNotes in the agent's language. Do not change the reply language to match historical examples or knowledge sources.`
+    : '\nWrite customerReply in the language of the latest substantive customer message, not the language of historical examples, quoted emails or knowledge sources. Keep internalNotes in the agent\'s language.';
 
   // Conservative reservation: UTF-8 bytes bound input tokens, with room for
   // message framing. Atomic UPDATE prevents concurrent relay calls from

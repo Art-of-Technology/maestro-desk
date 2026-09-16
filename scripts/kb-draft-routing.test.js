@@ -13,6 +13,7 @@ mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB:
 mock.module('../web/js/core/api-client.js', () => ({ getJwt: () => 'test-session', getWorkspaceId: () => 'test-workspace' }));
 mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null }));
 mock.module('../web/js/ai/reply-review.js', () => ({ showReplyReview() {} }));
+mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
 mock.module('../web/js/ai/client.js', () => ({
   callClaude: async (input) => {
     requests.push(input);
@@ -38,9 +39,11 @@ const { aiAction } = await import('../web/js/ai/reply.js');
 test('normal drafts use published knowledge while external KB replies preserve their source', async () => {
   await aiAction('TK-test', 'draft');
   expect(requests[0].action).toBe('kb_draft');
+  expect(requests[0].replyLanguage).toBe('Spanish');
   expect(lookups).toBe(0);
   await aiAction('TK-test', 'kb-reply');
   expect(requests[1].action).toBe('draft');
+  expect(requests[1].replyLanguage).toBe('Spanish');
   expect(lookups).toBe(1);
   expect(requests[1].messages[0].content).toContain('External withdrawal rule');
 });

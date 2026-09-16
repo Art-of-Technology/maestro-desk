@@ -84,6 +84,7 @@ jobs:
         run: |
           bun test scripts/ai-reply-separation.test.js
           bun test scripts/template-tailoring.test.js
+          bun test scripts/reply-language.test.js
           bun test scripts/ai-review-storage.test.js
 
       # The SPA's security headers exist twice while both hosts do (Vercel
