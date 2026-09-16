@@ -1,5 +1,7 @@
 import { loadDraftReview, saveDraftReview } from '../tickets/drafts.js';
 import { renderReplyFeedback } from './reply-feedback.js';
+import { getWorkspaceId } from '../core/api-client.js';
+import { formatRoute } from '../core/route-location.js';
 
 function safeLink(value) {
   try {
@@ -18,8 +20,18 @@ export function renderReplyReview(id, value = loadDraftReview(id), saved = false
     ${refs.length ? `<ul>${refs.map(r => {
       const url = safeLink(r.url);
       const title = `${r.id || ''} · ${r.title}`;
-      return `<li>${url ? `<a href="${window.escAttr(url)}" target="_blank" rel="noopener noreferrer">${window.escHtml(title)}</a>` : window.escHtml(title)}</li>`;
-    }).join('')}</ul>` : '<p>No source references were returned.</p>'}
+      let ticketLink=null;
+      if(r.kind==='ticket' && r.entityId){try{ticketLink=formatRoute({workspaceId:getWorkspaceId(),page:'tickets',entityId:r.entityId});}catch{}}
+      const sourceTitle=r.kind==='article'?`<button type="button" class="btn btn-sm" data-action="td.openKB" data-kb-id="${window.escAttr(r.id)}">${window.escHtml(title)}</button>`
+        :ticketLink?`<a href="${window.escAttr(ticketLink)}" target="_blank" rel="noopener noreferrer">${window.escHtml(title)}</a>`
+        :url?`<a href="${window.escAttr(url)}" target="_blank" rel="noopener noreferrer">${window.escHtml(title)}</a>`:window.escHtml(title);
+      const date=r.datedAt && Number.isFinite(new Date(r.datedAt).getTime())?new Date(r.datedAt).toISOString().slice(0,10):'Not recorded';
+      const warnings=Array.isArray(r.warnings)?r.warnings.filter(w=>typeof w==='string').slice(0,6):[];
+      return `<li class="reply-evidence-source">${sourceTitle}
+        <p>${r.kind==='ticket'?'Previous reply':r.kind==='article'?'Knowledge article':'Provided source'} · ${r.kind==='ticket'?'Sent':'Updated'}: ${window.escHtml(date)} · Market: ${window.escHtml(r.market||'Not recorded')}${r.language?` · Language: ${window.escHtml(r.language)}`:''}</p>
+        ${r.kind==='article' && url?`<a href="${window.escAttr(url)}" target="_blank" rel="noopener noreferrer">Open original source</a>`:''}
+        ${warnings.length?`<ul class="reply-evidence-warnings">${warnings.map(w=>`<li>${window.escHtml(w)}</li>`).join('')}</ul>`:''}</li>`;
+    }).join('')}</ul>` : '<p class="reply-evidence-warnings">No source references were returned. Verify policy claims before sending.</p>'}
     ${notes.length ? `<ul>${notes.map(n => `<li>${window.escHtml(n)}</li>`).join('')}</ul>` : ''}
   </details>`;
 }

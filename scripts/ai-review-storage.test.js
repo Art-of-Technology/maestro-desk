@@ -10,6 +10,20 @@ mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {},
 const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion } = await import('../web/js/tickets/drafts.js');
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
+test('evidence stays visible with dates, markets, safe navigation and escaped warnings',()=>{
+  workspace='a0000000-0000-4000-8000-000000000001';
+  const output=renderReplyReview('T1',{references:[
+    {id:'KB-1',title:'Policy',kind:'article',datedAt:'2026-09-01T12:00:00Z',market:'es-mx',warnings:['<unsafe>']},
+    {id:'TK-1',title:'Previous reply',kind:'ticket',entityId:'a0000000-0000-4000-8000-000000000002',datedAt:'2026-08-01T12:00:00Z',market:'Mexico'},
+  ],notes:[]});
+  expect(output).toContain('data-action="td.openKB"');expect(output).toContain('Updated: 2026-09-01');
+  expect(output).toContain('Market: es-mx');expect(output).toContain('Sent: 2026-08-01');
+  expect(output).toContain('/tickets/a0000000-0000-4000-8000-000000000002');
+  expect(output).toContain('&lt;unsafe&gt;');expect(output).toContain(' open>');
+  expect(renderReplyReview('T1',{references:[],notes:[]})).toContain('Verify policy claims before sending');
+  workspace='one';
+});
+
 test('internal metadata is separate, scoped, escaped and cleared after sending', () => {
   const review = { references: [{ id: 'KB-1', title: '<script>bad</script>', url: 'javascript:alert(1)' }], notes: ['Internal only'], suggestionId: 'a0000000-0000-4000-8000-000000000001', feedback: {helpful:false,reason:'wrong_match'} };
   saveDraft('T1', '<p>Customer reply</p>');

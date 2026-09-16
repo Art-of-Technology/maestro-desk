@@ -3,6 +3,7 @@ import { genericDetails, rankReplies, previousReplyMaterial, searchReplyHistory 
 import { selectedReplies, expandedReplyTerms } from './lib/meaningful-replies.js';
 import { SEARCH_CALL_CAP_MICRO } from './lib/reply-search-ai.js';
 import * as feedback from './lib/reply-feedback.js';
+import { historicalReferences } from './lib/reply-evidence.js';
 
 it('validates ranked IDs and permits an explicit no-match answer', () => {
   const example = { id: 'TK-1', title: 'Cashout', question: 'Pending', reply: 'Review', questionId: 'q', replyId: 'r' };
@@ -131,6 +132,14 @@ it('removes known customer details without replacing substrings in ordinary word
     expect(snapshot.reply).toBe(data.text);
     expect(JSON.stringify(data.examples)).not.toContain('Alice');
     expect(JSON.stringify(data.examples)).not.toContain('123456789');
+    const context=await previousReplyMaterial(ws,target,false);
+    const examples=await searchReplyHistory(ws,context!.ticket,context!.query);
+    const refs=await historicalReferences(ws,examples,context!.ticket);
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs[0]).toMatchObject({kind:'ticket',warnings:['Previous replies are wording examples, not current policy.']});
+    expect(refs[0].entityId).toBeTruthy();expect(refs[0].datedAt).toBeTruthy();expect(refs[0].market).toBeTruthy();
+    expect(await historicalReferences(other,examples,context!.ticket)).toEqual([]);
+    expect(await historicalReferences(ws,examples,{brand:'Other brand',jurisdiction:context!.ticket.jurisdiction})).toEqual([]);
     expect(createSpy.mock.calls.at(-1)[0].system).toContain('ONLY published knowledge');
   });
   it('returns no-match feedback without spending on reply generation', async () => {
