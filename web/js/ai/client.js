@@ -20,12 +20,12 @@ export function setAIModel(value) {
 export const getAIStatus = () => apiGet('/api/v1/ai/status');
 export const checkAIConnection = () => apiPost('/api/v1/ai/check', { model: AI_MODEL });
 
-export async function callClaude({ system, messages, maxTokens = 1024, model, action = 'draft', sources = [], replyFormat = false, replySources = [] }) {
+export async function callClaude({ system, messages, maxTokens = 1024, model, action = 'draft', sources = [], replyFormat = false, replySources = [], ticketId }) {
   const workspace = getWorkspaceId();
   const jwt = getJwt();
   if (!workspace || !jwt) throw new Error('Sign in and select a workspace to use AI.');
   const data = await apiPost('/api/v1/ai/messages', {
-    system, messages, maxTokens, model: model || AI_MODEL, action, sources, replyFormat, replySources,
+    system, messages, maxTokens, model: model || AI_MODEL, action, sources, replyFormat, replySources, ticketId,
   });
   // An in-flight result must never be applied after an account/brand switch.
   if (workspace !== getWorkspaceId() || jwt !== getJwt()) throw new Error('Workspace changed. Please try again.');

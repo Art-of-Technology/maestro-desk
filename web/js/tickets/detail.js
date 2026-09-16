@@ -2,6 +2,7 @@ import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
 import { appendTemplate } from './template-content.js';
+import { saveReplyAsTemplate } from './templates.js';
 // ─── Ticket Detail ────────────────────────────────────────────────────────────
 // The per-ticket detail view: header banners (snooze / merged), full sidebar
 // (timing, SLA gauge, custom fields, mentions, attachments, linked tickets,
@@ -429,6 +430,7 @@ export function openTicket(id) {
       ${attachHtml}
       ${bodyNote}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
+      ${m.r === 'agent' && t._uuid && window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Save as template</button>` : ''}
     </div>`;
   }).join('');
 
@@ -557,7 +559,7 @@ export function openTicket(id) {
                 ? `<div class="compose-area compose-rich" id="compose-${id}" data-rich="1" data-ticket-id="${window.escAttr(id)}"></div>`
                 : `<textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
-              <div id="reply-review-${id}" role="status" aria-live="polite">${renderReplyReview(id)}</div>
+              <div id="reply-review-${id}" class="reply-review-panel" role="status" aria-live="polite">${renderReplyReview(id)}</div>
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
@@ -565,6 +567,7 @@ export function openTicket(id) {
               <div class="composer-foot">
                 <div class="composer-actions">
                   <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Macros</button>
+                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button class="btn btn-sm" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar">Similar replies</button>${window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}">Save as template</button>` : ''}` : ''}
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <details class="ticket-popover composer-insert">
                     <summary class="btn btn-sm">Insert ▾</summary>
@@ -1073,6 +1076,10 @@ async function sendCompose(id) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
+  if (COMPOSE_TAB === 'reply' && /\{[a-z][a-z0-9_]*\}/i.test(txt)) {
+    showToast('Fill in the template placeholders before sending.', 'error');
+    return false;
+  }
   // A reply may be an image with no words at all, so "empty" is the editor's
   // own judgement, not just the text.
   if (isComposerEmpty(id)) return false;
@@ -1256,6 +1263,7 @@ registerActions({
   'td.setComposeTab':  (ds) => setComposeTab(ds.tab, ds.ticketId),
   'td.insertVar':      (ds) => insertVar(ds.ticketId, ds.token),
   'td.macroPanel':     (ds) => showMacroPanel(ds.ticketId),
+  'td.saveTemplate':   (ds) => saveReplyAsTemplate(ds.ticketId, ds.msgIdx === undefined ? undefined : Number(ds.msgIdx)),
   // GDPR modal lives in customers/modals.js. The detail↔modals↔customers/index
   // cycle (customers/index→detail edge from #127) is tolerated — the binding
   // is only used inside this closure, never at module top level.

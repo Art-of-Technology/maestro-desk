@@ -556,6 +556,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .kb-select-draft:focus-within { outline:2px solid var(--ink); outline-offset:2px; }
 .kb-bulk-titles { max-height:240px; overflow:auto; }
 .kb-main > .filter-bar { flex-wrap:wrap; }
+.reply-review-panel { max-height:25vh; min-height:0; overflow-y:auto; flex:0 1 auto; }
 .reply-internal-review { padding:12px 16px; margin:12px 0; border:1px solid var(--rule); border-radius:8px; background:var(--off); color:var(--ink2); font-size:13px; overflow-wrap:anywhere; }
 .reply-internal-review summary { color:var(--ink); font-weight:600; cursor:pointer; min-height:32px; }
 .reply-internal-review summary:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
