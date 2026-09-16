@@ -1,6 +1,25 @@
 import { articleLink, articleStatus } from './article-state.js';
 import { articleMarket } from './bulk-review.js';
 
+export function articleCategory(article) {
+  const market = articleMarket(article);
+  return market === 'unassigned' ? article.category || 'Uncategorised' : article.category.slice(0, -(market.length + 3));
+}
+
+export function articlePreview(article) {
+  return String(article.body || '').split(/\r?\n/)
+    .filter(line => !/^(?:Source URL|Requested URL|Language \/ market|Retrieved|Redirected URL):\s*/i.test(line.trim()))
+    .join(' ').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/(?:^|\s)[#*>`]+/g, ' ')
+    .replace(/\s+/g, ' ').trim().slice(0, 180);
+}
+
+export function articlePage(entries, requestedPage, size = 50) {
+  const pages = Math.max(1, Math.ceil(entries.length / size));
+  const page = Math.max(0, Math.min(pages - 1, Number.isInteger(requestedPage) ? requestedPage : 0));
+  return { page, pages, entries: entries.slice(page * size, (page + 1) * size),
+    first: entries.length ? page * size + 1 : 0, last: Math.min(entries.length, (page + 1) * size) };
+}
+
 export function cardTitle(article) {
   const prefix = `[${articleMarket(article)}] `;
   return articleMarket(article) !== 'unassigned' && article.title.startsWith(prefix)

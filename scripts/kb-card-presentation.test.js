@@ -1,5 +1,29 @@
 import { test, expect } from 'bun:test';
-import { cardTitle, updatedLabel, gameDirectory, directoryCards, cardMatchesQuery } from '../web/js/kb/card-presentation.js';
+import { cardTitle, updatedLabel, gameDirectory, directoryCards, cardMatchesQuery, articleCategory, articlePreview, articlePage } from '../web/js/kb/card-presentation.js';
+
+test('display categories separate recognised markets and preserve custom categories',()=>{
+  expect(articleCategory({category:'Website · es-mx'})).toBe('Website');
+  expect(articleCategory({category:'Games · en'})).toBe('Games');
+  expect(articleCategory({category:'Payments · VIP'})).toBe('Payments · VIP');
+});
+
+test('previews omit import metadata without modifying article content',()=>{
+  const a={body:'Source URL: https://example.test\r\nRequested URL: https://example.test\nLanguage / market: en\nRetrieved: today\n\n## Withdrawals\nUse [your account](https://example.test/account) to request a withdrawal.'};
+  const original=a.body;
+  expect(articlePreview(a)).toBe('Withdrawals Use your account to request a withdrawal.');
+  expect(a.body).toBe(original);
+  expect(articlePreview({body:'The source URL is useful.\nNormal policy text.'})).toContain('The source URL is useful.');
+});
+
+test('pagination clamps empty and shrinking lists without splitting directories',()=>{
+  const entries=Array.from({length:101},(_,i)=>({article:{id:i}}));
+  const first=articlePage(entries,0), second=articlePage(entries,1), last=articlePage(entries,99);
+  expect(first.entries).toHaveLength(50);expect(second.first).toBe(51);expect(last.first).toBe(101);expect(last.entries).toHaveLength(1);
+  expect(articlePage([],4)).toMatchObject({page:0,pages:1,first:0,last:0});
+  expect(articlePage(entries,NaN).page).toBe(0);
+  const grouped=directoryCards([game('a'),game('b')]);
+  expect(articlePage(grouped,0).entries[0].articles).toHaveLength(2);
+});
 
 const game = (id, market = 'en-ca', provider = 'netent', status = 'draft') => ({
   id, _uuid: id, title: `[${market}] Game ${id}`, category: `Games · ${market}`, status,

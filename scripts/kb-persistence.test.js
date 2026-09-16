@@ -115,7 +115,7 @@ test('bulk UI selects only matching drafts, clears filters, guards confirmation 
   const originalIsAdmin = window.isAdmin;
   try {
     jwt = 'session'; workspace = 'brand-a'; patchCalls = []; patchRelease = null; patchFail = false;
-    const progress = { isConnected: true, textContent: '' };
+    const progress = { isConnected: true, textContent: '', focus() {} };
     document.getElementById = () => progress;
     document.querySelector = () => null;
     articles.splice(0, articles.length,
@@ -127,8 +127,9 @@ test('bulk UI selects only matching drafts, clears filters, guards confirmation 
     renderKB();
     actions['kb.selectMatching']();
     expect(renderKB()).toContain('3 selected');
-    actions['kb.setCat']({ cat: 'Games · en-ca' });
-    expect(renderKB()).toContain('0 selected');
+    actions['kb.setCat']({ cat: 'Games' });
+    inputs['kb.setMarket']({}, {value:'en-ca'});
+    expect(renderKB()).not.toContain('kb-bulk-bar');
     actions['kb.selectMatching']();
     actions['kb.publishSelected']();
     expect(modalLabel).toBe('Publish 1 article');
@@ -167,11 +168,33 @@ test('bulk UI selects only matching drafts, clears filters, guards confirmation 
     expect(confirm).toBe(previousConfirm);
     window.isAdmin = () => true;
   } finally {
+    inputs['kb.setMarket']({}, {value:'all'});
     document.getElementById = originalGetElementById;
     document.querySelector = originalQuerySelector;
     window.isAdmin = originalIsAdmin;
     actions['kb.setCat']({ cat: 'all' });
   }
+});
+
+test('compact list paginates, keeps selection across pages and resets pages for filters',()=>{
+  const originalGet=document.getElementById, originalQuery=document.querySelector;
+  jwt='session';workspace='pagination-test';document.querySelector=()=>null;
+  document.getElementById=()=>({focus(){}});
+  actions['kb.setCat']({cat:'all'});actions['kb.setStatus']({status:'all'});
+  articles.splice(0,articles.length,...Array.from({length:101},(_,i)=>({id:`KB-${i}`, _uuid:`id-${i}`,title:`Policy ${i}`,body:'Source URL: https://example.test\n\nUseful policy content.',category:i%2?'Website · es-mx':'Website · en',status:'draft'})));
+  let html=renderKB();expect((html.match(/class="kb-list-row"/g)||[]).length).toBe(50);
+  expect(html).toContain('Entries 1–50 of 101');expect(html).not.toContain('Source URL:');
+  expect(html).toContain('data-cat="Website"');expect(html).not.toContain('data-cat="Website · en"');
+  expect(html).not.toContain('kb-bulk-bar');
+  actions['kb.selectDraft']({uuid:'id-0'},{checked:true});
+  actions['kb.page']({page:'1'});html=renderKB();
+  expect(html).toContain('Entries 51–100 of 101');expect(html).toContain('1 selected across all pages');
+  actions['kb.setStatus']({status:'draft'});html=renderKB();expect(html).toContain('Entries 1–50 of 101');
+  actions['kb.selectMatching']();expect(renderKB()).toContain('101 selected across all pages');
+  inputs['kb.setMarket']({}, {value:'es-mx'});html=renderKB();expect(html).toContain('50 of 101 articles');expect(html).toContain('0 selected');
+  window.isAdmin=()=>false;expect(renderKB()).not.toContain('kb-bulk-bar');window.isAdmin=()=>true;
+  inputs['kb.setMarket']({}, {value:'all'});actions['kb.setStatus']({status:'all'});
+  document.getElementById=originalGet;document.querySelector=originalQuery;
 });
 
 test('review filters and publishing preserve drafts on failure and ignore late workspace responses', async () => {
