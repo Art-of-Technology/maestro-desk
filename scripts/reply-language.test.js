@@ -73,7 +73,9 @@ test('translation errors stop sending, formatting is kept, and already-target te
   answer='English'; failure=true;
   await expect(tx.prepareCustomerReply(t,'Hello',null)).rejects.toThrow();
   tx.toggleAutoTranslateReplies('T1',false); calls=0;
-  expect((await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).translation).toBe('Hello'); expect(calls).toBe(0);
+  failure=false;
+  const untranslated=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(untranslated.translation).toBe('Hello'); expect(untranslated.replyLanguage).toBe('English'); expect(calls).toBe(1);
 });
 test('late detection cannot cross workspaces', async () => {
   const t=fixture(); release=true;

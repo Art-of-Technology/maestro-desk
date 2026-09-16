@@ -2,6 +2,7 @@ import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
 import { appendTemplate } from './template-content.js';
+import { replyWarnings } from './reply-preflight.js';
 import { saveReplyAsTemplate } from './templates.js';
 // ─── Ticket Detail ────────────────────────────────────────────────────────────
 // The per-ticket detail view: header banners (snooze / merged), full sidebar
@@ -1110,6 +1111,7 @@ async function sendComposeOnce(id) {
   let original = null;
   let translatedTo = null;
   let outgoingHtml = draftHtml;
+  let replyLanguage = null;
   const languageChoice = JSON.stringify([t.autoTranslateReplies, t.customerLanguageManual, t.customerLanguageManual ? t.detectedCustomerLang : null]);
   if (tab !== 'note') {
     setAiThinking(true);
@@ -1118,6 +1120,7 @@ async function sendComposeOnce(id) {
       outgoing = res.translation;
       outgoingHtml = res.translationHtml || null;
       translatedTo = res.translatedTo;
+      replyLanguage = res.replyLanguage;
       original = translatedTo ? txt : null;
     } catch (error) {
       showToast(error?.message || 'Could not translate the reply. Your draft has been kept.', 'error');
@@ -1132,6 +1135,16 @@ async function sendComposeOnce(id) {
   }
 
   const isNote = COMPOSE_TAB === 'note';
+  if (!isNote) {
+    if (/\{[a-z][a-z0-9_]*\}/i.test(`${outgoing}\n${outgoingHtml || ''}`)) {
+      showToast('Fill in the template placeholders before sending.', 'error');
+      return false;
+    }
+    const warnings = replyWarnings({ text: outgoing, customerName: CUSTOMERS.find(c => c.id === t.customerId)?.first,
+      replyLanguage, customerLanguage: t.detectedCustomerLang, review: loadMessageReview(id) });
+    if (warnings.length && !window.confirm(`Check before sending\n\n${warnings.join('\n\n')}\n\nSend this reply anyway?`)) return false;
+    if (!stillCurrent()) return false;
+  }
   const mentions = isNote ? parseMentions(outgoing) : null;
 
   // API-backed path. The server stamps the canonical author_label + ts;
