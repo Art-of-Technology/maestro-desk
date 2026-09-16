@@ -15,6 +15,7 @@ mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){},regis
 mock.module('../web/js/tickets/drafts.js',()=>({loadDraftReview:()=>review,saveDraftReview:(_id,v)=>{review=v;}}));
 let listing;
 mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,getJwt:()=>jwt,
+  apiPatch:async()=>({ok:true}),
   apiPost:async (_url,body)=>{calls++; if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return body;},
   apiGet:async ()=>{if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return listing;}}));
 const {renderReplyFeedback,rateReply,changeReplyReason}=await import('../web/js/ai/reply-feedback.js');

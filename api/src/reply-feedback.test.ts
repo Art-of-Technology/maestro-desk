@@ -99,4 +99,41 @@ import { recordReplySuggestion } from './lib/reply-feedback.js';
     expect(next.items.length).toBeGreaterThan(0);
     expect(next.items.some((x:any)=>first.items.some((y:any)=>y.id===x.id))).toBe(false);
   });
+  it('scopes resolution changes, validates owners, and protects concurrent updates', async () => {
+    const {id}=await suggestion();
+    await request('/'+id,agent.token,{helpful:false,reason:'wrong_match'});
+    const patch=(body:unknown,token=admin.token,workspace=ws)=>app.request(`/api/v1/ai/reply-feedback/${id}/resolution`,{
+      method:'PATCH',headers:{Authorization:`Bearer ${token}`,'X-Workspace-Id':workspace,'Content-Type':'application/json'},body:JSON.stringify(body),
+    });
+    const body={status:'in_progress',owner_user_id:second.user.id,root_cause:'wrong_match',notes:'Checking the example match.',version:0};
+    expect((await patch(body,agent.token)).status).toBe(403);
+    expect((await patch(body,admin.token,other)).status).toBe(404);
+    expect((await patch({...body,owner_user_id:crypto.randomUUID()})).status).toBe(400);
+    await sql`update workspace_members set active=false where workspace_id=${ws} and user_id=${second.user.id}`;
+    const [foreignRole]=await sql`select id from roles where workspace_id=${other} and not is_admin limit 1`;
+    await sql`insert into workspace_members(workspace_id,user_id,role_id,active) values (${other},${second.user.id},${foreignRole.id},true)`;
+    expect((await patch(body)).status).toBe(400);
+    await sql`update workspace_members set active=true where workspace_id=${ws} and user_id=${second.user.id}`;
+    expect((await patch(body)).status).toBe(200);
+    expect((await patch(body)).status).toBe(409);
+    const progress:any=await (await request('?status=in_progress',admin.token)).json();
+    expect(progress.items.find((r:any)=>r.id===id).owner_user_id).toBe(second.user.id);
+    expect(progress.owners.some((r:any)=>r.id===second.user.id)).toBe(true);
+    expect((await patch({...body,status:'resolved',notes:'',version:1})).status).toBe(400);
+    expect((await patch({...body,status:'resolved',root_cause:null,version:1})).status).toBe(400);
+    expect((await patch({...body,status:'resolved',notes:'Corrected the matching guidance.',version:1})).status).toBe(200);
+    const resolved:any=await (await request('?status=resolved',admin.token)).json();
+    expect(resolved.items.find((r:any)=>r.id===id).resolution_version).toBe(2);
+    expect(resolved.items.find((r:any)=>r.id===id).resolution_updated_at).toBeTruthy();
+    expect(((await (await request('',admin.token)).json()) as any).items.some((r:any)=>r.id===id)).toBe(false);
+    const [stored]=await sql`select resolution_updated_by from ai_reply_feedback where suggestion_id=${id}`;
+    expect(stored.resolution_updated_by).toBe(admin.user.id);
+    // Corrected agent feedback reopens a resolved issue; repeated identical ratings do not.
+    await request('/'+id,agent.token,{helpful:false,reason:'wrong_match'});
+    expect((await sql`select resolution_status from ai_reply_feedback where suggestion_id=${id}`)[0].resolution_status).toBe('resolved');
+    await request('/'+id,agent.token,{helpful:false,reason:'wrong_language'});
+    expect((await sql`select resolution_status from ai_reply_feedback where suggestion_id=${id}`)[0].resolution_status).toBe('open');
+    expect((await patch({...body,version:2})).status).toBe(409);
+    expect((await request('?status=invalid',admin.token)).status).toBe(400);
+  });
 });

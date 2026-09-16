@@ -89,6 +89,7 @@ jobs:
           bun test scripts/ai-reply-separation.test.js
           bun test scripts/template-tailoring.test.js
           bun test scripts/reply-preflight.test.js
+          bun test scripts/feedback-resolution.test.js
           bun test scripts/reply-language.test.js
           bun test scripts/ai-review-storage.test.js
           bun test scripts/reply-feedback.test.js
