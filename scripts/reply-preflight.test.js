@@ -3,10 +3,13 @@ import { replyWarnings } from '../web/js/tickets/reply-preflight.js';
 
 test('name check distinguishes a different greeting from generic and matching greetings', () => {
   expect(replyWarnings({ text: 'Hello Alex, thanks.', customerName: 'Sam' })[0]).toContain('different name');
-  for (const text of ['Hi Sam, thanks.', 'Hello there, thanks.', 'Thanks for contacting us.']) {
+  for (const text of ['Hi Sam, thanks.', 'Hello there, thanks.', 'Thanks for contacting us.', 'Dear Dr Smith,', 'Dear Mr. Smith,']) {
     expect(replyWarnings({ text, customerName: 'Sam' })).toEqual([]);
   }
   expect(replyWarnings({ text: 'Hola José, gracias.', customerName: 'José' })).toEqual([]);
+  for (const text of ['Hello Alex. Thanks.', 'Hi Alex']) {
+    expect(replyWarnings({ text, customerName: 'Sam' })[0]).toContain('different name');
+  }
 });
 test('language mismatch and unknown language remain warnings', () => {
   expect(replyWarnings({ text: 'Hello', replyLanguage: 'English', customerLanguage: 'Spanish' })[0]).toContain('English');

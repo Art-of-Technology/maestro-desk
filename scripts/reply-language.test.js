@@ -82,3 +82,11 @@ test('late detection cannot cross workspaces', async () => {
   const task=tx.ensureCustomerLanguage(t); await Promise.resolve(); scope='other'; release(); await task;
   expect(t.detectedCustomerLang).toBeNull();
 });
+test('untranslated replies skip detection without a comparison language and tolerate provider failure', async () => {
+  const t=fixture(); tickets.push(t); tx.initialiseReplyLanguage(t); tx.toggleAutoTranslateReplies('T1',false);
+  let res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(calls).toBe(0); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+  tx.setCustomerLanguage('T1','Spanish'); failure=true;
+  res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+});

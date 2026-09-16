@@ -252,7 +252,11 @@ export async function ensureCustomerLanguage(t) {
 export async function prepareCustomerReply(t, text, html, request = callClaude) {
   initialiseReplyLanguage(t);
   if (!text.trim()) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: null };
-  if (!t.autoTranslateReplies) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: await detectLanguage(text, request) };
+  if (!t.autoTranslateReplies) {
+    // Detection returns null on provider failure unless throwErrors is explicitly enabled.
+    const replyLanguage = t.detectedCustomerLang ? await detectLanguage(text, request) : null;
+    return { translation: text, translationHtml: html, translatedTo: null, replyLanguage };
+  }
   const language = await ensureCustomerLanguage(t);
   if (!language) throw new Error('Choose the customer language before sending. Your draft has been kept.');
   const writtenLanguage = await detectLanguage(text, request, true);

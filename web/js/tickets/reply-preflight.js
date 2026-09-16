@@ -2,8 +2,8 @@
 export function replyWarnings({ text, customerName, replyLanguage, customerLanguage, review }) {
   const warnings = [];
   const normalise = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
-  const greeting = String(text || '').match(/^\s*(?:hi|hello|dear|hola|bonjour|hallo|ciao|olá)\s+([\p{L}\p{M}'’-]+)[,!:\s]/iu);
-  if (greeting && customerName && !['there', 'team', 'all', 'customer', 'sir', 'madam'].includes(normalise(greeting[1]))
+  const greeting = String(text || '').match(/^\s*(?:hi|hello|dear|hola|bonjour|hallo|ciao|olá)\s+([\p{L}\p{M}'’-]+)(?:[,.!:\s]|$)/iu);
+  if (greeting && customerName && !['there', 'team', 'all', 'customer', 'sir', 'madam', 'mr', 'mrs', 'ms', 'miss', 'dr', 'prof'].includes(normalise(greeting[1]))
       && normalise(greeting[1]) !== normalise(customerName.trim().split(/\s+/)[0])) {
     warnings.push(`The greeting may use a different name. This customer's first name is ${customerName}.`);
   }
