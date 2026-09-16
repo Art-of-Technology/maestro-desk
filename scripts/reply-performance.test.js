@@ -14,7 +14,7 @@ const fixture=()=>({summary:{...metrics},agents:[{...metrics,agent_name:'<script
 beforeEach(()=>{
   workspace='a0000000-0000-4000-8000-000000000001';jwt='test';release=null;fail=false;downloads=[];response=fixture();
   elements['ai-performance']={isConnected:true};elements['reply-report-status']={textContent:''};elements['reply-report-result']={innerHTML:''};
-  for(const [k,v] of Object.entries({start:'2026-09-01',end:'2026-09-02',agent:'',rating:'all',reason:'all'}))elements['reply-report-'+k]={value:v,innerHTML:'',insertAdjacentHTML(){}};
+  for(const [k,v] of Object.entries({start:'2026-09-01',end:'2026-09-02',agent:'',rating:'all',reason:'all',language:'',query_type:'',outcome:'all'}))elements['reply-report-'+k]={value:v,innerHTML:'',insertAdjacentHTML(){}};
 });
 test('UTC date range is inclusive in the UI and exclusive on the server',()=>{
   const filter=reportFilters({start:'2026-09-01',end:'2026-09-02',agent:'',rating:'all',reason:'all'});
@@ -52,4 +52,15 @@ test('invalidates in-flight report results when filters change and handles error
   release=true;const pending=loadPerformance();elements['reply-report-rating'].value='helpful';release();await pending;release=null;
   expect(elements['reply-report-result'].innerHTML).toBe('');expect(elements['reply-report-status'].textContent).toContain('Filters changed');
   fail=true;await loadPerformance();expect(elements['reply-report-status'].textContent).toContain('couldn’t be loaded');
+});
+test('outcome and language breakdowns appear in the screen and exports',()=>{
+  const data=fixture();data.summary.substantial=1;data.summary.rejected=1;
+  data.languages=[{...metrics,reply_language:'Spanish',substantial:1,rejected:1}];
+  data.queryTypes=[{...metrics,query_type:'payments',substantial:1,rejected:1}];
+  Object.assign(data.details[0],{sent_change_ratio:0.5,reply_language:'Spanish',query_type:'payments'});
+  const html=renderPerformanceData(data,workspace);
+  expect(html).toContain('1 accepted with substantial changes');expect(html).toContain('not rejection');
+  expect(html).toContain('Spanish');expect(html).toContain('payments');
+  expect(reportSummaryRows(data).some(r=>r[0]==='Requested language'&&r[1]==='Spanish')).toBe(true);
+  expect(reportDetailRows(data,workspace)[0]).toContain('Accepted · substantial change');
 });

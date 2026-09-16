@@ -105,6 +105,35 @@ it('rejects invalid, reversed and excessive reporting periods',()=>{
     const id=await snapshot();const failing=spyOn(feedback,'recordReplyUse').mockRejectedValue(new Error('unavailable'));
     try {expect((await post(tid,agent,id)).status).toBe(201);}finally{failing.mockRestore();}
   });
+  it('reports explicit outcomes and frozen language/category without treating ratings as rejection',async()=>{
+    const ids:string[]=[];
+    const [category]=await sql`select key from ticket_categories where workspace_id=${ws} limit 1`;
+    await sql`update tickets set category_key=${category.key} where id=${tid}`;
+    for(let i=0;i<4;i++)ids.push((await recordReplySuggestion(ws,agent.user.id,tid,'Original suggestion',[],{context:'reply',costMicro:1000,language:'French'}))!);
+    await sql`update ai_reply_suggestions set created_at='2026-08-01T00:00:00Z' where id=any(${ids}::uuid[])`;
+    await sql`update tickets set category_key=null where id=${tid}`;
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,second,{rejected:true})).status).toBe(404);
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,admin,{rejected:true},other)).status).toBe(404);
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:true,rejected_at:'2020-01-01'})).status).toBe(400);
+    await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:true});
+    await post(tid,agent,ids[0]);
+    await post(tid,agent,ids[1],'Entirely new wording for the customer.');
+    await request(`ai/reply-feedback/${ids[2]}/rejected`,agent,{rejected:true});
+    await request(`ai/reply-feedback/${ids[3]}`,agent,{helpful:false,reason:'wrong_match'});
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:true})).status).toBe(404);
+    const range={start:'2026-08-01T00:00:00Z',end:'2026-08-02T00:00:00Z'};
+    const result:any=await (await report(range)).json();
+    expect(result.summary).toMatchObject({generated:4,used:2,substantial:1,rejected:1,change_unavailable:0});
+    expect(result.languages[0].reply_language).toBe('French');expect(result.queryTypes[0].query_type).toBe(category.key);
+    for(const [outcome,count] of [['accepted',2],['substantial',1],['rejected',1],['unrecorded',1]] as const){
+      const filtered:any=await (await report({...range,outcome,language:'French',query_type:category.key})).json();
+      expect(filtered.summary.generated).toBe(count);
+      const exported:any=await (await report({...range,outcome,language:'French',query_type:category.key,export:'details'})).json();
+      expect(exported.details).toEqual(filtered.details);
+    }
+    await request(`ai/reply-feedback/${ids[2]}/rejected`,agent,{rejected:false});
+    expect(((await (await report(range)).json()) as any).summary.rejected).toBe(0);
+  });
   it('keeps summary totals independent of detail pagination and rejects oversized exports',async()=>{
     await sql`insert into ai_reply_suggestions(workspace_id,user_id,ticket_id,reply,reply_context,generation_cost_micro,created_at)
       select ${ws},${agent.user.id},${tid},'Synthetic bulk reply','reply',1000,'2026-09-02T00:00:00Z' from generate_series(1,10001)`;

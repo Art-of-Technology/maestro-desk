@@ -52,7 +52,7 @@ export function loadMessageReview(id, tab) {
 
 export function confirmedReplySuggestion(id, tab = COMPOSE_TAB) {
   const review = loadDraftReview(id, tab);
-  return tab === 'reply' && review?.confirmedUse === true ? review.suggestionId : undefined;
+  return tab === 'reply' && !review?.rejected && review?.confirmedUse === true ? review.suggestionId : undefined;
 }
 
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
