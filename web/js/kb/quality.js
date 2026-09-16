@@ -42,9 +42,18 @@ async function load(v) {
 }
 async function run(work) {
   const v=view;if(!v||!active(v)||v.busy)return;
+  const focused=v.host.contains?.(document.activeElement)?document.activeElement:null;
   v.busy=true;v.message='Working…';render(v);
+  if(focused)v.host.closest?.('.modal')?.focus();
   try {await work(v);}catch(error){if(active(v))v.message=error?.message||'Could not update the quality queue. Try again.';}
-  finally{if(active(v)){v.busy=false;render(v);}}
+  finally{if(active(v)){
+    v.busy=false;render(v);
+    if(focused){
+      const target=[...v.host.querySelectorAll('button:not(:disabled),select:not(:disabled),textarea:not(:disabled)')].find(node=>
+        node.tagName===focused.tagName && node.id===focused.id && JSON.stringify({...node.dataset})===JSON.stringify({...focused.dataset}));
+      (target||v.host.querySelector('[data-action="kbQuality.scan"]'))?.focus();
+    }
+  }}
 }
 function open() {
   if(!window.isAdmin()||!getJwt())return;
