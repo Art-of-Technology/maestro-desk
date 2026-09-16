@@ -137,9 +137,12 @@ async function runMacro(macroId, ticketId) {
   logTicketEvent(ticketId, 'system', `Macro applied: ${macro.name}`);
   if (CURRENT_TICKET === ticketId) {
     openTicket(ticketId);
-    for (const template of replies) {
-      if (CURRENT_TICKET !== ticketId) break;
-      if (await appendTemplate(t, template)) onComposeInput(ticketId);
+    if (replies.length) {
+      const combined = {
+        text: replies.map(r => r.text || '').join('\n\n'),
+        html: replies.map(r => r.html || `<p>${window.escHtml(r.text || '').replace(/\n/g, '<br>')}</p>`).join(''),
+      };
+      if (await appendTemplate(t, combined)) onComposeInput(ticketId);
     }
   }
 }

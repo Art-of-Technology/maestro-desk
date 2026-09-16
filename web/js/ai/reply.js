@@ -24,7 +24,7 @@ export async function aiAction(id, action) {
   const showError = message => {
     if (active()) showReplyReview(id, { references: previous.references, notes: [...previous.notes, message].slice(-10) }, tab);
   };
-  if (!['draft', 'kb-reply'].includes(action) && !current.trim()) {
+  if (!['draft', 'kb-reply', 'similar'].includes(action) && !current.trim()) {
     showError('Type a reply before using this action.');
     return;
   }
@@ -35,7 +35,7 @@ export async function aiAction(id, action) {
     let system, user;
     let replySources = [];
     const history = (ticket.msgs || []).map(m => `${m.from}: ${m.t}`).join('\n\n');
-    if (action === 'draft') {
+    if (action === 'draft' || action === 'similar') {
       system = 'Write a concise, helpful customer-support reply.';
       user = `Ticket: ${ticket.subject}\n\n${history}\n\nWrite a reply to the customer.`;
     } else if (action === 'kb-reply') {
@@ -61,7 +61,8 @@ export async function aiAction(id, action) {
       replySources = previous.references;
     }
     const { text, data } = await callClaude({
-      action: action === 'draft' ? 'kb_draft' : 'draft', system,
+      action: action === 'similar' ? 'similar_reply' : action === 'draft' ? 'kb_draft' : 'draft', system,
+      ticketId: action === 'similar' ? ticket._uuid : undefined,
       messages: [{ role: 'user', content: user }], maxTokens: 1600,
       replyFormat: true, replySources,
     });
@@ -81,6 +82,10 @@ export async function aiAction(id, action) {
       focusEnd(id);
     }
     showReplyReview(id, review, tab);
+    if (Array.isArray(data.examples) && data.examples.length) {
+      const panel = document.getElementById('reply-review-' + id);
+      if (panel) panel.insertAdjacentHTML('beforeend', `<details class="reply-internal-review"><summary>Previous replies used as examples</summary><p>Review these examples before sending. Previous replies may contain outdated advice.</p>${data.examples.map(e => `<details><summary>${window.escHtml(e.id)} · ${window.escHtml(e.title)}</summary><p>${window.escHtml(e.question)}</p><blockquote style="white-space:pre-wrap">${window.escHtml(e.reply)}</blockquote></details>`).join('')}</details>`);
+    }
   } catch (error) {
     showError(error?.message || 'The reply could not be generated. Please try again.');
   } finally {

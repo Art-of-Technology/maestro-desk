@@ -621,6 +621,9 @@ tickets.post('/:id/messages', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
+  if (input.role === 'agent' && /\{[a-z][a-z0-9_]*\}/i.test(`${input.body || ''}\n${input.body_html || ''}\n${input.body_html ? htmlToText(input.body_html) : ''}`)) {
+    return c.json({ error: 'Fill in the template placeholders before sending.' }, 400);
+  }
 
   const [ticket] = await sql`
     select id from tickets

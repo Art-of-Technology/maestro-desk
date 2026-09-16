@@ -9,8 +9,10 @@
 // External reaches (interim, via window): isAdmin, escHtml, escAttr — all
 // still in app.js. showModal and closeModal are direct ES imports.
 
-import { CANNED_RESPONSES } from '../core/data.js';
-import { TPL_FILTER_CAT, TPL_QUERY, setTplFilterCat, setTplQuery } from '../core/state.js';
+import { CANNED_RESPONSES, TICKETS } from '../core/data.js';
+import { CURRENT_TICKET, COMPOSE_TAB, TPL_FILTER_CAT, TPL_QUERY, setTplFilterCat, setTplQuery } from '../core/state.js';
+import { callClaude } from '../ai/client.js';
+import { showToast } from '../core/toast.js';
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
@@ -137,7 +139,7 @@ function tplEdit(id) {
   tplOpen(t);
 }
 
-function tplOpen(t) {
+function tplOpen(t, seed = null) {
   if (!window.isAdmin()) return;
   const editorId = 'template-editor';
   const workspace = getWorkspaceId();
@@ -145,7 +147,8 @@ function tplOpen(t) {
   let ready = false;
   let saving = false;
   disposeComposer(editorId);
-  showModal(t ? `Edit ${t.id}` : 'New template', tplFormBody(t), async () => {
+  const initial = t || seed;
+  showModal(t ? `Edit ${t.id}` : 'New template', tplFormBody(initial), async () => {
     if (!ready || saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const name = document.getElementById('tpl-name').value.trim();
     const cat  = document.getElementById('tpl-cat').value.trim() || 'General';
@@ -170,7 +173,9 @@ function tplOpen(t) {
       if (t) Object.assign(t, saved); else CANNED_RESPONSES.unshift(saved);
       if (document.getElementById('tpl-name') === nameInput) {
         disposeComposer(editorId);
-        closeModal(); renderPage('templates');
+        closeModal();
+        if (!seed) renderPage('templates');
+        else showToast('Template saved. You can insert it from Macros.', 'success');
       }
     } catch (err) {
       if (status.isConnected) status.textContent = `Couldn't save: ${err?.message || err}`;
@@ -184,20 +189,20 @@ function tplOpen(t) {
   const status = document.getElementById('tpl-editor-status');
   const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
   button.disabled = true;
-  mountComposer(editorId, { initialHtml: t?.html, placeholder: 'Write a response…' }).catch(() => null).then(q => {
+  mountComposer(editorId, { initialHtml: initial?.html, placeholder: 'Write a response…' }).catch(() => null).then(q => {
     if (document.getElementById('tpl-name') !== nameInput) return;
     if (q) {
       q.root.setAttribute('role', 'textbox');
       q.root.setAttribute('aria-label', 'Template body');
       q.root.setAttribute('aria-multiline', 'true');
-      if (!t?.html) setText(editorId, t?.text || '');
-      status.textContent = 'Variables fill in when you insert the response into a ticket.';
+      if (!initial?.html) setText(editorId, initial?.text || '');
+      status.textContent = 'Review for personal details and one-off promises before saving. Use {name} for the customer and {transaction_reference} or other named placeholders for details to fill in later.' + (seed?.notes?.length ? ' ' + seed.notes.join(' ') : '');
     } else {
       const fallback = document.createElement('textarea');
       fallback.id = host.id;
       fallback.className = 'form-input';
       fallback.style.minHeight = '160px';
-      fallback.value = t?.text || '';
+      fallback.value = initial?.text || '';
       fallback.setAttribute('aria-label', 'Template body');
       host.replaceWith(fallback);
       status.textContent = 'Rich editor unavailable. Saving will use plain text.';
@@ -205,6 +210,34 @@ function tplOpen(t) {
     ready = true;
     button.disabled = false;
   });
+}
+
+let generatingTemplate = false;
+export async function saveReplyAsTemplate(ticketId, messageIndex) {
+  if (!window.isAdmin() || generatingTemplate) return;
+  const ticket = TICKETS.find(t => t.id === ticketId);
+  const message = messageIndex === undefined ? null : ticket?.msgs?.[messageIndex];
+  if (!ticket?._uuid || (messageIndex !== undefined && message?.r !== 'agent')) return;
+  if (!message && COMPOSE_TAB !== 'reply') return;
+  const text = message ? message.t : getPlainText(ticketId);
+  if (!text?.trim()) { showToast('Write a reply first.', 'error'); return; }
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  generatingTemplate = true;
+  const buttons = [...document.querySelectorAll('[data-action="td.saveTemplate"]')];
+  buttons.forEach(button => { button.disabled = true; button.textContent = 'Preparing template…'; });
+  showToast('Preparing a reusable template…', 'info');
+  try {
+    const result = await callClaude({ action: 'generic_template', ticketId: ticket._uuid,
+      messages: [{ role: 'user', content: text }], maxTokens: 2048, replyFormat: true });
+    if (workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== ticketId) return;
+    if (!result.text.trim()) throw new Error('No template was generated. Please try again.');
+    tplOpen(null, { name: '', category: 'General', text: result.text, notes: result.data?.internal?.notes || [] });
+  } catch (error) {
+    if (workspace === getWorkspaceId() && jwt === getJwt()) showToast(error.message || 'Could not prepare a template.', 'error');
+  } finally {
+    generatingTemplate = false;
+    buttons.forEach(button => { if (button.isConnected) { button.disabled = false; button.textContent = 'Save as template'; } });
+  }
 }
 
 function tplDuplicate(id) {
