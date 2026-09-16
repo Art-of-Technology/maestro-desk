@@ -115,6 +115,52 @@ test('first live article persists, failures do not fake success, and late respon
   expect(articles[0].id).toBe('KB-001');
 });
 
+test('matching-filter indicator follows actual criteria, all duplicate matches and saved-filter changes',async()=>{
+  const originalGet=document.getElementById,originalQuery=document.querySelector;
+  const originalJwt=jwt,originalWorkspace=workspace;
+  const name={value:'Renamed match',focus(){}},message={textContent:'',focus(){}};
+  document.getElementById=id=>id==='kb-filter-name'?name:message;document.querySelector=()=>null;
+  jwt='match-session';workspace='match-brand';session.userId='match-agent';
+  const filters={category:'Website',market:'en',status:'draft',query:'policy'};
+  remoteFilters=[{id:'alpha',name:'Alpha',filters,is_pinned:true},{id:'beta',name:'Beta',filters,is_pinned:true},
+    {id:'gamma',name:'Gamma',filters:{...filters,status:'published'},is_pinned:true}];
+  const indicator=()=>renderKB().match(/id="kb-filter-match" role="status">([^<]*)/)[1];
+  try {
+    actions['kb.setCat']({cat:'Website'});actions['kb.setStatus']({status:'draft'});
+    inputs['kb.setMarket']({}, {value:'en'});inputs['kb.setQuery']({}, {value:' POLICY '});
+    renderKB();await syncTick();
+    expect(indicator()).toBe('Matches saved filters: “Alpha”, “Beta”');
+    expect(renderKB()).toContain('class="btn btn-sm btn-solid" id="kb-pinned-alpha"');
+    expect(renderKB()).toContain('class="btn btn-sm btn-solid" id="kb-pinned-beta"');
+    expect(renderKB()).toContain('class="btn btn-sm" id="kb-pinned-gamma"');
+    expect(renderKB()).toContain('Apply saved filter Alpha. Matches current view.');
+    inputs['kb.pickSaved']({}, {value:'gamma'});
+    expect(indicator()).toBe('Matches saved filters: “Alpha”, “Beta”');
+    for(const [change,restore] of [
+      [()=>actions['kb.setCat']({cat:'Games'}),()=>actions['kb.setCat']({cat:'Website'})],
+      [()=>inputs['kb.setMarket']({}, {value:'es-mx'}),()=>inputs['kb.setMarket']({}, {value:'en'})],
+      [()=>actions['kb.setStatus']({status:'archived'}),()=>actions['kb.setStatus']({status:'draft'})],
+      [()=>inputs['kb.setQuery']({}, {value:'different'}),()=>inputs['kb.setQuery']({}, {value:'policy'})],
+    ]) {
+      change();expect(indicator()).toBe('No saved filter matches this view.');
+      expect(renderKB()).not.toContain('class="btn btn-sm btn-solid" id="kb-pinned-');
+      restore();expect(indicator()).toBe('Matches saved filters: “Alpha”, “Beta”');
+    }
+    inputs['kb.pickSaved']({}, {value:'alpha'});await actions['kb.pinFilter']();
+    expect(indicator()).toBe('Matches saved filters: “Alpha”, “Beta”');
+    expect(renderKB()).not.toContain('id="kb-pinned-alpha"');
+    actions['kb.renameFilter']();await confirm();expect(indicator()).toBe('Matches saved filters: “Renamed match”, “Beta”');
+    actions['kb.deleteFilter']();await confirm();expect(indicator()).toBe('Matches saved filter: “Beta”');
+    remoteFilters=[];await actions['kb.refreshFilters']();expect(indicator()).toBe('No saved filter matches this view.');
+    session.userId='different-agent';expect(renderKB()).not.toContain('id="kb-filter-match"');await syncTick();
+  } finally {
+    actions['kb.setCat']({cat:'all'});actions['kb.setStatus']({status:'all'});
+    inputs['kb.setMarket']({}, {value:'all'});inputs['kb.setQuery']({}, {value:''});
+    jwt=originalJwt;workspace=originalWorkspace;
+    delete session.userId;document.getElementById=originalGet;document.querySelector=originalQuery;
+  }
+});
+
 test('bulk UI selects only matching drafts, clears filters, guards confirmation and retries failures', async () => {
   const originalGetElementById = document.getElementById;
   const originalQuerySelector = document.querySelector;
