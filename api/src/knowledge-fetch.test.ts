@@ -2,10 +2,26 @@ import { afterEach, expect, test, spyOn } from 'bun:test';
 import dns from 'node:dns/promises';
 import type { LookupAddress, LookupAllOptions, LookupOneOptions, LookupOptions } from 'node:dns';
 import * as undici from 'undici';
-import { fetchKnowledgePage } from './lib/knowledge-import.js';
+import { fetchKnowledgePage, checkKnowledgeLink } from './lib/knowledge-import.js';
 import { SPACE_CASINO_WORKSPACE } from './lib/knowledge-market-policy.js';
 
 const mocks: { mockRestore(): void }[] = [];
+test('link checks distinguish missing pages from blocked or restricted checks',async()=>{
+  const fetch=setup([new undici.Response(null,{status:404}),new undici.Response(null,{status:403}),new undici.Response(null,{status:200})]);
+  expect(await checkKnowledgeLink('https://example.com/missing','workspace')).toBe('broken');
+  expect(await checkKnowledgeLink('https://example.com/private','workspace')).toBe('unverified');
+  expect(await checkKnowledgeLink('https://example.com/pdf','workspace')).toBe('ok');
+  expect(fetch.mock.calls[0][1]?.dispatcher).toBeTruthy();
+  expect(await checkKnowledgeLink('http://example.com','workspace')).toBe('unverified');
+  expect(fetch).toHaveBeenCalledTimes(3);
+});
+test('link checks block internal redirects and excluded markets',async()=>{
+  const fetch=setup([new undici.Response(null,{status:302,headers:{Location:'https://127.0.0.1/private'}})]);
+  expect(await checkKnowledgeLink('https://example.com','workspace')).toBe('unverified');
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(await checkKnowledgeLink('https://www.spacecasino.com/pt-br/help',SPACE_CASINO_WORKSPACE)).toBe('unverified');
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 afterEach(() => {
   for (const m of mocks.splice(0)) m.mockRestore();
 });

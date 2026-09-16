@@ -149,6 +149,35 @@ export async function fetchKnowledgePage(raw: string, workspaceId?: string): Pro
   throw new Error('Too many website redirects.');
 }
 
+// Header-only availability checks share import DNS pinning and market policy.
+// A blocked or inconclusive response is not proof that a link is broken.
+export async function checkKnowledgeLink(raw: string, workspaceId: string): Promise<'ok'|'broken'|'unverified'> {
+  const signal = AbortSignal.timeout(8000);
+  try {
+    let url = canonicalKnowledgeUrl(raw);
+    for (let i=0;i<3;i++) {
+      assertKnowledgeMarket(workspaceId, {locator:url});
+      await new Promise<void>((resolve,reject) => {
+        const abort=()=>reject(new Error('Timed out'));
+        signal.addEventListener('abort',abort,{once:true});
+        if(signal.aborted) abort();
+        else assertSafeWebhookUrl(url).then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
+      });
+      signal.throwIfAborted();
+      const response=await safeFetch(url,{dispatcher:agent,redirect:'manual',signal,headers:{'User-Agent':'Respovia-Knowledge/1.0'}});
+      await response.body?.cancel();
+      if([301,302,303,307,308].includes(response.status)) {
+        const location=response.headers.get('location');
+        if(!location)return 'unverified';
+        url=canonicalKnowledgeUrl(new URL(location,url).href);
+        continue;
+      }
+      return response.status===404 || response.status===410 ? 'broken' : response.ok ? 'ok' : 'unverified';
+    }
+  } catch { /* DNS, access, timeout and policy failures are inconclusive. */ }
+  return 'unverified';
+}
+
 export async function extractKnowledge(bytes: Uint8Array, extension: string): Promise<Extracted> {
   if (!bytes.length || bytes.length > MAX_KNOWLEDGE_BYTES)
     throw new Error('Choose a non-empty file up to 20 MB.');
