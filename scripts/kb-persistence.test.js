@@ -263,6 +263,18 @@ test('personal saved filter UI restores criteria and clears cross-page selection
     expect(renderKB()).toContain('60 selected');expect(renderKB()).toContain('Entries 51–60');
     inputs['kb.pickSaved']({}, {value:saved.id});actions['kb.applySaved']();
     expect(renderKB()).toContain('0 selected');expect(renderKB()).toContain('Entries 1–50');
+    await actions['kb.pinFilter']();
+    expect(remoteFilters[0].is_pinned).toBe(true);expect(renderKB()).toContain('aria-label="Pinned filters"');
+    actions['kb.selectMatching']();actions['kb.page']({page:'1'});
+    expect(renderKB()).toContain('60 selected');
+    // A pinned shortcut restores criteria directly, without first selecting the dropdown.
+    inputs['kb.pickSaved']({}, {value:''});actions['kb.applyPinned']({id:saved.id});
+    expect(renderKB()).toContain('0 selected');expect(renderKB()).toContain('Entries 1–50');
+    actions['kb.setStatus']({status:'published'});inputs['kb.setMarket']({}, {value:'es-mx'});
+    actions['kb.applyPinned']({id:saved.id});expect(renderKB()).toContain('value="en" selected');expect(renderKB()).toContain('60 of 60 articles');
+    await actions['kb.pinFilter']();
+    expect(remoteFilters).toHaveLength(1);expect(renderKB()).not.toContain('aria-label="Pinned filters"');
+    expect(renderKB()).toContain('>My review</option>');
     actions['kb.renameFilter']();name.value='Renamed';await confirm();
     expect(remoteFilters[0].name).toBe('Renamed');
     actions['kb.renameFilter']();session.userId='another-agent';name.value='Wrong agent';await confirm();

@@ -127,6 +127,8 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .kb-saved-filters select{max-width:100%;min-width:0}
 .kb-saved-filters .btn,.kb-saved-filters select{min-height:44px}
 .kb-saved-note{color:var(--ink3)}
+.kb-pinned-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-basis:100%;min-width:0}
+.kb-pinned-filters .btn{max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left}
 #kb-saved-status:not(:empty){flex-basis:100%}
 .kb-list-row{display:flex;align-items:flex-start;gap:20px;padding:16px;background:var(--off);border-radius:var(--r)}
 .kb-row-content{flex:1;min-width:0}

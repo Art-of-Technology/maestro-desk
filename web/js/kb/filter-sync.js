@@ -57,7 +57,8 @@ export function createFilterSync({api, storage, currentScope, changed}) {
       if (key) void load();
     },
     refresh() { if (state.key && !['loading','saving'].includes(state.phase)) return load(); },
-    async mutate(action,{id,name,filters}) {
+    async mutate(action,{id,name,filters,is_pinned}) {
+      if (!['save','rename','pin','delete'].includes(action)) throw Error('Unknown saved filter action.');
       const {scope} = state;
       if (scope !== currentScope() || state.phase !== 'ready') throw Error('Wait for saved filters to load, then try again.');
       const version = ++generation;
@@ -66,10 +67,11 @@ export function createFilterSync({api, storage, currentScope, changed}) {
       try {
         const result = action === 'save' ? await api.post(ROOT,{name,filters})
           : action === 'rename' ? await api.patch(ROOT+'/'+encodeURIComponent(id),{name})
+          : action === 'pin' ? await api.patch(ROOT+'/'+encodeURIComponent(id),{is_pinned})
           : await api.delete(ROOT+'/'+encodeURIComponent(id));
         if (!active(scope,version)) return null;
         const items = action === 'save' ? [...state.items,result.item]
-          : action === 'rename' ? state.items.map(item => item.id === id ? result.item : item)
+          : action === 'rename' || action === 'pin' ? state.items.map(item => item.id === id ? result.item : item)
           : state.items.filter(item => item.id !== id);
         state = {...state,items,phase:'ready'};
         changed();

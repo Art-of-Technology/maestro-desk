@@ -56,6 +56,18 @@ test('offline loads preserve browser data and retry recovers without false succe
   await expect(h.sync.mutate('rename',{id:'remote-local',name:'No'})).rejects.toThrow('offline');
   expect(h.sync.state.items[0].name).toBe('Review');expect(h.sync.state.phase).toBe('ready');
 });
+test('pin preference syncs to another device and failed unpin preserves the last saved state',async()=>{
+  const h=setup();h.sync.ensure('agent-a','a');await tick();
+  await h.sync.mutate('pin',{id:'remote-local',is_pinned:true});
+  expect(h.sync.state.items[0]).toMatchObject({name:'Review',filters,is_pinned:true});
+  const second=createFilterSync({api:h.api,storage:()=>({getItem:()=>null}),currentScope:()=> 'agent-a',changed(){}});
+  second.ensure('agent-a','a');await tick();expect(second.state.items[0].is_pinned).toBe(true);
+  h.setOffline(true);
+  await expect(h.sync.mutate('pin',{id:'remote-local',is_pinned:false})).rejects.toThrow('offline');
+  expect(h.sync.state.items[0].is_pinned).toBe(true);
+  h.setOffline(false);await h.sync.mutate('pin',{id:'remote-local',is_pinned:false});await second.refresh();
+  expect(second.state.items[0]).toMatchObject({name:'Review',filters,is_pinned:false});
+});
 test('scope changes discard delayed loads and never send an import in the new session',async()=>{
   const h=setup();let release;h.setGet(new Promise(resolve=>release=resolve));
   h.sync.ensure('agent-a','a');h.setScope('agent-b');h.sync.ensure('agent-b','b');release();await tick();

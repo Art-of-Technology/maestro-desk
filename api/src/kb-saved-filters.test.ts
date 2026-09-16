@@ -55,12 +55,25 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
     for (const [user,workspace] of [[1,0],[0,1]]) {
       expect(await items(user,workspace)).toEqual([]);
       expect((await request('PATCH','/'+item.id,{name:'Hijack'},user,workspace)).status).toBe(404);
+      expect((await request('PATCH','/'+item.id,{is_pinned:true},user,workspace)).status).toBe(404);
       expect((await request('DELETE','/'+item.id,undefined,user,workspace)).status).toBe(204);
     }
     expect((await request('GET','',undefined,1,1)).status).toBe(403);
     expect((await items())[0]).toEqual(item);
     expect((await request('POST','',{name:'Other',filters,user_id:users[0].id},1)).status).toBe(400);
     expect((await request('POST','',{name:'Review',filters},1)).status).toBe(201);
+  });
+  it('pins and unpins across clients without changing filters or names', async () => {
+    const item=await create();
+    expect(item.is_pinned).toBe(false);
+    expect((await request('PATCH','/'+item.id,{is_pinned:true})).status).toBe(200);
+    expect(await items()).toEqual([{...item,is_pinned:true}]);
+    await request('PATCH','/'+item.id,{name:'Pinned rename'});
+    expect(await items()).toEqual([{...item,name:'Pinned rename',is_pinned:true}]);
+    await request('PATCH','/'+item.id,{is_pinned:false});
+    expect(await items()).toEqual([{...item,name:'Pinned rename',is_pinned:false}]);
+    expect((await request('PATCH','/'+item.id,{is_pinned:'true'})).status).toBe(400);
+    expect((await request('PATCH','/'+item.id,{})).status).toBe(400);
   });
   it('rejects malformed criteria, blank/duplicate names and invalid IDs', async () => {
     await create();

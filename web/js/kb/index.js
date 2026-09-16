@@ -66,15 +66,38 @@ function renderSavedFilters() {
   if (!savedKey()) return '';
   const {items,phase,error,warning}=filterSync.state;
   const busy=phase==='loading'||phase==='saving';
-  if (phase==='loading'||phase==='error') return `<div class="kb-saved-filters"><span role="status">${window.escHtml(error || 'Loading saved filters…')}</span><button class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button></div>`;
+  if (phase==='loading'||phase==='error') return `<div class="kb-saved-filters"><span role="status">${window.escHtml(error || 'Loading saved filters…')}</span><button type="button" class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button></div>`;
   if (!items.some(item=>item.id===savedFilterId)) savedFilterId='';
+  const selected=items.find(item=>item.id===savedFilterId);
+  const pinned=items.filter(item=>item.is_pinned);
   return `<div class="kb-saved-filters"><label for="kb-saved-filter">Saved filters</label>
     <select class="filter-select" id="kb-saved-filter" data-input-action="kb.pickSaved"><option value="">Choose a saved filter</option>${items.map(item=>`<option value="${window.escAttr(item.id)}" ${item.id===savedFilterId?'selected':''}>${window.escHtml(item.name)}</option>`).join('')}</select>
     <button type="button" class="btn btn-sm" data-action="kb.applySaved" ${busy?'disabled':''}>Apply</button>
+    <button type="button" class="btn btn-sm" id="kb-pin-filter" data-action="kb.pinFilter" ${busy||!selected?'disabled':''}>${selected?.is_pinned?'Unpin':'Pin'}</button>
     <button type="button" class="btn btn-sm" data-action="kb.saveFilter" ${busy?'disabled':''}>Save current filters</button>
     <button type="button" class="btn btn-sm" data-action="kb.renameFilter" ${busy?'disabled':''}>Rename</button>
     <button type="button" class="btn btn-sm" data-action="kb.deleteFilter" ${busy?'disabled':''}>Delete</button>
-    <button type="button" class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button><span class="kb-saved-note">Personal · synced across devices</span><span id="kb-saved-status" role="status">${window.escHtml(busy?'Saving…':warning)}</span></div>`;
+    <button type="button" class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button><span class="kb-saved-note">Personal · synced across devices</span><span id="kb-saved-status" role="status">${window.escHtml(busy?'Saving…':warning)}</span>
+    ${pinned.length?`<div class="kb-pinned-filters" role="group" aria-label="Pinned filters"><span>Pinned</span>${pinned.map(item=>`<button type="button" class="btn btn-sm" id="kb-pinned-${window.escAttr(item.id)}" data-action="kb.applyPinned" data-id="${window.escAttr(item.id)}" aria-label="${window.escAttr('Apply saved filter '+item.name)}" ${busy||bulkRunning?'disabled':''}>${window.escHtml(item.name)}</button>`).join('')}</div>`:''}</div>`;
+}
+async function pinSavedFilter() {
+  const scope=savedScope();
+  try {
+    const item=selectedSavedFilter(), is_pinned=!item.is_pinned;
+    const id=await filterSync.mutate('pin',{id:item.id,is_pinned});
+    if(id===null || scope!==savedScope()) return;
+    if(CURRENT_PAGE!=='kb') return;
+    document.getElementById('kb-pin-filter')?.focus();
+    const status=document.getElementById('kb-saved-status');
+    if(status)status.textContent=is_pinned?'Filter pinned.':'Filter unpinned. It is still in your saved filters.';
+  } catch(error) {if(scope===savedScope()) savedError(error);}
+}
+function applyPinnedFilter(id) {
+  if (bulkRunning || savedFilterScope!==savedScope() || filterSync.state.phase!=='ready') return;
+  if (!filterSync.state.items.some(item=>item.id===id && item.is_pinned)) return;
+  savedFilterId=id;
+  applySavedFilter();
+  document.getElementById('kb-pinned-'+id)?.focus();
 }
 function selectedSavedFilter() {
   if (savedFilterScope !== savedScope()) throw Error('Your session changed. Reopen Knowledge Base.');
@@ -104,7 +127,8 @@ function editSavedFilter(action) {
           pending=true;
           errorEl.textContent='Saving…';
           const id=await filterSync.mutate(action,{id:item?.id,name:document.getElementById('kb-filter-name')?.value,filters});
-          if(id===null || scope!==savedScope() || document.getElementById('kb-filter-error')!==errorEl) return;
+          if(document.getElementById('kb-filter-error')!==errorEl) return;
+          if(id===null || scope!==savedScope()) {errorEl.textContent='Your session changed. Close this dialog and reopen Knowledge Base.';return;}
           savedFilterId=id;
           closeModal();renderPage('kb');
           const status=document.getElementById('kb-saved-status');
@@ -686,6 +710,8 @@ function kbDeleteArticle(id) {
 }
 
 registerActions({
+  'kb.pinFilter':pinSavedFilter,
+  'kb.applyPinned':ds=>applyPinnedFilter(ds.id),
   'kb.refreshFilters':()=>filterSync.refresh(),
   'kb.applySaved': applySavedFilter,
   'kb.saveFilter':()=>editSavedFilter('save'),
@@ -729,7 +755,7 @@ registerActions({
 });
 
 registerInputActions({
-  'kb.pickSaved':(_ds,el)=>{ if(savedFilterScope===savedScope()) savedFilterId=el.value; },
+  'kb.pickSaved':(_ds,el)=>{ if(savedFilterScope===savedScope()) {savedFilterId=el.value;renderPage('kb');document.getElementById('kb-saved-filter')?.focus();} },
   'kb.setMarket': (ds, el) => { KB_FILTER_MARKET = el.value; renderPage('kb'); document.getElementById('kb-market')?.focus(); },
   'kb.setQuery': (ds, el) => kbSetQuery(el.value),
 });
