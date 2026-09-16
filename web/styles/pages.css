@@ -146,6 +146,14 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .kb-row-state>span{overflow-wrap:anywhere}
 .kb-row-state>span:not(.kb-status){font-size:12px}
 .kb-review-confirm{display:flex;align-items:center;gap:8px;min-height:44px}
+.kb-quality-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
+.kb-quality-controls label{display:flex;flex-direction:column;gap:4px}
+.kb-quality-controls .btn,.kb-quality-item>.btn{min-height:44px}
+.kb-quality-item{border-top:1px solid var(--rule);padding:16px 0;overflow-wrap:anywhere}
+.kb-quality-item h3{font-size:14px;margin:0 0 8px;color:var(--ink)}
+.kb-quality-item p{margin:8px 0}
+.kb-quality-item>label{display:block;margin-top:12px}
+.kb-quality-item textarea{min-height:64px}
 .kb-library-page .kb-cat-item{width:100%;border:0;background:transparent;text-align:left;min-height:44px}
 .kb-library-page .kb-cat-item.active{background:var(--purple-lt)}
 .kb-library-page .filter-bar{flex-wrap:wrap;gap:8px}

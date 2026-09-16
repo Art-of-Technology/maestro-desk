@@ -21,6 +21,7 @@ import { apiGet, apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '..
 import { startPresence } from '../core/presence.js';
 import { showModal, closeModal } from '../core/modal.js';
 import './sources.js';
+import './quality.js';
 import { articleStatus, ARTICLE_STATUS_LABELS, articleLink } from './article-state.js';
 import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from './bulk-review.js';
 import { cardTitle, updatedLabel, directoryCards, gameDirectory, cardMatchesQuery, articleCategory, articlePreview, articlePage } from './card-presentation.js';
@@ -400,6 +401,7 @@ export function renderKB() {
       <div class="topbar">
         <div class="tb-title">Knowledge Base</div>
         ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Knowledge sources</button>` : ''}
+        ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="kbQuality.show">Quality queue</button>` : ''}
         ${admin ? `<button class="btn btn-solid btn-sm" data-action="kb.new">+ New Article</button>` : ''}
       </div>
       <div class="kb-layout">
