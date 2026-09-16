@@ -16,7 +16,10 @@ test('mobile collapse, expansion and navigation preserve the desktop preference'
   media.matches=true;resized();expect(collapsed).toBe(true);expect(attributes['aria-expanded']).toBe('false');
   toggleSidebar();expect(collapsed).toBe(false);expect(stored.get('sidebar_collapsed')).toBe('0');
   handlers.click({target:{closest:()=>({})}});expect(collapsed).toBe(true);
-  toggleSidebar();handlers.keydown({key:'Escape'});expect(collapsed).toBe(true);expect(focused).toBe(true);
+  toggleSidebar();
+  handlers.keydown({key:'Escape',defaultPrevented:true,target:{closest:()=>bar}});expect(collapsed).toBe(false);
+  handlers.keydown({key:'Escape',target:{closest:()=>null}});expect(collapsed).toBe(false);
+  handlers.keydown({key:'Escape',target:{closest:()=>bar}});expect(collapsed).toBe(true);expect(focused).toBe(true);
   media.matches=false;resized();expect(collapsed).toBe(false);
   toggleSidebar();expect(stored.get('sidebar_collapsed')).toBe('1');
   media.matches=true;resized();toggleSidebar();expect(collapsed).toBe(false);

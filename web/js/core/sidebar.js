@@ -88,7 +88,8 @@ registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
 // [data-action] inputs, where Enter means something else. Scoped to the
 // sidebar and to elements that actually claim role="button".
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && narrow?.matches && !isSidebarCollapsed()) {
+  if (e.key === 'Escape' && !e.defaultPrevented && e.target.closest?.('.sidebar')
+      && narrow?.matches && !isSidebarCollapsed()) {
     apply(true);
     document.getElementById('sb-collapse')?.focus();
     return;
