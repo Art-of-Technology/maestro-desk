@@ -82,6 +82,30 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
     expect((await request('POST','',{name:' review ',filters})).status).toBe(409);
     expect((await request('PATCH','/bad',{name:'No'})).status).toBe(400);
   });
+  it('serializes default selection and preserves it after invalid or foreign updates', async () => {
+    const first=await create(),second=await create('Second');
+    expect(first.is_default).toBe(false);
+    const responses=await Promise.all([first,second].map(item=>request('PATCH','/'+item.id,{is_default:true})));
+    expect(responses.map(r=>r.status)).toEqual([200,200]);
+    const defaults=(await items()).filter((item:{is_default:boolean})=>item.is_default);
+    expect(defaults).toHaveLength(1);
+    const selected=defaults[0];
+    expect((await request('PATCH','/'+crypto.randomUUID(),{is_default:true})).status).toBe(404);
+    expect((await items()).find((item:{id:string})=>item.id===selected.id).is_default).toBe(true);
+    for(const [user,workspace] of [[1,0],[0,1]]) {
+      const created=await request('POST','',{name:'Personal',filters},user,workspace);
+      const own=(await created.json() as {item:{id:string}}).item;
+      expect((await request('PATCH','/'+own.id,{is_default:true},user,workspace)).status).toBe(200);
+      expect((await request('PATCH','/'+first.id,{is_default:true},user,workspace)).status).toBe(404);
+      expect((await items(user,workspace))[0].is_default).toBe(true);
+    }
+    expect((await request('PATCH','/'+selected.id,{is_default:'true'})).status).toBe(400);
+    expect((await request('PATCH','/'+selected.id,{is_default:false})).status).toBe(200);
+    expect((await items()).some((item:{is_default:boolean})=>item.is_default)).toBe(false);
+    await request('PATCH','/'+selected.id,{is_default:true});
+    await request('DELETE','/'+selected.id);
+    expect((await items()).some((item:{is_default:boolean})=>item.is_default)).toBe(false);
+  });
   it('imports atomically, preserves colliding names and receipts survive deletion/retry', async () => {
     await create();
     const local = {items:[{id:'old-browser-id',name:'Review',filters}]};

@@ -37,7 +37,7 @@ async function room(sql: TransactionSql, workspace: string, user: string) {
 }
 kbSavedFilters.get('/', async c => {
   const sql = getDb(), workspace = c.get('workspaceId'), user = c.get('userId');
-  const items = await sql`select id,name,filters,is_pinned from kb_saved_filters where workspace_id=${workspace} and user_id=${user} order by created_at,id`;
+  const items = await sql`select id,name,filters,is_pinned,is_default from kb_saved_filters where workspace_id=${workspace} and user_id=${user} order by created_at,id`;
   return c.json({items});
 });
 kbSavedFilters.post('/', async c => {
@@ -47,7 +47,7 @@ kbSavedFilters.post('/', async c => {
   const item = await write(workspace, user, async sql => {
     await room(sql, workspace, user);
     const [row] = await sql`insert into kb_saved_filters(workspace_id,user_id,name,filters)
-      values(${workspace},${user},${parsed.data.name},${sql.json(parsed.data.filters)}) returning id,name,filters,is_pinned`;
+      values(${workspace},${user},${parsed.data.name},${sql.json(parsed.data.filters)}) returning id,name,filters,is_pinned,is_default`;
     return row;
   });
   return c.json({item}, 201);
@@ -82,12 +82,15 @@ kbSavedFilters.post('/import', async c => {
 });
 kbSavedFilters.patch('/:id', async c => {
   const id = z.string().uuid().safeParse(c.req.param('id'));
-  const parsed = z.object({name: Name.optional(), is_pinned: z.boolean().optional()}).strict().safeParse(await c.req.json().catch(() => null));
-  if (!id.success || !parsed.success) return c.json({error: 'Enter a valid filter name, pin preference and filter ID.'}, 400);
+  const parsed = z.object({name: Name.optional(), is_pinned: z.boolean().optional(), is_default: z.boolean().optional()}).strict().safeParse(await c.req.json().catch(() => null));
+  if (!id.success || !parsed.success) return c.json({error: 'Enter a valid filter name, preferences and filter ID.'}, 400);
   if (!Object.keys(parsed.data).length) return c.json({error: 'No filter changes supplied.'}, 400);
   const workspace = c.get('workspaceId'), user = c.get('userId');
   const item = await write(workspace, user, async sql => {
-    const [row] = await sql`update kb_saved_filters set ${sql(parsed.data)} where id=${id.data} and workspace_id=${workspace} and user_id=${user} returning id,name,filters,is_pinned`;
+    if (parsed.data.is_default === true) {
+      await sql`update kb_saved_filters set is_default=false where workspace_id=${workspace} and user_id=${user} and is_default`;
+    }
+    const [row] = await sql`update kb_saved_filters set ${sql(parsed.data)} where id=${id.data} and workspace_id=${workspace} and user_id=${user} returning id,name,filters,is_pinned,is_default`;
     if (!row) throw new HTTPException(404, {message: 'This saved filter no longer exists. Refresh the list.'});
     return row;
   });

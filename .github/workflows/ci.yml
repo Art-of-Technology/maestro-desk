@@ -80,6 +80,7 @@ jobs:
           bun test scripts/kb-quality-ui.test.js
           bun test scripts/kb-saved-filters.test.js
           bun test scripts/kb-filter-sync.test.js
+          bun test scripts/kb-filter-view.test.js
           bun test scripts/kb-draft-routing.test.js
           bun test scripts/kb-file-sources.test.js
           bun test scripts/kb-file-picker.test.js

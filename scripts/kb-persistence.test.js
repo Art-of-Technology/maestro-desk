@@ -10,7 +10,7 @@ let jwt = 'session',
   release;
 let postBody, patchCalls = [], patchFail = false, patchRelease, modalLabel;
 const session = { name: 'Test' };
-let remoteFilters=[];
+let remoteFilters=[],filterGetBlock=null;
 const syncTick=()=>new Promise(resolve=>setTimeout(resolve,0));
 globalThis.localStorage = { getItem: () => null };
 globalThis.window = { isAdmin: () => true, escHtml: String, escAttr: String };
@@ -49,11 +49,11 @@ mock.module('../web/js/kb/sources.js', () => ({}));
 mock.module('../web/js/kb/quality.js', () => ({}));
 mock.module('../web/js/kb/gaps.js', () => ({}));
 mock.module('../web/js/core/api-client.js', () => ({
-  apiGet:async ()=>({items:structuredClone(remoteFilters)}),
+  apiGet:async ()=>{if(filterGetBlock)await filterGetBlock;return {items:structuredClone(remoteFilters)};},
   getJwt: () => jwt,
   getWorkspaceId: () => workspace,
   async apiPatch(path, body) {
-    if(path.includes('kb-saved-filters')) { const item=remoteFilters.find(r=>path.endsWith('/'+r.id));Object.assign(item,body);return {item:{...item}}; }
+    if(path.includes('kb-saved-filters')) { const item=remoteFilters.find(r=>path.endsWith('/'+r.id));if(body.is_default)remoteFilters.forEach(r=>r.is_default=false);Object.assign(item,body);return {item:{...item}}; }
     patchCalls.push({ path, body });
     if (patchFail) throw new Error('Offline');
     if (patchRelease) await new Promise(resolve => { patchRelease = resolve; });
@@ -81,6 +81,33 @@ mock.module('../web/js/core/api-client.js', () => ({
   },
 }));
 const { renderKB } = await import('../web/js/kb/index.js');
+test('default view applies on first load; chips clear individually and sync never overrides active criteria',async()=>{
+  const originalGet=document.getElementById,originalQuery=document.querySelector;
+  document.getElementById=()=>({focus(){},textContent:''});document.querySelector=()=>null;
+  session.userId='default-agent';jwt='default-session';workspace='default-workspace';
+  remoteFilters=[{id:'default',name:'Daily',is_default:true,filters:{category:'Website',market:'en',status:'draft',query:''}}];
+  try {
+    renderKB();await syncTick();let html=renderKB();
+    expect(html).toContain('Default: Daily');expect(html).toContain('value="en" selected');
+    expect(html).toContain('data-key="category"');expect(html).toContain('data-key="status"');
+    actions['kb.clearFilter']({key:'market'});html=renderKB();
+    expect(html).not.toContain('data-key="market"');expect(html).toContain('data-key="status"');
+    remoteFilters[0].filters={category:'Other',market:'es',status:'published',query:'remote'};
+    await actions['kb.refreshFilters']();html=renderKB();
+    expect(html).toContain('Status: draft');expect(html).not.toContain('Search: remote');
+    actions['kb.clearFilters']();expect(renderKB()).toContain('No active filters');
+    await actions['kb.defaultFilter']();expect(remoteFilters[0].is_default).toBe(false);
+    await actions['kb.defaultFilter']();expect(remoteFilters[0].is_default).toBe(true);
+    expect(renderKB()).toContain('No active filters');
+    workspace='delayed-default-workspace';let releaseLoad;
+    filterGetBlock=new Promise(resolve=>releaseLoad=resolve);renderKB();
+    actions['kb.setCat']({cat:'Manual choice'});releaseLoad();await syncTick();
+    html=renderKB();expect(html).toContain('Category: Manual choice');expect(html).not.toContain('Search: remote');
+  } finally {
+    filterGetBlock=null;remoteFilters=[];delete session.userId;
+    document.getElementById=originalGet;document.querySelector=originalQuery;
+  }
+});
 test('first live article persists, failures do not fake success, and late responses stay in their workspace', async () => {
   actions['kb.new']();
   expect(modalLabel).toBe('Save draft');
