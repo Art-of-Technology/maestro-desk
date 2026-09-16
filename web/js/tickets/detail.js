@@ -24,6 +24,7 @@ import {
   translateText,
   toggleThreadTranslate, toggleAutoTranslateReplies,
   setCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
+  initialiseReplyLanguage, ensureCustomerLanguage, customerLanguageStatus, outgoingLanguageStatus, prepareCustomerReply, latestCustomerText,
 } from '../ai/translate.js';
 import { aiAction } from '../ai/reply.js';
 import {
@@ -61,7 +62,7 @@ import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout
 import { enableRemoteImages, renderMessageBody, sizeMessageFrames } from './message-html.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
-import { apiPatch, apiPost, apiDelete } from '../core/api-client.js';
+import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
 import {
   KB_INTEGRATION, KB_TICKET_CACHE,
@@ -128,6 +129,7 @@ export function openTicket(id) {
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
   if (!t) { setCurrentTicket(null); return renderPage('tickets'); }
+  initialiseReplyLanguage(t);
   setCurrentPage('tickets');
   document.body.dataset.currentPage = 'tickets';
   highlightNav('tickets');
@@ -435,10 +437,7 @@ export function openTicket(id) {
   }).join('');
 
   // Thread translation toolbar — sits above the message thread
-  const customerLangLabel = t.detectedCustomerLang
-    ? `<span style="color:var(--ink2)">Customer language: <strong style="color:var(--ink)">${window.escHtml(t.detectedCustomerLang)}</strong></span>`
-    : `<span style="color:var(--ink3);font-style:italic">Customer language: not yet detected</span>`;
-  const langOptions = TRANSLATOR_LANGS.map(l => `<option value="${l}" ${t.detectedCustomerLang===l?'selected':''}>${l}</option>`).join('');
+  const langOptions = TRANSLATOR_LANGS.map(l => `<option value="${l}" ${t.customerLanguageManual && t.detectedCustomerLang===l?'selected':''}>${l}</option>`).join('');
   const threadBarHtml = `
     <div class="ticket-thread-tools">
       <strong>Conversation</strong>
@@ -446,18 +445,15 @@ export function openTicket(id) {
         <button class="btn btn-sm" aria-pressed="${!threadOn}" data-action="td.originalConversation" data-ticket-id="${window.escAttr(id)}">Original</button>
         <button class="btn btn-sm" aria-pressed="${threadOn}" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">${window.escHtml(AGENT_PREFERRED_LANG)}</button>
       </div>
-      <span class="ticket-translation-state">${t.autoTranslateReplies ? `Replies translated to ${window.escHtml(t.detectedCustomerLang || 'customer language')}` : ''}</span>
-      <details class="ticket-popover ticket-language" ${layout.languageOpen ? 'open' : ''}>
-        <summary class="btn btn-sm">Language options ▾</summary>
-        <div class="ticket-popover-panel">
-      ${customerLangLabel}
-      ${(threadOn || t.autoTranslateReplies) ? `<select class="filter-select" data-change-action="td.setCustomerLang" data-ticket-id="${window.escAttr(id)}" style="font-size:11px;padding:3px 8px"><option value="">— override —</option>${langOptions}</select>` : ''}
+      <span id="customer-language-${id}" class="ticket-translation-state" role="status" aria-live="polite">${window.escHtml(customerLanguageStatus(t))}</span>
+      <button id="retry-language-${id}" class="btn btn-sm" data-action="td.retryCustomerLanguage" data-ticket-id="${window.escAttr(id)}" ${t.detectedCustomerLang || t.detectingCustomerLanguage ? 'hidden' : ''}>Retry detection</button>
+      <label class="reply-language-choice">Customer language
+        <select class="filter-select" aria-label="Customer language" data-change-action="td.setCustomerLang" data-ticket-id="${window.escAttr(id)}"><option value="">Detect automatically</option>${langOptions}</select>
+      </label>
       <label class="auth-check" style="margin:0">
         <input type="checkbox" ${t.autoTranslateReplies?'checked':''} data-change-action="td.toggleAutoTranslate" data-ticket-id="${window.escAttr(id)}">
         <span>Send replies in customer language</span>
       </label>
-        </div>
-      </details>
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
     <div class="ticket-translation-notice" role="status" aria-live="polite">
@@ -560,6 +556,7 @@ export function openTicket(id) {
                 : `<textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
               <div id="reply-review-${id}" class="reply-review-panel" role="status" aria-live="polite">${renderReplyReview(id)}</div>
+              ${COMPOSE_TAB === 'reply' ? `<div id="reply-language-${id}" class="ticket-translation-notice" role="status" aria-live="polite">${window.escHtml(outgoingLanguageStatus(t))}</div>` : ''}
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
@@ -719,6 +716,7 @@ export function openTicket(id) {
     document.querySelector(`[data-action="${focusedLanguageAction}"]`)?.focus({ preventScroll: true });
   }
   ensureConversationTranslation(t);
+  void ensureCustomerLanguage(t);
 }
 
 function setComposeTab(tab, id) {
@@ -1073,6 +1071,14 @@ function showSentTextModal(ticketId, msgIdx) {
 }
 
 async function sendCompose(id) {
+  if (sendingReplies.has(id)) return false;
+  sendingReplies.add(id);
+  try { return await sendComposeOnce(id); }
+  finally { sendingReplies.delete(id); }
+}
+const sendingReplies = new Set();
+
+async function sendComposeOnce(id) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
@@ -1085,6 +1091,12 @@ async function sendCompose(id) {
   if (isComposerEmpty(id)) return false;
   const t = TICKETS.find(x => x.id === id);
   if (!t) return false;
+  const scope = getWorkspaceId(), jwt = getJwt(), tab = COMPOSE_TAB;
+  const draftHtml = getHtml(id);
+  const customerText = latestCustomerText(t).text;
+  const stillCurrent = () => scope === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id
+    && tab === COMPOSE_TAB && getPlainText(id).trim() === txt && getHtml(id) === draftHtml
+    && customerText === latestCustomerText(t).text;
 
   // Soft double-handling guard — only for outbound replies, and only
   // for API-backed tickets where presence is actually running. Demo
@@ -1094,27 +1106,29 @@ async function sendCompose(id) {
     if (!ok) return false;
   }
 
-  // Auto-translate outgoing replies (not internal notes) when toggle is on and we know the customer's language
   let outgoing = txt;
   let original = null;
   let translatedTo = null;
-  const shouldAutoTranslate = COMPOSE_TAB !== 'note'
-    && t.autoTranslateReplies
-    && t.detectedCustomerLang
-    && t.detectedCustomerLang.toLowerCase() !== AGENT_PREFERRED_LANG.toLowerCase();
-  if (shouldAutoTranslate) {
+  let outgoingHtml = draftHtml;
+  const languageChoice = JSON.stringify([t.autoTranslateReplies, t.customerLanguageManual, t.customerLanguageManual ? t.detectedCustomerLang : null]);
+  if (tab !== 'note') {
     setAiThinking(true);
     try {
-      if (CURRENT_TICKET === id) openTicket(id);
-      const res = await translateText(txt, t.detectedCustomerLang);
-      if (res.translation) {
-        outgoing = res.translation;
-        original = txt;
-        translatedTo = t.detectedCustomerLang;
-      }
+      const res = await prepareCustomerReply(t, txt, draftHtml);
+      outgoing = res.translation;
+      outgoingHtml = res.translationHtml || null;
+      translatedTo = res.translatedTo;
+      original = translatedTo ? txt : null;
+    } catch (error) {
+      showToast(error?.message || 'Could not translate the reply. Your draft has been kept.', 'error');
+      return false;
     } finally {
       setAiThinking(false);
     }
+  }
+  if (!stillCurrent() || languageChoice !== JSON.stringify([t.autoTranslateReplies, t.customerLanguageManual, t.customerLanguageManual ? t.detectedCustomerLang : null])) {
+    showToast('The draft or language changed. Review it before sending.', 'error');
+    return false;
   }
 
   const isNote = COMPOSE_TAB === 'note';
@@ -1127,10 +1141,7 @@ async function sendCompose(id) {
   // server-side yet, so it lives only on the local entry.
   if (t._uuid) {
     let message, delivery;
-    // Rich HTML only for a reply the agent actually formatted, and never when
-    // auto-translate rewrote the text — the translation is plain text, so
-    // sending the original markup alongside it would contradict it.
-    const html = (!isNote && !shouldAutoTranslate) ? getHtml(id) : null;
+    const html = isNote ? null : outgoingHtml;
     const attachmentIds = isNote ? [] : pendingAttachmentIds(id);
     try {
       const res = await apiPost(`/api/v1/tickets/${t._uuid}/messages`, {
@@ -1256,6 +1267,7 @@ registerActions({
   'td.removeTag':      (ds) => removeTicketTag(ds.ticketId, ds.tag),
   // Message thread
   'td.originalConversation': (ds) => toggleThreadTranslate(ds.ticketId, false),
+  'td.retryCustomerLanguage': (ds) => setCustomerLanguage(ds.ticketId, ''),
   'td.translatedConversation': (ds) => toggleThreadTranslate(ds.ticketId, true),
   'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showRemoteImages': (ds) => { enableRemoteImages(ds.ticketId, parseInt(ds.msgIdx, 10)); openTicket(ds.ticketId); },

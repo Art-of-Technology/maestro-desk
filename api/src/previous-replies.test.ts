@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { genericDetails, rankReplies, previousReplyMaterial, searchReplyHistory } from './lib/previous-replies.js';
-import { selectedReplies } from './lib/meaningful-replies.js';
+import { selectedReplies, expandedReplyTerms } from './lib/meaningful-replies.js';
 import { SEARCH_CALL_CAP_MICRO } from './lib/reply-search-ai.js';
 
 it('validates ranked IDs and permits an explicit no-match answer', () => {
@@ -10,6 +10,15 @@ it('validates ranked IDs and permits an explicit no-match answer', () => {
   expect(selectedReplies({ ids: ['unknown'] }, [example])).toBeNull();
   expect(selectedReplies({ ids: ['C1','C1'] }, [example])).toBeNull();
   expect(selectedReplies({ ids: ['C1'], extra: 'untrusted' }, [example])).toBeNull();
+});
+
+it('keeps translated search words when earlier phrases contain many English synonyms', () => {
+  const terms = expandedReplyTerms('My welcome free spins never appeared after I played through my first deposit',
+    ['welcome free spins promotion credit missing first deposit account not received',
+      'bonus reward offer initial registration credit failed absent missing', 'bono bienvenida giros gratis']);
+  expect(terms.split(' ')).toContain('bono');
+  expect(terms.split(' ')).toContain('bienvenida');
+  expect(terms.split(' ').length).toBeLessThanOrEqual(30);
 });
 
 it('requires meaningful overlap and ranks query/response pairs', () => {

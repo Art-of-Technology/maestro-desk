@@ -8,6 +8,7 @@ import { focusEnd, getPlainText, getHtml, setText } from '../tickets/composer.js
 import { loadDraftReview } from '../tickets/drafts.js';
 import { showReplyReview } from './reply-review.js';
 import { buildKbQuery, fetchKbArticles } from '../kb-integration/index.js';
+import { ensureCustomerLanguage, latestCustomerText, AGENT_PREFERRED_LANG } from './translate.js';
 
 export async function aiAction(id, action) {
   const menu = document.getElementById('ai-menu-' + id);
@@ -20,6 +21,9 @@ export async function aiAction(id, action) {
   const active = () => workspace === getWorkspaceId() && jwt === getJwt() && tab === COMPOSE_TAB
     && editor.isConnected && document.getElementById('compose-' + id) === editor;
   const current = getPlainText(id), originalHtml = getHtml(id);
+  const languageState = () => JSON.stringify([ticket.autoTranslateReplies !== false, !!ticket.customerLanguageManual,
+    ticket.customerLanguageManual ? ticket.detectedCustomerLang : null, latestCustomerText(ticket).text]);
+  const originalLanguageState = languageState();
   const previous = loadDraftReview(id, tab) || { references: [], notes: [] };
   const showError = message => {
     if (active()) showReplyReview(id, { references: previous.references, notes: [...previous.notes, message].slice(-10) }, tab);
@@ -32,6 +36,13 @@ export async function aiAction(id, action) {
   const thinking = document.getElementById('thinking-' + id);
   thinking?.classList.add('show');
   try {
+    const replyLanguage = tab === 'reply' && ['draft','kb-reply','similar'].includes(action)
+      ? ticket.autoTranslateReplies === false ? AGENT_PREFERRED_LANG : await ensureCustomerLanguage(ticket)
+      : undefined;
+    if (!active()) return;
+    if (tab === 'reply' && ['draft','kb-reply','similar'].includes(action) && !replyLanguage) {
+      throw new Error('Choose the customer language before generating a reply. Your draft has been kept.');
+    }
     let system, user;
     let replySources = [];
     const history = (ticket.msgs || []).map(m => `${m.from}: ${m.t}`).join('\n\n');
@@ -64,9 +75,10 @@ export async function aiAction(id, action) {
       action: action === 'similar' ? 'similar_reply' : action === 'draft' ? 'kb_draft' : 'draft', system,
       ticketId: action === 'similar' ? ticket._uuid : undefined,
       messages: [{ role: 'user', content: user }], maxTokens: 1600,
-      replyFormat: true, replySources,
+      replyFormat: true, replySources, replyLanguage,
     });
     if (!active()) return;
+    if (originalLanguageState !== languageState()) throw new Error('The customer message or reply language changed. Generate the reply again.');
     if (getPlainText(id) !== current || getHtml(id) !== originalHtml) {
       showError('The suggestion was not inserted because you edited the reply while it was being generated.');
       return;
