@@ -17,9 +17,55 @@ let listing;
 mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,getJwt:()=>jwt,
   apiPost:async (_url,body)=>{calls++; if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return body;},
   apiGet:async ()=>{if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return listing;}}));
-const {renderReplyFeedback,rateReply}=await import('../web/js/ai/reply-feedback.js');
+const {renderReplyFeedback,rateReply,changeReplyReason}=await import('../web/js/ai/reply-feedback.js');
 const {loadReplyFeedback}=await import('../web/js/settings/reply-feedback.js');
-beforeEach(()=>{workspace='a0000000-0000-4000-8000-000000000001';jwt='agent';review={suggestionId,references:[],notes:[]};calls=0;fail=false;release=null;panel.isConnected=true;status.textContent='';});
+beforeEach(()=>{workspace='a0000000-0000-4000-8000-000000000001';jwt='agent';review={suggestionId,references:[],notes:[]};calls=0;fail=false;release=null;panel.isConnected=true;status.textContent='';select.value='wrong_match';select.disabled=false;select.closest=()=>panel;buttons.forEach(b=>{b.disabled=false;});});
+
+test('reason changes and clearing save automatically for a negative rating',async()=>{
+  review.feedback={helpful:false,reason:'other'};
+  expect(renderReplyFeedback('T1',review)).toContain('data-change-action="replyFeedback.reason"');
+  await changeReplyReason({ticketId:'T1'},select);
+  expect(review.feedback).toEqual({helpful:false,reason:'wrong_match'});
+  select.value='';await changeReplyReason({ticketId:'T1'},select);
+  expect(review.feedback).toEqual({helpful:false,reason:null});expect(calls).toBe(2);
+});
+
+test('reason changes do not submit a rating or silently reverse Helpful',async()=>{
+  for(const feedback of [undefined,{helpful:true,reason:null}]){
+    review.feedback=feedback;
+    await changeReplyReason({ticketId:'T1'},select);
+    expect(calls).toBe(0);expect(review.feedback).toEqual(feedback);
+    expect(status.textContent).toContain('Choose Not helpful');
+  }
+});
+
+test('reason save failure retains saved feedback and can retry the selected reason',async()=>{
+  review.feedback={helpful:false,reason:'other'};fail=true;
+  await changeReplyReason({ticketId:'T1'},select);
+  expect(review.feedback.reason).toBe('other');expect(select.value).toBe('wrong_match');
+  expect(status.textContent).toContain('Click Not helpful to retry');expect(select.disabled).toBe(false);
+  fail=false;await rateReply({ticketId:'T1',helpful:'false'},button);
+  expect(review.feedback.reason).toBe('wrong_match');
+});
+
+test('in-flight reason saves disable controls and reject repeated change events',async()=>{
+  review.feedback={helpful:false,reason:'other'};release=true;
+  const saving=changeReplyReason({ticketId:'T1'},select);
+  expect(select.disabled).toBe(true);expect(buttons.every(b=>b.disabled)).toBe(true);
+  await changeReplyReason({ticketId:'T1'},select);expect(calls).toBe(1);
+  release();await saving;release=null;expect(select.disabled).toBe(false);
+  select.value='wrong_language';await changeReplyReason({ticketId:'T1'},select);
+  expect(review.feedback.reason).toBe('wrong_language');
+});
+
+test('late reason saves leave a different suggestion or session untouched',async()=>{
+  for(const change of [()=>{review={suggestionId:'new'};},()=>{jwt='other';},()=>{workspace='other';}]){
+    workspace='original';jwt='agent';select.disabled=false;review={suggestionId,feedback:{helpful:false,reason:'other'}};release=true;
+    const saving=changeReplyReason({ticketId:'T1'},select);
+    change();const expected=JSON.stringify(review);release();await saving;release=null;
+    expect(JSON.stringify(review)).toBe(expected);
+  }
+});
 test('offers labelled ratings and optional reasons only for server-issued suggestions',()=>{
   expect(renderReplyFeedback('T1',review)).toContain('Was this suggestion helpful?');
   expect(renderReplyFeedback('T1',review)).toContain('Reason (optional)');

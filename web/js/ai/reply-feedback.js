@@ -13,8 +13,8 @@ export function renderReplyFeedback(id, review) {
   return `<div class="reply-feedback" data-suggestion-id="${review.suggestionId}">
     <p>Was this suggestion helpful?</p>
     <div class="reply-feedback-controls">${[true, false].map(helpful => `<button type="button" class="btn btn-ghost" data-action="replyFeedback.rate" data-ticket-id="${window.escAttr(id)}" data-helpful="${helpful}" aria-pressed="${selected?.helpful === helpful}">${helpful ? 'Helpful' : 'Not helpful'}</button>`).join('')}
-    <label>Reason (optional)<select class="form-select" data-feedback-reason><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label]) => `<option value="${key}" ${selected?.reason === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
-    <p class="reply-feedback-status" role="status">${selected ? 'Feedback saved. Choose a rating again to update it.' : 'Feedback is for your team and won’t change your draft.'}</p>
+    <label>Reason (optional)<select class="form-select" data-feedback-reason data-change-action="replyFeedback.reason" data-ticket-id="${window.escAttr(id)}"><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label]) => `<option value="${key}" ${selected?.reason === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
+    <p class="reply-feedback-status" role="status">${selected ? 'Feedback saved.' : 'Feedback is for your team and won’t change your draft.'}</p>
     ${COMPOSE_TAB === 'reply' ? `<label class="reply-use-confirm"><input type="checkbox" data-change-action="replyFeedback.confirmUse" data-ticket-id="${window.escAttr(id)}" ${review.confirmedUse ? 'checked' : ''}>This reply uses the suggestion (for reporting)</label>` : ''}
   </div>`;
 }
@@ -43,17 +43,27 @@ export async function rateReply(ds, button) {
     if (samePanel()) {
       if (helpful) panel.querySelector('[data-feedback-reason]').value = '';
       panel.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', String((el.dataset.helpful === 'true') === helpful)));
-      status.textContent = 'Feedback saved. Choose a rating again to update it.';
+      status.textContent = 'Feedback saved.';
     }
   } catch {
-    if (samePanel()) status.textContent = 'Feedback wasn’t saved. Try again.';
+    if (samePanel()) status.textContent = `Feedback wasn’t saved. Click ${helpful ? 'Helpful' : 'Not helpful'} to retry.`;
   } finally {
     pending.delete(key);
     if (samePanel()) panel.querySelectorAll('button,select').forEach(el => { el.disabled = false; });
   }
 }
+export async function changeReplyReason(ds, select) {
+  const panel = select.closest('.reply-feedback');
+  const review = loadDraftReview(ds.ticketId);
+  if (!panel?.isConnected || select.disabled || review?.suggestionId !== panel.dataset.suggestionId) return;
+  if (review.feedback?.helpful !== false) {
+    panel.querySelector('[role="status"]').textContent = 'Reason not saved. Choose Not helpful to submit it.';
+    return;
+  }
+  await rateReply({ ...ds, helpful: 'false' }, select);
+}
 registerActions({ 'replyFeedback.rate': rateReply });
-registerChangeActions({ 'replyFeedback.confirmUse': (ds, el) => {
+registerChangeActions({ 'replyFeedback.reason': changeReplyReason, 'replyFeedback.confirmUse': (ds, el) => {
   const review = loadDraftReview(ds.ticketId);
   if (review?.suggestionId === el.closest('.reply-feedback')?.dataset.suggestionId)
     saveDraftReview(ds.ticketId, { ...review, confirmedUse: el.checked });
