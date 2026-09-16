@@ -9,6 +9,7 @@ let jwt = 'session',
   fail = false,
   release;
 let postBody, patchCalls = [], patchFail = false, patchRelease, modalLabel;
+const session = { name: 'Test' };
 globalThis.localStorage = { getItem: () => null };
 globalThis.window = { isAdmin: () => true, escHtml: String, escAttr: String };
 globalThis.alert = () => {};
@@ -25,7 +26,7 @@ mock.module('../web/js/core/data.js', () => ({ KB_ARTICLES: articles }));
 mock.module('../web/js/core/state.js', () => ({
   CURRENT_PAGE: 'kb',
   KB_SELECTED: null,
-  SESSION: { name: 'Test' },
+  SESSION: session,
   setKbSelected() {},
 }));
 mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
@@ -236,4 +237,39 @@ test('review filters and publishing preserve drafts on failure and ignore late w
   const prior = patchCalls.length;
   actions['kb.publish']({ id: 'KB-live' });
   expect(patchCalls).toHaveLength(prior);
+});
+
+test('personal saved filter UI restores criteria and clears cross-page selection, with stale-session guards',()=>{
+  const originalStorage=globalThis.localStorage,originalGet=document.getElementById,originalQuery=document.querySelector;
+  const values=new Map(),error={textContent:''},name={value:'My review',focus(){}},status={textContent:''};
+  globalThis.localStorage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};
+  document.getElementById=id=>id==='kb-filter-name'?name:id==='kb-filter-error'?error:status;
+  status.focus=()=>{};document.querySelector=()=>null;
+  jwt='saved-session';workspace='saved-brand';session.userId='saved-agent';
+  try {
+    actions['kb.setCat']({cat:'Website'});actions['kb.setStatus']({status:'draft'});
+    inputs['kb.setMarket']({}, {value:'en'});
+    articles.splice(0,articles.length,...Array.from({length:60},(_,i)=>({id:'KB-'+i,_uuid:'article-'+i,title:'Policy '+i,body:'Text',category:'Website · en',status:'draft'})));
+    expect(renderKB()).toContain('Personal · this browser only');
+    actions['kb.saveFilter']();confirm();
+    const key=[...values.keys()][0],saved=JSON.parse(values.get(key))[0];
+    expect(saved.filters).toEqual({category:'Website',market:'en',status:'draft',query:''});
+    actions['kb.selectMatching']();actions['kb.page']({page:'1'});
+    expect(renderKB()).toContain('60 selected');expect(renderKB()).toContain('Entries 51–60');
+    inputs['kb.pickSaved']({}, {value:saved.id});actions['kb.applySaved']();
+    expect(renderKB()).toContain('0 selected');expect(renderKB()).toContain('Entries 1–50');
+    actions['kb.renameFilter']();name.value='Renamed';confirm();
+    expect(JSON.parse(values.get(key))[0].name).toBe('Renamed');
+    actions['kb.renameFilter']();session.userId='another-agent';name.value='Wrong agent';confirm();
+    expect(error.textContent).toContain('session changed');expect(JSON.parse(values.get(key))[0].name).toBe('Renamed');
+    expect(renderKB()).not.toContain('>Renamed</option>');
+    session.userId='saved-agent';renderKB();inputs['kb.pickSaved']({}, {value:saved.id});
+    // A no-longer-loaded category/market remains visible instead of silently showing All.
+    const missing={...saved,filters:{category:'Retired category',market:'es-zz',status:'draft',query:'example'}};
+    values.set(key,JSON.stringify([missing]));actions['kb.applySaved']();
+    expect(renderKB()).toContain('data-cat="Retired category"');expect(renderKB()).toContain('value="es-zz" selected');
+    actions['kb.deleteFilter']();confirm();expect(JSON.parse(values.get(key))).toEqual([]);
+  } finally {
+    delete session.userId;globalThis.localStorage=originalStorage;document.getElementById=originalGet;document.querySelector=originalQuery;
+  }
 });
