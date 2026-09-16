@@ -88,6 +88,7 @@ jobs:
           bun test scripts/ai-review-storage.test.js
           bun test scripts/reply-feedback.test.js
           bun test scripts/reply-performance.test.js
+          bun test scripts/sidebar-responsive.test.js
 
       # The SPA's security headers exist twice while both hosts do (Vercel
       # hosting config + the self-hosted nginx image) — hand-editing one file

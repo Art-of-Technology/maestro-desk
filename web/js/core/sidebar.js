@@ -11,6 +11,7 @@
 import { registerActions } from './event-delegation.js';
 
 const KEY = 'sidebar_collapsed';
+const narrow = window.matchMedia?.('(max-width: 600px)');
 
 function read() {
   try { return localStorage.getItem(KEY) === '1'; }
@@ -75,7 +76,7 @@ export function isSidebarCollapsed() {
 export function toggleSidebar() {
   const next = !document.querySelector('.sidebar')?.classList.contains('collapsed');
   apply(next);
-  persist(next);
+  if (!narrow?.matches) persist(next);
 }
 
 registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
@@ -87,6 +88,12 @@ registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
 // [data-action] inputs, where Enter means something else. Scoped to the
 // sidebar and to elements that actually claim role="button".
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !e.defaultPrevented && e.target.closest?.('.sidebar')
+      && narrow?.matches && !isSidebarCollapsed()) {
+    apply(true);
+    document.getElementById('sb-collapse')?.focus();
+    return;
+  }
   if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
   const target = e.target.closest?.('.sidebar [role="button"][data-action]');
   if (!target) return;
@@ -96,4 +103,13 @@ document.addEventListener('keydown', (e) => {
 
 // The shell markup is static in index.html, so it already exists by the time
 // this module is evaluated — no DOMContentLoaded wait needed.
-apply(read());
+document.addEventListener('click', (e) => {
+  if (!narrow?.matches || isSidebarCollapsed()) return;
+  if (e.target.closest?.('.sidebar .sb-item')) {
+    apply(true);
+  }
+});
+narrow?.addEventListener('change', () => {
+  apply(narrow.matches ? true : read());
+});
+apply(narrow?.matches ? true : read());
