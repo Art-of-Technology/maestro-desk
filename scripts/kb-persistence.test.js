@@ -47,6 +47,7 @@ mock.module('../web/js/core/modal.js', () => ({
 }));
 mock.module('../web/js/kb/sources.js', () => ({}));
 mock.module('../web/js/kb/quality.js', () => ({}));
+mock.module('../web/js/kb/gaps.js', () => ({}));
 mock.module('../web/js/core/api-client.js', () => ({
   apiGet:async ()=>({items:structuredClone(remoteFilters)}),
   getJwt: () => jwt,
