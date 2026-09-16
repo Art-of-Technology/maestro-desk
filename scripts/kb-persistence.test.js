@@ -10,6 +10,8 @@ let jwt = 'session',
   release;
 let postBody, patchCalls = [], patchFail = false, patchRelease, modalLabel;
 const session = { name: 'Test' };
+let remoteFilters=[];
+const syncTick=()=>new Promise(resolve=>setTimeout(resolve,0));
 globalThis.localStorage = { getItem: () => null };
 globalThis.window = { isAdmin: () => true, escHtml: String, escAttr: String };
 globalThis.alert = () => {};
@@ -45,16 +47,19 @@ mock.module('../web/js/core/modal.js', () => ({
 }));
 mock.module('../web/js/kb/sources.js', () => ({}));
 mock.module('../web/js/core/api-client.js', () => ({
+  apiGet:async ()=>({items:structuredClone(remoteFilters)}),
   getJwt: () => jwt,
   getWorkspaceId: () => workspace,
   async apiPatch(path, body) {
+    if(path.includes('kb-saved-filters')) { const item=remoteFilters.find(r=>path.endsWith('/'+r.id));Object.assign(item,body);return {item:{...item}}; }
     patchCalls.push({ path, body });
     if (patchFail) throw new Error('Offline');
     if (patchRelease) await new Promise(resolve => { patchRelease = resolve; });
     return { article: { status: 'published', updated_at: '2026-09-15T12:00:00Z' } };
   },
-  apiDelete() {},
+  apiDelete(path) {if(path.includes('kb-saved-filters'))remoteFilters=remoteFilters.filter(r=>!path.endsWith('/'+r.id));},
   apiPost: async (_path, body) => {
+    if(_path.includes('kb-saved-filters')) {const item={...body,id:'saved-id'};remoteFilters.push(item);return {item};}
     postBody = body;
     posts++;
     if (fail) throw new Error('Offline');
@@ -239,7 +244,7 @@ test('review filters and publishing preserve drafts on failure and ignore late w
   expect(patchCalls).toHaveLength(prior);
 });
 
-test('personal saved filter UI restores criteria and clears cross-page selection, with stale-session guards',()=>{
+test('personal saved filter UI restores criteria and clears cross-page selection, with stale-session guards',async()=>{
   const originalStorage=globalThis.localStorage,originalGet=document.getElementById,originalQuery=document.querySelector;
   const values=new Map(),error={textContent:''},name={value:'My review',focus(){}},status={textContent:''};
   globalThis.localStorage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};
@@ -250,25 +255,25 @@ test('personal saved filter UI restores criteria and clears cross-page selection
     actions['kb.setCat']({cat:'Website'});actions['kb.setStatus']({status:'draft'});
     inputs['kb.setMarket']({}, {value:'en'});
     articles.splice(0,articles.length,...Array.from({length:60},(_,i)=>({id:'KB-'+i,_uuid:'article-'+i,title:'Policy '+i,body:'Text',category:'Website · en',status:'draft'})));
-    expect(renderKB()).toContain('Personal · this browser only');
-    actions['kb.saveFilter']();confirm();
-    const key=[...values.keys()][0],saved=JSON.parse(values.get(key))[0];
+    renderKB();await syncTick();expect(renderKB()).toContain('Personal · synced across devices');
+    actions['kb.saveFilter']();await confirm();
+    const saved=remoteFilters[0];
     expect(saved.filters).toEqual({category:'Website',market:'en',status:'draft',query:''});
     actions['kb.selectMatching']();actions['kb.page']({page:'1'});
     expect(renderKB()).toContain('60 selected');expect(renderKB()).toContain('Entries 51–60');
     inputs['kb.pickSaved']({}, {value:saved.id});actions['kb.applySaved']();
     expect(renderKB()).toContain('0 selected');expect(renderKB()).toContain('Entries 1–50');
-    actions['kb.renameFilter']();name.value='Renamed';confirm();
-    expect(JSON.parse(values.get(key))[0].name).toBe('Renamed');
-    actions['kb.renameFilter']();session.userId='another-agent';name.value='Wrong agent';confirm();
-    expect(error.textContent).toContain('session changed');expect(JSON.parse(values.get(key))[0].name).toBe('Renamed');
+    actions['kb.renameFilter']();name.value='Renamed';await confirm();
+    expect(remoteFilters[0].name).toBe('Renamed');
+    actions['kb.renameFilter']();session.userId='another-agent';name.value='Wrong agent';await confirm();
+    expect(error.textContent).toContain('session changed');expect(remoteFilters[0].name).toBe('Renamed');
     expect(renderKB()).not.toContain('>Renamed</option>');
-    session.userId='saved-agent';renderKB();inputs['kb.pickSaved']({}, {value:saved.id});
+    session.userId='saved-agent';renderKB();await syncTick();inputs['kb.pickSaved']({}, {value:saved.id});
     // A no-longer-loaded category/market remains visible instead of silently showing All.
     const missing={...saved,filters:{category:'Retired category',market:'es-zz',status:'draft',query:'example'}};
-    values.set(key,JSON.stringify([missing]));actions['kb.applySaved']();
+    remoteFilters=[missing];await actions['kb.refreshFilters']();inputs['kb.pickSaved']({}, {value:saved.id});actions['kb.applySaved']();
     expect(renderKB()).toContain('data-cat="Retired category"');expect(renderKB()).toContain('value="es-zz" selected');
-    actions['kb.deleteFilter']();confirm();expect(JSON.parse(values.get(key))).toEqual([]);
+    actions['kb.deleteFilter']();await confirm();expect(remoteFilters).toEqual([]);
   } finally {
     delete session.userId;globalThis.localStorage=originalStorage;document.getElementById=originalGet;document.querySelector=originalQuery;
   }
