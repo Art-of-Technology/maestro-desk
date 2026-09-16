@@ -15,7 +15,8 @@ export function renderReplyFeedback(id, review) {
     <div class="reply-feedback-controls">${[true, false].map(helpful => `<button type="button" class="btn btn-ghost" data-action="replyFeedback.rate" data-ticket-id="${window.escAttr(id)}" data-helpful="${helpful}" aria-pressed="${selected?.helpful === helpful}">${helpful ? 'Helpful' : 'Not helpful'}</button>`).join('')}
     <label>Reason (optional)<select class="form-select" data-feedback-reason data-change-action="replyFeedback.reason" data-ticket-id="${window.escAttr(id)}"><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label]) => `<option value="${key}" ${selected?.reason === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
     <p class="reply-feedback-status" role="status">${selected ? 'Feedback saved.' : 'Feedback is for your team and won’t change your draft.'}</p>
-    ${COMPOSE_TAB === 'reply' ? `<label class="reply-use-confirm"><input type="checkbox" data-change-action="replyFeedback.confirmUse" data-ticket-id="${window.escAttr(id)}" ${review.confirmedUse ? 'checked' : ''}>This reply uses the suggestion (for reporting)</label>` : ''}
+    ${COMPOSE_TAB === 'reply' ? `<label class="reply-use-confirm"><input type="checkbox" data-change-action="replyFeedback.confirmUse" data-ticket-id="${window.escAttr(id)}" ${review.confirmedUse ? 'checked' : ''} ${review.rejected?'disabled':''}>This reply uses the suggestion (for reporting)</label>
+      <button type="button" class="btn btn-ghost" data-action="replyFeedback.reject" data-ticket-id="${window.escAttr(id)}" data-rejected="${!review.rejected}" aria-pressed="${!!review.rejected}">${review.rejected?'Undo rejection':'Reject suggestion (for reporting)'}</button>` : ''}
   </div>`;
 }
 
@@ -42,7 +43,7 @@ export async function rateReply(ds, button) {
     if (current?.suggestionId === review.suggestionId) saveDraftReview(ds.ticketId, { ...current, feedback }, tab);
     if (samePanel()) {
       if (helpful) panel.querySelector('[data-feedback-reason]').value = '';
-      panel.querySelectorAll('button').forEach(el => el.setAttribute('aria-pressed', String((el.dataset.helpful === 'true') === helpful)));
+      panel.querySelectorAll('button').forEach(el => { if(el.dataset.helpful!==undefined)el.setAttribute('aria-pressed', String((el.dataset.helpful === 'true') === helpful)); });
       status.textContent = 'Feedback saved.';
     }
   } catch {
@@ -62,9 +63,35 @@ export async function changeReplyReason(ds, select) {
   }
   await rateReply({ ...ds, helpful: 'false' }, select);
 }
-registerActions({ 'replyFeedback.rate': rateReply });
+export async function rejectReply(ds,button) {
+  const panel=button.closest('.reply-feedback'),tab=COMPOSE_TAB,workspace=getWorkspaceId(),jwt=getJwt();
+  const review=loadDraftReview(ds.ticketId,tab);
+  if(tab!=='reply'||!panel||!workspace||!jwt||review?.suggestionId!==panel.dataset.suggestionId)return;
+  const key=`${workspace}:${jwt}:${review.suggestionId}`;
+  if(pending.has(key))return;
+  const active=()=>workspace===getWorkspaceId()&&jwt===getJwt()&&tab===COMPOSE_TAB&&panel.isConnected
+    &&loadDraftReview(ds.ticketId,tab)?.suggestionId===review.suggestionId;
+  const status=panel.querySelector('[role="status"]');
+  pending.add(key);panel.querySelectorAll('button,select').forEach(el=>{el.disabled=true;});
+  status.textContent='Saving choice…';
+  try {
+    const result=await apiPost(`/api/v1/ai/reply-feedback/${review.suggestionId}/rejected`,{rejected:ds.rejected==='true'});
+    if(workspace!==getWorkspaceId()||jwt!==getJwt())return;
+    const current=loadDraftReview(ds.ticketId,tab);
+    if(current?.suggestionId!==review.suggestionId)return;
+    saveDraftReview(ds.ticketId,{...current,rejected:result.rejected,...(result.rejected?{confirmedUse:false}:{})},tab);
+    if(!active())return;
+    button.dataset.rejected=String(!result.rejected);button.setAttribute('aria-pressed',String(result.rejected));
+    button.textContent=result.rejected?'Undo rejection':'Reject suggestion (for reporting)';
+    const use=panel.querySelector('[data-change-action="replyFeedback.confirmUse"]');
+    if(use){use.disabled=result.rejected;if(result.rejected)use.checked=false;}
+    status.textContent=result.rejected?'Rejection recorded. Your draft has been kept.':'Rejection removed.';
+  } catch {if(active())status.textContent='Your choice was not saved. Try again.';}
+  finally {pending.delete(key);if(active())panel.querySelectorAll('button,select').forEach(el=>{el.disabled=false;});}
+}
+registerActions({ 'replyFeedback.rate': rateReply, 'replyFeedback.reject':rejectReply });
 registerChangeActions({ 'replyFeedback.reason': changeReplyReason, 'replyFeedback.confirmUse': (ds, el) => {
   const review = loadDraftReview(ds.ticketId);
-  if (review?.suggestionId === el.closest('.reply-feedback')?.dataset.suggestionId)
+  if (!review?.rejected && review?.suggestionId === el.closest('.reply-feedback')?.dataset.suggestionId)
     saveDraftReview(ds.ticketId, { ...review, confirmedUse: el.checked });
 } });

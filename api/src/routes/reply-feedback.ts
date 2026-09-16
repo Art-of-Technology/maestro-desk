@@ -54,6 +54,17 @@ replyFeedback.post('/:id/shown', async c => {
   return rows.length ? c.json({ok:true}) : c.json({error:'Suggestion not found.'},404);
 });
 
+replyFeedback.post('/:id/rejected', async c => {
+  const id=z.string().uuid().safeParse(c.req.param('id'));
+  const body=z.object({rejected:z.boolean()}).strict().safeParse(await c.req.json().catch(()=>null));
+  if(!id.success||!body.success)return c.json({error:'Choose whether to reject the suggestion.'},400);
+  const sql=getDb();
+  const rows=await sql`update ai_reply_suggestions set rejected_at=case when ${body.data.rejected} then coalesce(rejected_at,now()) else null end
+    where id=${id.data} and workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')}
+      and reply_context='reply' and sent_message_id is null returning rejected_at`;
+  return rows.length?c.json({rejected:!!rows[0].rejected_at}):c.json({error:'This suggestion is unavailable or has already been used.'},404);
+});
+
 replyFeedback.post('/:id', async c => {
   const id = z.string().uuid().safeParse(c.req.param('id'));
   const body = Feedback.safeParse(await c.req.json().catch(() => null));

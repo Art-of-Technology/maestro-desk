@@ -93,6 +93,7 @@ export async function aiAction(id, action) {
       review.suggestionId = previous.suggestionId;
       review.feedback = previous.feedback;
       review.confirmedUse = previous.confirmedUse;
+      review.rejected = previous.rejected;
     }
     if (!text.trim()) review.notes = ['No new reply was inserted. Review the notes below.', ...review.notes].slice(0, 10);
     if (text.trim()) {

@@ -18,7 +18,7 @@ mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,ge
   apiPatch:async()=>({ok:true}),
   apiPost:async (_url,body)=>{calls++; if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return body;},
   apiGet:async ()=>{if(release) await new Promise(resolve=>{release=resolve;}); if(fail) throw Error('offline'); return listing;}}));
-const {renderReplyFeedback,rateReply,changeReplyReason}=await import('../web/js/ai/reply-feedback.js');
+const {renderReplyFeedback,rateReply,changeReplyReason,rejectReply}=await import('../web/js/ai/reply-feedback.js');
 const {loadReplyFeedback}=await import('../web/js/settings/reply-feedback.js');
 beforeEach(()=>{workspace='a0000000-0000-4000-8000-000000000001';jwt='agent';review={suggestionId,references:[],notes:[]};calls=0;fail=false;release=null;panel.isConnected=true;status.textContent='';select.value='wrong_match';select.disabled=false;select.closest=()=>panel;buttons.forEach(b=>{b.disabled=false;});});
 
@@ -107,4 +107,22 @@ test('admin view drops stale workspace results',async()=>{
   host={dataset:{},isConnected:true,innerHTML:''};listing={hasMore:false,items:[]};release=true;
   const pending=loadReplyFeedback();workspace='other';release();await pending;
   expect(host.innerHTML).toBe('<p>Loading feedback…</p>');
+});
+test('explicit rejection keeps rating separate, clears confirmed use, and permits undo',async()=>{
+  review={suggestionId,confirmedUse:true,feedback:{helpful:false,reason:'wrong_match'}};
+  const rejectButton={closest:()=>panel,dataset:{},setAttribute(){},textContent:''};
+  await rejectReply({ticketId:'T1',rejected:'true'},rejectButton);
+  expect(review.rejected).toBe(true);expect(review.confirmedUse).toBe(false);expect(review.feedback.reason).toBe('wrong_match');
+  expect(status.textContent).toContain('draft has been kept');
+  await rejectReply({ticketId:'T1',rejected:'false'},rejectButton);expect(review.rejected).toBe(false);
+  fail=true;await rejectReply({ticketId:'T1',rejected:'true'},rejectButton);expect(review.rejected).toBe(false);
+});
+test('late rejection keeps the original draft updated after navigation but not across workspaces',async()=>{
+  const rejectButton={closest:()=>panel,dataset:{},setAttribute(){}};
+  release=true;let saving=rejectReply({ticketId:'T1',rejected:'true'},rejectButton);
+  panel.isConnected=false;release();await saving;release=null;
+  expect(review.rejected).toBe(true);
+  panel.isConnected=true;review={suggestionId,references:[],notes:[]};release=true;
+  saving=rejectReply({ticketId:'T1',rejected:'true'},rejectButton);workspace='other';release();await saving;
+  expect(review.rejected).toBeUndefined();
 });
