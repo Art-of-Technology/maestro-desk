@@ -20,6 +20,7 @@ import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinkin
 import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
 import { syncRoute } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
+import { handoverStale, handoverText } from '../ai/handover.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
   translateText,
@@ -248,25 +249,30 @@ export function openTicket(id) {
 
   const summarizing = t.aiSummary && t.aiSummary.summarizing;
   const summary = t.aiSummary && !t.aiSummary.summarizing ? t.aiSummary : null;
-  const summaryStale = summary && summary.coveredMsgCount !== undefined && summary.coveredMsgCount !== null && (t.msgs || []).length > summary.coveredMsgCount;
+  const summaryStale = handoverStale(t,summary);
   const aiSummaryBlock = summarizing ? `
     <div class="ts-section">
-      <div class="ts-heading">AI Summary <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--purple);font-size:10px;font-style:italic;margin-left:4px">generating…</span></div>
-      <div style="font-size:11px;color:var(--ink3);font-style:italic">Talking to Claude…</div>
+      <div class="ts-heading">AI handover <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--purple);font-size:10px;font-style:italic;margin-left:4px">generating…</span></div>
+      <div style="font-size:11px;color:var(--ink3);font-style:italic">Preparing the internal handover…</div>
     </div>` : (summary ? `
     <div class="ts-section">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div class="ts-heading" style="margin:0">AI Summary${summaryStale ? '<span class="ts-stale-badge">stale</span>' : ''}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="ts-heading" style="margin:0">AI handover${summaryStale ? '<span class="ts-stale-badge">Outdated</span>' : ''}</div>
         <span style="display:flex;gap:10px">
-          <span class="link" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" style="font-size:11px">Refresh</span>
-          <span class="link" data-action="td.clearSummary" data-ticket-id="${window.escAttr(id)}" style="font-size:11px;color:var(--ink3)">×</span>
+          <button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}">Refresh</button>
+          <button class="btn btn-sm" aria-label="Clear handover" data-action="td.clearSummary" data-ticket-id="${window.escAttr(id)}">×</button>
         </span>
       </div>
       ${summary.error ? `<div style="font-size:11px;color:var(--red);font-style:italic">${window.escHtml(summary.error)}</div>` : `
+        <p style="font-size:11px">${summaryStale?'The conversation or ticket details changed. Refresh before relying on this handover.':'Internal AI summary. Check the conversation before acting.'}</p>
+        ${summary.truncated?'<p style="font-size:11px">Only the latest messages are included. Check earlier context too.</p>':''}
         <div style="font-size:12px;color:var(--ink);line-height:1.5;margin-bottom:8px">${window.escHtml(summary.tldr || '')}</div>
         ${summary.issue ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--purple);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Issue · </strong>${window.escHtml(summary.issue)}</div>` : ''}
         ${summary.done ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--green);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Done · </strong>${window.escHtml(summary.done)}</div>` : ''}
         ${summary.next ? `<div style="font-size:11px;color:var(--ink2);line-height:1.5;margin-bottom:4px"><strong style="color:var(--amber);text-transform:uppercase;font-size:10px;letter-spacing:.06em">Next · </strong>${window.escHtml(summary.next)}</div>` : ''}
+        <div style="font-size:12px;margin-top:8px"><strong>Unanswered questions</strong>${summary.unanswered?.length?`<ul>${summary.unanswered.map(v=>`<li>${window.escHtml(v)}</li>`).join('')}</ul>`:'<p>None identified. Verify against the conversation.</p>'}</div>
+        <div style="font-size:12px;margin-top:8px"><strong>Proposed next steps</strong>${summary.nextSteps?.length?`<ol>${summary.nextSteps.map(v=>`<li>${window.escHtml(v)}</li>`).join('')}</ol>`:'<p>Review the conversation before deciding.</p>'}</div>
+        <p style="font-size:11px">Copy for an internal handover ${copyButton(handoverText(t),'internal handover')}</p>
         <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);margin-top:6px">covered ${summary.coveredMsgCount || 0} msg${summary.coveredMsgCount === 1 ? '' : 's'} · ${window.escHtml((summary.generatedAt || '').slice(0, 16).replace('T', ' '))}</div>
       `}
     </div>` : '');
