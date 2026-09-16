@@ -9,6 +9,7 @@ import { enforceRateLimit } from '../lib/rate-limit.js';
 import { buildAIContext } from '../lib/ai-context.js';
 import { publishedKnowledgeMaterial } from '../lib/knowledge-context.js';
 import { previousReplyMaterial, genericDetails } from '../lib/previous-replies.js';
+import { meaningfulReplies } from '../lib/meaningful-replies.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplySource, CUSTOMER_REPLY_INSTRUCTIONS, CUSTOMER_REPLY_TOOL, parseCustomerReply } from '../lib/customer-reply.js';
 
@@ -124,9 +125,14 @@ ai.post('/messages', async (c) => {
     if (denied) return denied;
   }
   if ((historical || generic) && !input.ticketId) return c.json({ error: 'Choose a ticket first.' }, 400);
-  const previous = historical || generic ? await previousReplyMaterial(workspaceId, input.ticketId!, historical) : null;
+  const search = historical ? await meaningfulReplies(workspaceId, input.ticketId!, userId) : null;
+  const previous = historical ? search : generic ? await previousReplyMaterial(workspaceId, input.ticketId!, false) : null;
   if ((historical || generic) && !previous) return c.json({ error: 'Ticket not found.' }, 404);
-  if (historical && !previous!.examples.length) return c.json({ text: '', internal: { references: [], notes: ['No close matches were found in the latest 200 resolved tickets for this brand and market.'] }, examples: [] });
+  if (historical && !previous!.examples.length) {
+    const [workspace] = await sql`select ai_credits_micro from workspaces where id=${workspaceId}`;
+    return c.json({ text: '', internal: { references: [], notes: [...(search?.notes || []), 'No close matches were found in resolved or closed ticket history for this brand and market.'] }, examples: [],
+      cost_micro: search?.costMicro || 0, balance_micro: Number(workspace.ai_credits_micro) });
+  }
   const replyFormat = input.replyFormat || input.action === 'kb_draft' || historical || generic;
   const material = input.action === 'kb_draft' || historical ? await publishedKnowledgeMaterial(workspaceId, previous?.query || query) : null;
   const replySources = historical ? [...material!.references, ...previous!.examples.map(({ id, title }) => ({ id, title }))] : generic ? [] : material?.references || input.replySources;
@@ -233,8 +239,9 @@ ai.post('/messages', async (c) => {
     try {
       if (response.stop_reason === 'max_tokens') throw new Error('Truncated reply');
       const result = parseCustomerReply(tool?.type === 'tool_use' ? tool.input : undefined, replySources);
+      if (search?.notes.length) result.internal.notes = [...search.notes, ...result.internal.notes].slice(0, 10);
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
-      return c.json({ ...result, ...(historical ? { examples: previous!.examples } : {}), model: input.model, cost_micro: cost, balance_micro: balance });
+      return c.json({ ...result, ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
     }
