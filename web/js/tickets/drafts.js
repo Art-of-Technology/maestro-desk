@@ -44,6 +44,12 @@ export function saveDraftReview(id, value, tab) {
   try { localStorage.setItem(getDraftKey(id, tab) + ':ai-review', JSON.stringify(value)); } catch { /* The panel still shows for this render. */ }
 }
 
+// Feedback belongs to the suggestion, not the message sent to the customer.
+export function loadMessageReview(id, tab) {
+  const review = loadDraftReview(id, tab);
+  return review ? { references: review.references, notes: review.notes } : undefined;
+}
+
 // Remove EVERY tab's draft for a ticket (reply + internal note) — used when
 // the ticket itself is deleted, where clearing only the active COMPOSE_TAB
 // would leave the other tab's draft orphaned in localStorage forever.

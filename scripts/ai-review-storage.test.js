@@ -5,16 +5,18 @@ const storage = new Map();
 globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k), key: i => [...storage.keys()][i], get length() { return storage.size; } };
 globalThis.window = { escHtml: s => String(s).replaceAll('<', '&lt;').replaceAll('>', '&gt;'), escAttr: String };
 mock.module('../web/js/core/state.js', () => ({ COMPOSE_TAB: 'reply', SESSION: session }));
-mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace }));
-const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft } = await import('../web/js/tickets/drafts.js');
+mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace, getJwt: () => 'test', apiPost() {} }));
+mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {} }));
+const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview } = await import('../web/js/tickets/drafts.js');
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
 test('internal metadata is separate, scoped, escaped and cleared after sending', () => {
-  const review = { references: [{ id: 'KB-1', title: '<script>bad</script>', url: 'javascript:alert(1)' }], notes: ['Internal only'] };
+  const review = { references: [{ id: 'KB-1', title: '<script>bad</script>', url: 'javascript:alert(1)' }], notes: ['Internal only'], suggestionId: 'a0000000-0000-4000-8000-000000000001', feedback: {helpful:false,reason:'wrong_match'} };
   saveDraft('T1', '<p>Customer reply</p>');
   saveDraftReview('T1', review);
   expect(loadDraft('T1')).toBe('<p>Customer reply</p>');
   expect(loadDraftReview('T1')).toEqual(review);
+  expect(loadMessageReview('T1')).toEqual({ references: review.references, notes: review.notes });
   expect(loadDraftReview('T1', 'note')).toBeNull();
   const output = renderReplyReview('T1');
   expect(output).toContain('Internal references — not sent');

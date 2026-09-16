@@ -26,7 +26,7 @@ export async function aiAction(id, action) {
   const originalLanguageState = languageState();
   const previous = loadDraftReview(id, tab) || { references: [], notes: [] };
   const showError = message => {
-    if (active()) showReplyReview(id, { references: previous.references, notes: [...previous.notes, message].slice(-10) }, tab);
+    if (active()) showReplyReview(id, { ...previous, notes: [...previous.notes, message].slice(-10) }, tab);
   };
   if (!['draft', 'kb-reply', 'similar'].includes(action) && !current.trim()) {
     showError('Type a reply before using this action.');
@@ -73,7 +73,7 @@ export async function aiAction(id, action) {
     }
     const { text, data } = await callClaude({
       action: action === 'similar' ? 'similar_reply' : action === 'draft' ? 'kb_draft' : 'draft', system,
-      ticketId: action === 'similar' ? ticket._uuid : undefined,
+      ticketId: ['draft', 'kb-reply', 'similar'].includes(action) ? ticket._uuid : undefined,
       messages: [{ role: 'user', content: user }], maxTokens: 1600,
       replyFormat: true, replySources, replyLanguage,
     });
@@ -87,6 +87,7 @@ export async function aiAction(id, action) {
       throw new Error('The reply format was incomplete. Please generate it again.');
     }
     const review = data.internal;
+    if (data.suggestionId && text.trim()) review.suggestionId = data.suggestionId;
     if (!text.trim()) review.notes = ['No new reply was inserted. Review the notes below.', ...review.notes].slice(0, 10);
     if (text.trim()) {
       setText(id, text);

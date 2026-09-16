@@ -86,7 +86,7 @@ it('removes known customer details without replacing substrings in ordinary word
     target = fixtures.target; foreign = fixtures.foreign;
     const { anthropic } = await import('./lib/anthropic.js');
     createSpy = spyOn(anthropic.messages, 'create');
-  });
+  }, 30000); // Seeds 5,000 history rows to exercise search beyond recent tickets.
   beforeEach(async () => {
     searchMode = 'normal';
     await sql`update tickets set status_key='resolved' where id=${fixtures.match}`;
@@ -125,6 +125,9 @@ it('removes known customer details without replacing substrings in ordinary word
     expect(res.status).toBe(200);
     const data: any = await res.json();
     expect(data.examples.map((e: any) => e.id)).toEqual(['TK-match']);
+    expect(data.suggestionId).toBeString();
+    const [snapshot] = await sql`select reply from ai_reply_suggestions where id=${data.suggestionId} and workspace_id=${ws}`;
+    expect(snapshot.reply).toBe(data.text);
     expect(JSON.stringify(data.examples)).not.toContain('Alice');
     expect(JSON.stringify(data.examples)).not.toContain('123456789');
     expect(createSpy.mock.calls.at(-1)[0].system).toContain('ONLY published knowledge');

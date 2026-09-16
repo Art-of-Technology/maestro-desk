@@ -579,3 +579,17 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .kb-directory-actions { display:flex; align-items:center; gap:8px; }
 .kb-directory .btn, .kb-directory-game a { min-height:44px; }
 .kb-directory-game a { display:inline-flex; align-items:center; }
+.reply-feedback { margin: 12px 0; padding: 12px; background: var(--off2); border: 1px solid var(--rule); border-radius: var(--r); color: var(--ink); }
+.reply-feedback p { margin: 0 0 8px; }
+.reply-feedback-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.reply-feedback-controls label { display: flex; flex-direction: column; gap: 4px; }
+.reply-feedback-controls button, .reply-feedback-controls select { min-height: 44px; }
+.reply-feedback-controls select { padding: 8px; background: var(--off); color: var(--ink); border: 1px solid var(--rule3); border-radius: var(--r); font: inherit; }
+.reply-feedback-controls [aria-pressed="true"] { background: var(--purple-lt); color: var(--purple); box-shadow: inset 0 0 0 2px var(--purple); }
+.reply-feedback-card { padding: 16px; margin-top: 16px; border: 1px solid var(--rule); border-radius: var(--r); overflow-wrap: anywhere; }
+.reply-feedback-card h3 { font-size: 16px; margin: 0 0 8px; }
+.reply-feedback-card p { margin: 8px 0; }
+.reply-feedback-card a { color: var(--purple); }
+.reply-feedback-text { white-space: pre-wrap; line-height: 1.6; }
+button.settings-tab { border: 0; font-family: inherit; text-align: left; min-height: 44px; }
+button.settings-tab:not(.active):not(:hover) { background: transparent; }
