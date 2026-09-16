@@ -15,7 +15,7 @@ export function renderReplyPerformance() {
   if (!window.isAdmin()) return '<div class="page"><p>Admin permission is required to view AI reply performance.</p></div>';
   const end = new Date(), start = new Date(end); start.setUTCDate(start.getUTCDate()-29);
   setTimeout(() => loadPerformance(),0);
-  return `<div class="page"><div class="topbar"><button type="button" class="btn" data-action="reports.closeAi">← Reports</button><h1 class="tb-title">AI reply performance</h1></div>
+  return `<div class="page ai-performance-page"><div class="topbar"><button type="button" class="btn" data-action="reports.closeAi">← Reports</button><h1 class="tb-title">AI reply performance</h1></div>
     <div class="page-scroll ai-performance" id="ai-performance">
       <div class="performance-filters">
         <label>From (UTC)<input type="date" class="form-input" id="reply-report-start" value="${start.toISOString().slice(0,10)}"></label>

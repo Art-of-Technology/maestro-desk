@@ -610,3 +610,10 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .performance-table a { color: var(--purple); }
 .ai-performance h2 { font-size: 20px; margin-top: 24px; }
 @media(max-width:600px) { .ai-performance { padding: 12px; } .performance-filters label { width: 100%; } }
+@media(max-width:600px) {
+  .ai-performance-page .topbar { height: auto; min-height: 48px; flex-wrap: wrap; padding: 12px; }
+  .ai-performance-page .tb-title { flex-basis: 100%; margin: 0; }
+  .ai-performance-page .topbar .btn { min-height: 44px; }
+  .performance-filters input,.performance-filters select { width: 100%; min-width: 0; }
+  .performance-kpis { grid-template-columns: minmax(0,1fr); }
+}
