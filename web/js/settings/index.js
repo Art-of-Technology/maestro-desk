@@ -34,6 +34,7 @@ import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } f
 import { settingsEmailBranding, settingsMySignature } from '../email-branding/index.js';
 import { settingsSenderDomain } from '../email-domain/index.js';
 import { settingsPushSection } from '../push/index.js';
+import { settingsReplyFeedback } from './reply-feedback.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
 // In-memory snapshots of the workspace's integrations, loaded lazily
@@ -73,9 +74,12 @@ export function renderSettings() {
     {k:'language',      l:'Language'},
     {k:'integrations',  l:'Integrations'},
     // Email branding + Sender domain + Categories are workspace config — admins only.
-    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}, {k:'categories', l:'Categories'}] : []),
+    ...(window.isAdmin() ? [{k:'reply-feedback', l:'Reply feedback'}, {k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}, {k:'categories', l:'Categories'}] : []),
   ];
-  const tabbar = tabs.map(t => `<div class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</div>`).join('');
+  const tabbar = tabs.map(t => {
+    const tag = t.k === 'reply-feedback' ? 'button' : 'div';
+    return `<${tag} ${tag === 'button' ? 'type="button"' : ''} class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</${tag}>`;
+  }).join('');
   let panel = '';
   if      (SETTINGS_TAB === 'profile')       panel = settingsProfile();
   else if (SETTINGS_TAB === 'appearance')    panel = settingsAppearance();
@@ -87,11 +91,12 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'email')         panel = settingsEmailBranding();
   else if (SETTINGS_TAB === 'sender-domain') panel = settingsSenderDomain();
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
+  else if (SETTINGS_TAB === 'reply-feedback') panel = settingsReplyFeedback();
   return `
     <div class="page">
       <div class="topbar"><div class="tb-title">Settings</div></div>
       <div class="page-scroll">
-        <div class="settings-shell ${SETTINGS_TAB === 'ai' ? 'ai-settings-shell' : ''}">
+        <div class="settings-shell ${['ai','reply-feedback'].includes(SETTINGS_TAB) ? 'ai-settings-shell' : ''}">
           <aside class="settings-side">${tabbar}</aside>
           <div class="settings-panel">${panel}</div>
         </div>

@@ -10,6 +10,8 @@ import { buildAIContext } from '../lib/ai-context.js';
 import { publishedKnowledgeMaterial } from '../lib/knowledge-context.js';
 import { previousReplyMaterial, genericDetails } from '../lib/previous-replies.js';
 import { meaningfulReplies } from '../lib/meaningful-replies.js';
+import { recordReplySuggestion } from '../lib/reply-feedback.js';
+import { replyFeedback } from './reply-feedback.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplySource, CUSTOMER_REPLY_INSTRUCTIONS, CUSTOMER_REPLY_TOOL, parseCustomerReply } from '../lib/customer-reply.js';
 
@@ -74,6 +76,8 @@ ai.use('*', async (c, next) => {
   await next();
 });
 
+ai.route('/reply-feedback', replyFeedback);
+
 ai.get('/status', async (c) => {
   const sql = getDb();
   const [workspace] = await sql`
@@ -126,6 +130,8 @@ ai.post('/messages', async (c) => {
     if (denied) return denied;
   }
   if ((historical || generic) && !input.ticketId) return c.json({ error: 'Choose a ticket first.' }, 400);
+  if (input.ticketId && !historical && !generic && !await previousReplyMaterial(workspaceId, input.ticketId, false))
+    return c.json({ error: 'Ticket not found.' }, 404);
   const search = historical ? await meaningfulReplies(workspaceId, input.ticketId!, userId) : null;
   const previous = historical ? search : generic ? await previousReplyMaterial(workspaceId, input.ticketId!, false) : null;
   if ((historical || generic) && !previous) return c.json({ error: 'Ticket not found.' }, 404);
@@ -245,7 +251,9 @@ ai.post('/messages', async (c) => {
       const result = parseCustomerReply(tool?.type === 'tool_use' ? tool.input : undefined, replySources);
       if (search?.notes.length) result.internal.notes = [...search.notes, ...result.internal.notes].slice(0, 10);
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
-      return c.json({ ...result, ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
+      const suggestionId = !generic && input.ticketId && result.text.trim()
+        ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : []).catch(() => null) : null;
+      return c.json({ ...result, ...(suggestionId ? { suggestionId } : {}), ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
     }

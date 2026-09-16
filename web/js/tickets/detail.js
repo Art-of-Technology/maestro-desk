@@ -47,7 +47,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadDraftReview } from './drafts.js';
+import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
@@ -1150,7 +1150,7 @@ async function sendComposeOnce(id) {
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         mentions: isNote ? (mentions || []).map((m) => m.userId).filter(Boolean) : undefined,
-        internal_review: loadDraftReview(id) || undefined,
+        internal_review: loadMessageReview(id),
       });
       message = res.message;
       delivery = res.delivery;

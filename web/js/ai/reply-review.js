@@ -1,4 +1,5 @@
 import { loadDraftReview, saveDraftReview } from '../tickets/drafts.js';
+import { renderReplyFeedback } from './reply-feedback.js';
 
 function safeLink(value) {
   try {
@@ -11,7 +12,7 @@ export function renderReplyReview(id, value = loadDraftReview(id), saved = false
   if (!value) return '';
   const refs = value.references.filter(r => r && typeof r.title === 'string').slice(0, 20);
   const notes = value.notes.filter(n => typeof n === 'string').slice(0, 10);
-  return `<details class="reply-internal-review" ${saved ? '' : 'open'}>
+  return `${saved ? '' : renderReplyFeedback(id, value)}<details class="reply-internal-review" ${saved ? '' : 'open'}>
     <summary>Internal references — not sent</summary>
     <p>${saved ? 'Saved with this reply for agents only. These sources and notes accompanied the suggestion; the reply may have been edited before sending.' : 'For agents only. Review these alongside the reply before sending.'}</p>
     ${refs.length ? `<ul>${refs.map(r => {
