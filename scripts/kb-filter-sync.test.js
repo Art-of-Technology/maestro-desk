@@ -19,7 +19,7 @@ function setup(initial=[local]) {
       if(blockPost)await blockPost;
       const item={...body,id:'new'};rows.push(item);return {item};
     },
-    async patch(path,body){if(offline)throw Error('offline');const item=rows.find(r=>path.endsWith('/'+r.id));Object.assign(item,body);return {item:{...item}};},
+    async patch(path,body){if(offline)throw Error('offline');const item=rows.find(r=>path.endsWith('/'+r.id));if(body.is_default)rows.forEach(r=>r.is_default=false);Object.assign(item,body);return {item:{...item}};},
     async delete(path){if(offline)throw Error('offline');rows=rows.filter(r=>!path.endsWith('/'+r.id));},
   };
   const sync=createFilterSync({api,storage:()=>storage,currentScope:()=>scope,changed(){}});
@@ -67,6 +67,30 @@ test('pin preference syncs to another device and failed unpin preserves the last
   expect(h.sync.state.items[0].is_pinned).toBe(true);
   h.setOffline(false);await h.sync.mutate('pin',{id:'remote-local',is_pinned:false});await second.refresh();
   expect(second.state.items[0]).toMatchObject({name:'Review',filters,is_pinned:false});
+});
+test('one default syncs between devices; failed updates retain the last saved default',async()=>{
+  const h=setup();h.sync.ensure('agent-a','a');await tick();
+  await h.sync.mutate('save',{name:'Another',filters});
+  await h.sync.mutate('default',{id:'remote-local',is_default:true});
+  const second=createFilterSync({api:h.api,storage:()=>({getItem:()=>null}),currentScope:()=> 'agent-a',changed(){}});
+  second.ensure('agent-a','a');await tick();
+  expect(second.state.items.find(x=>x.is_default).id).toBe('remote-local');
+  await second.mutate('default',{id:'new',is_default:true});await h.sync.refresh();
+  expect(h.sync.state.items.filter(x=>x.is_default).map(x=>x.id)).toEqual(['new']);
+  h.setOffline(true);await expect(h.sync.mutate('default',{id:'new',is_default:false})).rejects.toThrow('offline');
+  expect(h.sync.state.items.find(x=>x.id==='new').is_default).toBe(true);
+  h.setOffline(false);await h.sync.mutate('default',{id:'new',is_default:false});
+  expect(h.sync.state.items.some(x=>x.is_default)).toBe(false);
+});
+test('return refresh coalesces requests, manual refresh retries, and old sessions cannot refresh',async()=>{
+  const h=setup([]);let calls=0;const get=h.api.get;
+  h.api.get=async()=>{calls++;return get();};
+  h.sync.ensure('agent-a','a');await tick();expect(calls).toBe(1);
+  await h.sync.refresh({maxAge:15000});expect(calls).toBe(1);
+  await h.sync.refresh();expect(calls).toBe(2);
+  h.setOffline(true);await h.sync.refresh();expect(calls).toBe(3);
+  await h.sync.refresh({maxAge:15000});expect(calls).toBe(3);
+  h.setScope('agent-b');await h.sync.refresh();expect(calls).toBe(3);
 });
 test('scope changes discard delayed loads and never send an import in the new session',async()=>{
   const h=setup();let release;h.setGet(new Promise(resolve=>release=resolve));

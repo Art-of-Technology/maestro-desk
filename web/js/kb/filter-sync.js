@@ -6,6 +6,7 @@ const ROOT = '/api/v1/kb-saved-filters';
 export function createFilterSync({api, storage, currentScope, changed}) {
   let state = {scope:'', key:null, items:[], phase:'idle', error:'', warning:''};
   let generation = 0;
+  let lastAttempt = 0;
   const active = (scope, version) => {
     if (state.scope !== scope || version !== generation) return false;
     if (currentScope() === scope) return true;
@@ -14,6 +15,7 @@ export function createFilterSync({api, storage, currentScope, changed}) {
     return false;
   };
   async function load() {
+    lastAttempt = Date.now();
     const {scope,key} = state, version = ++generation;
     state = {...state, phase:'loading', error:'', warning:''};
     changed();
@@ -53,12 +55,16 @@ export function createFilterSync({api, storage, currentScope, changed}) {
     ensure(scope,key) {
       if (state.scope === scope) { if (key && state.phase === 'idle') void load(); return; }
       generation++;
+      lastAttempt = 0;
       state = {scope,key,items:[],phase:'idle',error:'',warning:''};
       if (key) void load();
     },
-    refresh() { if (state.key && !['loading','saving'].includes(state.phase)) return load(); },
-    async mutate(action,{id,name,filters,is_pinned}) {
-      if (!['save','rename','pin','delete'].includes(action)) throw Error('Unknown saved filter action.');
+    refresh({maxAge=0}={}) {
+      if (state.key && state.scope===currentScope() && !['loading','saving'].includes(state.phase)
+        && (!maxAge || Date.now()-lastAttempt>=maxAge)) return load();
+    },
+    async mutate(action,{id,name,filters,is_pinned,is_default}) {
+      if (!['save','rename','pin','default','delete'].includes(action)) throw Error('Unknown saved filter action.');
       const {scope} = state;
       if (scope !== currentScope() || state.phase !== 'ready') throw Error('Wait for saved filters to load, then try again.');
       const version = ++generation;
@@ -68,10 +74,12 @@ export function createFilterSync({api, storage, currentScope, changed}) {
         const result = action === 'save' ? await api.post(ROOT,{name,filters})
           : action === 'rename' ? await api.patch(ROOT+'/'+encodeURIComponent(id),{name})
           : action === 'pin' ? await api.patch(ROOT+'/'+encodeURIComponent(id),{is_pinned})
+          : action === 'default' ? await api.patch(ROOT+'/'+encodeURIComponent(id),{is_default})
           : await api.delete(ROOT+'/'+encodeURIComponent(id));
         if (!active(scope,version)) return null;
         const items = action === 'save' ? [...state.items,result.item]
-          : action === 'rename' || action === 'pin' ? state.items.map(item => item.id === id ? result.item : item)
+          : action !== 'delete' ? state.items.map(item => item.id === id ? result.item
+            : action==='default' && result.item.is_default ? {...item,is_default:false} : item)
           : state.items.filter(item => item.id !== id);
         state = {...state,items,phase:'ready'};
         changed();

@@ -28,6 +28,7 @@ import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from '
 import { cardTitle, updatedLabel, directoryCards, gameDirectory, cardMatchesQuery, articleCategory, articlePreview, articlePage } from './card-presentation.js';
 import { filterStorageKey } from './saved-filters.js';
 import { createFilterSync } from './filter-sync.js';
+import { createDefaultView, activeFilterEntries } from './filter-view.js';
 import { reviewSummary } from './review-status.js';
 
 function kbApiBacked() {
@@ -61,11 +62,44 @@ let savedFilterId = '', savedFilterScope = '';
 const currentFilters = () => ({category:KB_FILTER_CAT,market:KB_FILTER_MARKET,status:KB_FILTER_STATUS,query:KB_QUERY});
 const savedKey = () => getJwt() ? filterStorageKey(getWorkspaceId(),SESSION?.userId) : null;
 const savedScope = () => JSON.stringify([savedKey(),getJwt()]);
+const defaultView = createDefaultView();
+function enterFilterView() {
+  if(defaultView.enter(savedScope(),!!KB_SELECTED)) {
+    KB_FILTER_CAT='all';KB_FILTER_MARKET='all';KB_FILTER_STATUS='all';KB_QUERY='';KB_PAGE=0;
+    savedFilterId='';savedFilterScope=savedScope();
+  }
+}
+function touchFilters() {enterFilterView();defaultView.touch();}
+function setFilters(filters) {
+  KB_FILTER_CAT=filters.category;KB_FILTER_MARKET=filters.market;KB_FILTER_STATUS=filters.status;KB_QUERY=filters.query;
+}
 const filterSync = createFilterSync({
   api:{get:apiGet,post:apiPost,patch:apiPatch,delete:apiDelete},
   storage:()=>localStorage, currentScope:savedScope,
   changed:()=>{ if(CURRENT_PAGE==='kb') renderPage('kb'); },
 });
+function refreshOnReturn() {
+  if(CURRENT_PAGE!=='kb' || KB_SELECTED || bulkRunning || document.visibilityState==='hidden'
+    || document.querySelector?.('#modal-container .modal')
+    || ['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)) return;
+  void filterSync.refresh({maxAge:15000});
+}
+window.addEventListener?.('focus',refreshOnReturn);
+document.addEventListener?.('visibilitychange',refreshOnReturn);
+function renderActiveFilters() {
+  const entries=activeFilterEntries(currentFilters());
+  return `<div id="kb-active-filters" class="kb-active-filters" role="group" aria-label="Active filters" tabindex="-1">${entries.length
+    ? entries.map(({key,label})=>`<button type="button" class="btn btn-sm" data-action="kb.clearFilter" data-key="${key}" aria-label="${window.escAttr('Remove '+label)}">${window.escHtml(label)} <span aria-hidden="true">×</span></button>`).join('')+'<button type="button" class="btn btn-sm" data-action="kb.clearFilters">Clear all filters</button>'
+    : '<span class="kb-saved-note">No active filters</span>'}</div>`;
+}
+function clearFilter(key) {
+  if(bulkRunning || !['all','category','market','status','query'].includes(key))return;
+  touchFilters();
+  const filters=currentFilters();
+  for(const field of Object.keys(filters))if(key==='all'||key===field)filters[field]=field==='query'?'':'all';
+  setFilters(filters);KB_PAGE=0;bulkSelection.ids.clear();bulkMessage='';
+  renderPage('kb');document.getElementById('kb-active-filters')?.focus();
+}
 
 function renderSavedFilters() {
   if (savedFilterScope !== savedScope()) { savedFilterId='';savedFilterScope=savedScope(); }
@@ -76,6 +110,7 @@ function renderSavedFilters() {
   if (phase==='loading'||phase==='error') return `<div class="kb-saved-filters"><span role="status">${window.escHtml(error || 'Loading saved filters…')}</span><button type="button" class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button></div>`;
   if (!items.some(item=>item.id===savedFilterId)) savedFilterId='';
   const selected=items.find(item=>item.id===savedFilterId);
+  const personalDefault=items.find(item=>item.is_default);
   const pinned=items.filter(item=>item.is_pinned);
   const criteria=currentFilters();
   const matches=items.filter(({filters})=>['category','market','status'].every(key=>filters[key]===criteria[key])
@@ -88,12 +123,25 @@ function renderSavedFilters() {
     <select class="filter-select" id="kb-saved-filter" data-input-action="kb.pickSaved"><option value="">Choose a saved filter</option>${items.map(item=>`<option value="${window.escAttr(item.id)}" ${item.id===savedFilterId?'selected':''}>${window.escHtml(item.name)}</option>`).join('')}</select>
     <button type="button" class="btn btn-sm" data-action="kb.applySaved" ${busy?'disabled':''}>Apply</button>
     <button type="button" class="btn btn-sm" id="kb-pin-filter" data-action="kb.pinFilter" ${busy||!selected?'disabled':''}>${selected?.is_pinned?'Unpin':'Pin'}</button>
+    <button type="button" class="btn btn-sm" id="kb-default-filter" data-action="kb.defaultFilter" ${busy||!selected?'disabled':''}>${selected?.is_default?'Remove default':'Make default'}</button>
     <button type="button" class="btn btn-sm" data-action="kb.saveFilter" ${busy?'disabled':''}>Save current filters</button>
     <button type="button" class="btn btn-sm" data-action="kb.renameFilter" ${busy?'disabled':''}>Rename</button>
     <button type="button" class="btn btn-sm" data-action="kb.deleteFilter" ${busy?'disabled':''}>Delete</button>
     <button type="button" class="btn btn-sm" data-action="kb.refreshFilters" ${busy?'disabled':''}>Refresh</button><span class="kb-saved-note">Personal · synced across devices</span><span id="kb-saved-status" role="status">${window.escHtml(busy?'Saving…':warning)}</span>
     <span class="kb-filter-match" id="kb-filter-match" role="status">${window.escHtml(matchLabel)}</span>
+    <span class="kb-filter-match">${window.escHtml(personalDefault?'Default: '+personalDefault.name+'. Opens when you first visit this workspace in a new session.':'No default filter. New sessions start with all articles.')}</span>
     ${pinned.length?`<div class="kb-pinned-filters" role="group" aria-label="Pinned filters"><span>Pinned</span>${pinned.map(item=>`<button type="button" class="btn btn-sm${matchingIds.has(item.id)?' btn-solid':''}" id="kb-pinned-${window.escAttr(item.id)}" data-action="kb.applyPinned" data-id="${window.escAttr(item.id)}" aria-label="${window.escAttr('Apply saved filter '+item.name+(matchingIds.has(item.id)?'. Matches current view.':''))}" ${busy||bulkRunning?'disabled':''}>${matchingIds.has(item.id)?'<span aria-hidden="true">✓</span> ':''}${window.escHtml(item.name)}</button>`).join('')}</div>`:''}</div>`;
+}
+async function defaultSavedFilter() {
+  const scope=savedScope();
+  try {
+    const item=selectedSavedFilter(),is_default=!item.is_default;
+    const id=await filterSync.mutate('default',{id:item.id,is_default});
+    if(id===null || scope!==savedScope() || CURRENT_PAGE!=='kb')return;
+    document.getElementById('kb-default-filter')?.focus();
+    const status=document.getElementById('kb-saved-status');
+    if(status)status.textContent=is_default?'Default saved for your next session. Your current view is unchanged.':'Default removed. Your current view is unchanged.';
+  } catch(error) {if(scope===savedScope())savedError(error);}
 }
 async function pinSavedFilter() {
   const scope=savedScope();
@@ -158,7 +206,7 @@ function applySavedFilter() {
   if (bulkRunning) return;
   try {
     const {filters}=selectedSavedFilter();
-    KB_FILTER_CAT=filters.category;KB_FILTER_MARKET=filters.market;KB_FILTER_STATUS=filters.status;KB_QUERY=filters.query;
+    touchFilters();setFilters(filters);
     KB_PAGE=0;bulkSelection.ids.clear();bulkMessage='';
     renderPage('kb');document.getElementById('kb-saved-filter')?.focus();
     const status=document.getElementById('kb-saved-status');
@@ -354,8 +402,14 @@ function renderSelection(focusUuid) {
 }
 
 export function renderKB() {
+  enterFilterView();
+  if(filterSync.state.scope===savedScope() && filterSync.state.phase==='ready') {
+    const item=defaultView.choose(filterSync.state.items);
+    if(item) {setFilters(item.filters);savedFilterId=item.id;}
+  }
   syncBulkSelection();
   if (KB_SELECTED) return renderKBArticle(KB_SELECTED);
+  if(!document.querySelector?.('.kb-library-page'))queueMicrotask(refreshOnReturn);
   const scope = bulkScope();
   if (scope !== pageScope) { KB_PAGE = 0; pageScope = scope; }
   const admin = window.isAdmin();
@@ -440,6 +494,7 @@ export function renderKB() {
             <input class="filter-select" aria-label="Search articles" placeholder="Search articles…" style="width:280px" value="${window.escAttr(KB_QUERY)}" data-input-action="kb.setQuery"/>
             <span class="kb-result-count">${list.length} of ${KB_ARTICLES.length} articles · ${grouped.length} entries including game directories</span>
           </div>
+          ${renderActiveFilters()}
           ${admin && kbApiBacked() && (KB_FILTER_STATUS === 'draft' || bulkSelection.ids.size || bulkRunning || bulkMessage) ? `<div class="kb-bulk-bar">
             <button class="btn btn-sm" data-action="kb.selectMatching" ${bulkRunning || !list.some(a => a._uuid && articleStatus(a) === 'draft') ? 'disabled' : ''}>Select all matching drafts</button>
             <button class="btn btn-sm" data-action="kb.clearSelection" ${bulkRunning || !bulkSelection.ids.size ? 'disabled' : ''}>Clear selection</button>
@@ -542,6 +597,7 @@ function renderKBArticle(id) {
 }
 
 function kbSetQuery(q) {
+  touchFilters();
   const wasFocused = document.activeElement;
   KB_QUERY = q;
   renderPage('kb');
@@ -552,9 +608,10 @@ function kbSetQuery(q) {
     input.setSelectionRange(input.value.length, input.value.length);
   }
 }
-function kbSetCat(c) { KB_FILTER_CAT = c; renderPage('kb'); }
+function kbSetCat(c) { touchFilters();KB_FILTER_CAT = c; renderPage('kb'); }
 function kbSetStatus(status) {
   if (status !== 'all' && !Object.hasOwn(ARTICLE_STATUS_LABELS, status)) return;
+  touchFilters();
   KB_FILTER_STATUS = status;
   renderPage('kb');
 }
@@ -773,6 +830,9 @@ function kbDeleteArticle(id) {
 }
 
 registerActions({
+  'kb.defaultFilter':defaultSavedFilter,
+  'kb.clearFilter':ds=>clearFilter(ds.key),
+  'kb.clearFilters':()=>clearFilter('all'),
   'kb.pinFilter':pinSavedFilter,
   'kb.applyPinned':ds=>applyPinnedFilter(ds.id),
   'kb.refreshFilters':()=>filterSync.refresh(),
@@ -780,9 +840,10 @@ registerActions({
   'kb.saveFilter':()=>editSavedFilter('save'),
   'kb.renameFilter':()=>editSavedFilter('rename'),
   'kb.deleteFilter':()=>editSavedFilter('delete'),
-  'kb.page': (ds) => { KB_PAGE = Number(ds.page); renderPage('kb'); document.querySelector('.kb-pagination')?.focus(); },
+  'kb.page': (ds) => { touchFilters();KB_PAGE = Number(ds.page); renderPage('kb'); document.querySelector('.kb-pagination')?.focus(); },
   'kb.selectDirectory': ds => {
     if (bulkRunning || !window.isAdmin()) return;
+    touchFilters();
     syncBulkSelection();
     const drafts = matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft' && gameDirectory(a)?.key === ds.directory);
     const clear = drafts.every(a => bulkSelection.ids.has(a._uuid));
@@ -791,6 +852,7 @@ registerActions({
   },
   'kb.selectDraft': (ds, el) => {
     if (bulkRunning || !window.isAdmin()) return;
+    touchFilters();
     syncBulkSelection();
     const a = matchingKB().find(a => a._uuid === ds.uuid && articleStatus(a) === 'draft');
     if (!a) return;
@@ -799,6 +861,7 @@ registerActions({
   },
   'kb.selectMatching': () => {
     if (bulkRunning || !window.isAdmin()) return;
+    touchFilters();
     syncBulkSelection();
     matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft').forEach(a => bulkSelection.ids.add(a._uuid));
     renderPage('kb');
@@ -820,6 +883,6 @@ registerActions({
 
 registerInputActions({
   'kb.pickSaved':(_ds,el)=>{ if(savedFilterScope===savedScope()) {savedFilterId=el.value;renderPage('kb');document.getElementById('kb-saved-filter')?.focus();} },
-  'kb.setMarket': (ds, el) => { KB_FILTER_MARKET = el.value; renderPage('kb'); document.getElementById('kb-market')?.focus(); },
+  'kb.setMarket': (ds, el) => { touchFilters();KB_FILTER_MARKET = el.value; renderPage('kb'); document.getElementById('kb-market')?.focus(); },
   'kb.setQuery': (ds, el) => kbSetQuery(el.value),
 });
