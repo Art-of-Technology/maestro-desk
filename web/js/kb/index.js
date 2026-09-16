@@ -26,6 +26,7 @@ import { articleMarket, matchingArticles, DraftSelection, publishDrafts } from '
 import { cardTitle, updatedLabel, directoryCards, gameDirectory, cardMatchesQuery, articleCategory, articlePreview, articlePage } from './card-presentation.js';
 import { filterStorageKey } from './saved-filters.js';
 import { createFilterSync } from './filter-sync.js';
+import { reviewSummary } from './review-status.js';
 
 function kbApiBacked() {
   return !!(getJwt() && getWorkspaceId());
@@ -40,6 +41,10 @@ function mapKbResponse(a) {
     body:     a.body || '',
     status:   a.status || 'draft',
     author:   a.author_name || 'Unknown',
+    owner_user_id: a.owner_user_id || null,
+    owner_name: a.owner_name || null,
+    review_due_date: a.review_due_date || null,
+    reviewed_at: a.reviewed_at || null,
     updated:  a.updated_at || '',
   };
 }
@@ -379,7 +384,7 @@ export function renderKB() {
           <p class="kb-row-preview">${snippetHtml || 'Open article to view its content.'}</p>
           <div class="kb-row-meta"><span>${window.escHtml(articleCategory(a))}</span><span>${window.escHtml(articleMarket(a) === 'unassigned' ? 'Unassigned market' : articleMarket(a))}</span><span>${window.escHtml(a.id)}</span>${a.featured ? '<span>★ Featured</span>' : ''}</div>
         </div>
-        <div class="kb-row-state">${statusBadge(a)}<span class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</span>
+        <div class="kb-row-state">${statusBadge(a)}<span class="kb-updated">${window.escHtml(updatedLabel(a.updated))}</span>${reviewSummary(a, window.escHtml)}
           ${admin && a._uuid && articleStatus(a) === 'draft' ? `<label class="kb-select-draft" data-action=""><input type="checkbox" data-action="kb.selectDraft" data-uuid="${window.escAttr(a._uuid)}" aria-label="Select ${window.escAttr(a.title)}" ${bulkSelection.ids.has(a._uuid) ? 'checked' : ''} ${bulkRunning ? 'disabled' : ''}/> Select</label>` : ''}
         </div>
       </article>`;
@@ -494,6 +499,9 @@ function renderKBArticle(id) {
             ${admin && status === 'draft' ? `<button class="btn btn-solid" data-action="kb.publish" data-id="${window.escAttr(a.id)}">Publish article</button>` : ''}
           </div>
           <div class="kb-article-meta">
+            ${reviewSummary(a, window.escHtml)}
+            ${a.reviewed_at ? `<span>Last reviewed: ${window.escHtml(a.reviewed_at.slice(0, 10))}</span>` : ''}
+            ${admin && a._uuid ? `<button class="btn btn-sm" data-action="kb.review" data-id="${window.escAttr(a.id)}">Manage review</button>` : ''}
             <span>${a.id}</span>
             <span>By ${window.escHtml(a.author)}</span>
             <span>${window.escHtml(updatedLabel(a.updated))}</span>
@@ -548,6 +556,49 @@ function kbSetStatus(status) {
 }
 function openKBArticle(id) { incrementKBView(id); setKbSelected(id); renderPage('kb'); }
 function closeKBArticle()  { setKbSelected(null); renderPage('kb'); }
+
+async function kbManageReview(id) {
+  if (!window.isAdmin()) return;
+  const article = KB_ARTICLES.find(a => a.id === id);
+  if (!article?._uuid) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const active = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_PAGE === 'kb' && KB_SELECTED === id;
+  let owners;
+  try { ({ owners } = await apiGet('/api/v1/kb-articles/review-owners')); }
+  catch { if (active()) alert('Could not load article owners. Try again.'); return; }
+  if (!active()) return;
+  const unavailable = article.owner_user_id && !owners.some(o => o.id === article.owner_user_id);
+  let saving = false;
+  showModal('Manage article review', `
+    <p>${window.escHtml(article.title)}</p>
+    <div class="form-row"><label class="form-label" for="kb-owner">Owner</label>
+      <select class="form-input" id="kb-owner"><option value="">Unassigned</option>
+      ${unavailable ? '<option value="unavailable" selected disabled>Unavailable member — choose another owner or Unassigned</option>' : ''}
+      ${owners.map(o => `<option value="${window.escAttr(o.id)}" ${o.id === article.owner_user_id ? 'selected' : ''}>${window.escHtml(o.name)}</option>`).join('')}</select></div>
+    <div class="form-row"><label class="form-label" for="kb-review-date">Next review date UTC</label><input class="form-input" type="date" id="kb-review-date" min="1900-01-01" max="9999-12-31" value="${window.escAttr(article.review_due_date || '')}"/></div>
+    <label class="kb-review-confirm"><input type="checkbox" id="kb-reviewed"/> I have reviewed this article</label>
+    <p class="kb-form-note">Recording a review does not change its publication status. Set the next review date to schedule another review.</p>
+    <p id="kb-review-message" role="status"></p>`, async () => {
+      if (saving || !active() || !window.isAdmin()) return;
+      const message = document.getElementById('kb-review-message');
+      const owner = document.getElementById('kb-owner').value;
+      const date = document.getElementById('kb-review-date');
+      if (owner === 'unavailable' || !date.checkValidity()) { message.textContent = 'Choose an available owner and a valid review date.'; return; }
+      saving = true; message.textContent = 'Saving review details…';
+      try {
+        const { review } = await apiPatch(`/api/v1/kb-articles/${article._uuid}/review`, {
+          owner_user_id: owner || null, review_due_date: date.value || null,
+          mark_reviewed: document.getElementById('kb-reviewed').checked,
+        });
+        if (!active()) return;
+        Object.assign(article, review);
+        if (message === document.getElementById('kb-review-message')) closeModal();
+        renderPage('kb');
+      } catch (error) {
+        if (active() && message === document.getElementById('kb-review-message')) message.textContent = error?.message || 'Could not save review details. Try again.';
+      } finally { saving = false; }
+    }, 'Save review details', true);
+}
 
 function kbArticleForm(initial) {
   const cats = [...new Set(KB_ARTICLES.map(a => a.category))];
@@ -759,6 +810,7 @@ registerActions({
   'kb.toggleFeatured': (ds) => toggleKBFeatured(ds.id),
   'kb.setCat':         (ds) => kbSetCat(ds.cat),
   'kb.setStatus':      (ds) => kbSetStatus(ds.status),
+  'kb.review':         (ds) => kbManageReview(ds.id),
   'kb.vote':           (ds) => voteKB(ds.id, ds.vote),
 });
 

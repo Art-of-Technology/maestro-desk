@@ -141,6 +141,11 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .kb-row-state{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 0 220px}
 .kb-row-state .kb-select-draft{margin-left:0}
 .kb-row-state .kb-updated{margin:0;order:1;flex-basis:100%}
+.kb-review-status{font-size:12px;color:var(--ink2)}
+.kb-review-overdue{color:var(--red);font-weight:600}
+.kb-row-state>span{overflow-wrap:anywhere}
+.kb-row-state>span:not(.kb-status){font-size:12px}
+.kb-review-confirm{display:flex;align-items:center;gap:8px;min-height:44px}
 .kb-library-page .kb-cat-item{width:100%;border:0;background:transparent;text-align:left;min-height:44px}
 .kb-library-page .kb-cat-item.active{background:var(--purple-lt)}
 .kb-library-page .filter-bar{flex-wrap:wrap;gap:8px}
