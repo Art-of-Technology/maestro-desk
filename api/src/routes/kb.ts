@@ -30,15 +30,63 @@ kb.get('/', async (c) => {
   const articles = await sql`
     select a.id, a.display_id, a.title, a.category, a.body, a.author_user_id, a.status,
            a.view_count, a.helpful_count, a.unhelpful_count, a.created_at, a.updated_at,
-           u.name as author_name,
+           u.name as author_name, a.owner_user_id, a.review_due_date, a.reviewed_at,
+           owner.name as owner_name,
            coalesce(v.vote, 0) as my_vote   -- 1 = up, -1 = down, 0 = none
     from kb_articles a
     left join users u on u.id = a.author_user_id
+    left join workspace_members wm on wm.workspace_id = a.workspace_id and wm.user_id = a.owner_user_id and wm.active
+    left join users owner on owner.id = wm.user_id and owner.deleted_at is null
     left join kb_votes v on v.article_id = a.id and v.user_key = ${userId} and v.workspace_id = ${workspaceId}
     where a.workspace_id = ${workspaceId}
     order by a.updated_at desc
   `;
   return c.json({ articles });
+});
+
+kb.get('/review-owners', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const sql = getDb(), workspaceId = c.get('workspaceId');
+  const owners = await sql`select u.id, u.name from workspace_members wm
+    join users u on u.id=wm.user_id and u.deleted_at is null
+    where wm.workspace_id=${workspaceId} and wm.active order by u.name, u.id`;
+  return c.json({ owners });
+});
+
+const ReviewBody = z.object({
+  owner_user_id: z.string().uuid().nullable(),
+  review_due_date: z.string().date().refine(value => value >= '1900-01-01' && value <= '9999-12-31').nullable(),
+  mark_reviewed: z.boolean().default(false),
+}).strict();
+
+kb.patch('/:id/review', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const id = z.string().uuid().safeParse(c.req.param('id'));
+  const parsed = ReviewBody.safeParse(await c.req.json().catch(() => null));
+  if (!id.success || !parsed.success) return c.json({ error: 'Choose a valid owner and review date.' }, 400);
+  const sql = getDb(), workspaceId = c.get('workspaceId'), input = parsed.data;
+  const result = await sql.begin(async tx => {
+    const [article] = await tx`select id from kb_articles where id=${id.data} and workspace_id=${workspaceId} for update`;
+    if (!article) return { status: 404 as const, error: 'Article not found' };
+    let ownerName: string | null = null;
+    if (input.owner_user_id) {
+      const [owner] = await tx`select u.name from workspace_members wm
+        join users u on u.id=wm.user_id and u.deleted_at is null
+        where wm.workspace_id=${workspaceId} and wm.user_id=${input.owner_user_id} and wm.active
+        for share of wm, u`;
+      if (!owner) return { status: 400 as const, error: 'Choose an active member of this workspace.' };
+      ownerName = owner.name;
+    }
+    const [review] = await tx`update kb_articles set owner_user_id=${input.owner_user_id},
+      review_due_date=${input.review_due_date}, reviewed_at=case when ${input.mark_reviewed} then now() else reviewed_at end
+      where id=${id.data} and workspace_id=${workspaceId}
+      returning owner_user_id, review_due_date, reviewed_at`;
+    return { review: { ...review, owner_name: ownerName } };
+  });
+  if ('error' in result) return c.json({ error: result.error }, result.status);
+  return c.json(result);
 });
 
 // ─── POST / — create ──────────────────────────────────────────────────────
