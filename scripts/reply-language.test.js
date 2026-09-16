@@ -73,10 +73,20 @@ test('translation errors stop sending, formatting is kept, and already-target te
   answer='English'; failure=true;
   await expect(tx.prepareCustomerReply(t,'Hello',null)).rejects.toThrow();
   tx.toggleAutoTranslateReplies('T1',false); calls=0;
-  expect((await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).translation).toBe('Hello'); expect(calls).toBe(0);
+  failure=false;
+  const untranslated=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(untranslated.translation).toBe('Hello'); expect(untranslated.replyLanguage).toBe('English'); expect(calls).toBe(1);
 });
 test('late detection cannot cross workspaces', async () => {
   const t=fixture(); release=true;
   const task=tx.ensureCustomerLanguage(t); await Promise.resolve(); scope='other'; release(); await task;
   expect(t.detectedCustomerLang).toBeNull();
+});
+test('untranslated replies skip detection without a comparison language and tolerate provider failure', async () => {
+  const t=fixture(); tickets.push(t); tx.initialiseReplyLanguage(t); tx.toggleAutoTranslateReplies('T1',false);
+  let res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(calls).toBe(0); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+  tx.setCustomerLanguage('T1','Spanish'); failure=true;
+  res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
+  expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
 });

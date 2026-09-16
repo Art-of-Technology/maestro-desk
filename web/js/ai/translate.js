@@ -251,14 +251,19 @@ export async function ensureCustomerLanguage(t) {
 
 export async function prepareCustomerReply(t, text, html, request = callClaude) {
   initialiseReplyLanguage(t);
-  if (!t.autoTranslateReplies || !text.trim()) return { translation: text, translationHtml: html, translatedTo: null };
+  if (!text.trim()) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: null };
+  if (!t.autoTranslateReplies) {
+    // Detection returns null on provider failure unless throwErrors is explicitly enabled.
+    const replyLanguage = t.detectedCustomerLang ? await detectLanguage(text, request) : null;
+    return { translation: text, translationHtml: html, translatedTo: null, replyLanguage };
+  }
   const language = await ensureCustomerLanguage(t);
   if (!language) throw new Error('Choose the customer language before sending. Your draft has been kept.');
   const writtenLanguage = await detectLanguage(text, request, true);
-  if (writtenLanguage === language) return { translation: text, translationHtml: html, translatedTo: null };
+  if (writtenLanguage === language) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: writtenLanguage };
   const result = html ? await translateFormatted(html, language, request) : await translateText(text, language, request);
   if (result.error || !result.translation?.trim()) throw new Error('Could not translate the reply. Your draft has been kept. Try again before sending.');
-  return { ...result, translatedTo: language };
+  return { ...result, translatedTo: language, replyLanguage: language };
 }
 
 export function toggleAutoTranslateReplies(ticketId, on) {
