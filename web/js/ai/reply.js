@@ -1,7 +1,7 @@
 // Customer text and agent-only evidence use separate response fields and DOM hosts.
 import { TICKETS } from '../core/data.js';
 import { AI_THINKING, COMPOSE_TAB, setAiThinking } from '../core/state.js';
-import { getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';
 import { focusEnd, getPlainText, getHtml, setText } from '../tickets/composer.js';
@@ -76,6 +76,7 @@ export async function aiAction(id, action) {
       ticketId: ['draft', 'kb-reply', 'similar'].includes(action) ? ticket._uuid : undefined,
       messages: [{ role: 'user', content: user }], maxTokens: 1600,
       replyFormat: true, replySources, replyLanguage,
+      replyContext: tab === 'reply' ? 'reply' : 'note',
     });
     if (!active()) return;
     if (originalLanguageState !== languageState()) throw new Error('The customer message or reply language changed. Generate the reply again.');
@@ -88,6 +89,11 @@ export async function aiAction(id, action) {
     }
     const review = data.internal;
     if (data.suggestionId && text.trim()) review.suggestionId = data.suggestionId;
+    else if (!['draft','kb-reply','similar'].includes(action) && previous.suggestionId) {
+      review.suggestionId = previous.suggestionId;
+      review.feedback = previous.feedback;
+      review.confirmedUse = previous.confirmedUse;
+    }
     if (!text.trim()) review.notes = ['No new reply was inserted. Review the notes below.', ...review.notes].slice(0, 10);
     if (text.trim()) {
       setText(id, text);
@@ -95,6 +101,10 @@ export async function aiAction(id, action) {
       focusEnd(id);
     }
     showReplyReview(id, review, tab);
+    if (data.suggestionId && text.trim() && tab === 'reply') {
+      // A generated response that lost the scope/edit race never reaches here.
+      void apiPost(`/api/v1/ai/reply-feedback/${data.suggestionId}/shown`, {}).catch(() => {});
+    }
     if (Array.isArray(data.examples) && data.examples.length) {
       const panel = document.getElementById('reply-review-' + id);
       if (panel) panel.insertAdjacentHTML('beforeend', `<details class="reply-internal-review"><summary>Previous replies used as examples</summary><p>Review these examples before sending. Previous replies may contain outdated advice.</p>${data.examples.map(e => `<details><summary>${window.escHtml(e.id)} · ${window.escHtml(e.title)}</summary><p>${window.escHtml(e.question)}</p><blockquote style="white-space:pre-wrap">${window.escHtml(e.reply)}</blockquote></details>`).join('')}</details>`);

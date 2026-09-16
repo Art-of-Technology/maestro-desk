@@ -593,3 +593,20 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .reply-feedback-text { white-space: pre-wrap; line-height: 1.6; }
 button.settings-tab { border: 0; font-family: inherit; text-align: left; min-height: 44px; }
 button.settings-tab:not(.active):not(:hover) { background: transparent; }
+.reply-use-confirm { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.reply-use-confirm input { width: 20px; height: 20px; flex-shrink: 0; }
+.ai-performance { padding: 24px; }
+.performance-filters,.performance-exports { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }
+.performance-filters label { display: flex; flex-direction: column; gap: 4px; }
+.ai-performance button,.performance-filters input,.performance-filters select { min-height: 44px; }
+.performance-explainer { color: var(--ink2); margin: 12px 0; max-width: 100ch; }
+.performance-kpis { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin: 16px 0; }
+.performance-kpis .card { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.performance-kpis strong { font-size: 24px; }
+.performance-table { overflow-x: auto; margin: 12px 0 24px; border: 1px solid var(--rule); border-radius: var(--r); }
+.performance-table table { width: 100%; border-collapse: collapse; }
+.performance-table th,.performance-table td { padding: 12px; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.performance-table th { background: var(--off2); }
+.performance-table a { color: var(--purple); }
+.ai-performance h2 { font-size: 20px; margin-top: 24px; }
+@media(max-width:600px) { .ai-performance { padding: 12px; } .performance-filters label { width: 100%; } }

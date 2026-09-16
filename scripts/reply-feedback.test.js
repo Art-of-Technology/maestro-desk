@@ -11,7 +11,7 @@ globalThis.window={escAttr:String,escHtml:s=>String(s).replaceAll('<','&lt;'),is
 let host;
 globalThis.document={getElementById:()=>host};
 mock.module('../web/js/core/state.js',()=>({COMPOSE_TAB:'reply'}));
-mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){}}));
+mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){},registerChangeActions(){}}));
 mock.module('../web/js/tickets/drafts.js',()=>({loadDraftReview:()=>review,saveDraftReview:(_id,v)=>{review=v;}}));
 let listing;
 mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,getJwt:()=>jwt,
