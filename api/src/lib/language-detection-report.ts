@@ -21,7 +21,11 @@ export async function languageDetectionReport(workspaceId: string, range: Langua
              count(*) filter (where failure_code = 'provider_error')::int as provider_failures,
              count(*) filter (where outcome = 'indeterminate')::int as indeterminate,
              count(distinct ticket_id) filter (where outcome <> 'success' and ticket_id is not null)::int as affected_tickets,
-             min(created_at) as recording_since
+             (select min(all_detections.created_at)
+                from ai_usage_log all_detections
+               where all_detections.workspace_id = ${workspaceId}
+                 and all_detections.action = 'detect_language'
+                 and all_detections.outcome is not null) as recording_since
       from ai_usage_log
       where workspace_id = ${workspaceId}
         and action = 'detect_language'

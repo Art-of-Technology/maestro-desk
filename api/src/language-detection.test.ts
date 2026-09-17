@@ -25,6 +25,9 @@ it('accepts only bounded report ranges', () => {
     const [other] = await sql`select provision_brand(${'detection-report-other-' + run}, 'Other report') as id`;
     workspaceId = workspace.id;
     try {
+      const [oldest] = await sql`insert into ai_usage_log (workspace_id, action, model, outcome, failure_code, created_at)
+        values (${workspaceId}, 'detect_language', 'claude-haiku-4-5', 'success', null, now() - interval '30 days')
+        returning created_at`;
       await sql`insert into ai_usage_log (workspace_id, action, model, outcome, failure_code, created_at)
         values (${workspaceId}, 'detect_language', 'claude-haiku-4-5', 'success', null, now()),
                (${workspaceId}, 'detect_language', 'claude-haiku-4-5', 'indeterminate', 'unknown_language', now()),
@@ -33,6 +36,7 @@ it('accepts only bounded report ranges', () => {
                (${other.id}, 'detect_language', 'claude-haiku-4-5', 'failure', 'provider_error', now())`;
       const report = await languageDetectionReport(workspaceId, '7d');
       expect(report.summary).toMatchObject({ attempts: 3, failures: 2, successes: 1, providerFailures: 1, indeterminate: 1, failureRate: 66.7 });
+      expect(report.summary.recordingSince).toEqual(oldest.created_at);
       expect(report.reasons).toEqual([{ code: 'provider_error', count: 1 }, { code: 'unknown_language', count: 1 }]);
       expect(report.trend).toHaveLength(1);
     } finally {
