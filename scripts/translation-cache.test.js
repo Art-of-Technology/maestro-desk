@@ -19,6 +19,18 @@ const until = async predicate => {
   expect(predicate()).toBe(true);
 };
 
+test('changing the detection prompt invalidates saved Unknown without Retry', async () => {
+  response = 'Unknown';
+  const cached = messageTranslationRequest('prompt-change');
+  expect((await cached(body)).text).toBe('Unknown');
+  const before = calls;
+  response = 'English';
+  const revised = { ...body, system: 'Classify the substantive message body.' };
+  expect((await cached(revised)).text).toBe('English');
+  expect((await cached(revised)).text).toBe('English');
+  expect(calls).toBe(before + 1);
+});
+
 test('Retry bypasses cached Unknown and replaces it for later reads', async () => {
   response = 'Unknown';
   expect((await request('retry')).text).toBe('Unknown');
