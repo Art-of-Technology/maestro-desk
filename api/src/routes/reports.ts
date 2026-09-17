@@ -4,6 +4,7 @@ import { getDb } from '../lib/db.js';
 import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplyPerformanceQuery, replyPerformance } from '../lib/reply-performance.js';
+import { LanguageDetectionRange, languageDetectionReport } from '../lib/language-detection-report.js';
 
 // Server-side report data. SLA breach evaluation itself stays client-side
 // (business-hours engine in web/js/tickets/sla.js); this endpoint only
@@ -29,6 +30,13 @@ reports.get('/dashboard', async (c) => {
   const period = parseReportPeriod(c.req.query('start'), c.req.query('end'), c.req.query('timezone'));
   if (!period) return c.json({ error: 'Provide valid start/end timestamps and timezone.' }, 400);
   return c.json({ period, report: await dashboardReport(c.get('workspaceId'), c.get('userId'), period) });
+});
+
+reports.get('/language-detection', async c => {
+  c.header('Cache-Control', 'no-store');
+  const range = LanguageDetectionRange.safeParse(c.req.query('range') ?? '30d');
+  if (!range.success) return c.json({ error: 'range must be 7d, 30d, 90d or all' }, 400);
+  return c.json(await languageDetectionReport(c.get('workspaceId'), range.data));
 });
 
 const ALLOWED_DAYS = new Set([7, 30, 90]);

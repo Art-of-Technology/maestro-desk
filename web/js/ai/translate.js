@@ -66,7 +66,7 @@ async function translateMessageContent(ticket, message, index, target) {
     const response = await detectRequest(body);
     if (response.cacheWarning) message.translationCacheWarning = true;
     return response;
-  }, true);
+  }, true, ticket._uuid);
   const cachedRequest = async body => {
     const response = await request(body);
     if (response.cacheWarning) message.translationCacheWarning = true;
@@ -91,7 +91,7 @@ async function translateMessageContent(ticket, message, index, target) {
 export function translateMessage(ticketId) { return toggleThreadTranslate(ticketId, true); }
 export function hideMessageTranslation(ticketId) { return toggleThreadTranslate(ticketId, false); }
 
-export async function detectLanguage(text, request = callClaude, throwErrors = false) {
+export async function detectLanguage(text, request = callClaude, throwErrors = false, ticketId) {
   const sample = String(text || '').slice(0, 600);
   if (!sample.trim()) return null;
   try {
@@ -100,6 +100,7 @@ export async function detectLanguage(text, request = callClaude, throwErrors = f
       messages: [{ role: 'user', content: sample }],
       maxTokens: 30,
       action: 'detect_language',
+      ...(ticketId ? { ticketId } : {}),
     });
     return TRANSLATOR_LANGS.find(l => l.toLowerCase() === (out || '').trim().toLowerCase()) || null;
   } catch (error) {
@@ -244,7 +245,7 @@ export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
     let language = null;
     let failed = false;
     try {
-      if (text) language = await detectLanguage(text, messageTranslationRequest(message._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true);
+      if (text) language = await detectLanguage(text, messageTranslationRequest(message._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true, t._uuid);
     } catch { failed = true; }
     const latest = latestCustomerText(t);
     if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, latest.text]) !== source || languageChecks.get(t) !== check) return null;
@@ -271,12 +272,12 @@ export async function prepareCustomerReply(t, text, html, request = callClaude) 
   if (!text.trim()) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: null };
   if (!t.autoTranslateReplies) {
     // Detection returns null on provider failure unless throwErrors is explicitly enabled.
-    const replyLanguage = t.detectedCustomerLang ? await detectLanguage(text, request) : null;
+    const replyLanguage = t.detectedCustomerLang ? await detectLanguage(text, request, false, t._uuid) : null;
     return { translation: text, translationHtml: html, translatedTo: null, replyLanguage };
   }
   const language = await ensureCustomerLanguage(t);
   if (!language) throw new Error('Choose the customer language before sending. Your draft has been kept.');
-  const writtenLanguage = await detectLanguage(text, request, true);
+  const writtenLanguage = await detectLanguage(text, request, true, t._uuid);
   if (writtenLanguage === language) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: writtenLanguage };
   const result = html ? await translateFormatted(html, language, request) : await translateText(text, language, request);
   if (result.error || !result.translation?.trim()) throw new Error('Could not translate the reply. Your draft has been kept. Try again before sending.');
