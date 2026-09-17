@@ -25,7 +25,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
   translateText,
   toggleThreadTranslate, toggleAutoTranslateReplies,
-  setCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
+  setCustomerLanguage, retryCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
   initialiseReplyLanguage, ensureCustomerLanguage, customerLanguageStatus, outgoingLanguageStatus, prepareCustomerReply, latestCustomerText,
 } from '../ai/translate.js';
 import { aiAction } from '../ai/reply.js';
@@ -1287,7 +1287,7 @@ registerActions({
   'td.removeTag':      (ds) => removeTicketTag(ds.ticketId, ds.tag),
   // Message thread
   'td.originalConversation': (ds) => toggleThreadTranslate(ds.ticketId, false),
-  'td.retryCustomerLanguage': (ds) => setCustomerLanguage(ds.ticketId, ''),
+  'td.retryCustomerLanguage': (ds) => retryCustomerLanguage(ds.ticketId),
   'td.translatedConversation': (ds) => toggleThreadTranslate(ds.ticketId, true),
   'td.showSentText':   (ds) => showSentTextModal(ds.ticketId, parseInt(ds.msgIdx, 10)),
   'td.showRemoteImages': (ds) => { enableRemoteImages(ds.ticketId, parseInt(ds.msgIdx, 10)); openTicket(ds.ticketId); },

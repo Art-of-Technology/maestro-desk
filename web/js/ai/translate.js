@@ -174,6 +174,8 @@ export function initialiseReplyLanguage(t) {
     t.customerLanguageManual = false;
     t.detectedCustomerLang = null;
     t.customerLanguageSource = null;
+    t.customerLanguageError = false;
+    t.detectingCustomerLanguage = false;
   }
   t.replyLanguagePreferenceKey = key;
   try {
@@ -196,6 +198,7 @@ export function customerLanguageStatus(t) {
   if (t.customerLanguageManual) return `Customer language: ${t.detectedCustomerLang} · Selected manually`;
   if (t.detectingCustomerLanguage) return 'Customer language: Detecting…';
   if (t.detectedCustomerLang) return `Customer language: ${t.detectedCustomerLang} · Detected automatically`;
+  if (t.customerLanguageError) return 'Customer language: Detection failed · Retry or choose a language';
   return 'Customer language: Unknown · Choose a language';
 }
 
@@ -220,33 +223,46 @@ export function latestCustomerText(t) {
   return { message, text: String(message?.t || '').split(/\n\s*(?:On .+wrote:|El .+escribió:|From:|De:|-----Original Message-----)/i)[0].trim() };
 }
 
-export async function ensureCustomerLanguage(t) {
+export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
   initialiseReplyLanguage(t);
   if (t.customerLanguageManual) return t.detectedCustomerLang;
   const { message, text } = latestCustomerText(t);
   const scope = translationScope();
   if (!scope || !t._uuid || !t._detailLoaded) return t.detectedCustomerLang || null;
   const source = JSON.stringify([scope, message?._uuid, text]);
-  if (t.customerLanguageSource === source) return t.detectedCustomerLang || null;
+  if (!refresh && t.customerLanguageSource === source) return t.detectedCustomerLang || null;
   const pending = languageChecks.get(t);
-  if (pending?.source === source) return pending.task;
+  if (pending?.source === source && (!refresh || pending.refresh)) return pending.task;
+  t.customerLanguageSource = null;
   t.detectedCustomerLang = null;
+  t.customerLanguageError = false;
   t.detectingCustomerLanguage = !!text;
   refreshLanguageStatus(t);
+  const check = { source, refresh };
   const task = Promise.resolve().then(async () => {
     let language = null;
+    let failed = false;
     try {
-      if (text) language = await detectLanguage(text, messageTranslationRequest(message._uuid || [t._uuid, text.slice(0, 30)], scope), true);
-    } catch { /* Visible unknown state requires an explicit correction or retry. */ }
-    if (scope !== translationScope() || t.customerLanguageManual || latestCustomerText(t).text !== text || languageChecks.get(t)?.source !== source) return null;
+      if (text) language = await detectLanguage(text, messageTranslationRequest(message._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true);
+    } catch { failed = true; }
+    const latest = latestCustomerText(t);
+    if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, latest.text]) !== source || languageChecks.get(t) !== check) return null;
     t.detectingCustomerLanguage = false;
     t.customerLanguageSource = source;
     t.detectedCustomerLang = language;
+    t.customerLanguageError = failed;
     refreshLanguageStatus(t);
     return language;
-  }).finally(() => { if (languageChecks.get(t)?.source === source) languageChecks.delete(t); });
-  languageChecks.set(t, { source, task });
+  }).finally(() => { if (languageChecks.get(t) === check) languageChecks.delete(t); });
+  check.task = task;
+  languageChecks.set(t, check);
   return task;
+}
+
+export function retryCustomerLanguage(ticketId) {
+  const t = TICKETS.find(x => x.id === ticketId);
+  if (!t) return;
+  return ensureCustomerLanguage(t, { refresh: true });
 }
 
 export async function prepareCustomerReply(t, text, html, request = callClaude) {
@@ -279,6 +295,8 @@ export function setCustomerLanguage(ticketId, lang) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || (lang && !TRANSLATOR_LANGS.includes(lang))) return;
   t.customerLanguageManual = !!lang;
+  languageChecks.delete(t);
+  t.customerLanguageError = false;
   t.detectedCustomerLang = lang || null;
   t.detectingCustomerLanguage = false;
   if (!lang) t.customerLanguageSource = null;

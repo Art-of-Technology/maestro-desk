@@ -1,10 +1,10 @@
 // Cross-tab and account-switch fixtures; requires scripts/serve-spa.js.
 export default async(page)=>{
  const pages=[await page.context().newPage(),await page.context().newPage()];
- let count=0,resolveSeen,release;let gate=null;const user='cache-concurrency-'+Date.now();
+ let count=0,resolveSeen,release;let gate=null,response='Cached translation';const user='cache-concurrency-'+Date.now();
  for(const p of pages){
   await p.route('**/api/**',r=>r.fulfill({status:200,contentType:'application/json',body:'{}'}));
-  await p.route('**/api/v1/ai/messages',async r=>{count++;if(resolveSeen)resolveSeen();if(gate)await gate;await r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({text:'Cached translation'})});});
+  await p.route('**/api/v1/ai/messages',async r=>{count++;if(resolveSeen)resolveSeen();if(gate)await gate;await r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({text:response})});});
   await p.goto('http://localhost:5173');await p.waitForFunction(()=>typeof window.login==='function');
   await p.evaluate(async user=>{const api=await import('/js/core/api-client.js');api.setJwt('cache-test');api.setWorkspaceId('11111111-1111-4111-8111-111111111111');window.login('Admin','Cache Tester','CT',{userId:user});},user);
  }
@@ -26,5 +26,13 @@ export default async(page)=>{
  await pages[0].evaluate(()=>window.purgeObserved);
  await pages[0].evaluate(request,'same-message');
  if(count!==4)throw new Error('Cross-tab sign-out did not clear memory and storage');
- for(const p of pages)await p.close();return {checks:4,requests:count};
+ response='English';
+ const fresh=await pages[0].evaluate(async()=>{
+  const {messageTranslationRequest,translationScope}=await import('/js/ai/translation-cache.js');
+  return messageTranslationRequest('same-message',translationScope(),'text',{refresh:true})({system:'Translate to English.',messages:[{role:'user',content:'Bonjour'}],action:'translate',maxTokens:32});
+ });
+ if(fresh.text!=='English'||count!==5)throw new Error('Retry did not bypass memory and IndexedDB');
+ const saved=await pages[1].evaluate(request,'same-message');
+ if(saved.text!=='English'||count!==5)throw new Error('Retry did not replace the persisted result');
+ for(const p of pages)await p.close();return {checks:6,requests:count};
 };

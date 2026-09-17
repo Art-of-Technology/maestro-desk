@@ -1,6 +1,7 @@
 import { test, expect, mock, beforeEach } from 'bun:test';
 
 let scope = 'user:workspace', answer = 'Spanish', failure = false, release, calls = 0;
+const cacheOptions = [];
 const storage = new Map(), tickets = [];
 globalThis.localStorage = { getItem: () => null };
 globalThis.sessionStorage = { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) };
@@ -18,14 +19,14 @@ const request = async body => {
   return { text: body.action === 'detect_language' ? answer : 'Texto traducido' };
 };
 mock.module('../web/js/ai/client.js', () => ({ callClaude: request }));
-mock.module('../web/js/ai/translation-cache.js', () => ({ translationScope: () => scope, messageTranslationRequest: () => request }));
+mock.module('../web/js/ai/translation-cache.js', () => ({ translationScope: () => scope, messageTranslationRequest: (_key, _scope, _format, options) => { cacheOptions.push(options); return request; } }));
 mock.module('../web/js/ai/formatted-translation.js', () => ({ translateFormatted: async (html, lang, req) => {
   await req({ action:'translate' });
   return { translation: 'Texto traducido', translationHtml: html.replace('Hello', 'Hola') };
 } }));
 const tx = await import('../web/js/ai/translate.js');
 const fixture = () => ({ id:'T1', _uuid:'ticket-1', _detailLoaded:true, msgs:[{ _uuid:'m1',r:'customer',t:'Necesito ayuda con mi cuenta' }] });
-beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; storage.clear(); tickets.length=0; labels.clear(); });
+beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; storage.clear(); tickets.length=0; labels.clear(); });
 
 test('default is enabled and detection updates visible labels without opening controls', async () => {
   const t=fixture(); labels.set('customer-language-T1',{}); labels.set('reply-language-T1',{});
@@ -58,10 +59,40 @@ test('unknown language and detection failure keep sending blocked without a retr
   for(const unavailable of [false,true]) {
     const t=fixture(); answer='Unknown'; failure=unavailable;
     await tx.ensureCustomerLanguage(t);
-    expect(tx.customerLanguageStatus(t)).toContain('Unknown');
+    expect(tx.customerLanguageStatus(t)).toContain(unavailable ? 'Detection failed' : 'Unknown');
     const before=calls; await tx.ensureCustomerLanguage(t); expect(calls).toBe(before);
     await expect(tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).rejects.toThrow('Choose the customer language');
   }
+});
+test('Retry requests a fresh result and ordinary detection waits for it', async () => {
+  const t=fixture(); tickets.push(t); answer='Unknown';
+  await tx.ensureCustomerLanguage(t);
+  release=true; answer='English';
+  const retry=tx.retryCustomerLanguage(t.id); await Promise.resolve();
+  const ordinary=tx.ensureCustomerLanguage(t);
+  expect(tx.customerLanguageStatus(t)).toContain('Detecting');
+  expect(cacheOptions.at(-1)).toEqual({refresh:true});
+  release(); expect(await retry).toBe('English'); expect(await ordinary).toBe('English');
+  expect(calls).toBe(2);
+});
+test('Retry recovers from failure and clears the visible error', async () => {
+  const t=fixture(); tickets.push(t); failure=true;
+  await tx.ensureCustomerLanguage(t); expect(t.customerLanguageError).toBe(true);
+  failure=false; await tx.retryCustomerLanguage(t.id);
+  expect(t.customerLanguageError).toBe(false); expect(tx.customerLanguageStatus(t)).toContain('Spanish');
+});
+test('a superseded detection cannot overwrite a newer retry', async () => {
+  const t=fixture(); tickets.push(t); release=true;
+  const old=tx.ensureCustomerLanguage(t); await Promise.resolve(); const finishOld=release;
+  release=null; answer='English'; await tx.retryCustomerLanguage(t.id);
+  answer='Spanish'; finishOld(); await old;
+  expect(t.detectedCustomerLang).toBe('English');
+});
+test('manual selection stays in control during Retry', async () => {
+  const t=fixture(); tickets.push(t); release=true;
+  const retry=tx.retryCustomerLanguage(t.id); await Promise.resolve();
+  tx.setCustomerLanguage(t.id,'French'); release(); await retry;
+  expect(t.detectedCustomerLang).toBe('French'); expect(t.customerLanguageError).toBe(false);
 });
 test('translation errors stop sending, formatting is kept, and already-target text skips translation', async () => {
   const t=fixture(); tickets.push(t); tx.initialiseReplyLanguage(t); tx.setCustomerLanguage('T1','Spanish');
