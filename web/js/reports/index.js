@@ -19,6 +19,7 @@ import { renderPage } from '../core/router.js';
 import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
 import { downloadCSV } from '../core/csv.js';
 import { renderReplyPerformance } from './reply-performance.js';
+import { renderLanguageDetectionFailures } from './language-detection.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderCategoricalChart } from '../core/chart.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
@@ -275,6 +276,7 @@ export const REPORT_WIDGETS = [
   { id:'r-agents',    title:'Tickets per agent', render:s => reportAgents(s) },
   { id:'r-csat',      title:'CSAT',              render:s => reportCSAT(s) },
   { id:'r-time',      title:'Time logged',       render:s => reportTime(s) },
+  { id:'r-language-detection', title:'Language detection failures', render:() => renderLanguageDetectionFailures(REPORT_TF) },
 ];
 
 export const DEFAULT_REPORT_LAYOUT = { order: REPORT_WIDGETS.map(w => w.id), hidden: [], charts: {} };

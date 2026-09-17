@@ -100,23 +100,41 @@ dbTests('authenticated AI assistant', () => {
       expect((await result.json() as { text: string }).text).toBe('Test response');
     }
     expect(await balance()).toBe(1000000 - cost * actions.length);
-    const rows = await sql`select action, user_id, cost_usd_micro from ai_usage_log where workspace_id = ${workspaceId}`;
+    const rows = await sql`select action, user_id, cost_usd_micro, outcome, failure_code from ai_usage_log where workspace_id = ${workspaceId}`;
     expect(rows.map(r => r.action).sort()).toEqual(actions.sort());
     expect(rows.every(r => r.user_id === userId && Number(r.cost_usd_micro) === cost)).toBe(true);
+    expect(rows.find(r => r.action === 'detect_language')).toMatchObject({ outcome: 'indeterminate', failure_code: 'unsupported_response' });
+    expect(rows.filter(r => r.action !== 'detect_language').every(r => r.outcome === null && r.failure_code === null)).toBe(true);
     const [other] = await sql`select ai_credits_micro from workspaces where id = ${otherWorkspaceId}`;
     expect(Number(other.ai_credits_micro)).toBe(1000000);
   });
 
-  it('blocks empty credit and refunds a provider failure without leaking the provider error', async () => {
+  it('reports blocked and provider-failed detections while refunding provider failures', async () => {
+    const detection = { ...payload, action: 'detect_language' };
     await sql`update workspaces set ai_credits_micro = 0 where id = ${workspaceId}`;
-    expect((await request()).status).toBe(402);
+    expect((await request('/messages', detection)).status).toBe(402);
     expect(createSpy).not.toHaveBeenCalled();
     await sql`update workspaces set ai_credits_micro = 1000000 where id = ${workspaceId}`;
     createSpy.mockImplementation(async () => { throw new Error('secret-key-do-not-echo'); });
-    const failed = await request();
+    const failed = await request('/messages', detection);
     expect(failed.status).toBe(502);
     expect(await failed.text()).not.toContain('secret-key-do-not-echo');
     expect(await balance()).toBe(1000000);
+    const rows = await sql`select outcome, failure_code, cost_usd_micro::int from ai_usage_log
+      where workspace_id = ${workspaceId} order by created_at`;
+    expect(rows.map(row => ({ outcome: row.outcome, failure_code: row.failure_code, cost_usd_micro: row.cost_usd_micro }))).toEqual([
+      { outcome: 'failure', failure_code: 'insufficient_credit', cost_usd_micro: 0 },
+      { outcome: 'failure', failure_code: 'provider_error', cost_usd_micro: 0 },
+    ]);
+    const report = await app.request('/api/v1/reports/language-detection?range=30d', {
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId },
+    });
+    expect(report.status).toBe(200);
+    expect(report.headers.get('Cache-Control')).toBe('no-store');
+    expect((await report.json() as any).summary).toMatchObject({ attempts: 2, failures: 2, providerFailures: 1, failureRate: 100 });
+    expect((await app.request('/api/v1/reports/language-detection?range=365d', {
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': workspaceId },
+    })).status).toBe(400);
   });
 
   it('reserves credit atomically so concurrent calls cannot spend the same balance', async () => {

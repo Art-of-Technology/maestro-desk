@@ -15,6 +15,7 @@ import { recordReplySuggestion } from '../lib/reply-feedback.js';
 import { replyFeedback } from './reply-feedback.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplySource, CUSTOMER_REPLY_INSTRUCTIONS, CUSTOMER_REPLY_TOOL, parseCustomerReply } from '../lib/customer-reply.js';
+import { classifyLanguageDetection, SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
 
 const MODELS = ['claude-sonnet-4-6', 'claude-haiku-4-5', 'claude-opus-4-7'] as const;
 const Model = z.enum(MODELS);
@@ -35,7 +36,7 @@ const RequestBody = z
       .max(40),
     maxTokens: z.number().int().min(1).max(2048).default(1024),
     replyFormat: z.boolean().default(false),
-    replyLanguage: z.enum(['English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian']).optional(),
+    replyLanguage: z.enum(SUPPORTED_LANGUAGES).optional(),
     replySources: z.array(ReplySource).max(12).default([]),
     ticketId: z.string().uuid().optional(),
     replyContext: z.enum(['reply','note']).optional(),
@@ -132,8 +133,12 @@ ai.post('/messages', async (c) => {
     if (denied) return denied;
   }
   if ((historical || generic) && !input.ticketId) return c.json({ error: 'Choose a ticket first.' }, 400);
-  if (input.ticketId && !historical && !generic && !await previousReplyMaterial(workspaceId, input.ticketId, false))
-    return c.json({ error: 'Ticket not found.' }, 404);
+  if (input.ticketId && !historical && !generic) {
+    const ticketExists = input.action === 'detect_language'
+      ? (await sql`select 1 from tickets where id = ${input.ticketId} and workspace_id = ${workspaceId} and deleted_at is null`).length > 0
+      : !!await previousReplyMaterial(workspaceId, input.ticketId, false);
+    if (!ticketExists) return c.json({ error: 'Ticket not found.' }, 404);
+  }
   const search = historical ? await meaningfulReplies(workspaceId, input.ticketId!, userId) : null;
   const previous = historical ? search : generic ? await previousReplyMaterial(workspaceId, input.ticketId!, false) : null;
   if ((historical || generic) && !previous) return c.json({ error: 'Ticket not found.' }, 404);
@@ -189,7 +194,13 @@ ai.post('/messages', async (c) => {
     where id = ${workspaceId} and ai_credits_micro >= ${reserved}
     returning ai_credits_micro
   `;
-  if (!reservation)
+  if (!reservation) {
+    if (input.action === 'detect_language') {
+      await sql`
+        insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model, outcome, failure_code)
+        values (${workspaceId}, ${input.ticketId ?? null}, ${userId}, ${input.action}, ${input.model}, 'failure', 'insufficient_credit')
+      `;
+    }
     return c.json(
       {
         error:
@@ -197,6 +208,7 @@ ai.post('/messages', async (c) => {
       },
       402,
     );
+  }
 
   let response;
   const started = Date.now();
@@ -212,7 +224,16 @@ ai.post('/messages', async (c) => {
       { timeout: 45000, maxRetries: 0 },
     );
   } catch {
-    await sql`update workspaces set ai_credits_micro = ai_credits_micro + ${reserved} where id = ${workspaceId}`;
+    await sql.begin(async tx => {
+      await tx`update workspaces set ai_credits_micro = ai_credits_micro + ${reserved} where id = ${workspaceId}`;
+      if (input.action === 'detect_language') {
+        await tx`
+          insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model, duration_ms, outcome, failure_code)
+          values (${workspaceId}, ${input.ticketId ?? null}, ${userId}, ${input.action}, ${input.model},
+            ${Date.now() - started}, 'failure', 'provider_error')
+        `;
+      }
+    });
     return c.json(
       {
         error:
@@ -229,6 +250,11 @@ ai.post('/messages', async (c) => {
     cache_read_input_tokens: response.usage.cache_read_input_tokens || 0,
   };
   const cost = computeCostMicro(input.model, usage);
+  const plainText = response.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n');
+  const detection = input.action === 'detect_language' ? classifyLanguageDetection(plainText) : null;
   // Settle and log together. If settlement fails, the reservation remains
   // debited; do not issue an unearned refund after a paid provider response.
   const balance = await sql.begin(async (tx) => {
@@ -237,12 +263,12 @@ ai.post('/messages', async (c) => {
       where id = ${workspaceId} returning ai_credits_micro
     `;
     await tx`
-      insert into ai_usage_log (workspace_id, user_id, action, model, input_tokens,
+      insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model, input_tokens,
         cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
-        cost_usd_micro, duration_ms, request_id)
-      values (${workspaceId}, ${userId}, ${input.action}, ${input.model}, ${usage.input_tokens},
+        cost_usd_micro, duration_ms, request_id, outcome, failure_code)
+      values (${workspaceId}, ${input.ticketId ?? null}, ${userId}, ${input.action}, ${input.model}, ${usage.input_tokens},
         ${usage.cache_creation_input_tokens}, ${usage.cache_read_input_tokens}, ${usage.output_tokens},
-        ${cost}, ${Date.now() - started}, ${response.id})
+        ${cost}, ${Date.now() - started}, ${response.id}, ${detection?.outcome ?? null}, ${detection?.failureCode ?? null})
     `;
     return Number(row.ai_credits_micro);
   });
@@ -261,10 +287,6 @@ ai.post('/messages', async (c) => {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
     }
   }
-  const text = response.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n');
-  if (!text) return c.json({ error: 'AI returned no text. Please try again.' }, 502);
-  return c.json({ text, model: input.model, cost_micro: cost, balance_micro: balance });
+  if (!plainText) return c.json({ error: 'AI returned no text. Please try again.' }, 502);
+  return c.json({ text: plainText, model: input.model, cost_micro: cost, balance_micro: balance });
 });

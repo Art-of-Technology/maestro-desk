@@ -449,6 +449,22 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .r-bar-track{flex:1;background:var(--off2);height:8px;border-radius:4px;overflow:hidden}
 .r-bar-fill{height:100%;border-radius:4px;transition:width .3s}
 .r-bar-val{font-family:var(--font-mono);font-size:11px;color:var(--ink3);min-width:32px;text-align:right}
+.detection-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.detection-summary>div{padding:10px;border:1px solid var(--rule);border-radius:var(--r);background:var(--off2);min-width:0}
+.detection-summary strong{display:block;font-family:var(--font-mono);font-size:20px;line-height:1;color:var(--red);font-weight:600}
+.detection-card.healthy .detection-summary strong{color:var(--green)}
+.detection-summary span{display:block;margin-top:5px;color:var(--ink3);font-size:10px;line-height:1.25;text-transform:uppercase;letter-spacing:.04em}
+.detection-pulse{display:flex;align-items:stretch;gap:3px;height:22px;padding:3px;background:var(--off2);border-radius:var(--r)}
+.detection-pulse-cell{flex:1;min-width:3px;border-radius:2px;background:var(--green);opacity:.6}
+.detection-pulse-cell.warn{background:var(--amber);opacity:.85}
+.detection-pulse-cell.fail{background:var(--red);opacity:1}
+.detection-pulse-axis{display:flex;justify-content:space-between;margin-top:4px;font-family:var(--font-mono);font-size:9px;color:var(--ink3)}
+.detection-reasons{margin-top:16px;padding-top:13px;border-top:1px solid var(--rule)}
+.detection-subhead{margin-bottom:9px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)}
+.detection-card .r-bar-lbl{width:170px;text-transform:none}
+.detection-empty,.detection-footnote{margin:0;color:var(--ink3);font-size:12px;line-height:1.5}
+.detection-footnote{margin-top:11px;font-size:10px}
+@media(max-width:560px){.detection-summary{grid-template-columns:1fr}.detection-card .r-bar-lbl{width:130px}}
 .r-stack{display:flex;height:12px;border-radius:var(--r);overflow:hidden;background:var(--off2);margin-top:6px}
 .r-stack > div{transition:width .3s}
 .r-tile{text-align:center;padding:14px 10px;border-radius:var(--r2);border:1px solid var(--rule)}
