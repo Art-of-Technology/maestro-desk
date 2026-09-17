@@ -94,6 +94,7 @@ jobs:
           bun test scripts/handover.test.js
           bun test scripts/knowledge-gaps.test.js
           bun test scripts/reply-language.test.js
+          bun test scripts/translation-cache.test.js
           bun test scripts/ai-review-storage.test.js
           bun test scripts/reply-feedback.test.js
           bun test scripts/reply-performance.test.js

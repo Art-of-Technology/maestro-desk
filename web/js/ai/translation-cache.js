@@ -70,7 +70,7 @@ export async function clearTranslationCache(userId, broadcast = true) {
   } catch { /* Unavailable browser storage must not prevent sign-out. */ }
 }
 
-export function messageTranslationRequest(messageKey, scope = translationScope(), format = 'text') {
+export function messageTranslationRequest(messageKey, scope = translationScope(), format = 'text', { refresh = false } = {}) {
   const jwt = getJwt();
   const userId = SESSION?.userId;
   const epoch = epochs.get(userId) || 0;
@@ -94,9 +94,9 @@ export function messageTranslationRequest(messageKey, scope = translationScope()
     };
     const run = async () => {
       assertScope();
-      if (memory.has(key)) return memory.get(key);
+      if (!refresh && memory.has(key)) return memory.get(key);
       let saved, storageUnavailable = false;
-      try { saved = await read(key); } catch { storageUnavailable = true; }
+      if (!refresh) try { saved = await read(key); } catch { storageUnavailable = true; }
       assertScope();
       if (saved !== undefined) {
         validate(saved);
@@ -112,13 +112,16 @@ export function messageTranslationRequest(messageKey, scope = translationScope()
       if (memory.size > 500) memory.delete(memory.keys().next().value);
       return cached;
     };
-    if (!pending.has(key)) {
-      const task = navigator.locks
-        ? navigator.locks.request('respovia-translation:' + key, run) : run();
-      pending.set(key, task);
-      task.finally(() => { if (pending.get(key) === task) pending.delete(key); }).catch(() => {});
+    const previous = pending.get(key);
+    if (!previous || (refresh && !previous.refresh)) {
+      // Finish older work before refreshing so its result cannot replace the retry.
+      const task = Promise.resolve(previous?.task).catch(() => {}).then(() => navigator.locks
+        ? navigator.locks.request('respovia-translation:' + key, run) : run());
+      const entry = { task, refresh };
+      pending.set(key, entry);
+      task.finally(() => { if (pending.get(key) === entry) pending.delete(key); }).catch(() => {});
     }
-    const result = await pending.get(key);
+    const result = await pending.get(key).task;
     assertScope();
     return result;
   };
