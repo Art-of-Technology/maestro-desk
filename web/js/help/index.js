@@ -36,6 +36,7 @@ function helpQuickStart() {
     {t:'AI-assisted replies',d:'Add your Claude API key in Settings → AI to enable AI Draft',             a:'help.gotoSettingsAi'},
     {t:'Roles & permissions',d:'Define custom roles, assign agents, control access per area',             a:'help.gotoRoles'},
     {t:'Global search',      d:"Press / from anywhere to search tickets, customers, agents, and pages",   a:'help.focusSearch'},
+    {t:'Guided tours',       d:'Take the full tour or revisit one area at any time',                        a:'guides.open'},
   ];
   return `
     <div class="card">

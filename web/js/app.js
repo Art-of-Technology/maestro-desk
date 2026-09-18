@@ -41,6 +41,7 @@ import { startRealtime, stopRealtime } from './core/realtime.js';
 import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 import { hydrateLayouts } from './layouts/index.js';
+import { closeGuides, initGuides } from './guides/index.js';
 
 // Demo personas call login(role, name, initials); real-auth boot paths pass
 // the identity/capability extras in `opts` (an options object rather than a
@@ -144,6 +145,7 @@ function resetWorkspaceBrand() {
 }
 
 function logout() {
+  closeGuides(false);
   const signedOutUserId = SESSION?.userId;
   suspendUrlRouting();
   discardRequestedRoute();
@@ -299,6 +301,8 @@ registerActions({
   },
   'app.logout': () => logout(),
 });
+
+initGuides(nav);
 
 // Wire the static top-bar search input (#gs-input) — its input/focus/keydown
 // handlers are attached programmatically (sparse events, single static element).

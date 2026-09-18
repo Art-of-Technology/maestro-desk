@@ -97,7 +97,7 @@ export function renderDashboard() {
   const data = authenticated && period ? reportState.data : null;
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return `<div class="page dashboard-report-page">
-    <div class="topbar"><div class="tb-title">Dashboard${SESSION?.name ? ` · ${esc(SESSION.name.split(' ')[0])}` : ''}</div>
+    <div class="topbar"><div class="tb-title" data-guide="dashboard">Dashboard${SESSION?.name ? ` · ${esc(SESSION.name.split(' ')[0])}` : ''}</div>
       <button class="btn btn-sm" data-action="dash.refresh">Refresh</button></div>
     <div class="filter-bar report-period">
       <label>Reporting period <select class="filter-select" data-change-action="dash.period">${PERIODS.map(([key,label]) => `<option value="${key}" ${selection === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
