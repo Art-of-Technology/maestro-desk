@@ -10,7 +10,10 @@ mock.module('../web/js/core/api-client.js', () => ({ apiPost: async (path,body) 
 mock.module('../web/js/tickets/detail.js', () => ({ onComposeInput() {} }));
 mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
 mock.module('../web/js/tickets/composer.js', () => ({ focusEnd() {}, getPlainText: () => text, getHtml: () => html, setText: (_id, value) => { text = value; html = null; } }));
-mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null }));
+mock.module('../web/js/tickets/drafts.js', () => ({
+  loadDraftReview: () => null,
+  textHtml: value => `<p>${String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}</p>`,
+}));
 mock.module('../web/js/ai/reply-review.js', () => ({ showReplyReview: (_id, value) => { review = value; } }));
 mock.module('../web/js/kb-integration/index.js', () => ({ buildKbQuery: () => 'help', fetchKbArticles: async () => ({ error: lookupError, articles: [] }) }));
 mock.module('../web/js/ai/client.js', () => ({ callClaude: async args => {
@@ -28,6 +31,8 @@ test('only customer text enters the composer; internal references remain separat
   expect(text).toBe(result.text);
   expect(text).not.toContain('KB-1');
   expect(review).toEqual(result.data.internal);
+  expect(review.sharedBody).toBe('<p>Here is your game: https://example.com/game</p>');
+  expect(review.sharedIsHtml).toBe(true);
   expect(lastRequest.replyFormat).toBe(true);
   expect(lastRequest.replyLanguage).toBe('Spanish');
   expect(lastRequest.replyContext).toBe('reply');

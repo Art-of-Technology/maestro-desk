@@ -44,7 +44,7 @@ export async function recordReplyUse(workspaceId: string, userId: string, ticket
         and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent'
         and m.deleted_at is null and m.merged_from_id is null and m.created_at>=s.created_at for update of s for share of m`;
     if(!source)return;
-    await tx`update ai_reply_suggestions s set sent_message_id=m.id,rejected_at=null,used_by_user_id=${userId},
+    await tx`update ai_reply_suggestions s set sent_message_id=m.id,used_by_user_id=${userId},
       sent_change_ratio=${replyChangeRatio(source.reply,source.body)},
       sent_changed=(regexp_replace(trim(s.reply),'\\s+',' ','g') <> regexp_replace(trim(m.body),'\\s+',' ','g'))
     from ticket_messages m where s.id=${suggestionId} and s.workspace_id=${workspaceId}

@@ -55,7 +55,7 @@ export function confirmedReplySuggestion(id, tab = COMPOSE_TAB) {
   return tab === 'reply' && !review?.rejected && !review?.sharedAvailable && review?.confirmedUse === true ? review.suggestionId : undefined;
 }
 
-function textHtml(value) {
+export function textHtml(value) {
   return String(value || '').split(/\r?\n/).map(line => `<p>${line ? window.escHtml(line) : '<br>'}</p>`).join('');
 }
 

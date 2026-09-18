@@ -3,11 +3,11 @@ let workspace = 'one';
 const session = { userId: 'agent-one' };
 const storage = new Map();
 globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k), key: i => [...storage.keys()][i], get length() { return storage.size; } };
-globalThis.window = { escHtml: s => String(s).replaceAll('<', '&lt;').replaceAll('>', '&gt;'), escAttr: String };
+globalThis.window = { escHtml: s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'), escAttr: String };
 mock.module('../web/js/core/state.js', () => ({ COMPOSE_TAB: 'reply', SESSION: session }));
 mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace, getJwt: () => 'test', apiPost() {}, apiPatch() {} }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {}, registerChangeActions() {}, registerInputActions() {} }));
-const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion, hydrateSharedAiDraft, activateSharedAiDraft } = await import('../web/js/tickets/drafts.js');
+const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion, hydrateSharedAiDraft, activateSharedAiDraft, textHtml } = await import('../web/js/tickets/drafts.js');
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
 test('evidence stays visible with dates, markets, safe navigation and escaped warnings',()=>{
@@ -51,6 +51,7 @@ test('internal metadata is separate, scoped, escaped and cleared after sending',
 });
 
 test('shared AI drafts restore safely and never overwrite a newer local edit',()=>{
+  expect(textHtml('a < b & c')).toBe('<p>a &lt; b &amp; c</p>');
   const suggestionId='a0000000-0000-4000-8000-000000000009';
   clearDraft('T2','reply');
   hydrateSharedAiDraft('T2',{suggestionId,body:'Shared reply',isHtml:false,review:{references:[],notes:['Check']},version:2,updatedBy:'Alex'});

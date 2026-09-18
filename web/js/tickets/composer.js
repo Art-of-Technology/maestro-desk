@@ -153,7 +153,8 @@ export function setText(id, text) {
 export function setHtml(id, html) {
   const q = quillFor(id);
   if (q) { q.clipboard.dangerouslyPasteHTML(0, html ?? '', 'silent'); focusEnd(id); return; }
-  setText(id, html?.replace(/<[^>]*>/g, '') || '');
+  const parsed = new DOMParser().parseFromString(html ?? '', 'text/html');
+  setText(id, parsed.body.textContent || '');
 }
 
 /** Append text on a new paragraph (macros appending a canned response). */
