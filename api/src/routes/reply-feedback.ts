@@ -49,7 +49,7 @@ replyFeedback.post('/:id/shown', async c => {
     return c.json({ error: 'Invalid suggestion event.' }, 400);
   const sql = getDb();
   const rows = await sql`update ai_reply_suggestions set shown_at=coalesce(shown_at,now())
-    where id=${id.data} and workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')}
+    where id=${id.data} and workspace_id=${c.get('workspaceId')}
       and reply_context='reply' returning id`;
   return rows.length ? c.json({ok:true}) : c.json({error:'Suggestion not found.'},404);
 });
@@ -59,10 +59,11 @@ replyFeedback.post('/:id/rejected', async c => {
   const body=z.object({rejected:z.boolean()}).strict().safeParse(await c.req.json().catch(()=>null));
   if(!id.success||!body.success)return c.json({error:'Choose whether to reject the suggestion.'},400);
   const sql=getDb();
-  const rows=await sql`update ai_reply_suggestions set rejected_at=case when ${body.data.rejected} then coalesce(rejected_at,now()) else null end
-    where id=${id.data} and workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')}
-      and reply_context='reply' and sent_message_id is null returning rejected_at`;
-  return rows.length?c.json({rejected:!!rows[0].rejected_at}):c.json({error:'This suggestion is unavailable or has already been used.'},404);
+  const rows=await sql`update ai_reply_suggestions set rejected_at=case when ${body.data.rejected} then coalesce(rejected_at,now()) else null end,
+      draft_updated_by_user_id=${c.get('userId')},draft_updated_at=now(),draft_version=draft_version+1
+    where id=${id.data} and workspace_id=${c.get('workspaceId')}
+      and reply_context='reply' and sent_message_id is null returning rejected_at,draft_version,draft_updated_at`;
+  return rows.length?c.json({rejected:!!rows[0].rejected_at,...rows[0]}):c.json({error:'This suggestion is unavailable or has already been used.'},404);
 });
 
 replyFeedback.post('/:id', async c => {
@@ -70,10 +71,10 @@ replyFeedback.post('/:id', async c => {
   const body = Feedback.safeParse(await c.req.json().catch(() => null));
   if (!id.success || !body.success) return c.json({ error: 'Choose Helpful or Not helpful and a valid reason.' }, 400);
   const sql = getDb();
-  // The generation's owner and workspace come from the server, never the body.
+  // The suggestion and workspace come from the server, never the body.
   const rows = await sql`insert into ai_reply_feedback(suggestion_id,helpful,reason)
     select s.id,${body.data.helpful},${body.data.reason} from ai_reply_suggestions s
-    where s.id=${id.data} and s.workspace_id=${c.get('workspaceId')} and s.user_id=${c.get('userId')}
+    where s.id=${id.data} and s.workspace_id=${c.get('workspaceId')}
     on conflict(suggestion_id) do update set helpful=excluded.helpful,reason=excluded.reason,updated_at=now(),
       resolution_status=case when ai_reply_feedback.helpful is distinct from excluded.helpful
         or ai_reply_feedback.reason is distinct from excluded.reason then 'open' else ai_reply_feedback.resolution_status end,

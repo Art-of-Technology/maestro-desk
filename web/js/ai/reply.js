@@ -101,6 +101,8 @@ export async function aiAction(id, action) {
       onComposeInput(id);
       focusEnd(id);
     }
+    if(data.suggestionId&&text.trim()&&tab==='reply')Object.assign(review,{confirmedUse:true,sharedAvailable:false,
+      sharedVersion:0,sharedBody:getHtml(id)||text,sharedIsHtml:!!getHtml(id),sharedUpdatedBy:'You',sharedUpdatedAt:new Date().toISOString()});
     showReplyReview(id, review, tab);
     if (data.suggestionId && text.trim() && tab === 'reply') {
       // A generated response that lost the scope/edit race never reaches here.

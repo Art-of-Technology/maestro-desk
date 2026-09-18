@@ -49,7 +49,8 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion } from './drafts.js';
+import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
+  hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
@@ -145,6 +146,7 @@ export function openTicket(id) {
       if (CURRENT_TICKET === id) openTicket(id);
     }).catch(err => console.warn('[ticket-detail] load failed:', err));
   }
+  if(COMPOSE_TAB==='reply'&&t.aiDraft)hydrateSharedAiDraft(id,t.aiDraft);
   // Real-time presence — heartbeat starts on first open and re-paints
   // chips on every re-render. No-ops for demo personas (no _uuid) so
   // the localStorage-only flow stays untouched.
@@ -1017,6 +1019,8 @@ export function onComposeInput(id) {
   const draft = getHtml(id) ?? getPlainText(id);
   const text = getPlainText(id);
   saveDraft(id, draft);
+  const ticket=TICKETS.find(t=>t.id===id);
+  if(COMPOSE_TAB==='reply')queueSharedAiDraftSave(id,ticket?._uuid,text,getHtml(id));
   const launcher = document.querySelector?.(`#ticket-page-${id} [data-compose-launch][data-tab="${COMPOSE_TAB}"]`);
   if (launcher) launcher.textContent = (COMPOSE_TAB === 'reply' ? 'Reply' : 'Internal note') + (draft ? ' · draft' : '');
   const cc = document.getElementById('char-count-' + id);
@@ -1302,6 +1306,7 @@ registerActions({
   'td.gdprModal':      (ds) => showGDPRModal(ds.ticketId),
   'td.toggleAIMenu':   (ds) => toggleAIMenu(ds.ticketId),
   'td.aiAction':       (ds) => aiAction(ds.ticketId, ds.verb),
+  'td.loadSharedAiDraft': (ds) => { if(activateSharedAiDraft(ds.ticketId))openTicket(ds.ticketId); },
   'td.send':           (ds) => sendCompose(ds.ticketId),
   'td.toggleSendMenu': (ds) => toggleSendMenu(ds.ticketId),
   'td.sendAnd':        (ds) => sendComposeAnd(ds.ticketId, ds.status),

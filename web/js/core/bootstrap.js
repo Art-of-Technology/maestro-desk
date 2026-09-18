@@ -666,6 +666,13 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     billable: te.billable,
     ts:       fmtTimestampLong(te.created_at),
   }));
+  t.aiDraft = d.ai_reply_draft ? {
+    suggestionId:d.ai_reply_draft.suggestion_id,body:d.ai_reply_draft.draft_body||'',isHtml:!!d.ai_reply_draft.draft_is_html,
+    review:d.ai_reply_draft.draft_review||{references:[],notes:[]},updatedAt:d.ai_reply_draft.draft_updated_at,
+    updatedBy:d.ai_reply_draft.draft_updated_by||'Agent',version:d.ai_reply_draft.draft_version||0,
+    rejected:!!d.ai_reply_draft.rejected_at,stale:!!d.ai_reply_draft.stale,
+    feedback:d.ai_reply_draft.feedback_helpful==null?null:{helpful:d.ai_reply_draft.feedback_helpful,reason:d.ai_reply_draft.feedback_reason||null},
+  } : null;
 
   // Sidebar metadata
   t.csat            = d.csat_score ?? null;

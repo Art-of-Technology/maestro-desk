@@ -11,8 +11,8 @@ globalThis.window={escAttr:String,escHtml:s=>String(s).replaceAll('<','&lt;'),is
 let host;
 globalThis.document={getElementById:()=>host};
 mock.module('../web/js/core/state.js',()=>({COMPOSE_TAB:'reply'}));
-mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){},registerChangeActions(){}}));
-mock.module('../web/js/tickets/drafts.js',()=>({loadDraftReview:()=>review,saveDraftReview:(_id,v)=>{review=v;}}));
+mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){},registerChangeActions(){},registerInputActions(){}}));
+mock.module('../web/js/tickets/drafts.js',()=>({loadDraftReview:()=>review,saveDraft(){},saveDraftReview:(_id,v)=>{review=v;}}));
 let listing;
 mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,getJwt:()=>jwt,
   apiPatch:async()=>({ok:true}),
@@ -24,7 +24,7 @@ beforeEach(()=>{workspace='a0000000-0000-4000-8000-000000000001';jwt='agent';rev
 
 test('reason changes and clearing save automatically for a negative rating',async()=>{
   review.feedback={helpful:false,reason:'other'};
-  expect(renderReplyFeedback('T1',review)).toContain('data-change-action="replyFeedback.reason"');
+  expect(renderReplyFeedback('T1',review)).toContain('Feedback saved');
   await changeReplyReason({ticketId:'T1'},select);
   expect(review.feedback).toEqual({helpful:false,reason:'wrong_match'});
   select.value='';await changeReplyReason({ticketId:'T1'},select);
@@ -68,8 +68,8 @@ test('late reason saves leave a different suggestion or session untouched',async
   }
 });
 test('offers labelled ratings and optional reasons only for server-issued suggestions',()=>{
-  expect(renderReplyFeedback('T1',review)).toContain('Was this suggestion helpful?');
-  expect(renderReplyFeedback('T1',review)).toContain('Reason (optional)');
+  expect(renderReplyFeedback('T1',review)).toContain('Give feedback');
+  expect(renderReplyFeedback('T1',review)).toContain('References (0)');
   expect(renderReplyFeedback('T1',{suggestionId:'<script>'})).toBe('');
 });
 test('saves a rating without replacing the review, suppresses double clicks and permits correction',async()=>{
@@ -113,7 +113,7 @@ test('explicit rejection keeps rating separate, clears confirmed use, and permit
   const rejectButton={closest:()=>panel,dataset:{},setAttribute(){},textContent:''};
   await rejectReply({ticketId:'T1',rejected:'true'},rejectButton);
   expect(review.rejected).toBe(true);expect(review.confirmedUse).toBe(false);expect(review.feedback.reason).toBe('wrong_match');
-  expect(status.textContent).toContain('draft has been kept');
+  expect(panel.outerHTML).toContain('AI suggestion discarded');
   await rejectReply({ticketId:'T1',rejected:'false'},rejectButton);expect(review.rejected).toBe(false);
   fail=true;await rejectReply({ticketId:'T1',rejected:'true'},rejectButton);expect(review.rejected).toBe(false);
 });

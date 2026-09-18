@@ -149,6 +149,13 @@ export function setText(id, text) {
   if (node) node.value = text ?? '';
 }
 
+/** Replace the rich reply with trusted, server-sanitised draft HTML. */
+export function setHtml(id, html) {
+  const q = quillFor(id);
+  if (q) { q.clipboard.dangerouslyPasteHTML(0, html ?? '', 'silent'); focusEnd(id); return; }
+  setText(id, html?.replace(/<[^>]*>/g, '') || '');
+}
+
 /** Append text on a new paragraph (macros appending a canned response). */
 export function appendText(id, text) {
   const q = quillFor(id);

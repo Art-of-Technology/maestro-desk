@@ -1,7 +1,9 @@
 import { apiPost, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { COMPOSE_TAB } from '../core/state.js';
-import { loadDraftReview, saveDraftReview } from '../tickets/drafts.js';
+import { loadDraftReview, saveDraft, saveDraftReview } from '../tickets/drafts.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
+import { showModal } from '../core/modal.js';
+import { setHtml, setText } from '../tickets/composer.js';
 
 export const FEEDBACK_REASONS = { wrong_match: 'Wrong match', outdated_advice: 'Outdated advice', wrong_language: 'Wrong language', other: 'Other' };
 const pending = new Set();
@@ -9,19 +11,26 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function renderReplyFeedback(id, review) {
   if (!uuid.test(review?.suggestionId || '')) return '';
-  const selected = review.feedback;
-  return `<div class="reply-feedback" data-suggestion-id="${review.suggestionId}">
-    <p>Was this suggestion helpful?</p>
-    <div class="reply-feedback-controls">${[true, false].map(helpful => `<button type="button" class="btn btn-ghost" data-action="replyFeedback.rate" data-ticket-id="${window.escAttr(id)}" data-helpful="${helpful}" aria-pressed="${selected?.helpful === helpful}">${helpful ? 'Helpful' : 'Not helpful'}</button>`).join('')}
-    <label>Reason (optional)<select class="form-select" data-feedback-reason data-change-action="replyFeedback.reason" data-ticket-id="${window.escAttr(id)}"><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label]) => `<option value="${key}" ${selected?.reason === key ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>
-    <p class="reply-feedback-status" role="status">${selected ? 'Feedback saved.' : 'Feedback is for your team and won’t change your draft.'}</p>
-    ${COMPOSE_TAB === 'reply' ? `<label class="reply-use-confirm"><input type="checkbox" data-change-action="replyFeedback.confirmUse" data-ticket-id="${window.escAttr(id)}" ${review.confirmedUse ? 'checked' : ''} ${review.rejected?'disabled':''}>This reply uses the suggestion (for reporting)</label>
-      <button type="button" class="btn btn-ghost" data-action="replyFeedback.reject" data-ticket-id="${window.escAttr(id)}" data-rejected="${!review.rejected}" aria-pressed="${!!review.rejected}">${review.rejected?'Undo rejection':'Reject suggestion (for reporting)'}</button>` : ''}
-  </div>`;
+  const label=review.rejected?'AI suggestion discarded':review.sharedAvailable?'Shared AI suggestion available':review.stale?'AI suggestion · Needs review':`AI suggestion${review.edited?' · Edited':''}`;
+  const meta=review.sharedUpdatedBy?` · Saved by ${window.escHtml(review.sharedUpdatedBy)}`:'';
+  const refs=review.references?.length||0;
+  return `<div class="reply-feedback reply-feedback-compact" data-suggestion-id="${review.suggestionId}">
+    <span><strong>${label}</strong>${meta}</span><span class="reply-feedback-actions">
+    ${review.sharedAvailable?`<button type="button" class="btn btn-sm btn-solid" data-action="td.loadSharedAiDraft" data-ticket-id="${window.escAttr(id)}">Load shared draft</button>`
+      :`<button type="button" class="btn btn-sm" data-action="replyFeedback.open" data-ticket-id="${window.escAttr(id)}">${review.feedback?'Feedback saved':'Give feedback'}</button>`}
+    <button type="button" class="btn btn-sm" data-action="replyReview.references" data-ticket-id="${window.escAttr(id)}">References (${refs})</button>
+    ${review.sharedAvailable?'':`<button type="button" class="btn btn-sm" data-action="replyFeedback.reject" data-ticket-id="${window.escAttr(id)}" data-rejected="${!review.rejected}" aria-pressed="${!!review.rejected}">${review.rejected?'Undo':'Discard'}</button>`}
+    <span class="reply-feedback-status" role="status"></span></span></div>`;
 }
 
+function feedbackForm(id,review){const selected=review.feedback;return `<div class="reply-feedback-form" data-suggestion-id="${review.suggestionId}">
+  <p>Was this suggestion helpful?</p><div class="reply-feedback-controls">${[true,false].map(helpful=>`<button type="button" class="btn btn-ghost" data-action="replyFeedback.rate" data-ticket-id="${window.escAttr(id)}" data-helpful="${helpful}" aria-pressed="${selected?.helpful===helpful}">${helpful?'Helpful':'Not helpful'}</button>`).join('')}
+  <label>Reason (optional)<select class="form-select" data-feedback-reason data-change-action="replyFeedback.reason" data-ticket-id="${window.escAttr(id)}"><option value="">Choose a reason</option>${Object.entries(FEEDBACK_REASONS).map(([key,label])=>`<option value="${key}" ${selected?.reason===key?'selected':''}>${label}</option>`).join('')}</select></label></div>
+  <p class="reply-feedback-status" role="status">${selected?'Feedback saved.':'Feedback is for your team and won’t change the draft.'}</p></div>`;}
+function openFeedback(ds){const review=loadDraftReview(ds.ticketId);if(review?.suggestionId)showModal('AI suggestion feedback',feedbackForm(ds.ticketId,review),null);}
+
 export async function rateReply(ds, button) {
-  const panel = button.closest('.reply-feedback');
+  const panel = button.closest('.reply-feedback-form');
   const tab = COMPOSE_TAB, workspace = getWorkspaceId(), jwt = getJwt();
   const review = loadDraftReview(ds.ticketId, tab);
   if (!panel || review?.suggestionId !== panel.dataset.suggestionId || !workspace || !jwt) return;
@@ -54,7 +63,7 @@ export async function rateReply(ds, button) {
   }
 }
 export async function changeReplyReason(ds, select) {
-  const panel = select.closest('.reply-feedback');
+  const panel = select.closest('.reply-feedback-form');
   const review = loadDraftReview(ds.ticketId);
   if (!panel?.isConnected || select.disabled || review?.suggestionId !== panel.dataset.suggestionId) return;
   if (review.feedback?.helpful !== false) {
@@ -79,19 +88,14 @@ export async function rejectReply(ds,button) {
     if(workspace!==getWorkspaceId()||jwt!==getJwt())return;
     const current=loadDraftReview(ds.ticketId,tab);
     if(current?.suggestionId!==review.suggestionId)return;
-    saveDraftReview(ds.ticketId,{...current,rejected:result.rejected,...(result.rejected?{confirmedUse:false}:{})},tab);
+    const next={...current,rejected:result.rejected,sharedAvailable:false,sharedVersion:result.draft_version,
+      sharedUpdatedAt:result.draft_updated_at,...(result.rejected?{confirmedUse:false}:{confirmedUse:true})};
+    saveDraftReview(ds.ticketId,next,tab);
     if(!active())return;
-    button.dataset.rejected=String(!result.rejected);button.setAttribute('aria-pressed',String(result.rejected));
-    button.textContent=result.rejected?'Undo rejection':'Reject suggestion (for reporting)';
-    const use=panel.querySelector('[data-change-action="replyFeedback.confirmUse"]');
-    if(use){use.disabled=result.rejected;if(result.rejected)use.checked=false;}
-    status.textContent=result.rejected?'Rejection recorded. Your draft has been kept.':'Rejection removed.';
+    if(result.rejected){setText(ds.ticketId,'');saveDraft(ds.ticketId,'',tab);}else if(next.sharedBody){setHtml(ds.ticketId,next.sharedBody);saveDraft(ds.ticketId,next.sharedBody,tab);}
+    panel.outerHTML=renderReplyFeedback(ds.ticketId,next);
   } catch {if(active())status.textContent='Your choice was not saved. Try again.';}
   finally {pending.delete(key);if(active())panel.querySelectorAll('button,select').forEach(el=>{el.disabled=false;});}
 }
-registerActions({ 'replyFeedback.rate': rateReply, 'replyFeedback.reject':rejectReply });
-registerChangeActions({ 'replyFeedback.reason': changeReplyReason, 'replyFeedback.confirmUse': (ds, el) => {
-  const review = loadDraftReview(ds.ticketId);
-  if (!review?.rejected && review?.suggestionId === el.closest('.reply-feedback')?.dataset.suggestionId)
-    saveDraftReview(ds.ticketId, { ...review, confirmedUse: el.checked });
-} });
+registerActions({ 'replyFeedback.open':openFeedback,'replyFeedback.rate': rateReply, 'replyFeedback.reject':rejectReply });
+registerChangeActions({ 'replyFeedback.reason': changeReplyReason });

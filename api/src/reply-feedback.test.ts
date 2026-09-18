@@ -55,9 +55,9 @@ import { recordReplySuggestion } from './lib/reply-feedback.js';
     expect(data.items.some((r:any)=>r.id===id)).toBe(false);
     expect((await sql`select body from ticket_messages where ticket_id=${target.id}`)[0].body).toBe('Previous reply');
   });
-  it('requires the generation owner to rate and workspace admins to read; rejects forged fields', async () => {
+  it('lets workspace agents rate shared suggestions while workspace admins alone can read reports', async () => {
     const {id} = await suggestion();
-    expect((await request('/'+id,second.token,{helpful:false})).status).toBe(404);
+    expect((await request('/'+id,second.token,{helpful:false})).status).toBe(200);
     expect((await request('/'+id,admin.token,{helpful:false},other)).status).toBe(404);
     expect((await request('',agent.token)).status).toBe(403);
     expect((await request('/'+id,agent.token,{helpful:false,user_id:admin.user.id})).status).toBe(400);
@@ -68,6 +68,39 @@ import { recordReplySuggestion } from './lib/reply-feedback.js';
     expect(((await (await request('',admin.token,undefined,other)).json()) as any).items).toEqual([]);
     const foreign = await ticket(other);
     expect(await recordReplySuggestion(ws,agent.user.id,foreign.id,'No')).toBeNull();
+  });
+  it('shares, versions, retains and transfers an AI reply draft between agents',async()=>{
+    const target=await ticket();
+    const id=await recordReplySuggestion(ws,agent.user.id,target.id,'Shared answer',[],{context:'reply',costMicro:1,
+      review:{references:[],notes:['Verify the account.']}});
+    const ticketRequest=(token:string,method='GET',body?:unknown,workspace=ws)=>app.request(`/api/v1/tickets/${target.id}${method==='PATCH'?'/ai-draft':''}`,{
+      method,headers:{Authorization:`Bearer ${token}`,'X-Workspace-Id':workspace,'Content-Type':'application/json'},
+      ...(body===undefined?{}:{body:JSON.stringify(body)}),
+    });
+    let detail:any=await (await ticketRequest(second.token)).json();
+    expect(detail.ticket.ai_reply_draft.draft_body).toBe('Shared answer');
+    expect(detail.ticket.ai_reply_draft.draft_review.notes).toEqual(['Verify the account.']);
+    const edit={suggestion_id:id,version:0,body:'Tailored answer',body_html:'<p>Tailored <strong>answer</strong></p>'};
+    expect((await ticketRequest(second.token,'PATCH',edit)).status).toBe(200);
+    expect((await ticketRequest(agent.token,'PATCH',edit)).status).toBe(409);
+    await sql`update tickets set status_key='pending' where id=${target.id}`;
+    detail=await (await ticketRequest(agent.token)).json();
+    expect(detail.ticket.ai_reply_draft.draft_body).toContain('Tailored');
+    await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body) values (${ws},${target.id},'customer','Customer','One more detail')`;
+    detail=await (await ticketRequest(second.token)).json();
+    expect(detail.ticket.ai_reply_draft.stale).toBe(true);
+    expect((await ticketRequest(admin.token,'GET',undefined,other)).status).toBe(404);
+    expect((await request('/'+id+'/rejected',second.token,{rejected:true})).status).toBe(200);
+    detail=await (await ticketRequest(agent.token)).json();
+    expect(detail.ticket.ai_reply_draft.rejected_at).toBeTruthy();
+    expect((await ticketRequest(agent.token,'PATCH',{...edit,version:2})).status).toBe(409);
+    expect((await request('/'+id+'/rejected',agent.token,{rejected:false})).status).toBe(200);
+    const sent=await app.request(`/api/v1/tickets/${target.id}/messages`,{method:'POST',headers:{Authorization:`Bearer ${second.token}`,'X-Workspace-Id':ws,'Content-Type':'application/json'},
+      body:JSON.stringify({role:'agent',body:'Tailored answer',reply_suggestion_id:id})});
+    expect(sent.status).toBe(201);
+    expect((await sql`select used_by_user_id from ai_reply_suggestions where id=${id}`)[0].used_by_user_id).toBe(second.user.id);
+    detail=await (await ticketRequest(agent.token)).json();
+    expect(detail.ticket.ai_reply_draft).toBeNull();
   });
   it('purges feedback and snapshots for target erasure, source erasure and ticket removal', async () => {
     for (const mode of ['target','source','delete','soft-delete','move']) {

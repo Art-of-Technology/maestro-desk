@@ -2,6 +2,8 @@ import { loadDraftReview, saveDraftReview } from '../tickets/drafts.js';
 import { renderReplyFeedback } from './reply-feedback.js';
 import { getWorkspaceId } from '../core/api-client.js';
 import { formatRoute } from '../core/route-location.js';
+import { showModal } from '../core/modal.js';
+import { registerActions } from '../core/event-delegation.js';
 
 function safeLink(value) {
   try {
@@ -12,9 +14,14 @@ function safeLink(value) {
 
 export function renderReplyReview(id, value = loadDraftReview(id), saved = false) {
   if (!value) return '';
+  if(!saved)return renderReplyFeedback(id,value);
+  return renderInternalReview(id,value,true);
+}
+
+function renderInternalReview(id,value,saved=false) {
   const refs = value.references.filter(r => r && typeof r.title === 'string').slice(0, 20);
   const notes = value.notes.filter(n => typeof n === 'string').slice(0, 10);
-  return `${saved ? '' : renderReplyFeedback(id, value)}<details class="reply-internal-review" ${saved ? '' : 'open'}>
+  return `<details class="reply-internal-review" ${saved ? '' : 'open'}>
     <summary>Internal references — not sent</summary>
     <p>${saved ? 'Saved with this reply for agents only. These sources and notes accompanied the suggestion; the reply may have been edited before sending.' : 'For agents only. Review these alongside the reply before sending.'}</p>
     ${refs.length ? `<ul>${refs.map(r => {
@@ -41,3 +48,6 @@ export function showReplyReview(id, value, tab) {
   const panel = document.getElementById('reply-review-' + id);
   if (panel) panel.innerHTML = renderReplyReview(id, value);
 }
+
+function showReferences(ds){const review=loadDraftReview(ds.ticketId);if(review)showModal('AI suggestion references',renderInternalReview(ds.ticketId,review),null,null,true);}
+registerActions({'replyReview.references':showReferences});
