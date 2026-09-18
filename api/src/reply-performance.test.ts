@@ -81,20 +81,20 @@ it('rejects invalid, reversed and excessive reporting periods',()=>{
     expect((await report({},agent)).status).toBe(403);
     expect((await report({offset:'-1'})).status).toBe(400);
     const foreignReport:any=await (await report({},admin,other)).json();expect(foreignReport.summary.generated).toBe(0);
-    expect((await request(`ai/reply-feedback/${known}/shown`,second,{})).status).toBe(404);
+    expect((await request(`ai/reply-feedback/${known}/shown`,second,{})).status).toBe(200);
     expect((await request(`ai/reply-feedback/${known}/shown`,admin,{},other)).status).toBe(404);
     expect((await request(`ai/reply-feedback/${known}/shown`,agent,{shown_at:'2020-01-01'})).status).toBe(400);
     const [before]=await sql`select shown_at from ai_reply_suggestions where id=${known}`;
     await request(`ai/reply-feedback/${known}/shown`,agent,{});
     const [after]=await sql`select shown_at from ai_reply_suggestions where id=${known}`;expect(after.shown_at).toEqual(before.shown_at);
   });
-  it('records only explicit same-agent, same-ticket public uses and keeps first-use attribution',async()=>{
+  it('records only explicit same-ticket public uses and keeps first-use attribution across agents',async()=>{
     const id=await snapshot(),another=await ticket();
-    await post(tid,agent);await post(tid,second,id);await post(another,agent,id);await post(tid,agent,id,'Note','note');
+    await post(tid,agent);await post(another,agent,id);await post(tid,agent,id,'Note','note');
     expect((await sql`select sent_message_id from ai_reply_suggestions where id=${id}`)[0].sent_message_id).toBeNull();
-    const sent:any=await (await post(tid,agent,id,' Original   suggestion ')).json();
-    const [first]=await sql`select sent_message_id,sent_changed from ai_reply_suggestions where id=${id}`;
-    expect(first.sent_message_id).toBe(sent.message.id);expect(first.sent_changed).toBe(false);
+    const sent:any=await (await post(tid,second,id,' Original   suggestion ')).json();
+    const [first]=await sql`select sent_message_id,sent_changed,used_by_user_id from ai_reply_suggestions where id=${id}`;
+    expect(first.sent_message_id).toBe(sent.message.id);expect(first.sent_changed).toBe(false);expect(first.used_by_user_id).toBe(second.user.id);
     await post(tid,agent,id,'Another reply');
     expect((await sql`select sent_message_id from ai_reply_suggestions where id=${id}`)[0].sent_message_id).toBe(first.sent_message_id);
     const otherMessage:any=await (await post(tid,agent)).json();
@@ -112,10 +112,12 @@ it('rejects invalid, reversed and excessive reporting periods',()=>{
     for(let i=0;i<4;i++)ids.push((await recordReplySuggestion(ws,agent.user.id,tid,'Original suggestion',[],{context:'reply',costMicro:1000,language:'French'}))!);
     await sql`update ai_reply_suggestions set created_at='2026-08-01T00:00:00Z' where id=any(${ids}::uuid[])`;
     await sql`update tickets set category_key=null where id=${tid}`;
-    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,second,{rejected:true})).status).toBe(404);
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,second,{rejected:true})).status).toBe(200);
+    expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:false})).status).toBe(200);
     expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,admin,{rejected:true},other)).status).toBe(404);
     expect((await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:true,rejected_at:'2020-01-01'})).status).toBe(400);
     await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:true});
+    await request(`ai/reply-feedback/${ids[0]}/rejected`,agent,{rejected:false});
     await post(tid,agent,ids[0]);
     await post(tid,agent,ids[1],'Entirely new wording for the customer.');
     await request(`ai/reply-feedback/${ids[2]}/rejected`,agent,{rejected:true});

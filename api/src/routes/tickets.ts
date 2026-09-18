@@ -58,6 +58,8 @@ tickets.use('*', async (c, next) => {
   const method = c.req.method;
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
   if (c.res.status >= 300) return;
+  // Draft autosaves are working-state churn, not ticket activity.
+  if (c.req.path.endsWith('/ai-draft')) return;
   const id = c.req.param('id');
   const workspaceId = c.get('workspaceId');
   if (id && workspaceId) void publishTicketChanged(workspaceId, id);
@@ -247,7 +249,7 @@ tickets.get('/:id', async (c) => {
   `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity] = await Promise.all([
+  const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity, aiDraftRows] = await Promise.all([
     sql<{ id: string; body_html: string | null }[]>`
         select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at,
           r.review as internal_review
@@ -269,6 +271,19 @@ tickets.get('/:id', async (c) => {
     sql`select id, kind, author_user_id, author_label, details, created_at from events
       where workspace_id = ${workspaceId} and entity_type = 'ticket' and entity_id = ${ticketId}
       order by created_at desc, id desc limit 100`,
+    sql`with latest as (
+        select s.* from ai_reply_suggestions s
+        where s.ticket_id=${ticketId} and s.workspace_id=${workspaceId} and s.reply_context='reply'
+        order by s.created_at desc,s.id desc limit 1
+      )
+      select s.id as suggestion_id,coalesce(s.draft_body,s.reply) as draft_body,s.draft_is_html,s.draft_review,s.draft_updated_at,s.draft_version,
+        s.rejected_at,u.name as draft_updated_by,
+        exists(select 1 from ticket_messages m where m.ticket_id=${ticketId} and m.workspace_id=${workspaceId}
+          and m.role='customer' and m.deleted_at is null and m.created_at>s.created_at) as stale,
+        f.helpful as feedback_helpful,f.reason as feedback_reason
+      from latest s left join users u on u.id=s.draft_updated_by_user_id
+      left join ai_reply_feedback f on f.suggestion_id=s.id
+      where s.sent_message_id is null`,
   ]);
 
   return c.json({
@@ -286,8 +301,32 @@ tickets.get('/:id', async (c) => {
       })),
       merged_from_display_ids: mergedFrom.map((r: any) => r.display_id),
       merged_into_display_id:  (mergedInto[0] as any)?.display_id || null,
+      ai_reply_draft: aiDraftRows[0] || null,
     },
   });
+});
+
+const SharedAiDraft = z.object({
+  suggestion_id: z.string().uuid(),
+  version: z.number().int().min(0),
+  body: z.string().max(100_000),
+  body_html: z.string().max(2_000_000).nullable(),
+}).strict().refine(v => v.body.trim() || v.body_html?.trim(), { message: 'Draft cannot be empty' });
+
+tickets.patch('/:id/ai-draft', async c => {
+  const parsed = SharedAiDraft.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({error:'Invalid shared AI draft.'},400);
+  const sql=getDb(),workspaceId=c.get('workspaceId'),userId=c.get('userId'),ticketId=c.req.param('id'),input=parsed.data;
+  const html=input.body_html ? sanitizeEmailHtml(input.body_html,{allowDataImages:false}).html : null;
+  const draftBody=html || input.body.trim();
+  const rows=await sql`update ai_reply_suggestions set draft_body=${draftBody},draft_is_html=${!!html},
+      draft_updated_by_user_id=${userId},draft_updated_at=now(),draft_version=draft_version+1
+    where id=${input.suggestion_id} and ticket_id=${ticketId} and workspace_id=${workspaceId}
+      and reply_context='reply' and sent_message_id is null and rejected_at is null and draft_version=${input.version}
+    returning draft_version,draft_updated_at`;
+  if(!rows.length)return c.json({error:'This shared draft changed or is no longer available.'},409);
+  const [user]=await sql`select name from users where id=${userId}`;
+  return c.json({...rows[0],draft_updated_by:user?.name||'Agent'});
 });
 
 const CloseTicket = z.object({

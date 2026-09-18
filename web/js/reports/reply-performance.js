@@ -31,7 +31,7 @@ export function renderReplyPerformance() {
       </div>
       <div class="performance-exports"><button type="button" class="btn" data-action="replyPerformance.summary">Export summary CSV</button><button type="button" class="btn" data-action="replyPerformance.details">Export detailed CSV</button></div>
       <p id="reply-report-status" role="status">Loading report…</p>
-      <p class="performance-explainer">Grouped by suggestion creation date. Ratings reflect the latest feedback. Confirmed use means the agent checked “This reply uses the suggestion” before posting. Posting does not confirm email delivery.</p>
+      <p class="performance-explainer">Grouped by suggestion creation date. Ratings reflect the latest feedback. Confirmed use means an agent sent the active shared AI draft. Posting does not confirm email delivery.</p>
       <div id="reply-report-result"></div>
     </div></div>`;
 }

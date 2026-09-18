@@ -5,7 +5,7 @@ import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { callClaude } from './client.js';
 import { onComposeInput } from '../tickets/detail.js';
 import { focusEnd, getPlainText, getHtml, setText } from '../tickets/composer.js';
-import { loadDraftReview } from '../tickets/drafts.js';
+import { loadDraftReview, textHtml } from '../tickets/drafts.js';
 import { showReplyReview } from './reply-review.js';
 import { buildKbQuery, fetchKbArticles } from '../kb-integration/index.js';
 import { ensureCustomerLanguage, latestCustomerText, AGENT_PREFERRED_LANG } from './translate.js';
@@ -101,6 +101,8 @@ export async function aiAction(id, action) {
       onComposeInput(id);
       focusEnd(id);
     }
+    if(data.suggestionId&&text.trim()&&tab==='reply')Object.assign(review,{confirmedUse:true,sharedAvailable:false,
+      sharedVersion:0,sharedBody:getHtml(id)||textHtml(text),sharedIsHtml:true,sharedUpdatedBy:'You',sharedUpdatedAt:new Date().toISOString()});
     showReplyReview(id, review, tab);
     if (data.suggestionId && text.trim() && tab === 'reply') {
       // A generated response that lost the scope/edit race never reaches here.

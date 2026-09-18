@@ -11,7 +11,7 @@ mock.module('../web/js/core/data.js', () => ({
 }));
 mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB: 'reply', setAiThinking() {} }));
 mock.module('../web/js/core/api-client.js', () => ({ apiPost: async () => ({}), getJwt: () => 'test-session', getWorkspaceId: () => 'test-workspace' }));
-mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null }));
+mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftReview: () => null, textHtml: String }));
 mock.module('../web/js/ai/reply-review.js', () => ({ showReplyReview() {} }));
 mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
 mock.module('../web/js/ai/client.js', () => ({
