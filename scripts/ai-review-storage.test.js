@@ -65,4 +65,25 @@ test('shared AI drafts restore safely and never overwrite a newer local edit',()
   expect(loadDraft('T2','reply')).toContain('Changed elsewhere');
   hydrateSharedAiDraft('T2',{suggestionId,body:'Changed elsewhere',isHtml:false,review:{references:[],notes:[]},version:3,rejected:true});
   expect(loadDraft('T2','reply')).toBe('');
+  hydrateSharedAiDraft('T3',{suggestionId,body:'Same',isHtml:false,review:{references:[],notes:[]},version:2});
+  hydrateSharedAiDraft('T3',{suggestionId,body:'Same',isHtml:false,review:{references:[],notes:[]},version:5});
+  expect(loadDraftReview('T3','reply').sharedVersion).toBe(5);
+});
+
+test('loading shared HTML replaces existing rich composer content',async()=>{
+  const host={dataset:{rich:'1'},appendChild(){},querySelector(){return null;}};
+  globalThis.document={getElementById:id=>id==='compose-T4'?host:null,createElement(){return {};},head:{},querySelector(){return null;},dispatchEvent(){}};
+  class FakeQuill {
+    static last;
+    constructor(container){this.container=container;this.clipboard={convert:value=>({ops:[{insert:value.html}]})};FakeQuill.last=this;}
+    setContents(value,source){this.contents=value;this.source=source;}
+    getLength(){return 1;}
+    setSelection(){}
+  }
+  window.Quill=FakeQuill;
+  const {mountComposer,setHtml}=await import('../web/js/tickets/composer.js');
+  await mountComposer('T4');
+  setHtml('T4','<p>Shared</p>');
+  expect(FakeQuill.last.contents).toEqual({ops:[{insert:'<p>Shared</p>'}]});
+  expect(FakeQuill.last.source).toBe('silent');
 });

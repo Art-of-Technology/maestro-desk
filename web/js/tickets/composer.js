@@ -152,7 +152,7 @@ export function setText(id, text) {
 /** Replace the rich reply with trusted, server-sanitised draft HTML. */
 export function setHtml(id, html) {
   const q = quillFor(id);
-  if (q) { q.clipboard.dangerouslyPasteHTML(0, html ?? '', 'silent'); focusEnd(id); return; }
+  if (q) { q.setContents(q.clipboard.convert({ html: html ?? '', text: '' }), 'silent'); focusEnd(id); return; }
   const parsed = new DOMParser().parseFromString(html ?? '', 'text/html');
   setText(id, parsed.body.textContent || '');
 }

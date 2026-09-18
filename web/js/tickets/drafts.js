@@ -72,7 +72,8 @@ export function hydrateSharedAiDraft(id, shared) {
     saveDraftReview(id,{...review,sharedAvailable:false},'reply');return;
   }
   if(current?.suggestionId===shared.suggestionId&&(local===body||(current.sharedVersion??-1)>=shared.version)){
-    saveDraftReview(id,{...review,...current,stale:shared.stale,sharedUpdatedBy:shared.updatedBy,sharedUpdatedAt:shared.updatedAt},'reply');return;
+    saveDraftReview(id,{...review,...current,stale:shared.stale,sharedUpdatedBy:shared.updatedBy,sharedUpdatedAt:shared.updatedAt,
+      sharedVersion:Math.max(current.sharedVersion??0,shared.version??0)},'reply');return;
   }
   if(!local){saveDraft(id,body,'reply');saveDraftReview(id,{...review,confirmedUse:true,sharedAvailable:false},'reply');return;}
   saveDraftReview(id,{...review,sharedAvailable:true},'reply');
