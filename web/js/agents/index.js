@@ -90,7 +90,7 @@ export function renderAgents() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Agents</div>
+        <div class="tb-title" data-guide="agents">Agents</div>
         ${admin
           ? `<button class="btn btn-solid btn-sm" data-action="agents.new">+ Invite Agent</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}

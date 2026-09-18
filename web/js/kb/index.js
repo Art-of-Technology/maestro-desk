@@ -454,7 +454,7 @@ export function renderKB() {
   return `
     <div class="page kb-library-page">
       <div class="topbar">
-        <div class="tb-title">Knowledge Base</div>
+        <div class="tb-title" data-guide="knowledge">Knowledge Base</div>
         ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="ks.open">Knowledge sources</button>` : ''}
         ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="kbQuality.show">Quality queue</button>` : ''}
         ${admin && kbApiBacked() ? `<button class="btn btn-sm" data-action="kbGaps.show">Knowledge gaps</button>` : ''}

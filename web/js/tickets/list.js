@@ -191,7 +191,7 @@ export function renderTickets() {
     });
   }
   const error = scopes.map(s => workQueueState(s).error).find(Boolean);
-  if (error || scopes.some(s => !workQueueState(s).ready)) return `<div class="page"><div class="topbar"><div class="tb-title">Tickets</div></div><p class="report-note" role="${error ? 'alert' : 'status'}">${error || 'Loading the complete ticket queue…'}${error ? ' <button class="btn" data-action="tickets.retryQueue">Retry</button>' : ''}</p></div>`;
+  if (error || scopes.some(s => !workQueueState(s).ready)) return `<div class="page"><div class="topbar"><div class="tb-title" data-guide="tickets">Tickets</div></div><p class="report-note" role="${error ? 'alert' : 'status'}">${error || 'Loading the complete ticket queue…'}${error ? ' <button class="btn" data-action="tickets.retryQueue">Retry</button>' : ''}</p></div>`;
   refreshQueueUrgency();
   const outstanding = TICKETS.filter(isOutstanding);
   const statuses = history ? ['outstanding', 'history', 'resolved', 'closed'] : ['outstanding','open','pending','escalated','gdpr','history'];
@@ -298,7 +298,7 @@ export function renderTickets() {
   return `
     <div class="page ticket-work-page">
       <div class="topbar">
-        <div class="tb-title">Tickets</div>
+        <div class="tb-title" data-guide="tickets">Tickets</div>
         <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
         <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
       </div>

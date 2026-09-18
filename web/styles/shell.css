@@ -111,6 +111,8 @@
 .gs-empty{padding:16px;font-size:13px;color:var(--ink3);text-align:center}
 /* ── Notifications ── */
 .gs-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.guide-trigger{background:transparent;border:1px solid var(--rule);border-radius:var(--r-pill);padding:6px 10px;cursor:pointer;color:var(--ink2);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px;font:500 12px var(--font-sans)}
+.guide-trigger:hover,.guide-trigger:focus-visible{border-color:var(--purple);color:var(--purple);background:var(--purple-lt)}
 .notif-wrap{position:relative}
 .cog-btn{background:transparent;border:1px solid var(--rule);border-radius:var(--r-pill);padding:6px 9px;cursor:pointer;color:var(--ink2);transition:all .15s;display:flex;align-items:center;justify-content:center}
 .cog-btn:hover{border-color:var(--purple);color:var(--purple)}
