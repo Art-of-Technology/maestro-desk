@@ -439,7 +439,7 @@ export function renderCustomers() {
   return `
     <div class="page">
       <div class="topbar">
-        <div class="tb-title">Customers</div>
+        <div class="tb-title" data-guide="customers">Customers</div>
         ${getBrandId() ? `<button class="btn btn-sm" data-action="players.lookup" title="Search every player in this brand, live from Maestro">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.2"/><path d="M7.7 7.7L11 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           Look up player

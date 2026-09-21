@@ -49,6 +49,15 @@ jobs:
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 
+      - name: Guided tour integrity
+        run: bun test scripts/guides.test.js scripts/guides-behavior.test.js
+
+      - name: Guide impact declared
+        if: github.event_name == 'pull_request'
+        run: bun scripts/guide-impact-check.mjs
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+
       - name: Ticket date sorting and frontend deployment verification
         run: bun test scripts/ticket-date-sort.test.js scripts/frontend-deployment-check.test.js
 

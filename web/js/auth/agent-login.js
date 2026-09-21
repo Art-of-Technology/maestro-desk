@@ -15,6 +15,7 @@ import { loadWorkspaceData } from '../core/bootstrap.js';
 import { enterGod } from './platform-admin.js';
 import { requestedRoute, resumeUrlRouting, discardRequestedRoute } from '../core/url-navigation.js';
 import { showToast } from '../core/toast.js';
+import { maybeStartGuides } from '../guides/index.js';
 
 // Cached between sign-in and workspace pick (for the 2+ picker click handler).
 let _memberships = null;
@@ -169,6 +170,7 @@ async function bootShell(user, membership) {
     primaryColor: membership.workspace_primary_color,
   });
   await resumeUrlRouting();
+  if (!user.is_platform_admin) maybeStartGuides();
 }
 
 // URL workspace IDs are hints, never grants. Resolve them against authenticated

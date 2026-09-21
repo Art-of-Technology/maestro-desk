@@ -55,6 +55,7 @@ import { applyCollapsibleHeaders } from './collapsible.js';
 import { stopPresence } from './presence.js';
 import { taglineCheck } from '../tagline-sdk/index.js';
 import { syncRoute, beginRouteNavigation } from './url-navigation.js';
+import { guidePageRendered } from '../guides/index.js';
 
 // Merged sidebar destinations own extra page keys through their header tabs
 // (Insights = reports|activity). Map those tab
@@ -164,6 +165,7 @@ export function renderPage(page) {
   updateNavBadges();
   taglineCheck(page);
   syncRoute(page, null);
+  guidePageRendered(page);
 }
 
 // ─── Page-render hooks (updateNavBadges) ────────────────────────────────────
