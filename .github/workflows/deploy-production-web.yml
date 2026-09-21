@@ -21,15 +21,15 @@ jobs:
     steps:
       - name: Trigger Dokploy
         env:
-          DOKPLOY_WEB_DEPLOY_URL: ${{ secrets.DOKPLOY_WEB_DEPLOY_URL }}
+          CRON_SECRET: ${{ secrets.PROD_CRON_SECRET }}
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
         run: |
           set -eu
-          if [ -z "$DOKPLOY_WEB_DEPLOY_URL" ]; then
-            echo "::error::DOKPLOY_WEB_DEPLOY_URL is not set."
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::PROD_CRON_SECRET is not set."
             exit 1
           fi
 
@@ -44,15 +44,16 @@ jobs:
               > "$payload"
           fi
 
-          code="$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 90 -o /dev/null -w '%{http_code}' \
             -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
             -H 'Content-Type: application/json' \
-            -H 'X-GitHub-Event: push' \
             --data-binary "@$payload" \
-            "$DOKPLOY_WEB_DEPLOY_URL")"
+            'https://api.respovia.com/api/v1/cron/deploy-web')" || true
+          [ -n "$code" ] || code="000"
 
           if [ "$code" != "200" ]; then
-            echo "::error::Dokploy rejected the deployment trigger with HTTP $code."
+            echo "::error::Production API rejected the deployment trigger with HTTP $code."
             exit 1
           fi
           echo "Dokploy accepted the production web deployment."

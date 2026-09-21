@@ -112,6 +112,10 @@ const Env = z.object({
   // 32`); optional locally, where the in-process worker (src/dev.ts) does the
   // sweeping and the cron endpoints stay closed.
   CRON_SECRET: z.string().default(''),
+  // Private Dokploy webhook used by the CRON_SECRET-gated deploy relay.
+  // GitHub-hosted runners cannot resolve the LAN-only Dokploy hostname, while
+  // the production API can reach it from inside the company network.
+  DOKPLOY_WEB_DEPLOY_URL: z.string().url().or(z.literal('')).default(''),
   // Maestro Connect — the iGaming platform's identity + data gateway.
   // Two capabilities, one registered app ("Service Desk",
   // app id 6c3f3c30-8beb-4763-adfd-e1ccea2aa976 in the developer portal):
