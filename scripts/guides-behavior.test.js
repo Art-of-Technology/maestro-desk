@@ -5,9 +5,12 @@ const stored = new Map();
 const host = { firstElementChild: null, _html: '', get innerHTML() { return this._html; }, set innerHTML(value) { this._html = value; this.firstElementChild = value ? {} : null; } };
 const style = {};
 const spotlight = { style: {} };
-const card = { style, focus() { this.focused = true; }, getBoundingClientRect: () => ({ width: 380, height: 190 }) };
+const firstButton = { focus() { document.activeElement = this; } };
+const lastButton = { focus() { document.activeElement = this; } };
+const card = { style, focus() { this.focused = true; document.activeElement = this; }, querySelectorAll: () => [firstButton, lastButton], getBoundingClientRect: () => ({ width: 380, height: 190 }) };
 const target = { scrollIntoView() {}, getBoundingClientRect: () => ({ left: 220, top: 60, right: 420, bottom: 90, width: 200, height: 30 }) };
 let navigated = null;
+let keydown = null;
 
 globalThis.window = globalThis;
 globalThis.innerWidth = 1280;
@@ -16,8 +19,8 @@ globalThis.requestAnimationFrame = fn => fn();
 globalThis.localStorage = { getItem: key => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
 globalThis.document = {
   getElementById: id => id === 'guide-container' ? host : null,
-  querySelector: selector => selector.startsWith('[data-guide=') ? target : selector === '.guide-spotlight' ? spotlight : selector === '.guide-card' ? card : null,
-  addEventListener() {},
+  querySelector: selector => selector.startsWith('[data-guide=') ? target : selector === '.guide-spotlight' ? spotlight : ['.guide-card', '.guide-card, .guide-menu'].includes(selector) ? card : null,
+  addEventListener(type, handler) { if (type === 'keydown') keydown = handler; },
 };
 
 mock.module('../web/js/core/state.js', () => ({ CURRENT_PAGE: 'dashboard', SESSION: { userId: 'agent-1' } }));
@@ -32,6 +35,10 @@ test('first run opens, navigation advances, and finishing records the guide vers
   maybeStartGuides();
   expect(host.innerHTML).toContain('DASHBOARD · 1 OF 5');
   expect(card.focused).toBe(true);
+  let prevented = false;
+  keydown({ key: 'Tab', shiftKey: true, preventDefault() { prevented = true; } });
+  expect(prevented).toBe(true);
+  expect(document.activeElement).toBe(lastButton);
 
   actions['guides.next']();
   expect(navigated).toBe('tickets');

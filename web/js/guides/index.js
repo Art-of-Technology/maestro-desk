@@ -120,7 +120,7 @@ document.addEventListener?.('keydown', e => {
     const buttons = [...(surface?.querySelectorAll('button:not([disabled])') || [])];
     if (!buttons.length) return;
     const edge = e.shiftKey ? buttons[0] : buttons.at(-1);
-    if (document.activeElement === edge) {
+    if (document.activeElement === edge || (e.shiftKey && document.activeElement === surface)) {
       e.preventDefault();
       (e.shiftKey ? buttons.at(-1) : buttons[0]).focus();
     }
