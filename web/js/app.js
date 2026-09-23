@@ -11,7 +11,8 @@ import './core/dismiss.js';
 import { initGlobalSearchInput } from './global-search/index.js';
 import './profile-menu/index.js';  // side-effect: registers profmenu.* actions for the static top-bar dropdown
 import './auth/index.js';  // side-effect: registers auth.* actions for the static auth screen
-import { beginSetPassword } from './auth/index.js';
+import { beginSetPassword, showAuthPanel } from './auth/index.js';
+import { showToast } from './core/toast.js';
 import { refreshNotifBadge } from './notifications/index.js';
 import { autoResumePlatformAdmin, revealGodNav } from './auth/platform-admin.js';
 import { autoResumeAgent } from './auth/agent-login.js';
@@ -174,6 +175,20 @@ function logout() {
   document.getElementById('app').style.display = 'none';
   return clearedTranslations;
 }
+
+window.addEventListener('respovia:session-warning', event => {
+  showToast(`Your session expires in ${event.detail.minutes} minutes. Finish your work before signing in again.`, 'warn', 60000);
+});
+window.addEventListener('respovia:session-expired', () => {
+  logout();
+  showAuthPanel('login');
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('login-picker').style.display = 'none';
+  document.getElementById('login-password').value = '';
+  const message = document.getElementById('login-error');
+  message.textContent = 'Your session has expired. Please sign in again.';
+  message.style.display = 'block';
+});
 
 // ─── Navigation ───────────────────────────────────────────────────────────────
 // nav / renderPage / updateNavBadges now live in core/router.js (imported

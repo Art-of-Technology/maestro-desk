@@ -86,8 +86,8 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
   // A multipart upload must NOT carry an explicit Content-Type: the browser
   // sets it, including the boundary it generated.
   const headers = form ? {} : { 'Content-Type': 'application/json' };
+  const jwt = auth ? getJwt() : null;
   if (auth) {
-    const jwt = getJwt();
     if (jwt) headers.Authorization = `Bearer ${jwt}`;
   }
   if (workspace) {
@@ -122,6 +122,9 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
   try { parsed = text ? JSON.parse(text) : null; }
   catch { parsed = text; }
   if (!res.ok) {
+    if (res.status === 401 && jwt && getJwt() === jwt) {
+      window.dispatchEvent(new CustomEvent('respovia:session-expired'));
+    }
     // Short plain-text bodies count as a message too — HTTP/2 has no status
     // text, so without this a text-bodied 4xx surfaces as a bare "HTTP 400".
     // Length + no-markup guards keep proxy/CDN HTML error pages out, and the

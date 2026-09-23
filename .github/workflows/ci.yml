@@ -52,6 +52,11 @@ jobs:
       - name: Guided tour integrity
         run: bun test scripts/guides.test.js scripts/guides-behavior.test.js
 
+      - name: Agent session expiry and warning
+        run: |
+          bun test scripts/session-lifetime.test.js
+          bun test scripts/session-api-expiry.test.js
+
       - name: Guide impact declared
         if: github.event_name == 'pull_request'
         run: bun scripts/guide-impact-check.mjs
