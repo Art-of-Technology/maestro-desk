@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - '.github/workflows/deploy-production-web.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,13 +17,13 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Trigger Dokploy
         env:
           CRON_SECRET: ${{ secrets.PROD_CRON_SECRET }}
-          EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
@@ -33,18 +34,20 @@ jobs:
             exit 1
           fi
 
-          payload="$GITHUB_EVENT_PATH"
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            payload="$(mktemp)"
-            jq -n \
-              --arg ref "$REF" \
-              --arg repository "$REPOSITORY" \
-              --arg sha "$SHA" \
-              '{ref: $ref, repository: {full_name: $repository}, head_commit: {id: $sha, message: "Manual production web deploy"}, commits: [{id: $sha, message: "Manual production web deploy", added: [], removed: [], modified: ["web/index.html"]}]}' \
-              > "$payload"
-          fi
+          # Actions push payloads omit added/modified/removed file lists.
+          # This workflow already filters web pushes; supply a matching path
+          # for Dokploy's web/** watch filter, just as for manual dispatches.
+          payload="$(mktemp)"
+          response="$(mktemp)"
+          trap 'rm -f "$payload" "$response"' EXIT
+          jq -n \
+            --arg ref "$REF" \
+            --arg repository "$REPOSITORY" \
+            --arg sha "$SHA" \
+            '{ref: $ref, repository: {full_name: $repository}, head_commit: {id: $sha, message: "Production web deploy"}, commits: [{id: $sha, message: "Production web deploy", added: [], removed: [], modified: ["web/index.html"]}]}' \
+            > "$payload"
 
-          code="$(curl -sS --max-time 90 -o /dev/null -w '%{http_code}' \
+          code="$(curl -sS --max-time 90 -o "$response" -w '%{http_code}' \
             -X POST \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H 'Content-Type: application/json' \
@@ -54,6 +57,12 @@ jobs:
 
           if [ "$code" != "200" ]; then
             echo "::error::Production API rejected the deployment trigger with HTTP $code."
+            # Only print known fixed API messages, never an arbitrary upstream body.
+            reason="$(jq -r '.error // empty' "$response" 2>/dev/null)" || reason=""
+            case "$reason" in
+              'Unauthorized'|'Web deployment is not configured.'|'Dokploy rejected the deployment.'|'Dokploy could not be reached.')
+                echo "::error::$reason" ;;
+            esac
             exit 1
           fi
           echo "Dokploy accepted the production web deployment."
