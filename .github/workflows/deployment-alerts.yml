@@ -1,0 +1,33 @@
+name: Deployment failure alerts
+
+on:
+  workflow_run:
+    workflows: [Deploy production API, Deploy production web, Post-deploy health-check]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       contains(fromJSON('["failure", "timed_out"]'), github.event.workflow_run.conclusion))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Always use trusted main, never the triggering run's checkout or artifacts.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Send deployment alert
+        run: node scripts/deployment-alert.mjs
+        env:
+          SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
