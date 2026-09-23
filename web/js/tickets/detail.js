@@ -1,6 +1,7 @@
 import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
+import { ticketCreatedLabel } from './date-sort.js';
 import { appendTemplate } from './template-content.js';
 import { replyWarnings } from './reply-preflight.js';
 import { saveReplyAsTemplate } from './templates.js';
@@ -630,6 +631,10 @@ export function openTicket(id) {
               <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
               <div><div style="font-size:12px;font-weight:500;color:var(--ink)">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div><div style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${cust.id}</div></div>
             </div>
+            <div class="ts-contact" data-action="">
+              <span class="ts-key">Email</span>
+              <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
+            </div>
             <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
             <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${cust.vip.toLowerCase()}">${window.escHtml(cust.vip)}</span></div>
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>
@@ -690,10 +695,12 @@ export function openTicket(id) {
           <div class="ts-section">
             <div class="ts-heading">Other tickets (${otherTickets.length})</div>
             ${otherTickets.map(ot=>`
-              <div class="other-ticket" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}">
-                <div class="other-ticket-subj">${window.escHtml(ot.subject)}</div>
-                <span class="tag tag-${ot.status}">${ot.status}</span>
-              </div>`).join('')}
+              <button type="button" class="other-ticket" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}">
+                <span class="other-ticket-meta">${window.escHtml(ot.id)}</span>
+                <span class="other-ticket-subj">${window.escHtml(ot.subject)}</span>
+                <span class="other-ticket-meta">Created: ${window.escHtml(ticketCreatedLabel(ot))}</span>
+                <span class="tag tag-${ot.status}">${window.escHtml(ot.status)}</span>
+              </button>`).join('')}
           </div>`:''}
           ${activityBlock}
           ${(window.canDeleteRecords() || isTicketBlank(t)) ? `

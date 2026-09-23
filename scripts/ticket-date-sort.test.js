@@ -1,5 +1,13 @@
 import { test, expect } from 'bun:test';
-import { ticketDateMs } from '../web/js/tickets/date-sort.js';
+import { ticketDateMs, ticketCreatedLabel } from '../web/js/tickets/date-sort.js';
+
+test('sidebar creation labels show local time without inventing times for date-only records', () => {
+  const raw = '2026-09-15T12:34:00Z';
+  expect(ticketCreatedLabel({ _createdAt: raw, created: '2026-09-14' })).toBe(new Date(raw).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }));
+  expect(ticketCreatedLabel({ created: '2026-09-14' })).toBe('14 Sept 2026');
+  expect(ticketCreatedLabel({})).toBe('Creation date unavailable');
+  expect(ticketCreatedLabel({ _createdAt: 'bad' })).toBe('Creation date unavailable');
+});
 
 test('Updated uses server timestamps instead of alphabetical relative labels', () => {
   const tickets = [
