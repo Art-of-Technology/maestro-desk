@@ -68,6 +68,10 @@ test('late reason saves leave a different suggestion or session untouched',async
   }
 });
 test('offers labelled ratings and optional reasons only for server-issued suggestions',()=>{
+  expect(renderReplyFeedback('T1',review).split('>')[0]).not.toContain(' open');
+  for (const flag of ['stale', 'sharedAvailable', 'rejected']) {
+    expect(renderReplyFeedback('T1',{...review,[flag]:true}).split('>')[0]).toContain(' open');
+  }
   expect(renderReplyFeedback('T1',review)).toContain('Give feedback');
   expect(renderReplyFeedback('T1',review)).toContain('References (0)');
   expect(renderReplyFeedback('T1',{suggestionId:'<script>'})).toBe('');

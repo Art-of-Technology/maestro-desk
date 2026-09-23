@@ -454,7 +454,10 @@ export function openTicket(id) {
         <button class="btn btn-sm" aria-pressed="${!threadOn}" data-action="td.originalConversation" data-ticket-id="${window.escAttr(id)}">Original</button>
         <button class="btn btn-sm" aria-pressed="${threadOn}" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">${window.escHtml(AGENT_PREFERRED_LANG)}</button>
       </div>
-      <span id="customer-language-${id}" class="ticket-translation-state" role="status" aria-live="polite">${window.escHtml(customerLanguageStatus(t))}</span>
+      <details class="ticket-popover ticket-language" ${layout.languageOpen ? 'open' : ''}>
+      <summary class="btn btn-sm"><span id="reply-language-${id}" role="status" aria-live="polite">${window.escHtml(outgoingLanguageStatus(t))}</span> · Change</summary>
+      <div class="ticket-popover-panel">
+      <span id="customer-language-${id}" role="status" aria-live="polite">${window.escHtml(customerLanguageStatus(t))}</span>
       <button id="retry-language-${id}" class="btn btn-sm" data-action="td.retryCustomerLanguage" data-ticket-id="${window.escAttr(id)}" ${t.detectedCustomerLang || t.detectingCustomerLanguage ? 'hidden' : ''}>Retry detection</button>
       <label class="reply-language-choice">Customer language
         <select class="filter-select" aria-label="Customer language" data-change-action="td.setCustomerLang" data-ticket-id="${window.escAttr(id)}"><option value="">Detect automatically</option>${langOptions}</select>
@@ -463,10 +466,13 @@ export function openTicket(id) {
         <input type="checkbox" ${t.autoTranslateReplies?'checked':''} data-change-action="td.toggleAutoTranslate" data-ticket-id="${window.escAttr(id)}">
         <span>Send replies in customer language</span>
       </label>
+      <p>Saved translations are reused until sign-out. New language checks and translations use AI credit.</p>
+      </div>
+      </details>
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
-    <div class="ticket-translation-notice" role="status" aria-live="polite">
-      ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : 'Saved translations are reused in this browser until sign-out. New language checks and translations use AI credit.'}
+    <div class="ticket-translation-notice" role="status" aria-live="polite" ${!t.translatingThread && !t.translationError && !(t.msgs || []).some(m => m.translationCacheWarning) ? 'hidden' : ''}>
+      ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : ''}
       ${t.translationError && threadOn ? `<button class="btn btn-sm" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">Retry translation</button>` : ''}
       ${(t.msgs || []).some(m => m.translationCacheWarning) ? '<span>Could not save translations in this browser. Reloading may require another paid translation.</span>' : ''}
     </div>`;
@@ -495,7 +501,7 @@ export function openTicket(id) {
     (prevThread.scrollHeight - prevThread.scrollTop - prevThread.clientHeight > 40)
       ? prevThread.scrollTop : null;
   main.innerHTML = `
-    <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}">
+    <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}">
       <div class="topbar ticket-topbar">
         <div class="tb-breadcrumb">
           <button class="ticket-back" data-action="td.openTicketsList">Tickets</button>
@@ -565,19 +571,20 @@ export function openTicket(id) {
                 : `<textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
               <div id="reply-review-${id}" class="reply-review-panel" role="status" aria-live="polite">${renderReplyReview(id)}</div>
-              ${COMPOSE_TAB === 'reply' ? `<div id="reply-language-${id}" class="ticket-translation-notice" role="status" aria-live="polite">${window.escHtml(outgoingLanguageStatus(t))}</div>` : ''}
               <div class="comp-meta">
                 <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
               </div>
+            </div>
               <div class="composer-foot">
                 <div class="composer-actions">
-                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Macros</button>
-                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button class="btn btn-sm" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar">Similar replies</button>${window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}">Save as template</button>` : ''}` : ''}
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <details class="ticket-popover composer-insert">
-                    <summary class="btn btn-sm">Insert ▾</summary>
+                    <summary class="btn btn-sm">Tools ▾</summary>
                     <div class="ticket-popover-panel">
+                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Macros</button>
+                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button class="btn btn-sm" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar">Similar replies</button>${window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}">Save as template</button>` : ''}` : ''}
+                      <strong>Insert placeholder</strong>
                       <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{name}">Customer name</button>
                       <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{ticket}">Ticket ID</button>
                       <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{brand}">Brand</button>
@@ -586,33 +593,32 @@ export function openTicket(id) {
                   </details>
                   <div class="thinking" id="thinking-${id}"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>&nbsp;working</div>
                 </div>
-                <div style="display:flex;gap:6px;align-items:center">
+                <div class="composer-send-actions">
                   ${COMPOSE_TAB==='reply' ? `
                   <div style="position:relative;display:inline-block">
                     <button class="btn btn-sm" data-action="td.toggleAIMenu" data-ticket-id="${window.escAttr(id)}">AI ▾</button>
                     <div id="ai-menu-${id}" class="comp-menu">
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="draft">Draft reply</div>
-                      ${KB_INTEGRATION.enabled ? `<div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="kb-reply" title="Draft a reply grounded in your external KB">Draft reply with KB</div>` : ''}
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="improve">Improve writing</div>
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="shorten">Shorten</div>
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="lengthen">Add detail</div>
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="friendly">Friendlier tone</div>
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="formal">More formal</div>
-                      <div class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="translate">Translate to English</div>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="draft">Draft reply</button>
+                      ${KB_INTEGRATION.enabled ? `<button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="kb-reply" title="Draft a reply grounded in your external KB">Draft reply with KB</button>` : ''}
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="improve">Improve writing</button>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="shorten">Shorten</button>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="lengthen">Add detail</button>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="friendly">Friendlier tone</button>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="formal">More formal</button>
+                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="translate">Translate to English</button>
                     </div>
                   </div>` : ''}
                   <div style="position:relative;display:inline-flex">
-                    <button class="btn btn-sm btn-solid" style="border-radius:var(--r) 0 0 var(--r);border-right:1px solid rgba(255,255,255,0.25)" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
-                    <button class="btn btn-sm btn-solid" style="border-radius:0 var(--r) var(--r) 0;padding:5px 8px" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" title="More send options">▾</button>
+                    <button class="btn btn-sm btn-solid composer-send" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
+                    <button class="btn btn-sm btn-solid composer-send-more" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
-                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</div>
-                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</div>
-                      <div class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</div>
+                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
+                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
+                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
           </div>
         </div>
         <aside class="ticket-sidebar" id="ticket-details-${id}" aria-label="Ticket details">

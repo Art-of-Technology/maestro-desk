@@ -206,7 +206,7 @@ export function customerLanguageStatus(t) {
 
 export function outgoingLanguageStatus(t) {
   return t.autoTranslateReplies !== false
-    ? `Reply language: ${t.detectedCustomerLang || 'Choose a customer language before sending'}`
+    ? (t.detectedCustomerLang ? `Reply language: ${t.detectedCustomerLang}` : 'Choose reply language before sending')
     : 'Reply language: As written';
 }
 

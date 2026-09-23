@@ -321,7 +321,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page{min-height:0}
 .ticket-page .ticket-layout{position:relative;min-height:0}
 .ticket-page .ticket-main{min-width:0;min-height:0}
-.ticket-page .thread{min-height:0;padding:16px 20px;gap:12px;overflow-anchor:none}
+.ticket-page .thread{min-height:80px;padding:16px 20px;gap:12px;overflow-anchor:none}
 .ticket-page .msg{width:100%;max-width:100%;flex-shrink:0;border-radius:var(--r2);overflow-wrap:anywhere}
 .ticket-page .msg-agent,.ticket-page .msg-ai{align-self:stretch}
 .ticket-heading{padding:10px 20px;border-bottom:1px solid var(--rule);flex-shrink:0;overflow-wrap:anywhere}
@@ -351,25 +351,34 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-popover-panel>.btn{justify-content:flex-start;white-space:normal;text-align:left}
 .ticket-language .ticket-popover-panel>span:empty{display:none}
 .ticket-language .auth-check{align-items:flex-start}
-.ticket-page .composer{background:var(--off);position:relative;min-height:0;display:flex;flex-direction:column}
+.ticket-page .composer{background:var(--off);position:relative;min-height:0;max-height:65%;display:flex;flex-direction:column;flex-shrink:1}
 .composer-launcher{display:none;align-items:center;gap:8px;padding:10px 16px;min-height:52px}
 .composer-launch-hint{font-size:12px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ticket-page[data-compose-mode="read"] .composer-launcher{display:flex}
-.ticket-page[data-compose-mode="read"] .composer-tabs,.ticket-page[data-compose-mode="read"] .composer-body{display:none}
+.ticket-page[data-compose-mode="read"] .composer-tabs,.ticket-page[data-compose-mode="read"] .composer-body,.ticket-page[data-compose-mode="read"] .composer-foot{display:none}
 .ticket-page .composer-tabs{align-items:center;flex-shrink:0;padding:0 16px;gap:4px}
 .ticket-page .ctab{border:0;border-bottom:2px solid transparent;background:none;white-space:nowrap}
 .ticket-page .ctab.active{border-bottom-color:var(--purple)}
 .composer-view-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
-.ticket-page .composer-body{padding:8px 16px 10px;min-height:0;display:flex;flex-direction:column}
-.ticket-page .compose-rich{min-height:76px;max-height:200px;height:100px;flex:1}
+.ticket-page .composer-body{padding:8px 16px 10px;min-height:0;overflow-y:auto;display:flex;flex-direction:column}
+.ticket-page .compose-rich{min-height:140px;max-height:240px;height:160px;flex:1 0 140px}
 .ticket-page .compose-rich .ql-editor{min-height:76px}
 .ticket-page .composer-body .ql-toolbar{flex-shrink:0}
 .ticket-page .pending-att{max-height:64px;overflow-y:auto;flex-shrink:0}
-.ticket-page .composer-foot{flex-shrink:0;flex-wrap:wrap}
+.ticket-page .composer-foot{flex-shrink:0;flex-wrap:wrap;margin:0;padding:10px 16px;border-top:1px solid var(--rule2);background:var(--w);position:relative;z-index:35}
+.ticket-page .composer-foot .btn,.ticket-page .composer-foot summary{min-height:44px;font-size:13px}
+.composer-send-actions{display:flex;gap:8px;align-items:center;margin-left:auto}
+.ticket-page .composer-send{border-radius:var(--r) 0 0 var(--r);border-right:1px solid var(--rule2);min-width:88px;font-weight:600}
+.ticket-page .composer-send-more{border-radius:0 var(--r) var(--r) 0;min-width:44px}
+.ticket-language{margin-left:auto;min-width:0}
+.ticket-language>summary{white-space:normal;text-align:left}
+.ticket-language .ticket-popover-panel{width:300px;max-height:55dvh;overflow-y:auto}
+.ticket-language .ticket-popover-panel p{margin:0;color:var(--ink2);line-height:1.5}
+.composer-insert .ticket-popover-panel{max-height:50dvh;overflow-y:auto}
 .ticket-page .composer-actions{flex-wrap:wrap}
 .composer-insert .ticket-popover-panel{top:auto;bottom:calc(100% + 6px);right:auto;left:0}
 .ticket-page .comp-meta{flex-shrink:0}
-.ticket-page[data-compose-mode="expanded"] .composer{height:65%}
+.ticket-page[data-compose-mode="expanded"] .composer{height:72%;max-height:72%}
 .ticket-page[data-compose-mode="expanded"] .composer-body{flex:1}
 .ticket-page[data-compose-mode="expanded"] .compose-area{height:auto;max-height:none;flex:1}
 .ticket-page .composer[data-compose-tab="note"]{border-top:2px solid var(--amber)}
@@ -411,6 +420,13 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
   .ticket-header-actions [data-action="td.prev"]::before{content:'←';font-size:14px}
   .ticket-header-actions [data-action="td.next"]::before{content:'→';font-size:14px}
   .ticket-topbar .tb-breadcrumb>span{white-space:nowrap}
+}
+@media(max-height:600px){
+  .ticket-page .ticket-main{overflow-y:auto;display:block}
+  .ticket-page .thread{height:96px}
+  .ticket-page .composer,.ticket-page[data-compose-mode="expanded"] .composer{height:auto;max-height:none}
+  .ticket-page .composer-body{max-height:55dvh}
+  .ticket-page .composer-foot{position:sticky;bottom:0}
 }
 .ts-section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--rule)}
 .ts-section:last-child{border-bottom:none}
@@ -670,8 +686,9 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .kb-directory .btn, .kb-directory-game a { min-height:44px; }
 .kb-directory-game a { display:inline-flex; align-items:center; }
 .reply-feedback { margin: 12px 0; padding: 12px; background: var(--off2); border: 1px solid var(--rule); border-radius: var(--r); color: var(--ink); }
-.reply-feedback-compact { display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px; }
-.reply-feedback-compact>span:first-child { font-size:12px;color:var(--ink2); }
+.reply-feedback-compact { padding:8px 10px; }
+.reply-feedback-compact>summary { cursor:pointer;font-size:12px;color:var(--ink2);padding:4px 0; }
+.reply-feedback-compact[open]>summary { margin-bottom:8px; }
 .reply-feedback-actions { display:flex;align-items:center;gap:6px;flex-wrap:wrap; }
 .reply-feedback-compact .reply-feedback-status:empty { display:none; }
 .reply-feedback p { margin: 0 0 8px; }

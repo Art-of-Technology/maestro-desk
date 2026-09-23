@@ -9,6 +9,7 @@ export function captureTicketLayout(id) {
     mode: root?.dataset?.composeMode || 'read',
     details: root?.dataset?.details || 'auto',
     languageOpen: !!root?.querySelector?.('.ticket-language[open]'),
+    detailsBeforeExpand: root?.dataset?.detailsBeforeExpand || '',
   };
 }
 
@@ -17,7 +18,15 @@ export function setComposerMode(id, mode, focus = false) {
   if (!root?.querySelector) return;
   const thread = root.querySelector('.thread');
   const top = thread?.scrollTop || 0;
+  if (mode === 'expanded' && root.dataset.composeMode !== 'expanded') {
+    root.dataset.detailsBeforeExpand = root.dataset.details || 'auto';
+    root.dataset.details = 'hide';
+  } else if (mode !== 'expanded' && root.dataset.composeMode === 'expanded') {
+    root.dataset.details = root.dataset.detailsBeforeExpand || 'auto';
+    delete root.dataset.detailsBeforeExpand;
+  }
   root.dataset.composeMode = mode;
+  syncTicketLayout(id);
   root.querySelectorAll('[data-compose-launch]').forEach(button => {
     button.setAttribute('aria-expanded', String(mode !== 'read'));
   });
