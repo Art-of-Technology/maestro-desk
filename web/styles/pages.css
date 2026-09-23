@@ -427,6 +427,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
   .ticket-page .composer,.ticket-page[data-compose-mode="expanded"] .composer{height:auto;max-height:none}
   .ticket-page .composer-body{max-height:55dvh}
   .ticket-page .composer-foot{position:sticky;bottom:0}
+  .ticket-page .ticket-popover-panel,.ticket-page .comp-menu{max-height:100px;overflow-y:auto}
 }
 .ts-section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--rule)}
 .ts-section:last-child{border-bottom:none}
