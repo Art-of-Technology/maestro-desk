@@ -14,13 +14,13 @@ export function renderReplyFeedback(id, review) {
   const label=review.rejected?'AI suggestion discarded':review.sharedAvailable?'Shared AI suggestion available':review.stale?'AI suggestion · Needs review':`AI suggestion${review.edited?' · Edited':''}`;
   const meta=review.sharedUpdatedBy?` · Saved by ${window.escHtml(review.sharedUpdatedBy)}`:'';
   const refs=review.references?.length||0;
-  return `<div class="reply-feedback reply-feedback-compact" data-suggestion-id="${review.suggestionId}">
-    <span><strong>${label}</strong>${meta}</span><span class="reply-feedback-actions">
+  return `<details class="reply-feedback reply-feedback-compact" data-suggestion-id="${review.suggestionId}" ${review.stale || review.sharedAvailable || review.rejected ? 'open' : ''}>
+    <summary><strong>${label}</strong>${meta} · References: ${refs}</summary><span class="reply-feedback-actions">
     ${review.sharedAvailable?`<button type="button" class="btn btn-sm btn-solid" data-action="td.loadSharedAiDraft" data-ticket-id="${window.escAttr(id)}">Load shared draft</button>`
       :`<button type="button" class="btn btn-sm" data-action="replyFeedback.open" data-ticket-id="${window.escAttr(id)}">${review.feedback?'Feedback saved':'Give feedback'}</button>`}
     <button type="button" class="btn btn-sm" data-action="replyReview.references" data-ticket-id="${window.escAttr(id)}">References (${refs})</button>
     ${review.sharedAvailable?'':`<button type="button" class="btn btn-sm" data-action="replyFeedback.reject" data-ticket-id="${window.escAttr(id)}" data-rejected="${!review.rejected}" aria-pressed="${!!review.rejected}">${review.rejected?'Undo':'Discard'}</button>`}
-    <span class="reply-feedback-status" role="status"></span></span></div>`;
+    <span class="reply-feedback-status" role="status"></span></span></details>`;
 }
 
 function feedbackForm(id,review){const selected=review.feedback;return `<div class="reply-feedback-form" data-suggestion-id="${review.suggestionId}">
