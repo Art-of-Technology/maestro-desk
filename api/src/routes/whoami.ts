@@ -73,5 +73,7 @@ whoami.get('/', async (c) => {
     can_delete:               Boolean(m.is_admin) || Boolean(m.can_delete),
   }));
 
-  return c.json({ user, memberships: shaped });
+  return c.json({ user, memberships: shaped, session: {
+    expiresAt: c.get('sessionExpiresAt'), serverTime: new Date().toISOString(),
+  } });
 });

@@ -53,7 +53,20 @@ if (!env.DATABASE_URL) {
 const g = globalThis as unknown as { __maestroBetterAuthPool?: Pool };
 const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DATABASE_URL }));
 
+const SESSION_SECONDS = 8 * 60 * 60;
+
 export const auth = betterAuth({
+  session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
+  databaseHooks: {
+    session: {
+      create: {
+        // Better Auth otherwise gives rememberMe:false a fixed 24-hour lifetime.
+        before: async (session) => ({ data: { ...session, expiresAt: new Date(Math.min(
+          session.expiresAt.getTime(), session.createdAt.getTime() + SESSION_SECONDS * 1000,
+        )) } }),
+      },
+    },
+  },
   database: pool,
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
