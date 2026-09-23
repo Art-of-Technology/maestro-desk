@@ -70,7 +70,9 @@ jobs:
         run: bun test scripts/api-fingerprint.test.js scripts/api-deployment-check.test.js
 
       - name: Production web deployment payload and safe errors
-        run: bash scripts/deploy-production-web.test.sh
+        run: |
+          bash scripts/deploy-production-web.test.sh web
+          bash scripts/deploy-production-web.test.sh api
 
       - name: Unassigned notification tests
         run: bun test scripts/unassigned-notifications.test.js

@@ -1,0 +1,70 @@
+name: Deploy production API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'db/migrations/**'
+      - '.dockerignore'
+      - '.github/workflows/deploy-production-api.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger Dokploy
+        env:
+          CRON_SECRET: ${{ secrets.PROD_CRON_SECRET }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::PROD_CRON_SECRET is not set."
+            exit 1
+          fi
+
+          # Actions push payloads omit added/modified/removed file lists.
+          # This workflow already filters API pushes; supply a matching path
+          # for Dokploy's api/** watch filter, just as for manual dispatches.
+          payload="$(mktemp)"
+          response="$(mktemp)"
+          trap 'rm -f "$payload" "$response"' EXIT
+          jq -n \
+            --arg ref "$REF" \
+            --arg repository "$REPOSITORY" \
+            --arg sha "$SHA" \
+            '{ref: $ref, repository: {full_name: $repository}, head_commit: {id: $sha, message: "Production API deploy"}, commits: [{id: $sha, message: "Production API deploy", added: [], removed: [], modified: ["api/Dockerfile"]}]}' \
+            > "$payload"
+
+          code="$(curl -sS --max-time 90 -o "$response" -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H 'Content-Type: application/json' \
+            --data-binary "@$payload" \
+            'https://api.respovia.com/api/v1/cron/deploy-api')" || true
+          [ -n "$code" ] || code="000"
+
+          if [ "$code" != "200" ]; then
+            echo "::error::Production API rejected the deployment trigger with HTTP $code."
+            # Only print known fixed API messages, never an arbitrary upstream body.
+            reason="$(jq -r '.error // empty' "$response" 2>/dev/null)" || reason=""
+            case "$reason" in
+              'Unauthorized'|'API deployment is not configured.'|'Dokploy rejected the deployment.'|'Dokploy could not be reached.')
+                echo "::error::$reason" ;;
+            esac
+            exit 1
+          fi
+          echo "Dokploy accepted the production API deployment."

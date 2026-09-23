@@ -23,7 +23,7 @@ const DOKPLOY_WEB_DEPLOY_URL = 'https://dokploy.example/api/deploy/token';
 // env was first parsed. Spreading the full module keeps every export present so
 // the override is harmless if it leaks to a later file.
 const realEnvMod = await import('../lib/env.js');
-const testEnv = { ...realEnvMod.env, CRON_SECRET, DOKPLOY_WEB_DEPLOY_URL };
+const testEnv = { ...realEnvMod.env, CRON_SECRET, DOKPLOY_WEB_DEPLOY_URL, DOKPLOY_API_DEPLOY_URL: 'https://dokploy.example/api/deploy/api-token' };
 mock.module('../lib/env.js', () => ({ ...realEnvMod, env: testEnv }));
 
 // Stub the sweeps so the handlers return without hitting the DB.
@@ -116,47 +116,69 @@ describe('cron endpoints — CRON_SECRET guard', () => {
   });
 });
 
-describe('cron endpoints — web deployment relay', () => {
-  const auth = { Authorization: `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' };
+for (const target of ['web', 'api'] as const) {
+  const envKey = target === 'web' ? 'DOKPLOY_WEB_DEPLOY_URL' : 'DOKPLOY_API_DEPLOY_URL';
+  const deployUrl = `https://dokploy.example/api/deploy/${target}-token`;
+  describe(`cron endpoints — ${target} deployment relay`, () => {
+    const auth = { Authorization: `Bearer ${CRON_SECRET}`, 'Content-Type': 'application/json' };
 
-  beforeEach(() => {
-    testEnv.DOKPLOY_WEB_DEPLOY_URL = DOKPLOY_WEB_DEPLOY_URL;
-    globalThis.fetch = realFetch;
+    beforeEach(() => {
+      testEnv[envKey] = deployUrl;
+      globalThis.fetch = realFetch;
+    });
+
+    it('rejects unauthenticated deployment without calling Dokploy', async () => {
+      const fetchMock = mock(async () => new Response(null, { status: 200 }));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      for (const headers of [new Headers(), new Headers({ Authorization: 'Bearer wrong-secret' })]) {
+        const res = await cron.request(`/deploy-${target}`, { method: 'POST', headers, body: '{}' });
+        expect(res.status).toBe(401);
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('handles unreachable Dokploy without exposing private details', async () => {
+      globalThis.fetch = mock(async () => { throw new Error('private-token'); }) as unknown as typeof fetch;
+      const res = await cron.request(`/deploy-${target}`, { method: 'POST', headers: auth, body: '{}' });
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ ok: false, error: 'Dokploy could not be reached.' });
+    });
+
+    it('forwards an authenticated push payload to Dokploy', async () => {
+      let forwarded: { url?: string; event?: string; body?: string } = {};
+      globalThis.fetch = mock(async (input, init) => {
+        forwarded = {
+          url: String(input),
+          event: new Headers(init?.headers).get('X-GitHub-Event') ?? undefined,
+          body: new TextDecoder().decode(init?.body as ArrayBuffer),
+        };
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const payload = JSON.stringify({ ref: 'refs/heads/main', commits: [{ modified: ['web/index.html'] }] });
+      const res = await cron.request(`/deploy-${target}`, { method: 'POST', headers: auth, body: payload });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+      expect(forwarded).toEqual({ url: deployUrl, event: 'push', body: payload });
+    });
+
+    it('fails closed when the relay is not configured', async () => {
+      testEnv[envKey] = '';
+      const res = await cron.request(`/deploy-${target}`, { method: 'POST', headers: auth, body: '{}' });
+      expect(res.status).toBe(503);
+      expect(globalThis.fetch).toBe(realFetch);
+    });
+
+    it('returns a generic error when Dokploy rejects the request', async () => {
+      globalThis.fetch = mock(async () => new Response('private detail', { status: 500 })) as unknown as typeof fetch;
+      const res = await cron.request(`/deploy-${target}`, { method: 'POST', headers: auth, body: '{}' });
+      expect(res.status).toBe(502);
+      expect(await res.json()).toEqual({ ok: false, error: 'Dokploy rejected the deployment.' });
+    });
   });
 
-  it('forwards an authenticated push payload to Dokploy', async () => {
-    let forwarded: { url?: string; event?: string; body?: string } = {};
-    globalThis.fetch = mock(async (input, init) => {
-      forwarded = {
-        url: String(input),
-        event: new Headers(init?.headers).get('X-GitHub-Event') ?? undefined,
-        body: new TextDecoder().decode(init?.body as ArrayBuffer),
-      };
-      return new Response(null, { status: 200 });
-    }) as unknown as typeof fetch;
-
-    const payload = JSON.stringify({ ref: 'refs/heads/main', commits: [{ modified: ['web/index.html'] }] });
-    const res = await cron.request('/deploy-web', { method: 'POST', headers: auth, body: payload });
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
-    expect(forwarded).toEqual({ url: DOKPLOY_WEB_DEPLOY_URL, event: 'push', body: payload });
-  });
-
-  it('fails closed when the relay is not configured', async () => {
-    testEnv.DOKPLOY_WEB_DEPLOY_URL = '';
-    const res = await cron.request('/deploy-web', { method: 'POST', headers: auth, body: '{}' });
-    expect(res.status).toBe(503);
-    expect(globalThis.fetch).toBe(realFetch);
-  });
-
-  it('returns a generic error when Dokploy rejects the request', async () => {
-    globalThis.fetch = mock(async () => new Response('private detail', { status: 500 })) as unknown as typeof fetch;
-    const res = await cron.request('/deploy-web', { method: 'POST', headers: auth, body: '{}' });
-    expect(res.status).toBe(502);
-    expect(await res.json()).toEqual({ ok: false, error: 'Dokploy rejected the deployment.' });
-  });
-});
+}
 
 describe('cron endpoints — player-identity-backfill', () => {
   const auth = { headers: { Authorization: `Bearer ${CRON_SECRET}` } };
