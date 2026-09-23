@@ -44,7 +44,7 @@ function move(offset) {
 
 function renderStep() {
   const step = GUIDE_STEPS[activeStep];
-  const target = document.querySelector?.(`[data-guide="${step.id}"]`);
+  const target = document.querySelector?.(`[data-guide="${step.target || step.id}"]`);
   const host = container();
   if (!target || !host) return;
   target.scrollIntoView?.({ block: 'nearest' });
@@ -52,12 +52,13 @@ function renderStep() {
     <div class="guide-layer">
       <div class="guide-spotlight" aria-hidden="true"></div>
       <section class="guide-card" role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-copy" tabindex="-1">
-        <div class="guide-meta"><span>${step.id.toUpperCase()} · ${activeStep + 1} OF ${GUIDE_STEPS.length}</span><button type="button" data-action="guides.close">Exit</button></div>
-        <h2 id="guide-title">${step.title}</h2>
-        <p id="guide-copy">${step.body}</p>
+        <div class="guide-meta"><span>GETTING STARTED · ${activeStep + 1} OF ${GUIDE_STEPS.length}</span><button type="button" data-action="guides.close">Exit</button></div>
+        <h2 id="guide-title">${window.escHtml(step.title)}</h2>
+        <p id="guide-copy">${window.escHtml(step.body)}</p>
+        <ol class="guide-instructions" tabindex="0" aria-label="Instructions">${step.instructions.map(text => `<li>${window.escHtml(text)}</li>`).join('')}</ol>
         <div class="guide-foot">
           <button type="button" class="btn" data-action="guides.back" ${activeStep === 0 ? 'disabled' : ''}>← Back</button>
-          <div class="guide-dots" aria-label="Step ${activeStep + 1} of ${GUIDE_STEPS.length}">${GUIDE_STEPS.map((_, i) => `<span class="${i === activeStep ? 'active' : ''}"></span>`).join('')}</div>
+          <span class="guide-progress">${activeStep + 1} / ${GUIDE_STEPS.length}</span>
           <button type="button" class="btn btn-solid" data-action="guides.next">${activeStep === GUIDE_STEPS.length - 1 ? 'Finish' : 'Next →'}</button>
         </div>
       </section>
@@ -94,10 +95,10 @@ function openGuideMenu() {
     <div class="guide-layer guide-menu-layer" data-action="guides.closeMenu">
       <section class="guide-menu" role="dialog" aria-modal="true" aria-labelledby="guide-menu-title" data-action="" tabindex="-1">
         <div class="guide-menu-head"><div><div class="guide-kicker">GUIDED TOURS</div><h2 id="guide-menu-title">Learn Respovia</h2></div><button type="button" class="modal-close" data-action="guides.closeMenu" aria-label="Close">×</button></div>
-        <p>Take the full two-minute tour, or revisit one area.</p>
+        <p>Learn how to handle your first ticket, or choose a topic for a reminder. Exit the tour when you are ready to practise.</p>
         <button type="button" class="btn btn-solid guide-start" data-action="guides.start" data-step="0">Start the full tour</button>
         <div class="guide-menu-list">${GUIDE_STEPS.map((step, i) => `
-          <button type="button" data-action="guides.start" data-step="${i}"><span>${step.title}</span><small>${step.body}</small><b>→</b></button>`).join('')}</div>
+          <button type="button" data-action="guides.start" data-step="${i}"><span>${window.escHtml(step.title)}</span><small>${window.escHtml(step.body)}</small><b>→</b></button>`).join('')}</div>
         ${isComplete() ? '<div class="guide-complete">✓ Tour viewed</div>' : ''}
       </section>
     </div>`;
@@ -117,7 +118,7 @@ document.addEventListener?.('keydown', e => {
   if (!container()?.firstElementChild) return;
   if (e.key === 'Tab') {
     const surface = document.querySelector?.('.guide-card, .guide-menu');
-    const buttons = [...(surface?.querySelectorAll('button:not([disabled])') || [])];
+    const buttons = [...(surface?.querySelectorAll('button:not([disabled]), [tabindex="0"]') || [])];
     if (!buttons.length) return;
     const edge = e.shiftKey ? buttons[0] : buttons.at(-1);
     if (document.activeElement === edge || (e.shiftKey && document.activeElement === surface)) {
@@ -131,6 +132,7 @@ document.addEventListener?.('keydown', e => {
 
 window.addEventListener?.('resize', () => {
   if (activeStep === null) return;
-  const target = document.querySelector?.(`[data-guide="${GUIDE_STEPS[activeStep].id}"]`);
+  const step = GUIDE_STEPS[activeStep];
+  const target = document.querySelector?.(`[data-guide="${step.target || step.id}"]`);
   if (target) positionStep(target);
 });

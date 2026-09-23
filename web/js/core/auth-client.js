@@ -18,8 +18,9 @@
 //   sessionStorage.maestro_workspace_id — handled by api-client
 //   sessionStorage.maestro_user         — JSON of the current user (here)
 
-import { apiGet, setJwt, setWorkspaceId, getJwt, JWT_KEY, API_BASE } from './api-client.js';
+import { apiGet, setJwt, setWorkspaceId, getJwt, API_BASE } from './api-client.js';
 import { clearTranslationCache } from '../ai/translation-cache.js';
+import { startSessionLifetime, stopSessionLifetime } from './session-lifetime.js';
 
 const USER_KEY = 'maestro_user';
 
@@ -61,6 +62,8 @@ export async function signIn(email, password) {
   }
   setJwt(token);
   const me = await apiGet('/api/v1/whoami', { workspace: false });
+  if (getJwt() !== token) throw new Error('Sign-in changed. Please try again.');
+  startSessionLifetime(me.session, token);
   setCurrentUser(me.user);
   return me;
 }
@@ -116,18 +119,23 @@ export async function platformAdminSignIn(email, password) {
  * success, null if the stored token is invalid (and clears the stale state).
  */
 export async function rehydrateUser() {
-  if (!sessionStorage.getItem(JWT_KEY)) return null;
+  const token = getJwt();
+  if (!token) return null;
   try {
     const me = await apiGet('/api/v1/whoami', { workspace: false });
+    if (getJwt() !== token) return null;
+    startSessionLifetime(me.session, token);
     setCurrentUser(me.user);
     return me;
   } catch (err) {
-    if (err.status === 401) signOut();
+    if (err.status === 401 && getJwt() === token) signOut();
     return null;
   }
 }
 
 export function signOut(userId = getCurrentUser()?.id) {
+  stopSessionLifetime();
+  sessionStorage.removeItem('respovia_session_warning');
   const clearedTranslations = clearTranslationCache(userId);
   // Best-effort server-side session revocation — fire-and-forget so the local
   // state is cleared immediately regardless of the network call.

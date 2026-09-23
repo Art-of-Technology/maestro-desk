@@ -109,6 +109,7 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 /* ── Help & Support ── */
 .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .help-quickstart{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
+@media(max-width:800px){.help-grid,.help-quickstart{grid-template-columns:minmax(0,1fr)}}
 .help-card{padding:12px 14px;border:none;border-radius:var(--r2);cursor:pointer;transition:all .15s;background:var(--off2)}
 .help-card:hover{background:var(--purple-lt)}
 .help-card-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
@@ -116,8 +117,9 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .help-kbd{font-family:var(--font-mono);font-size:11px;padding:2px 10px;border:1px solid var(--rule2);border-radius:var(--r-pill);background:var(--off2);color:var(--ink2);display:inline-block}
 .help-faq-item{border-top:1px solid var(--rule)}
 .help-faq-item:first-child{border-top:none}
-.help-faq-q{padding:12px 4px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:13px;color:var(--ink);font-weight:500;gap:12px;transition:color .1s}
+.help-faq-q{width:100%;border:0;background:none;text-align:left;font-family:inherit;padding:12px 4px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:13px;color:var(--ink);font-weight:500;gap:12px;transition:color .1s}
 .help-faq-q:hover{color:var(--purple)}
+.help-faq-q:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
 .help-faq-chev{font-family:var(--font-mono);font-size:16px;color:var(--ink3);font-weight:400;flex-shrink:0;width:14px;text-align:center}
 .help-faq-a{padding:0 4px 14px;font-size:12.5px;color:var(--ink2);line-height:1.6}
 /* ── Knowledge Base ── */
