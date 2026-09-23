@@ -1,12 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deadlines, overdueJobs, readHistory, overdueText } from './scheduled-job-monitor.mjs';
+import { deadlines, overdueJobs, readHistory, overdueText, monitorError } from './scheduled-job-monitor.mjs';
 
 const now = Date.parse('2026-09-24T12:00:00Z');
 const hour = 3_600_000;
 const activatedAt = now - 48 * hour;
 const success = (job, age = 0) => ({ display_title: `Scheduled job - ${job}`, created_at: new Date(now - age).toISOString(), event: 'schedule', head_branch: 'main', status: 'completed', conclusion: 'success' });
 const healthy = () => Object.keys(deadlines).map(job => success(job));
+
+test('diagnostics retain known reasons but never arbitrary upstream details', () => {
+  assert.equal(monitorError(new Error('Incomplete job history')), 'Incomplete job history');
+  assert.equal(monitorError(new Error('private token in response')), 'GitHub request or response failed');
+  assert.equal(monitorError(null), 'GitHub request or response failed');
+});
 
 test('normal delays and exact deadlines are healthy, each overdue job is reported', () => {
   const runs = Object.entries(deadlines).map(([job, limit]) => success(job, limit));

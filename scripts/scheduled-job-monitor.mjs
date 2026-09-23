@@ -51,6 +51,11 @@ export function overdueText(jobs) {
     `${job}: no successful scheduled run within ${hours} hours. Last success: ${lastSuccess ?? 'none since monitoring began'}.`).join('\n')}\nhttps://github.com/${repository}/actions/workflows/cron-jobs.yml\nCheck the run history before retrying maintenance jobs.`;
 }
 
+export function monitorError(error) {
+  const safe = ['Missing GitHub token', 'GitHub history unavailable', 'Incomplete job history', 'Monitor activation date unavailable', 'Invalid monitor dates'];
+  return safe.includes(error?.message) ? error.message : 'GitHub request or response failed';
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   let text;
   try {
@@ -60,7 +65,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const overdue = overdueJobs(runs, now, activatedAt);
     if (overdue.length) text = overdueText(overdue);
     console.log(`${overdue.length} scheduled jobs overdue.`);
-  } catch {
+  } catch (error) {
+    console.error(`Scheduled-job monitor: ${monitorError(error)}`);
     text = `Respovia scheduled-job monitoring could not check run history.\nhttps://github.com/${repository}/actions/workflows/scheduled-job-monitor.yml\nCheck GitHub access and the monitor logs. Job health is unknown.`;
     process.exitCode = 1;
   }
