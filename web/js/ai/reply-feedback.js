@@ -15,7 +15,7 @@ export function renderReplyFeedback(id, review) {
   const meta=review.sharedUpdatedBy?` · Saved by ${window.escHtml(review.sharedUpdatedBy)}`:'';
   const refs=review.references?.length||0;
   return `<details class="reply-feedback reply-feedback-compact" data-suggestion-id="${review.suggestionId}" ${review.stale || review.sharedAvailable || review.rejected ? 'open' : ''}>
-    <summary><strong>${label}</strong>${meta} · ${refs} references</summary><span class="reply-feedback-actions">
+    <summary><strong>${label}</strong>${meta} · References: ${refs}</summary><span class="reply-feedback-actions">
     ${review.sharedAvailable?`<button type="button" class="btn btn-sm btn-solid" data-action="td.loadSharedAiDraft" data-ticket-id="${window.escAttr(id)}">Load shared draft</button>`
       :`<button type="button" class="btn btn-sm" data-action="replyFeedback.open" data-ticket-id="${window.escAttr(id)}">${review.feedback?'Feedback saved':'Give feedback'}</button>`}
     <button type="button" class="btn btn-sm" data-action="replyReview.references" data-ticket-id="${window.escAttr(id)}">References (${refs})</button>
