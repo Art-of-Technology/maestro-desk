@@ -1,7 +1,7 @@
 import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
-import { ticketCreatedLabel } from './date-sort.js';
+import { ticketCreatedLabel, ticketDateMs } from './date-sort.js';
 import { appendTemplate } from './template-content.js';
 import { replyWarnings } from './reply-preflight.js';
 import { saveReplyAsTemplate } from './templates.js';
@@ -153,7 +153,8 @@ export function openTicket(id) {
   // the localStorage-only flow stays untouched.
   if (t._uuid && SESSION?.userId) startPresence('ticket', t._uuid);
   const cust = CUSTOMERS.find(c => c.id === t.customerId);
-  const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto);
+  const otherTickets = TICKETS.filter(x => x.customerId === t.customerId && x.id !== id && !x.mergedInto)
+    .sort((a, b) => ticketDateMs(b, 'created') - ticketDateMs(a, 'created'));
   const snoozeBanner = (t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now()) ? `
     <div style="margin:0 0 10px;padding:8px 12px;background:var(--off2);border:1px solid var(--rule2);border-radius:var(--r);font-size:11px;color:var(--ink2);display:flex;align-items:center;gap:8px">
       <span style="font-size:14px">💤</span>
