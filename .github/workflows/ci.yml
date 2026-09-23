@@ -73,7 +73,9 @@ jobs:
         run: bun test scripts/unassigned-notifications.test.js
 
       - name: Workspace selection regression
-        run: bun test scripts/workspace-required.test.js
+        run: |
+          bun test scripts/workspace-required.test.js
+          bun test scripts/realtime-workspace.test.js
 
       - name: Bulk assignment tests
         run: bun test scripts/bulk-assignment.test.js
