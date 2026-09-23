@@ -366,7 +366,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .composer-body .ql-toolbar{flex-shrink:0}
 .ticket-page .pending-att{max-height:64px;overflow-y:auto;flex-shrink:0}
 .ticket-page .composer-foot{flex-shrink:0;flex-wrap:wrap;margin:0;padding:10px 16px;border-top:1px solid var(--rule2);background:var(--w);position:relative;z-index:35}
-.ticket-page .composer-foot .btn,.ticket-page .composer-foot summary{min-height:44px;font-size:13px}
+.ticket-page .composer-foot .btn,.ticket-page .composer-foot summary,.ticket-page .composer-foot .comp-menu-item{min-height:44px;font-size:13px}
 .composer-send-actions{display:flex;gap:8px;align-items:center;margin-left:auto}
 .ticket-page .composer-send{border-radius:var(--r) 0 0 var(--r);border-right:1px solid var(--rule2);min-width:88px;font-weight:600}
 .ticket-page .composer-send-more{border-radius:0 var(--r) var(--r) 0;min-width:44px}
