@@ -7,6 +7,7 @@ declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
+    sessionExpiresAt: string;
   }
 }
 
@@ -54,5 +55,6 @@ export const requireAuthOnly: MiddlewareHandler = async (c, next) => {
     throw new HTTPException(401, { message: 'Invalid or missing session' });
   }
   c.set('userId', session.user.id);
+  c.set('sessionExpiresAt', session.session.expiresAt.toISOString());
   await next();
 };
