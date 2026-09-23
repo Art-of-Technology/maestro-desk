@@ -108,7 +108,7 @@ async function applyUrlRoute() {
   let error = null;
   try {
     if (page === 'god' && !isPlatformAdmin()) throw new Error('You do not have access to this page.');
-    if (route?.entityId) {
+    if (route?.entityId && (!jwt || workspaceId)) {
       const records = page === 'tickets' ? TICKETS : CUSTOMERS;
       const readable = Boolean(route.workspaceSlug);
       entity = records.find(r => (workspaceId && !readable ? r._uuid : r.id) === route.entityId);

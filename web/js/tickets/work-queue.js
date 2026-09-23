@@ -38,7 +38,7 @@ export function loadWorkQueue(scope = 'outstanding') {
   const key = context(), version = generation;
   const state = workQueueState(scope);
   if (state.loading) return state.promise;
-  if (state.ready || !getJwt()) return Promise.resolve();
+  if (state.ready || !getJwt() || !getWorkspaceId()) return Promise.resolve();
   state.loading = true; state.error = null;
   state.promise = fetchWorkQueue(scope, state, key, version);
   return state.promise;

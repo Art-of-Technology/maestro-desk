@@ -49,6 +49,7 @@ let notificationContext = null;
 let surfaceSignature = null;
 
 function queueNotice() {
+  if (getJwt() && !getWorkspaceId()) return '<div role="status" style="padding:14px">Choose a brand to view notifications. <a href="#/god">Choose brand</a></div>';
   const state = workQueueState();
   if (state.ready) return '';
   return state.error
@@ -64,6 +65,7 @@ function getNotifications() {
     NOTIFICATIONS_DISMISSED.clear();
   }
   const out = [];
+  if (getJwt() && !getWorkspaceId()) return out;
   if (workQueueState().ready) {
     const unassigned = unassignedNotifications(TICKETS);
     const currentIds = new Set(unassigned.map(n => n.id));
@@ -182,7 +184,7 @@ export function refreshNotifBadge() {
   const n = items.filter(x => !NOTIFICATIONS_READ.has(x.id)).length;
   badge.textContent = !state.ready ? (state.error ? '?' : '…') : n > 9 ? '9+' : String(n);
   badge.title = !state.ready ? (state.error ? 'Could not check unassigned tickets' : 'Checking unassigned tickets') : `${n} unread notifications`;
-  badge.style.display = n > 0 || !state.ready ? 'flex' : 'none';
+  badge.style.display = getJwt() && !getWorkspaceId() ? 'none' : n > 0 || !state.ready ? 'flex' : 'none';
 }
 
 function renderNotifications() {
