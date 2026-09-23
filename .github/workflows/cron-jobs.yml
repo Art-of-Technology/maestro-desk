@@ -1,4 +1,10 @@
 name: Scheduled jobs (prod)
+run-name: >-
+  Scheduled job - ${{ github.event_name == 'workflow_dispatch' && inputs.job ||
+    github.event.schedule == '0 3 * * *' && 'webhook-retry' ||
+    github.event.schedule == '0 4 * * *' && 'retention' ||
+    github.event.schedule == '*/5 * * * *' && 'knowledge-refresh' ||
+    github.event.schedule == '17 * * * *' && 'email-usage' || 'unknown' }}
 
 # Runs the API's scheduled jobs by calling its CRON_SECRET-gated HTTP endpoints
 # (api/src/routes/cron.ts) on production. This is the scheduler of record for
@@ -116,19 +122,21 @@ jobs:
             exit 1
           fi
           body="$(mktemp)"
+          trap 'rm -f "$body"' EXIT
+          curl_failed=0
           # -w prints the status even when curl exits non-zero (e.g. the socket
           # dropped mid-body after a 200); only an EMPTY status means no
           # response at all. Never `|| code=000` — that would overwrite a real code.
           code="$(curl -sS --max-time 150 -o "$body" -w '%{http_code}' \
             -H "Authorization: Bearer $CRON_SECRET" \
-            "$API_BASE/api/v1/cron/$JOB")" || true
+            "$API_BASE/api/v1/cron/$JOB")" || curl_failed=1
           [ -n "$code" ] || code="000"
           echo "HTTP $code"
 
           # Public repo: print a whitelisted summary, never the raw body (it can
           # carry tenant ids on a tampered audit chain, or a Cloudflare error page).
           if jq -e . "$body" >/dev/null 2>&1; then
-            jq -c '{ok, error, processed, purgedTickets, tampered: (.audit.tampered // .tamperedCount), attempted, linked, notFound, mismatched, rejected, noPlayerId, failed, remaining} | with_entries(select(.value != null))' "$body"
+            jq -c '{ok, processed, purgedTickets, tampered: (.audit.tampered // .tamperedCount), attempted, linked, notFound, mismatched, rejected, noPlayerId, failed, remaining} | with_entries(select((.value | type) == "number" or (.value | type) == "boolean"))' "$body" 2>/dev/null || true
           else
             echo "(non-JSON response body, $(wc -c < "$body") bytes — not printed)"
           fi
@@ -143,7 +151,8 @@ jobs:
           esac
           # /audit-verify returns ok:false (with HTTP 200) when the chain is tampered;
           # /retention reports the daily incremental verify as a COUNT under audit.tampered.
-          if jq -e '(.ok == false) or ((.audit.tampered // 0) > 0) or ((.tamperedCount // 0) > 0)' "$body" >/dev/null; then
-            echo "::error::$JOB reported a problem (ok:false or tampered audit chains) — see the summary above and the ops alert."
+          # Slurp requires exactly one complete JSON object, not a stream of responses.
+          if [ "$curl_failed" != "0" ] || ! jq -e -s 'length == 1 and (.[0] | type == "object" and .ok == true and ((.audit.tampered // 0) == 0) and ((.tamperedCount // 0) == 0))' "$body" >/dev/null 2>&1; then
+            echo "::error::$JOB did not confirm success (invalid response, transport failure, or reported problem)."
             exit 1
           fi

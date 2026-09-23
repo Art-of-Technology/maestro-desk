@@ -77,6 +77,11 @@ jobs:
       - name: Deployment alert tests (offline)
         run: node --test scripts/deployment-alert.test.mjs
 
+      - name: Scheduled job monitoring tests (offline)
+        run: |
+          node --test scripts/scheduled-job-monitor.test.mjs
+          bash scripts/cron-job-response.test.sh
+
       - name: Unassigned notification tests
         run: bun test scripts/unassigned-notifications.test.js
 
