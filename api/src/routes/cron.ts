@@ -51,30 +51,33 @@ cron.get('/email-usage', async c => {
   catch { return c.json({ ok: false, error: 'Email usage check failed.' }, 500); }
 });
 
-cron.post('/deploy-web', async (c) => {
-  if (!env.DOKPLOY_WEB_DEPLOY_URL) {
-    return c.json({ ok: false, error: 'Web deployment is not configured.' }, 503);
-  }
-  try {
-    const response = await fetch(env.DOKPLOY_WEB_DEPLOY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-GitHub-Event': 'push',
-      },
-      body: await c.req.arrayBuffer(),
-      signal: AbortSignal.timeout(60_000),
-    });
-    if (!response.ok) {
-      console.error(`[deploy-web] Dokploy returned HTTP ${response.status}`);
-      return c.json({ ok: false, error: 'Dokploy rejected the deployment.' }, 502);
+for (const target of ['web', 'api'] as const) {
+  cron.post(`/deploy-${target}`, async (c) => {
+    const url = target === 'web' ? env.DOKPLOY_WEB_DEPLOY_URL : env.DOKPLOY_API_DEPLOY_URL;
+    if (!url) {
+      return c.json({ ok: false, error: `${target === 'web' ? 'Web' : 'API'} deployment is not configured.` }, 503);
     }
-    return c.json({ ok: true });
-  } catch (error) {
-    console.error('[deploy-web] Dokploy request failed:', error instanceof Error ? error.message : error);
-    return c.json({ ok: false, error: 'Dokploy could not be reached.' }, 502);
-  }
-});
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-GitHub-Event': 'push',
+        },
+        body: await c.req.arrayBuffer(),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!response.ok) {
+        console.error(`[deploy-${target}] Dokploy returned HTTP ${response.status}`);
+        return c.json({ ok: false, error: 'Dokploy rejected the deployment.' }, 502);
+      }
+      return c.json({ ok: true });
+    } catch {
+      console.error(`[deploy-${target}] Dokploy request failed`);
+      return c.json({ ok: false, error: 'Dokploy could not be reached.' }, 502);
+    }
+  });
+}
 
 // The job bodies live in lib/cron-jobs.ts, shared with the self-hosted CLI
 // runner (src/cron-run.ts) — logging + ops alerts fire inside the job; these

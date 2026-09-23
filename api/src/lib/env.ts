@@ -116,6 +116,7 @@ const Env = z.object({
   // GitHub-hosted runners cannot resolve the LAN-only Dokploy hostname, while
   // the production API can reach it from inside the company network.
   DOKPLOY_WEB_DEPLOY_URL: z.string().url().or(z.literal('')).default(''),
+  DOKPLOY_API_DEPLOY_URL: z.string().url().or(z.literal('')).default(''),
   // Maestro Connect — the iGaming platform's identity + data gateway.
   // Two capabilities, one registered app ("Service Desk",
   // app id 6c3f3c30-8beb-4763-adfd-e1ccea2aa976 in the developer portal):

@@ -5,7 +5,9 @@ cd "$(dirname "$0")/.."
 test_dir="$(mktemp -d)"
 trap 'rm -f "$test_dir"/*; rmdir "$test_dir"' EXIT
 export test_dir
-sed -n '/^        run: |/,$p' .github/workflows/deploy-production-web.yml |
+target="${1:-web}"
+case "$target" in web|api) ;; *) exit 1 ;; esac
+sed -n '/^        run: |/,$p' .github/workflows/deploy-production-"$target".yml |
   tail -n +2 | sed 's/^          //' > "$test_dir/trigger.sh"
 
 curl() {
@@ -36,11 +38,11 @@ for EVENT_NAME in push workflow_dispatch; do
     printf '{}' > "$GITHUB_EVENT_PATH"
   fi
   bash "$test_dir/trigger.sh" > "$test_dir/result"
-  jq -e --arg sha "$SHA" '
+  jq -e --arg sha "$SHA" --arg prefix "$target/" '
     .ref == "refs/heads/main" and
     .repository.full_name == "Art-of-Technology/maestro-desk" and
     .head_commit.id == $sha and
-    ([.commits[] | .added[], .modified[], .removed[]] | any(startswith("web/")))
+    ([.commits[] | .added[], .modified[], .removed[]] | any(startswith($prefix)))
   ' "$test_dir/sent.json" > /dev/null
 done
 
