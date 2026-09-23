@@ -440,10 +440,15 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .csat-ring{position:relative;width:44px;height:44px;flex-shrink:0}
 .csat-ring svg{transform:rotate(-90deg)}
 .csat-inner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:11px;font-weight:500}
-.other-ticket{padding:6px 0;border-bottom:1px solid var(--rule);cursor:pointer;font-size:11px}
+.ts-contact{margin-bottom:10px;font-size:12px;cursor:text}
+.ts-contact-value{display:flex;align-items:center;gap:4px;margin-top:3px;color:var(--ink)}
+.ts-contact-value>span{min-width:0;overflow-wrap:anywhere;user-select:text}
+.other-ticket{display:block;width:100%;text-align:left;font-family:inherit;background:transparent;color:var(--ink2);padding:8px 0;border:0;border-bottom:1px solid var(--rule);cursor:pointer;font-size:11px}
+.other-ticket:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+.other-ticket-meta{display:block;color:var(--ink3);line-height:1.4;margin-bottom:4px;overflow-wrap:anywhere}
 .other-ticket:last-child{border-bottom:none}
 .other-ticket:hover{color:var(--ink)}
-.other-ticket-subj{color:var(--ink2);line-height:1.3;margin-bottom:3px}
+.other-ticket-subj{display:block;color:var(--ink2);line-height:1.3;margin-bottom:3px;overflow-wrap:anywhere}
 /* ── Customer page ── */
 .cust-profile{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 /* VIP tier badges carry a 1px outline in their own ink; status pills never
