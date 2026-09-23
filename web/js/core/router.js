@@ -17,6 +17,7 @@
 // bindings. TICKETS is imported from core/data.js for updateNavBadges.
 
 import { TICKETS } from './data.js';
+import { getJwt, getWorkspaceId } from './api-client.js';
 import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
 import { renderTickets, initTicketsPage } from '../tickets/list.js';
@@ -158,6 +159,12 @@ export function renderPage(page) {
     document.querySelector('.sb-item[data-page="dashboard"]')?.classList.add('active');
     return;
   }
+  if (getJwt() && !getWorkspaceId() && !['god', 'help', 'profile'].includes(page)) {
+    main.innerHTML = '<div class="page-header"><h1>Select a brand</h1></div><p>Choose a brand to view its tickets and workspace.</p><a class="btn" href="#/god">Choose brand</a>';
+    updateNavBadges();
+    syncRoute(page, null);
+    return;
+  }
   main.innerHTML = pages[page]();
   if (page === 'ai') initAI();
   if (page === 'tickets') initTicketsPage();
@@ -175,6 +182,8 @@ export function renderPage(page) {
 function paintTicketBadge() {
   const badge = document.getElementById('nb-open');
   if (badge) {
+    badge.style.display = getJwt() && !getWorkspaceId() ? 'none' : '';
+    if (getJwt() && !getWorkspaceId()) return;
     const state = workQueueState();
     badge.textContent = state.ready ? TICKETS.filter(isOutstanding).length : state.error ? '?' : '…';
     badge.title = state.error ? 'Ticket count unavailable. Open Tickets to retry.'
@@ -185,7 +194,7 @@ function paintTicketBadge() {
 export function updateNavBadges() {
   const state = workQueueState();
   paintTicketBadge();
-  if (!state.ready && !state.error) {
+  if ((!getJwt() || getWorkspaceId()) && !state.ready && !state.error) {
     // Shared promise also covers a load started by the Tickets page. Paint
     // only the badge when it finishes, and ignore a discarded workspace load.
     void loadWorkQueue().then(() => {

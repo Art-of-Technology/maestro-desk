@@ -35,7 +35,7 @@ const state = {
 };
 
 export function startListSync() {
-  if (state.intervalId) return;
+  if (state.intervalId || !getJwt() || !getWorkspaceId()) return;
   state.cursor   = null;
   state.inFlight = false;
   // First beat is immediate — establishes the cursor with the server's
@@ -58,6 +58,7 @@ export function stopListSync() {
 // (and an overlapping poll) into a single in-flight fetch — the cursor still
 // captures every delta.
 export async function tick() {
+  if (!getJwt() || !getWorkspaceId()) { state.cursor = null; return; }
   if (state.inFlight) return;
   state.inFlight = true;
   const workspace = getWorkspaceId(), jwt = getJwt();

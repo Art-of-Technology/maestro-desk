@@ -22,10 +22,13 @@ import { reloadTicketByUuid } from '../tickets/detail.js';
 import { maybeToastNewResponse } from '../notifications/index.js';
 
 let _pubby = null;
+let generation = 0;
 
 export async function startRealtime() {
   if (_pubby) return;
+  const attempt = ++generation;
   const workspaceId = getWorkspaceId();
+  const jwt = getJwt();
   if (!workspaceId) return;
 
   let cfg;
@@ -34,6 +37,7 @@ export async function startRealtime() {
   } catch {
     return;   // can't reach config → stay on fallback polling
   }
+  if (attempt !== generation || workspaceId !== getWorkspaceId() || jwt !== getJwt()) return;
   if (!cfg?.key || !cfg?.ws_host) return;   // realtime not configured
 
   const pubby = new Pubby(cfg.key, {
@@ -52,10 +56,12 @@ export async function startRealtime() {
 
   const channel = pubby.subscribe(`private-ws-${workspaceId}-tickets`);
   channel.bind('ticket.changed', async (data) => {
+    if (attempt !== generation || workspaceId !== getWorkspaceId() || jwt !== getJwt()) return;
     // Signal → fetch. Pull the cursor delta into the list/TICKETS first so the
     // local ticket reflects the new latest-message role, then: reload the open
     // detail, and toast if this is a new customer reply on a ticket I own.
     await listSyncTick();
+    if (attempt !== generation || workspaceId !== getWorkspaceId() || jwt !== getJwt()) return;
     if (data && typeof data.id === 'string') {
       reloadTicketByUuid(data.id);
       maybeToastNewResponse(data.id);
@@ -64,6 +70,7 @@ export async function startRealtime() {
 }
 
 export function stopRealtime() {
+  generation++;
   if (!_pubby) return;
   try { _pubby.disconnect(); } catch { /* best-effort */ }
   _pubby = null;

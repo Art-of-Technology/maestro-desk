@@ -23,6 +23,8 @@ import { nav, updateNavBadges } from '../core/router.js';
 import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId, setWorkspaceSlug, setBrandId } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
+import { startListSync, stopListSync } from '../tickets/list-sync.js';
+import { startRealtime, stopRealtime } from '../core/realtime.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { renderNewBrand, resetForm as resetNewBrandForm, setOnClose as setNewBrandOnClose } from './new-brand.js';
 
@@ -71,6 +73,8 @@ export function renderGod() {
   // brand context so it can't leak into the next brand the god enters.
   setWorkspaceId(null);
   setBrandId(null);
+  stopListSync();
+  stopRealtime();
   // First render → kick off the list fetch.
   if (!STATE.brandsLoading && STATE.brands.length === 0 && !STATE.brandsError && STATE.view === 'list') {
     refreshList();
@@ -487,6 +491,8 @@ async function enterBrand(brandId) {
     setWorkspaceSlug(entered?.slug);
     setBrandId(entered?.maestro_brand_id || null);
     await loadWorkspaceData();
+    startListSync();
+    startRealtime();
     window.resetWorkspaceBrand?.();
     window.applyWorkspaceBrand?.({
       name: entered?.name, slug: entered?.slug,
