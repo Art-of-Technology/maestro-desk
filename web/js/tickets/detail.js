@@ -696,12 +696,14 @@ export function openTicket(id) {
           <div class="ts-section">
             <div class="ts-heading">Other tickets (${otherTickets.length})</div>
             ${otherTickets.map(ot=>`
-              <button type="button" class="other-ticket" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}">
-                <span class="other-ticket-meta">${window.escHtml(ot.id)}</span>
+              <div class="other-ticket">
+                <div class="other-ticket-id"><span>${window.escHtml(ot.id)}</span>${copyButton(ot.id, `ticket ID ${ot.id}`)}</div>
+                <button type="button" class="other-ticket-open" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}" aria-label="${window.escAttr(`Open ticket ${ot.id}: ${ot.subject}`)}">
                 <span class="other-ticket-subj">${window.escHtml(ot.subject)}</span>
                 <span class="other-ticket-meta">Created: ${window.escHtml(ticketCreatedLabel(ot))}</span>
                 <span class="tag tag-${ot.status}">${window.escHtml(ot.status)}</span>
-              </button>`).join('')}
+                </button>
+              </div>`).join('')}
           </div>`:''}
           ${activityBlock}
           ${(window.canDeleteRecords() || isTicketBlank(t)) ? `
