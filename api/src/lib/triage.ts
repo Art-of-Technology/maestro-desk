@@ -231,6 +231,7 @@ export interface TriageResult {
     postmark_message_id?: string;    // Postmark's MessageID for the sent email
     not_posted_reason?:              // populated when decision.eligible but posted=false
       | 'already_auto_replied'
+      | 'workspace_unavailable'
       | 'postmark_not_configured'
       | 'customer_email_missing'
       | 'email_suppressed'

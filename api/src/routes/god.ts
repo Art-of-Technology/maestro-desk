@@ -26,6 +26,11 @@ import {
 export const god = new Hono();
 
 god.use('*', requirePlatformAdmin);
+god.use('/brands/:id/*', async (c, next) => {
+  const [brand] = await getDb()`select id from workspaces where id = ${c.req.param('id')} and deleted_at is null`;
+  if (!brand) return c.json({ error: 'Brand not found' }, 404);
+  await next();
+});
 
 god.get('/email-usage', async c => c.json(await readEmailUsage()));
 

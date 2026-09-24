@@ -53,7 +53,8 @@ export async function handleSlackEvent(args: {
   // unrelated Slack chatter out of our DB.
   const [mapping] = await sql<{ ticket_id: string }[]>`
     select ticket_id from slack_thread_mappings
-    where workspace_id = ${workspaceId} and channel_id = ${ev.channel} and thread_ts = ${ev.thread_ts}
+    where exists(select 1 from workspaces w where w.id=${workspaceId} and w.deleted_at is null)
+    and workspace_id = ${workspaceId} and channel_id = ${ev.channel} and thread_ts = ${ev.thread_ts}
   `;
   if (!mapping) return;
 

@@ -335,6 +335,7 @@ export async function sweepEmailDomains(): Promise<SweepResult> {
     select id, workspace_id, domain, verified_at, degraded_at, postmark_domain_id, dns_records, created_at, last_checked_at, degraded_reason
     from workspace_email_domains
     where deleted_at is null and postmark_domain_id is not null
+      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
     order by last_checked_at asc nulls first, created_at asc
     limit 100
   `;
@@ -385,6 +386,7 @@ export async function sweepEmailDomains(): Promise<SweepResult> {
     select id, workspace_id, domain
     from workspace_email_domains
     where deleted_at is null and verified_at is null and created_at < now() - interval '30 days'
+      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
     order by created_at asc
     limit 100
   `;

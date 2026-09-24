@@ -41,7 +41,9 @@ export async function refreshKnowledgeSource(
   const sql = getDb();
   const [s] =
     await sql`update knowledge_sources set lease_until=date_trunc('milliseconds',now())+interval '3 minutes'
-    where id=${id} and workspace_id=${workspaceId} and (not ${scheduled} or (kind='url' and auto_refresh and (next_check_at is null or next_check_at<=now()))) and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
+    where id=${id} and workspace_id=${workspaceId}
+    and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
+    and (not ${scheduled} or (kind='url' and auto_refresh and (next_check_at is null or next_check_at<=now()))) and (lease_until is null or lease_until<now()) returning *,lease_until::text as lease_token`;
   if (!s) return false;
   try {
     assertKnowledgeMarket(workspaceId, s);
@@ -70,6 +72,7 @@ export async function refreshDueKnowledgeSources() {
   const sql = getDb();
   const rows =
     await sql`select id,workspace_id from knowledge_sources where kind='url' and auto_refresh
+    and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
     and (next_check_at is null or next_check_at<=now()) and (lease_until is null or lease_until<now()) order by next_check_at nulls first limit 10`;
   let processed = 0,
     failed = 0;

@@ -7,6 +7,7 @@
 // the one place that knows a workspace IS a Maestro brand.
 
 import { getDb } from './db.js';
+import { HTTPException } from 'hono/http-exception';
 import type { MaestroBrand } from './maestro.js';
 
 export interface BrandWorkspace {
@@ -42,6 +43,7 @@ interface WorkspaceRow {
   logo_url: string | null;
   primary_color: string | null;
   suspended_at: string | null;
+  deleted_at: string | null;
 }
 
 /**
@@ -60,6 +62,7 @@ export async function resolveBrandWorkspace(
 
   let ws = await findByBrand(brand.id);
   if (!ws) ws = await provisionForBrand(brand);
+  if (ws.deleted_at) throw new HTTPException(403, { message: 'This brand is archived.' });
 
   // Ensure membership. A brand-new member is created active; an EXISTING member
   // is left untouched (`do nothing`) — role AND active are preserved. This is
@@ -153,8 +156,9 @@ export async function maestroBrandIdForWorkspace(workspaceId: string): Promise<s
 async function findByBrand(brandId: string): Promise<WorkspaceRow | null> {
   const sql = getDb();
   const [row] = await sql<WorkspaceRow[]>`
-    select id, name, slug, logo_url, primary_color, suspended_at from workspaces
-    where maestro_brand_id = ${brandId} and deleted_at is null
+    select id, name, slug, logo_url, primary_color, suspended_at, deleted_at from workspaces
+    where maestro_brand_id = ${brandId}
+    order by (deleted_at is null) desc, created_at asc limit 1
   `;
   return row ?? null;
 }
@@ -182,7 +186,7 @@ async function provisionForBrand(brand: MaestroBrand): Promise<WorkspaceRow> {
       `;
       await tx`update workspaces set maestro_brand_id = ${brand.id} where id = ${id}`;
       return tx<WorkspaceRow[]>`
-        select id, name, slug, logo_url, primary_color, suspended_at
+        select id, name, slug, logo_url, primary_color, suspended_at, deleted_at
         from workspaces where id = ${id}
       `;
     });

@@ -17,6 +17,7 @@ import {
   str,
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
+import { getDb } from '../lib/db.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
 import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -188,7 +189,11 @@ maestro.get('/workspace', requireAuthOnly, async (c) => {
     // the brand fan-out (listUserBrands(token, organizations)).
     const organizations = await listUserOrganizations(token);
     const brands = await listUserBrands(token, organizations);
-    return c.json({ organizations, brands });
+    const archived = await getDb()`select w.maestro_brand_id from workspaces w
+      where w.deleted_at is not null and w.maestro_brand_id is not null
+      and not exists(select 1 from workspaces live where live.maestro_brand_id=w.maestro_brand_id and live.deleted_at is null)`;
+    const archivedIds = new Set(archived.map(w => w.maestro_brand_id));
+    return c.json({ organizations, brands: brands.filter(b => !archivedIds.has(b.id)) });
   } catch (err) {
     throw toHttp(err);
   }

@@ -178,8 +178,9 @@ export async function resolveInboundWorkspace(args: {
     // must never route another brand's mail — a workspace admin could
     // otherwise claim a competitor's domain and receive their inbound.
     const [match] = await sql<{ workspace_id: string; domain: string }[]>`
-      select workspace_id, domain from workspace_email_domains
-      where domain = ${toDomain} and verified_at is not null and deleted_at is null
+      select d.workspace_id, d.domain from workspace_email_domains d
+      join workspaces w on w.id = d.workspace_id and w.deleted_at is null
+      where d.domain = ${toDomain} and d.verified_at is not null and d.deleted_at is null
     `;
     if (match) {
       return { workspaceId: match.workspace_id, routed: true, matchedDomain: match.domain };
@@ -283,6 +284,7 @@ export async function processInboundEmail(args: {
       from ticket_messages tm
       join tickets t on t.id = tm.ticket_id
       where tm.external_message_id = ${inReplyTo}
+        and exists(select 1 from workspaces w where w.id=t.workspace_id and w.deleted_at is null)
         and tm.deleted_at is null and t.deleted_at is null
       order by tm.created_at desc
       limit 1
