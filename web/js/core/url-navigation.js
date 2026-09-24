@@ -9,6 +9,7 @@ const RETURN_ROUTE_KEY = 'respovia_return_route';
 let ready = false;
 let rendering = false;
 let revision = 0;
+let applyingRoute = null;
 let lastRenderedHash = null;
 let installed = false;
 
@@ -66,6 +67,7 @@ export function ticketUrl(ticketId) {
 export function syncRoute(page = CURRENT_PAGE, ticketId = CURRENT_TICKET) {
   if (!ready || rendering || !SESSION) return;
   const hash = screenHash(page, ticketId);
+  if (applyingRoute?.revision === revision && hash === applyingRoute.sourceHash) return;
   if (!hash || hash === lastRenderedHash) return;
   revision++;
   lastRenderedHash = hash;
@@ -94,60 +96,67 @@ export async function resumeUrlRouting() {
 async function applyUrlRoute() {
   const route = requestedRoute();
   const attempt = ++revision;
-  const invalidLink = !route && window.location.hash.startsWith('#/');
-  const workspaceId = getWorkspaceId();
-  const jwt = getJwt();
-  if (jwt && ((route?.workspaceId && route.workspaceId !== workspaceId)
-    || (route?.workspaceSlug && route.workspaceSlug !== getWorkspaceSlug()))) {
-    // Reload through the normal authenticated bootstrap so membership, roles,
-    // brand identity and all cached workspace data change together.
-    window.location.reload();
-    return;
-  }
-  const current = () => attempt === revision && ready && SESSION
-    && workspaceId === getWorkspaceId() && jwt === getJwt();
-  const { nav } = await import('./router.js');
-  if (!current()) return;
-  let page = route?.page || (isPlatformAdmin() && !workspaceId ? 'god' : 'dashboard');
-  let entity = null;
-  let error = null;
+  // Background renders must not replace a destination while its imports/data
+  // load. Explicit navigation still cancels it through beginRouteNavigation().
+  applyingRoute = { revision: attempt, sourceHash: screenHash() };
   try {
-    if (page === 'god' && !isPlatformAdmin()) throw new Error('You do not have access to this page.');
-    if (route?.entityId && (!jwt || workspaceId)) {
-      const records = page === 'tickets' ? TICKETS : CUSTOMERS;
-      const readable = Boolean(route.workspaceSlug);
-      entity = records.find(r => (workspaceId && !readable ? r._uuid : r.id) === route.entityId);
-      if (!entity && page === 'tickets' && workspaceId && (route.workspaceId || readable)) {
-        const path = readable ? `by-number/${encodeURIComponent(route.entityId)}` : route.entityId;
-        const res = await apiGet(`/api/v1/tickets/${path}`);
-        if (!current()) return;
-        const { updateOrInsertTicket } = await import('./bootstrap.js');
-        if (!current()) return;
-        updateOrInsertTicket(res.ticket);
-        entity = TICKETS.find(t => t._uuid === res.ticket.id);
-      }
-      if (!entity) throw new Error('This record is unavailable in this workspace.');
+    const invalidLink = !route && window.location.hash.startsWith('#/');
+    const workspaceId = getWorkspaceId();
+    const jwt = getJwt();
+    if (jwt && ((route?.workspaceId && route.workspaceId !== workspaceId)
+      || (route?.workspaceSlug && route.workspaceSlug !== getWorkspaceSlug()))) {
+      // Reload through the normal authenticated bootstrap so membership, roles,
+      // brand identity and all cached workspace data change together.
+      window.location.reload();
+      return;
     }
-  } catch (err) {
+    const current = () => attempt === revision && ready && SESSION
+      && workspaceId === getWorkspaceId() && jwt === getJwt();
+    const { nav } = await import('./router.js');
     if (!current()) return;
-    error = err?.status === 403 || err?.status === 404
-      ? 'This record is unavailable in this workspace.'
-      : err?.message || 'Could not open this link.';
-    if (page === 'god') page = 'dashboard';
+    let page = route?.page || (isPlatformAdmin() && !workspaceId ? 'god' : 'dashboard');
+    let entity = null;
+    let error = null;
+    try {
+      if (page === 'god' && !isPlatformAdmin()) throw new Error('You do not have access to this page.');
+      if (route?.entityId && (!jwt || workspaceId)) {
+        const records = page === 'tickets' ? TICKETS : CUSTOMERS;
+        const readable = Boolean(route.workspaceSlug);
+        entity = records.find(r => (workspaceId && !readable ? r._uuid : r.id) === route.entityId);
+        if (!entity && page === 'tickets' && workspaceId && (route.workspaceId || readable)) {
+          const path = readable ? `by-number/${encodeURIComponent(route.entityId)}` : route.entityId;
+          const res = await apiGet(`/api/v1/tickets/${path}`);
+          if (!current()) return;
+          const { updateOrInsertTicket } = await import('./bootstrap.js');
+          if (!current()) return;
+          updateOrInsertTicket(res.ticket);
+          entity = TICKETS.find(t => t._uuid === res.ticket.id);
+        }
+        if (!entity) throw new Error('This record is unavailable in this workspace.');
+      }
+    } catch (err) {
+      if (!current()) return;
+      error = err?.status === 403 || err?.status === 404
+        ? 'This record is unavailable in this workspace.'
+        : err?.message || 'Could not open this link.';
+      if (page === 'god') page = 'dashboard';
+    }
+    if (!current()) return;
+    const { openTicket } = await import('../tickets/detail.js');
+    const { resetPlayerLookup } = await import('../customers/player-lookup.js');
+    if (!current()) return;
+    rendering = true;
+    try {
+      resetPlayerLookup();
+      setCustomerSelected(page === 'customers' && entity ? entity.id : null);
+      nav(page);
+      if (page === 'tickets' && entity) openTicket(entity.id);
+      lastRenderedHash = screenHash(page, entity && page === 'tickets' ? entity.id : null);
+      if (lastRenderedHash) history.replaceState(null, '', lastRenderedHash);
+    } finally { rendering = false; }
+    if (error) showToast(error, 'warn');
+    else if (invalidLink) showToast('That link is unavailable. Showing your home page.', 'warn');
+  } finally {
+    if (applyingRoute?.revision === attempt) applyingRoute = null;
   }
-  if (!current()) return;
-  const { openTicket } = await import('../tickets/detail.js');
-  const { resetPlayerLookup } = await import('../customers/player-lookup.js');
-  if (!current()) return;
-  rendering = true;
-  try {
-    resetPlayerLookup();
-    setCustomerSelected(page === 'customers' && entity ? entity.id : null);
-    nav(page);
-    if (page === 'tickets' && entity) openTicket(entity.id);
-    lastRenderedHash = screenHash(page, entity && page === 'tickets' ? entity.id : null);
-    if (lastRenderedHash) history.replaceState(null, '', lastRenderedHash);
-  } finally { rendering = false; }
-  if (error) showToast(error, 'warn');
-  else if (invalidLink) showToast('That link is unavailable. Showing your home page.', 'warn');
 }

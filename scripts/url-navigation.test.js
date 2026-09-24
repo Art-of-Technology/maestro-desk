@@ -223,6 +223,19 @@ describe('URL navigation', () => {
     expect(pushes).toHaveLength(1);
   });
 
+  it('keeps the requested inbox route through a background dashboard render', async () => {
+    window.location.hash = `#/w/${ws}/tickets`;
+    const pending = routing.resumeUrlRouting();
+    routing.syncRoute('dashboard', null);
+    await pending;
+    expect(state.CURRENT_PAGE).toBe('tickets');
+    expect(window.location.hash).toBe(`#/w/${ws}/tickets`);
+    expect(pushes).toHaveLength(0);
+    routing.beginRouteNavigation();
+    routing.syncRoute('customers', null);
+    expect(window.location.hash).toBe(`#/w/${ws}/customers`);
+  });
+
   it('reboots through authentication before reading another workspace', async () => {
     window.location.hash = `#/w/${otherWs}/tickets/${ticketId}`;
     await routing.resumeUrlRouting();

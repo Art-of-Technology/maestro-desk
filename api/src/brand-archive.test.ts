@@ -31,6 +31,26 @@ const targets = [
     if (user) await sql`delete from users where id=${user}`;
   });
 
+  it('exposes the system inbox separately from brands only to platform admins', async () => {
+    const headers = { Authorization: `Bearer ${token}` };
+    expect((await app.request('/api/v1/god/brands')).status).toBe(401);
+    expect((await app.request('/api/v1/god/brands', { headers })).status).toBe(403);
+    await sql`update users set is_platform_admin=true where id=${user}`;
+    try {
+      const response = await app.request('/api/v1/god/brands', { headers });
+      expect(response.status).toBe(200);
+      const body = await response.json() as { unrouted_workspace_id: string | null; brands: { id: string }[] };
+      const [bucket] = await sql`select id from workspaces where is_unrouted_bucket=true and deleted_at is null and suspended_at is null`;
+      expect(bucket).toBeDefined();
+      expect(body.unrouted_workspace_id).toBe(bucket.id);
+      expect(body.brands.some((b: { id: string }) => b.id === bucket.id)).toBe(false);
+      expect(body.brands.some((b: { id: string }) => b.id === ws)).toBe(true);
+      expect((await app.request('/api/v1/tickets', { headers: { ...headers, 'X-Workspace-Id': bucket.id } })).status).toBe(200);
+    } finally {
+      await sql`update users set is_platform_admin=false where id=${user}`;
+    }
+  });
+
   it('blocks existing sessions, platform-admin access and Maestro reprovisioning', async () => {
     const headers = { Authorization: `Bearer ${token}`, 'X-Workspace-Id': ws };
     expect((await app.request('/api/v1/tickets', { headers })).status).toBe(200);
