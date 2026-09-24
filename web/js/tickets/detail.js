@@ -502,6 +502,7 @@ export function openTicket(id) {
   const keepScroll = prevThread &&
     (prevThread.scrollHeight - prevThread.scrollTop - prevThread.clientHeight > 40)
       ? prevThread.scrollTop : null;
+  const currentTicketUrl = ticketUrl(t.id);
   main.innerHTML = `
     <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}">
       <div class="topbar ticket-topbar">
@@ -509,6 +510,7 @@ export function openTicket(id) {
           <button class="ticket-back" data-action="td.openTicketsList">Tickets</button>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${window.escHtml(t.id)}</span>${copyButton(t.id, 'ticket number')}
+          ${currentTicketUrl ? `<a class="ticket-copy-link" href="${window.escAttr(currentTicketUrl)}" data-action="copy.value" data-copy-value="${window.escAttr(currentTicketUrl)}" aria-label="${window.escAttr(`Copy link to ticket ${t.id}`)}">Copy link</a>` : ''}
           <span class="ticket-header-actions">
             <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this ticket"></div>
             <button class="btn btn-sm" data-action="td.prev" aria-label="Previous ticket">← Prev</button>
