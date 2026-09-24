@@ -140,10 +140,14 @@ god.get('/brands', async (c) => {
     where is_unrouted_bucket = false and deleted_at is null
     order by created_at desc
   `, sql`
-    select id from workspaces
+    select id, (select count(*)::int from tickets t
+      where t.workspace_id = workspaces.id and t.deleted_at is null and t.merged_into_id is null
+        and t.status_key not in ('resolved', 'closed')) as outstanding
+    from workspaces
     where is_unrouted_bucket = true and deleted_at is null and suspended_at is null
   `]);
-  return c.json({ brands, unrouted_workspace_id: unrouted?.id ?? null });
+  return c.json({ brands, unrouted_workspace_id: unrouted?.id ?? null,
+    unrouted_outstanding_count: unrouted?.outstanding ?? null });
 });
 
 // GET /api/v1/god/brands/:id — single brand detail with related counts.

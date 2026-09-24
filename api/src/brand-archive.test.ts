@@ -39,13 +39,34 @@ const targets = [
     try {
       const response = await app.request('/api/v1/god/brands', { headers });
       expect(response.status).toBe(200);
-      const body = await response.json() as { unrouted_workspace_id: string | null; brands: { id: string }[] };
+      const body = await response.json() as { unrouted_workspace_id: string | null; unrouted_outstanding_count: number; brands: { id: string }[] };
       const [bucket] = await sql`select id from workspaces where is_unrouted_bucket=true and deleted_at is null and suspended_at is null`;
       expect(bucket).toBeDefined();
       expect(body.unrouted_workspace_id).toBe(bucket.id);
       expect(body.brands.some((b: { id: string }) => b.id === bucket.id)).toBe(false);
       expect(body.brands.some((b: { id: string }) => b.id === ws)).toBe(true);
       expect((await app.request('/api/v1/tickets', { headers: { ...headers, 'X-Workspace-Id': bucket.id } })).status).toBe(200);
+      const [customer] = await sql`insert into customers(workspace_id,display_id,first_name)
+        values(${bucket.id},${'M-COUNT-' + run},'Count test') returning id`;
+      try {
+        const ids: string[] = [];
+        for (const [i, status] of ['open', 'pending', 'escalated', 'gdpr', 'resolved', 'closed', 'open', 'open'].entries()) {
+          const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key,
+            closure_reason,closed_at,deleted_at,merged_into_id)
+            values(${bucket.id},${customer.id},${'TK-COUNT-' + run + '-' + i},'Count test',${status},'normal',
+              ${status === 'closed' ? 'spam' : null},${status === 'closed' ? new Date() : null},
+              ${i === 6 ? new Date() : null},${i === 7 ? ids[0] : null}) returning id`;
+          ids.push(ticket.id);
+        }
+        const counted = await (await app.request('/api/v1/god/brands', { headers })).json() as typeof body;
+        expect(counted.unrouted_outstanding_count).toBe(body.unrouted_outstanding_count + 4);
+        await sql`update tickets set status_key='resolved' where id=${ids[0]}`;
+        const refreshed = await (await app.request('/api/v1/god/brands', { headers })).json() as typeof body;
+        expect(refreshed.unrouted_outstanding_count).toBe(body.unrouted_outstanding_count + 3);
+      } finally {
+        await sql`delete from tickets where customer_id=${customer.id} and workspace_id=${bucket.id}`;
+        await sql`delete from customers where id=${customer.id}`;
+      }
     } finally {
       await sql`update users set is_platform_admin=false where id=${user}`;
     }

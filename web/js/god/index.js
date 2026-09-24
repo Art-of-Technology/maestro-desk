@@ -36,6 +36,7 @@ const STATE = {
   brandsLoading: false,
   brands: [],
   unroutedWorkspaceId: null,
+  unroutedOutstanding: null,
   brandsError: null,
   selectedId: null,
   detail: null,          // { brand, domains, counts }
@@ -77,8 +78,9 @@ export function renderGod() {
   setBrandId(null);
   stopListSync();
   stopRealtime();
-  // First render → kick off the list fetch.
-  if (!STATE.brandsLoading && STATE.brands.length === 0 && !STATE.brandsError && STATE.view === 'list') {
+  // Refresh on entry, including a return from the inbox. Async updates use
+  // reRender(), so this does not start a fetch/render loop.
+  if (!STATE.brandsLoading && STATE.view !== 'new-brand') {
     refreshList();
   }
   document.body.dataset.godView = STATE.view;
@@ -107,7 +109,7 @@ function renderHtml() {
       <div class="topbar">
         <div class="tb-title">Platform · Brands</div>
         <div class="tb-actions">
-          ${STATE.unroutedWorkspaceId ? `<a class="btn btn-ghost" href="${escAttr(formatRoute({ workspaceId: STATE.unroutedWorkspaceId, page: 'tickets' }))}">Unrouted inbox</a>` : ''}
+          ${STATE.unroutedWorkspaceId ? `<a class="btn btn-ghost" href="${escAttr(formatRoute({ workspaceId: STATE.unroutedWorkspaceId, page: 'tickets' }))}">Unrouted inbox${STATE.unroutedOutstanding === null ? '' : ` · ${STATE.unroutedOutstanding.toLocaleString()} outstanding`}</a>` : ''}
           <button class="btn btn-ghost" data-action="god.refresh" ${STATE.brandsLoading ? 'disabled' : ''}>
             ${STATE.brandsLoading ? 'Loading…' : 'Refresh'}
           </button>
@@ -379,11 +381,14 @@ async function refreshList() {
   void refreshEmailUsage();
   STATE.brandsLoading = true;
   STATE.brandsError = null;
+  STATE.unroutedOutstanding = null;
   reRender();
   try {
     const res = await apiGet('/api/v1/god/brands');
     STATE.brands = res.brands || [];
     STATE.unroutedWorkspaceId = res.unrouted_workspace_id || null;
+    STATE.unroutedOutstanding = Number.isSafeInteger(res.unrouted_outstanding_count) && res.unrouted_outstanding_count >= 0
+      ? res.unrouted_outstanding_count : null;
   } catch (err) {
     STATE.unroutedWorkspaceId = null;
     STATE.brandsError = err.message || 'Failed to load brands';
