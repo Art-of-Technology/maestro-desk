@@ -19,7 +19,7 @@ import { saveReplyAsTemplate } from './templates.js';
 import { AGENTS, CANNED_RESPONSES, CUSTOMERS, KB_ARTICLES, TAG_LIBRARY, TICKETS } from '../core/data.js';
 import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinking, setComposeTabValue, setCurrentTicket, setCurrentPage, setKbSelected } from '../core/state.js';
 import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
-import { syncRoute } from '../core/url-navigation.js';
+import { syncRoute, ticketUrl } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import { handoverStale, handoverText } from '../ai/handover.js';
 import {
@@ -695,15 +695,15 @@ export function openTicket(id) {
           ${otherTickets.length?`
           <div class="ts-section">
             <div class="ts-heading">Other tickets (${otherTickets.length})</div>
-            ${otherTickets.map(ot=>`
+            ${otherTickets.map(ot=>{ const url = ticketUrl(ot.id); return `
               <div class="other-ticket">
-                <div class="other-ticket-id"><span>${window.escHtml(ot.id)}</span>${copyButton(ot.id, `ticket ID ${ot.id}`)}</div>
+                <div class="other-ticket-id"><span>${window.escHtml(ot.id)}</span>${copyButton(ot.id, `ticket ID ${ot.id}`)}${url ? `<a class="other-ticket-link" href="${window.escAttr(url)}" data-action="copy.value" data-copy-value="${window.escAttr(url)}" aria-label="${window.escAttr(`Copy link to ticket ${ot.id}`)}">Copy link</a>` : ''}</div>
                 <button type="button" class="other-ticket-open" data-action="td.openTicket" data-ticket-id="${window.escAttr(ot.id)}" aria-label="${window.escAttr(`Open ticket ${ot.id}: ${ot.subject}`)}">
                 <span class="other-ticket-subj">${window.escHtml(ot.subject)}</span>
                 <span class="other-ticket-meta">Created: ${window.escHtml(ticketCreatedLabel(ot))}</span>
                 <span class="tag tag-${ot.status}">${window.escHtml(ot.status)}</span>
                 </button>
-              </div>`).join('')}
+              </div>`; }).join('')}
           </div>`:''}
           ${activityBlock}
           ${(window.canDeleteRecords() || isTicketBlank(t)) ? `
