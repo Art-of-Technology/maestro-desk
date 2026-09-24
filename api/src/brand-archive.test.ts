@@ -68,6 +68,24 @@ const targets = [
     await expect((await import('./lib/budget.js')).assertHasBudget(ws)).rejects.toThrow('not found');
   });
 
+  it('does not wake archived tickets or send customer surveys', async () => {
+    await sql`update workspaces set deleted_at=now() where id=${ws}`;
+    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name)
+      values(${ws},'M-SNOOZE','Archived') returning id`;
+    const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key,snoozed_until)
+      values(${ws},${customer.id},'TK-SNOOZE','Archived','open','normal',now()-interval '1 day') returning *`;
+    await (await import('./lib/snooze-worker.js')).processExpiredSnoozes();
+    const cleared = await sql.begin(tx => (import('./lib/ticket-snooze.js')).then(m => m.clearTicketSnooze(tx,
+      {workspaceId:ws,ticketId:ticket.id,automatic:true,actorId:null})));
+    expect(cleared).toBeNull();
+    expect((await sql`select * from tickets where id=${ticket.id}`)[0]).toEqual(ticket);
+    await sql`update tickets set status_key='resolved' where id=${ticket.id}`;
+    expect(await (await import('./lib/csat-survey.js')).sendCsatSurvey({workspaceId:ws,ticketId:ticket.id}))
+      .toEqual({sent:false,reason:'no_workspace'});
+    const [saved] = await sql`select csat_send_claim,csat_requested_at from tickets where id=${ticket.id}`;
+    expect(saved.csat_send_claim).toBeNull(); expect(saved.csat_requested_at).toBeNull();
+  });
+
   it('archives only the named suspended brands, preserves data and audits once', async () => {
     const rollback = new Error('rollback fixture');
     try {

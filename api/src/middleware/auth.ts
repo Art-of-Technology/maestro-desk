@@ -32,12 +32,12 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   // is_platform_admin() RLS clauses provided). Check it in parallel with the
   // membership lookup so the happy path for normal agents isn't slowed down.
   const sql = getDb();
-  const [workspace] = await sql`select id from workspaces where id = ${workspaceId} and deleted_at is null`;
-  if (!workspace) throw new HTTPException(403, { message: 'This workspace is unavailable.' });
-  const [member, [user]] = await Promise.all([
+  const [[workspace], member, [user]] = await Promise.all([
+    sql`select id from workspaces where id = ${workspaceId} and deleted_at is null`,
     sql`select 1 from workspace_members where user_id = ${userId} and workspace_id = ${workspaceId} and active = true`,
     sql<{ is_platform_admin: boolean | null }[]>`select is_platform_admin from users where id = ${userId}`,
   ]);
+  if (!workspace) throw new HTTPException(403, { message: 'This workspace is unavailable.' });
   if (member.length === 0 && !user?.is_platform_admin) {
     throw new HTTPException(403, { message: 'Not a member of that workspace' });
   }
