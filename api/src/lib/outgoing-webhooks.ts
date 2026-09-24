@@ -130,6 +130,7 @@ export async function dispatchTicketEvent(args: {
 
   const webhooks = await sql<WebhookRow[]>`
     select id, events from workspace_webhooks where workspace_id = ${workspaceId} and active = true
+      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
   `;
   const subscribed = [...webhooks].filter((w) => w.events.includes(event));
   if (subscribed.length === 0) return 0;
@@ -237,6 +238,7 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       with claimed as (
         select id from webhook_deliveries
         where state = 'pending' and next_attempt_at <= now()
+          and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
         order by next_attempt_at asc
         limit ${limit}
         for update skip locked

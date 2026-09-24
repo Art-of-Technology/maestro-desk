@@ -47,6 +47,8 @@ export async function sendCsatSurvey(args: {
   const { workspaceId, ticketId } = args;
   if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
   const sql = getDb();
+  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
+  if (!workspace) return { sent: false, reason: 'no_workspace' };
   const claim = crypto.randomUUID();
   const [claimed] = await sql`
     update tickets set csat_send_claim = ${claim}, csat_send_started_at = now()
@@ -88,7 +90,7 @@ async function sendClaimedSurvey(args: {
            w.name as ws_name, w.slug as ws_slug
     from tickets t
     left join customers c on c.id = t.customer_id and c.workspace_id = t.workspace_id
-    join workspaces w on w.id = t.workspace_id
+    join workspaces w on w.id = t.workspace_id and w.deleted_at is null
     where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
   `;
   if (!t) return { sent: false, reason: 'no_workspace' };

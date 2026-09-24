@@ -131,6 +131,7 @@ export type PostAutoReplyResult =
   | { posted: false; reason:
       | 'ticket_closed'
       | 'already_auto_replied'
+      | 'workspace_unavailable'
       | 'postmark_not_configured'
       | 'customer_email_missing'
       | 'email_suppressed'
@@ -156,6 +157,9 @@ export type PostAutoReplyResult =
 export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoReplyResult> {
   const { workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
   const sql = getDb();
+
+  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
+  if (!workspace) return { posted: false, reason: 'workspace_unavailable' };
 
   const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
   if (ticket?.status_key === 'closed') return { posted: false, reason: 'ticket_closed' };

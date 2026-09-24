@@ -71,6 +71,23 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     await sql`delete from tickets where workspace_id in (${ctx.wsReal}, ${ctx.bucket}) and created_at::date = now()::date`;
   });
 
+  it('keeps replies to an archived brand in the unrouted inbox instead of changing its history', async () => {
+    await sql`update workspaces set deleted_at=now() where id=${ctx.wsReal}`;
+    try {
+      const res = await processInboundEmail({ workspaceId: ctx.bucket, payload: inbound({
+        from: ctx.realCustomerEmail, subject: 'Archived reply', text: 'Archive regression',
+        messageId: `<archive-${RUN}@cust.test>`, inReplyTo: AGENT_MSG_ID,
+      }) });
+      expect(res.threaded).toBe(false);
+      expect(res.ticket_id).not.toBe(ctx.realTicket);
+      const [ticket] = await sql`select workspace_id from tickets where id=${res.ticket_id}`;
+      expect(ticket.workspace_id).toBe(ctx.bucket);
+      expect((await sql`select id from ticket_messages where ticket_id=${ctx.realTicket} and body='Archive regression'`).length).toBe(0);
+    } finally {
+      await sql`update workspaces set deleted_at=null where id=${ctx.wsReal}`;
+    }
+  });
+
   it('threads a reply onto the original ticket even when resolved to the unrouted bucket', async () => {
     // Simulate domain resolution falling back to the bucket (shared inbound addr).
     const res = await processInboundEmail({

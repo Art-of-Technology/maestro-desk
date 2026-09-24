@@ -12,6 +12,7 @@ export async function clearTicketSnooze(sql: TransactionSql, input: {
     (snoozed_until <= clock_timestamp() and merged_into_id is null
       and status_key in ('open', 'pending', 'escalated', 'gdpr')) as eligible
     from tickets where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
+    and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
     for update ${input.skipLocked ? sql`skip locked` : sql``}`;
   if (!existing) return null;
   const { eligible, ...unchanged } = existing;

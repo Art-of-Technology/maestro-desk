@@ -21,7 +21,7 @@ export class BudgetExceededError extends Error {
 export async function assertHasBudget(workspaceId: string): Promise<number> {
   const sql = getDb();
   const [row] = await sql<{ ai_credits_micro: string }[]>`
-    select ai_credits_micro from workspaces where id = ${workspaceId}
+    select ai_credits_micro from workspaces where id = ${workspaceId} and deleted_at is null
   `;
   if (!row) throw new Error(`Workspace ${workspaceId} not found`);
   const balance = Number(row.ai_credits_micro);
