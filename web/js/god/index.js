@@ -20,6 +20,7 @@
 // All actions wire through core/event-delegation (data-action="god.X").
 
 import { nav, updateNavBadges } from '../core/router.js';
+import { formatRoute } from '../core/route-location.js';
 import { apiGet, apiPatch, apiPost, apiDelete, setWorkspaceId, setWorkspaceSlug, setBrandId } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 import { loadWorkspaceData } from '../core/bootstrap.js';
@@ -34,6 +35,7 @@ const STATE = {
   view: 'list',          // 'list' | 'detail' | 'new-brand'
   brandsLoading: false,
   brands: [],
+  unroutedWorkspaceId: null,
   brandsError: null,
   selectedId: null,
   detail: null,          // { brand, domains, counts }
@@ -101,10 +103,11 @@ setNewBrandOnClose(() => {
 
 function renderHtml() {
   return `
-    <div class="page">
+    <div class="page god-page">
       <div class="topbar">
         <div class="tb-title">Platform · Brands</div>
         <div class="tb-actions">
+          ${STATE.unroutedWorkspaceId ? `<a class="btn btn-ghost" href="${escAttr(formatRoute({ workspaceId: STATE.unroutedWorkspaceId, page: 'tickets' }))}">Unrouted inbox</a>` : ''}
           <button class="btn btn-ghost" data-action="god.refresh" ${STATE.brandsLoading ? 'disabled' : ''}>
             ${STATE.brandsLoading ? 'Loading…' : 'Refresh'}
           </button>
@@ -380,7 +383,9 @@ async function refreshList() {
   try {
     const res = await apiGet('/api/v1/god/brands');
     STATE.brands = res.brands || [];
+    STATE.unroutedWorkspaceId = res.unrouted_workspace_id || null;
   } catch (err) {
+    STATE.unroutedWorkspaceId = null;
     STATE.brandsError = err.message || 'Failed to load brands';
   } finally {
     STATE.brandsLoading = false;

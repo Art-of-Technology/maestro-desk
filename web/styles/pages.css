@@ -720,6 +720,10 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 button.settings-tab { border: 0; font-family: inherit; text-align: left; min-height: 44px; }
 button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .reply-use-confirm { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.god-page .topbar { height: auto; min-height: 48px; flex-wrap: wrap; padding-block: 8px; }
+.god-page .tb-title { min-width: max-content; }
+.god-page .tb-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media(max-width:600px) { .god-page .tb-actions .btn { min-height: 44px; } }
 .reply-use-confirm input { width: 20px; height: 20px; flex-shrink: 0; }
 .ai-performance { padding: 24px; }
 .performance-filters,.performance-exports { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }

@@ -133,14 +133,17 @@ god.post('/brands', async (c) => {
 // GET /api/v1/god/brands — list all brands (excluding system rows).
 god.get('/brands', async (c) => {
   const sql = getDb();
-  const brands = await sql`
+  const [brands, [unrouted]] = await Promise.all([sql`
     select id, slug, name, plan, logo_url, primary_color, ai_credits_micro,
            suspended_at, maestro_brand_id, created_at, updated_at
     from workspaces
     where is_unrouted_bucket = false and deleted_at is null
     order by created_at desc
-  `;
-  return c.json({ brands });
+  `, sql`
+    select id from workspaces
+    where is_unrouted_bucket = true and deleted_at is null and suspended_at is null
+  `]);
+  return c.json({ brands, unrouted_workspace_id: unrouted?.id ?? null });
 });
 
 // GET /api/v1/god/brands/:id — single brand detail with related counts.
