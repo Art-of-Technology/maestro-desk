@@ -21,7 +21,7 @@ globalThis.document = { getElementById: id => {
   return elements.get(id);
 } };
 globalThis.window = {
-  location: { hash: '', pathname: '/', search: '', reload: () => reloads++ },
+  location: { origin: 'https://app.respovia.com', hash: '', pathname: '/', search: '', reload: () => reloads++ },
   login: (role, name, initials, options) => {
     state.setSession({ role, name, initials, ...options }); state.setCurrentPage('dashboard');
   },
@@ -79,6 +79,20 @@ beforeEach(() => {
 });
 
 describe('URL navigation', () => {
+  it('copies workspace-aware ticket URLs without query data or navigation', () => {
+    TICKETS.push({ id: 'TK-55', _uuid: ticketId });
+    const hash = window.location.hash;
+    window.location.search = '?unrelated=value';
+    expect(routing.ticketUrl('TK-55')).toBe(`https://app.respovia.com/#/w/${ws}/tickets/${ticketId}`);
+    workspaceSlug = 'spacecasino';
+    expect(routing.ticketUrl('TK-55')).toBe('https://app.respovia.com/#/w/spacecasino/tickets/TK-55');
+    workspaceId = null;
+    expect(routing.ticketUrl('TK-55')).toBe('https://app.respovia.com/#/tickets/TK-55');
+    expect(window.location.hash).toBe(hash);
+    expect(pushes).toEqual([]);
+    window.location.search = '';
+  });
+
   it('resolves a platform administrator link through authenticated brand metadata', async () => {
     whoami.user.is_platform_admin = true;
     whoami.memberships = [];

@@ -32,7 +32,7 @@ export const GUIDE_STEPS = [
     body: 'Read the customer’s request and the work already done.',
     instructions: [
       'Read the latest customer message, then earlier replies and internal notes. Identify the question, any promises already made, and what is still unanswered.',
-      'Open Details if the ticket sidebar is hidden. Check the customer, email, brand, jurisdiction, status, priority and assigned agent. Use the copy button beside the email address to copy it. Other tickets shows ticket IDs and creation dates; times use your local timezone when available. Copy a ticket ID with its copy button, or select the subject to open the ticket. Review relevant attachments and linked tickets.',
+      'Open Details if the ticket sidebar is hidden. Check the customer, email, brand, jurisdiction, status, priority and assigned agent. Use the copy button beside the email address to copy it. Other tickets shows ticket IDs and creation dates; times use your local timezone when available. Copy a ticket ID with its copy button, use Copy link to share a direct link, or select the subject to open the ticket. If copying a link fails, right-click Copy link and copy the link address. Review relevant attachments and linked tickets.',
       'Use More → Summarize for an AI summary, then verify it against the conversation. Refresh a summary marked stale before relying on it for a handover.',
       'Check account facts and current guidance before promising a payment, refund, bonus or deadline. If evidence is missing, ask for it or escalate through your team’s process.',
     ],

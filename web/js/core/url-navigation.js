@@ -56,6 +56,11 @@ function screenHash(page, ticketId) {
   catch { return null; } // Invalid legacy view-model IDs must not break rendering.
 }
 
+export function ticketUrl(ticketId) {
+  const hash = screenHash('tickets', ticketId);
+  return hash ? window.location.origin + window.location.pathname + hash : null;
+}
+
 // Rendering is also used for background refreshes. Only an actual destination
 // change creates history; applying history must never push another entry.
 export function syncRoute(page = CURRENT_PAGE, ticketId = CURRENT_TICKET) {
