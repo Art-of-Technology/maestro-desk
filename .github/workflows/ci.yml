@@ -43,6 +43,9 @@ jobs:
       - name: Bridge collision check
         run: bun scripts/bridge-collision-check.mjs
 
+      - name: Admin note editing
+        run: bun scripts/admin-note-edit-check.mjs
+
       - name: URL destination tests
         run: bun test scripts/route-location.test.js scripts/url-navigation.test.js
 

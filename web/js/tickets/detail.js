@@ -1,3 +1,4 @@
+import { showNoteEditor } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
@@ -462,9 +463,10 @@ export function openTicket(id) {
     return `
     <div class="msg msg-${m.r}">
       <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${window.escHtml(m.ts)}</span></div>
-      ${bodyHtml}
+      ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
-      ${bodyNote}
+      ${m.r === 'note' ? '' : bodyNote}
+      ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button>` : ''}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
       ${m.r === 'agent' && t._uuid && window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Save as template</button>` : ''}
     </div>`;
@@ -1039,6 +1041,26 @@ function prevNextTicket(dir) {
 }
 
 
+function editTicketNote(ds) {
+  if (!window.isAdmin()) return;
+  const t = TICKETS.find(x => x.id === ds.ticketId);
+  if (!t || t.mergedInto) return;
+  const m = ds.noteId ? t.msgs.find(x => x._uuid === ds.noteId) : !t._uuid ? t.msgs[Number(ds.msgIdx)] : null;
+  if (!m || m.r !== 'note') return;
+  const original = m.t;
+  const body = document.getElementById(`ticket-note-${t.id}-${ds.msgIdx}`);
+  showNoteEditor({ text: original, maxLength: 100000,
+    save: async text => t._uuid
+      ? (await apiPatch(`/api/v1/tickets/${t._uuid}/messages/${m._uuid}`, { text, original_text: original })).note.body
+      : text,
+    onSaved: text => {
+      m.t = text; m.html = null;
+      delete m.tOriginal; delete m.translatedTo;
+      if (body?.isConnected) body.innerHTML = renderTextWithMentions(text);
+    },
+  });
+}
+
 export function onComposeInput(id) {
   const el = document.getElementById('compose-' + id);
   if (!el) return;
@@ -1302,6 +1324,7 @@ registerActions({
   'td.mergeTicket':    (ds) => showMergeTicketModal(ds.ticketId),
   'td.unlink':         (ds) => unlinkTicket(ds.ticketId, ds.linkedId),
   // Customer panel
+  'td.editNote': (ds) => editTicketNote(ds),
   'td.openCustomer':   (ds) => openCustomerModal(ds.custId),
   'td.editContact':    (ds) => showContactDetailsModal(ds.custId),
   // Per-ticket GDPR sidebar (stubs — same as the inline alerts they replace)
