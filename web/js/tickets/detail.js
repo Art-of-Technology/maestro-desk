@@ -1,4 +1,4 @@
-import { showNoteEditor } from '../core/note-editor.js';
+import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
 import { copyButton } from '../core/copy.js';
@@ -466,7 +466,7 @@ export function openTicket(id) {
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
       ${m.r === 'note' ? '' : bodyNote}
-      ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button>` : ''}
+      ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="td.noteHistory" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">View edit history</button>` : ''}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
       ${m.r === 'agent' && t._uuid && window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}" data-msg-idx="${i}">Save as template</button>` : ''}
     </div>`;
@@ -1054,6 +1054,7 @@ function editTicketNote(ds) {
       ? (await apiPatch(`/api/v1/tickets/${t._uuid}/messages/${m._uuid}`, { text, original_text: original })).note.body
       : text,
     onSaved: text => {
+      if (!t._uuid) recordDemoNoteRevision(m, original, text, m.html);
       m.t = text; m.html = null;
       delete m.tOriginal; delete m.translatedTo;
       if (body?.isConnected) body.innerHTML = renderTextWithMentions(text);
@@ -1324,6 +1325,12 @@ registerActions({
   'td.mergeTicket':    (ds) => showMergeTicketModal(ds.ticketId),
   'td.unlink':         (ds) => unlinkTicket(ds.ticketId, ds.linkedId),
   // Customer panel
+  'td.noteHistory': (ds) => {
+    if (!window.isAdmin()) return;
+    const t = TICKETS.find(x => x.id === ds.ticketId);
+    const m = ds.noteId ? t?.msgs.find(x => x._uuid === ds.noteId) : !t?._uuid ? t?.msgs[Number(ds.msgIdx)] : null;
+    if (m?.r === 'note') return showNoteHistory(t._uuid ? `/api/v1/tickets/${t._uuid}/messages/${m._uuid}/history` : null, m.revisions);
+  },
   'td.editNote': (ds) => editTicketNote(ds),
   'td.openCustomer':   (ds) => openCustomerModal(ds.custId),
   'td.editContact':    (ds) => showContactDetailsModal(ds.custId),

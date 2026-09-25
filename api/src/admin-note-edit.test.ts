@@ -32,6 +32,10 @@ run('admin note editing', () => {
       method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': ws, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+  const history = (kind: string, parent: string, note: string, token = admin.token, ws = workspace) =>
+    app.request(`/api/v1/${kind}/${parent}/${kind === 'tickets' ? 'messages' : 'notes'}/${note}/history`, {
+      headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': ws },
+    });
   async function fixture(kind: string, role = 'note') {
     const [customer] = await sql`insert into customers(workspace_id, display_id, first_name)
       values (${workspace}, ${'M-' + randomUUID()}, 'Note test') returning id`;
@@ -79,6 +83,49 @@ run('admin note editing', () => {
       if (kind === 'tickets') await sql`update ticket_messages set deleted_at = now() where id = ${note.id}`;
       else await sql`update customer_notes set deleted_at = now() where id = ${note.id}`;
       expect((await request(kind, parent, note.id, body)).status).toBe(404);
+    });
+  }
+  for (const kind of ['tickets', 'customers']) {
+    it(`${kind}: history records both versions, editor, time and audit link; admin/workspace scoped`, async () => {
+      const { parent, note } = await fixture(kind);
+      for (const [before, after] of [['Original', '<First edit>'], ['<First edit>', 'Second edit']]) {
+        expect((await request(kind, parent, note.id, { text: after, original_text: before })).status).toBe(200);
+      }
+      const response = await history(kind, parent, note.id); expect(response.status).toBe(200);
+      const { revisions }: any = await response.json();
+      expect(revisions.map((r: any) => [r.before_text, r.after_text])).toEqual([['<First edit>', 'Second edit'], ['Original', '<First edit>']]);
+      for (const revision of revisions) {
+        expect(revision.editor_user_id).toBe(admin.user.id); expect(revision.editor_label).toBe('Admin');
+        expect(Number.isNaN(new Date(revision.created_at).getTime())).toBe(false);
+        const [audit] = await sql`select metadata from audit_events where target_id = ${note.id} and metadata->>'revision_id' = ${revision.id}`;
+        expect(audit.metadata.revision_id).toBe(revision.id);
+        expect(JSON.stringify(audit.metadata)).not.toContain('First edit');
+      }
+      expect((await history(kind, parent, note.id, agent.token)).status).toBe(403);
+      expect((await history(kind, parent, note.id, admin.token, other)).status).toBe(404);
+      expect((await history(kind, randomUUID(), note.id)).status).toBe(404);
+      const { exportCustomer } = await import('./lib/gdpr-export.js');
+      const { eraseCustomer } = await import('./lib/gdpr-erasure.js');
+      const customerId = kind === 'customers' ? parent : (await sql`select customer_id from tickets where id = ${parent}`)[0].customer_id;
+      const bundle = await exportCustomer({ workspaceId: workspace, customerId });
+      expect(bundle?.note_revisions).toHaveLength(2);
+      await eraseCustomer({ workspaceId: workspace, customerId, requestedByUserId: admin.user.id }, { deleteObjects: async () => {} });
+      expect((await exportCustomer({ workspaceId: workspace, customerId }))?.note_revisions).toHaveLength(0);
+      expect(await sql`select id from note_revisions where ticket_message_id = ${note.id} or customer_note_id = ${note.id}`).toHaveLength(0);
+      expect(await sql`select id from audit_events where target_id = ${note.id}`).toHaveLength(2);
+      expect((await request(kind, parent, note.id, { text: 'After erasure', original_text: '[erased]' })).status).toBe(404);
+    });
+    it(`${kind}: a failed revision insert rolls back the edit and audit`, async () => {
+      const { parent, note } = await fixture(kind);
+      const constraint = 'reject_revision_' + note.id.replaceAll('-', '');
+      await sql.unsafe(`alter table note_revisions add constraint ${constraint} check (coalesce(ticket_message_id, customer_note_id) <> '${note.id}'::uuid)`);
+      try {
+        expect((await request(kind, parent, note.id, { text: 'Must roll back', original_text: 'Original' })).status).toBe(500);
+        const rows = kind === 'tickets' ? await sql`select body as text from ticket_messages where id = ${note.id}`
+          : await sql`select text from customer_notes where id = ${note.id}`;
+        expect(rows[0].text).toBe('Original');
+        expect(await sql`select id from audit_events where target_id = ${note.id}`).toHaveLength(0);
+      } finally { await sql.unsafe(`alter table note_revisions drop constraint ${constraint}`); }
     });
   }
   it('cannot edit customer messages or public replies through the internal-note endpoint', async () => {

@@ -41,7 +41,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -115,6 +115,11 @@ export async function eraseCustomer(args: {
     let attachmentsDeleted = 0;
 
     if (ticketIds.length) {
+      await sql`delete from note_revisions r using ticket_messages m
+        where r.ticket_message_id = m.id and r.workspace_id = ${workspaceId}
+          and m.workspace_id = ${workspaceId}
+          and (m.ticket_id in ${sql(ticketIds)} or m.merged_from_id in ${sql(ticketIds)})`;
+
       await sql`delete from reply_internal_reviews r using ticket_messages m
         where r.message_id=m.id and r.workspace_id=${workspaceId}
           and m.workspace_id=${workspaceId} and m.ticket_id in ${sql(ticketIds)}`;
@@ -168,6 +173,9 @@ export async function eraseCustomer(args: {
     `;
     inboxRedacted += inbMail.count;
 
+    await sql`delete from note_revisions r using customer_notes n
+      where r.customer_note_id = n.id and r.workspace_id = ${workspaceId} and n.workspace_id = ${workspaceId}
+        and (n.customer_id = ${customerId} or n.merged_from_customer_id = ${customerId})`;
     const notes = await sql`
       delete from customer_notes where workspace_id = ${workspaceId} and customer_id = ${customerId}
     `;

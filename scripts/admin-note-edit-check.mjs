@@ -42,6 +42,20 @@ for (const [action, ds, record, field, bodyId] of [
   assert.equal(record.ts, '12:00'); assert.equal(main.innerHTML, 'Unsent reply and files');
 }
 assert.deepEqual(note.attachments, [{ id: 'file' }]);
+for (const [action, ds] of [
+  ['td.noteHistory', { ticketId: ticket.id, msgIdx: String(index) }],
+  ['cust.noteHistory', { custId: customer.id, noteIdx: '0' }],
+]) {
+  await click(action, ds);
+  assert.match(document.getElementById('note-history').innerHTML, /Original/);
+  assert.match(document.getElementById('note-history').innerHTML, /&lt;Edited&gt;/);
+  assert.doesNotMatch(document.getElementById('note-history').innerHTML, /<Edited>/);
+  setSession({ role: 'Agent' });
+  document.getElementById('modal-container').innerHTML = '';
+  await click(action, ds); assert.equal(document.getElementById('modal-container').innerHTML, '');
+  setSession({ role: 'Admin' });
+}
+
 // A failed API save retains text, a double click sends once, and session drift cannot apply a late result.
 ticket._uuid = 'ticket-fixture'; note._uuid = 'note-fixture';
 let calls = 0, release, fail = true;
@@ -65,3 +79,11 @@ globalThis.fetch = async () => { await new Promise(resolve => { release = resolv
 await click('modal.confirm'); sessionStorage.setItem('maestro_workspace_id', 'different'); release();
 await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(note.t, 'Saved');
 console.log('PASS: both note editors, admin gating, validation, author/time/files/draft preservation, escaping, API retry, duplicate clicks, session drift');
+
+const { showNoteHistory } = await import('../web/js/core/note-editor.js');
+globalThis.fetch = async () => { await new Promise(resolve => { release = resolve; }); return new Response(JSON.stringify({ revisions: [{ editor_label: '<Admin>', before_text: '<private>', after_text: 'edited', created_at: new Date().toISOString() }] })); };
+const pendingHistory = showNoteHistory('/api/v1/history-fixture');
+const historyHost = document.getElementById('note-history'); historyHost.innerHTML = '';
+sessionStorage.setItem('maestro_workspace_id', 'another'); release(); await pendingHistory;
+assert.equal(historyHost.innerHTML, '');
+console.log('PASS: both revision viewers, escaped text, admin gating and late history response protection');

@@ -1,3 +1,4 @@
+import { recordNoteRevision } from '../lib/note-revisions.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
@@ -318,6 +319,25 @@ customers.post('/:id/notes', async (c) => {
   return c.json({ note: { ...note, author_name: u?.name ?? null } }, 201);
 });
 
+customers.get('/:id/notes/:noteId/history', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const parentId = c.req.param('id'), noteId = c.req.param('noteId'), workspaceId = c.get('workspaceId');
+  if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  const sql = getDb();
+  const [note] = await sql`select n.id from customer_notes n join customers p on p.id = n.customer_id
+    where n.id = ${noteId} and n.customer_id = ${parentId} and n.workspace_id = ${workspaceId}
+      and p.workspace_id = ${workspaceId} and p.deleted_at is null and n.deleted_at is null
+      and p.erased_at is null`;
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+  const revisions = await sql`select id, editor_user_id, editor_label, before_text, after_text, before_html, created_at
+    from note_revisions where workspace_id = ${workspaceId} and customer_note_id = ${noteId}
+    order by created_at desc, id desc`;
+  return c.json({ revisions });
+});
+
 // Admin edits preserve authorship and files; the edit and audit commit together.
 customers.patch('/:id/notes/:noteId', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
@@ -345,10 +365,8 @@ customers.patch('/:id/notes/:noteId', async (c) => {
     const [updated] = await sql`update customer_notes set text = ${parsed.data.text}
       where id = ${noteId} and customer_id = ${parentId} and workspace_id = ${workspaceId}
       returning id, text, author_user_id, created_at`;
-    await sql`insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata)
-      values (${workspaceId}, ${c.get('userId')}, 'customer_note.edited', 'customer_note', ${noteId},
-        ${sql.json({ customer_id: parentId, author_user_id: note.author_user_id,
-          previous_length: note.text.length, length: parsed.data.text.length })})`;
+    await recordNoteRevision(sql, { authorId: note.author_user_id, workspaceId, actorId: c.get('userId'), parentId, noteId,
+      kind: 'customer', before: note.text, after: parsed.data.text });
     return { status: 200 as const, body: { note: updated } };
   });
   return c.json(result.body, result.status);

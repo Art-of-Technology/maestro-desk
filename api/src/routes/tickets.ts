@@ -1,3 +1,4 @@
+import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
 import { Hono } from 'hono';
@@ -632,6 +633,25 @@ tickets.delete('/:id/attachments/:attId', async (c) => {
   return c.json({ ok: true });
 });
 
+tickets.get('/:id/messages/:noteId/history', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const parentId = c.req.param('id'), noteId = c.req.param('noteId'), workspaceId = c.get('workspaceId');
+  if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  const sql = getDb();
+  const [note] = await sql`select n.id from ticket_messages n join tickets p on p.id = n.ticket_id
+    where n.id = ${noteId} and n.ticket_id = ${parentId} and n.workspace_id = ${workspaceId}
+      and p.workspace_id = ${workspaceId} and p.deleted_at is null and n.deleted_at is null
+      and n.role = 'note'`;
+  if (!note) return c.json({ error: 'Note not found' }, 404);
+  const revisions = await sql`select id, editor_user_id, editor_label, before_text, after_text, before_html, created_at
+    from note_revisions where workspace_id = ${workspaceId} and ticket_message_id = ${noteId}
+    order by created_at desc, id desc`;
+  return c.json({ revisions });
+});
+
 // Admin edits preserve authorship and files; the edit and audit commit together.
 tickets.patch('/:id/messages/:noteId', async (c) => {
   const denied = await requireWorkspaceAdmin(c);
@@ -645,6 +665,11 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const workspaceId = c.get('workspaceId');
   const result = await getDb().begin(async (sql) => {
+    // Match erasure's customer -> ticket lock order so an edit cannot restore erased content.
+    const [owner] = await sql`select cu.erased_at from customers cu join tickets t on t.customer_id = cu.id
+      where t.id = ${parentId} and t.workspace_id = ${workspaceId} and cu.workspace_id = ${workspaceId}
+      for update of cu`;
+    if (owner?.erased_at) return { status: 404 as const, body: { error: 'Note not found' } };
     const [parent] = await sql`select id from tickets
       where id = ${parentId} and workspace_id = ${workspaceId} and deleted_at is null
       and merged_into_id is null for update`;
@@ -660,10 +685,8 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
       where id = ${noteId} and ticket_id = ${parentId} and workspace_id = ${workspaceId}
       returning id, body, author_user_id, created_at`;
     await sql`update tickets set updated_at = now() where id = ${parentId} and workspace_id = ${workspaceId}`;
-    await sql`insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata)
-      values (${workspaceId}, ${c.get('userId')}, 'ticket_note.edited', 'ticket_message', ${noteId},
-        ${sql.json({ ticket_id: parentId, author_user_id: note.author_user_id,
-          previous_length: note.body.length, length: parsed.data.text.length })})`;
+    await recordNoteRevision(sql, { authorId: note.author_user_id, workspaceId, actorId: c.get('userId'), parentId, noteId,
+      kind: 'ticket', before: note.body, after: parsed.data.text, beforeHtml: note.body_html });
     return { status: 200 as const, body: { note: updated } };
   });
   return c.json(result.body, result.status);
