@@ -15,7 +15,7 @@ import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply
 import { ReplyReview } from '../lib/reply-review.js';
 import { recordReplyUse } from '../lib/reply-feedback.js';
 import { publishTicketChanged } from '../lib/pubby.js';
-import { hasDeletePermission } from '../lib/authz.js';
+import { hasDeletePermission, requireWorkspaceAdmin } from '../lib/authz.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import {
@@ -630,6 +630,43 @@ tickets.delete('/:id/attachments/:attId', async (c) => {
     console.warn('[attachments] delete cleanup deferred:', err instanceof Error ? err.message : err);
   }
   return c.json({ ok: true });
+});
+
+// Admin edits preserve authorship and files; the edit and audit commit together.
+tickets.patch('/:id/messages/:noteId', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const parentId = c.req.param('id'), noteId = c.req.param('noteId');
+  if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  const parsed = z.object({ text: z.string().trim().min(1).max(100000), original_text: z.string() })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  const workspaceId = c.get('workspaceId');
+  const result = await getDb().begin(async (sql) => {
+    const [parent] = await sql`select id from tickets
+      where id = ${parentId} and workspace_id = ${workspaceId} and deleted_at is null
+      and merged_into_id is null for update`;
+    if (!parent) return { status: 404 as const, body: { error: 'Note not found' } };
+    const [note] = await sql`select * from ticket_messages
+      where id = ${noteId} and ticket_id = ${parentId} and workspace_id = ${workspaceId}
+        and deleted_at is null and role = 'note' for update`;
+    if (!note) return { status: 404 as const, body: { error: 'Note not found' } };
+    if (note.body !== parsed.data.original_text) {
+      return { status: 409 as const, body: { error: 'This note changed. Copy your edits, then reload the page to see the latest note.' } };
+    }
+    const [updated] = await sql`update ticket_messages set body = ${parsed.data.text}, body_html = null
+      where id = ${noteId} and ticket_id = ${parentId} and workspace_id = ${workspaceId}
+      returning id, body, author_user_id, created_at`;
+    await sql`update tickets set updated_at = now() where id = ${parentId} and workspace_id = ${workspaceId}`;
+    await sql`insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata)
+      values (${workspaceId}, ${c.get('userId')}, 'ticket_note.edited', 'ticket_message', ${noteId},
+        ${sql.json({ ticket_id: parentId, author_user_id: note.author_user_id,
+          previous_length: note.body.length, length: parsed.data.text.length })})`;
+    return { status: 200 as const, body: { note: updated } };
+  });
+  return c.json(result.body, result.status);
 });
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────

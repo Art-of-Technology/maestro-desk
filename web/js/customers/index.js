@@ -1,3 +1,4 @@
+import { showNoteEditor } from '../core/note-editor.js';
 import { copyButton } from '../core/copy.js';
 // ─── Customers ────────────────────────────────────────────────────────────────
 // Customers list page (topbar overflow menu, column manager, bulk actions,
@@ -36,7 +37,7 @@ import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { matchesContact, applyContacts } from './contacts.js';
 import { renderDetailsCard, attachPinObserver, detachPinObserver } from './details-card.js';
-import { apiPost, apiPut, apiDelete, getBrandId } from '../core/api-client.js';
+import { apiPost, apiPut, apiPatch, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
 import { showToast } from '../core/toast.js';
 import { startPresence } from '../core/presence.js';
@@ -598,6 +599,25 @@ function addCustomerNote(custId) {
   }, 'Add note');
 }
 
+function editCustomerNote(custId, noteId, idx) {
+  if (!window.isAdmin()) return;
+  const c = CUSTOMERS.find(x => x.id === custId);
+  if (!c || c.erased || c.mergedInto) return;
+  const note = noteId ? c.notes?.find(n => n.id === noteId) : !c._uuid ? c.notes?.[idx] : null;
+  if (!note) return;
+  const original = note.text;
+  const body = document.getElementById(`customer-note-${custId}-${idx}`);
+  showNoteEditor({ text: original, maxLength: 4000,
+    save: async text => c._uuid
+      ? (await apiPatch(`/api/v1/customers/${c._uuid}/notes/${note.id}`, { text, original_text: original })).note.text
+      : text,
+    onSaved: text => {
+      note.text = text;
+      if (body?.isConnected) body.textContent = text;
+    },
+  });
+}
+
 // Note deletion is real (API) and permission-gated; every path confirms
 // first. Notes are addressed by id for API rows; demo rows (no _uuid on the
 // customer, no id on the note) fall back to the array index.
@@ -993,9 +1013,10 @@ function renderCustomerDetail(custId) {
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:5px">
             <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(n.author)}</span>
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${n.ts}</span>
+            ${window.isAdmin() && !c.erased && !c.mergedInto ? `<button type="button" class="btn btn-sm" data-action="cust.editNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}">Edit note</button>` : ''}
             ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
           </div>
-          <div style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${window.escHtml(n.text)}</div>
+          <div id="customer-note-${window.escAttr(c.id)}-${i}" style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${window.escHtml(n.text)}</div>
         </div>
       `).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No notes yet — share context with the team by adding one.</div>'}
     </div>`;
@@ -1200,6 +1221,7 @@ registerActions({
   'cust.addNote':         (ds) => addCustomerNote(ds.custId),
   // Opens the two-step new-ticket flow with this customer pre-picked.
   'cust.newTicket':       (ds) => showNewTicketModal(null, ds.custId),
+  'cust.editNote': (ds) => editCustomerNote(ds.custId, ds.noteId || null, Number(ds.noteIdx)),
   'cust.deleteNote':      (ds) => deleteCustomerNote(ds.custId, ds.noteId || null, parseInt(ds.noteIdx, 10)),
   'cust.unmerge':         (ds) => unmergeCustomer(ds.custId),
   'cust.showMergeModal':  (ds) => showMergeCustomerModal(ds.custId),

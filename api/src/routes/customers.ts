@@ -318,6 +318,42 @@ customers.post('/:id/notes', async (c) => {
   return c.json({ note: { ...note, author_name: u?.name ?? null } }, 201);
 });
 
+// Admin edits preserve authorship and files; the edit and audit commit together.
+customers.patch('/:id/notes/:noteId', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
+  const parentId = c.req.param('id'), noteId = c.req.param('noteId');
+  if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {
+    return c.json({ error: 'Note not found' }, 404);
+  }
+  const parsed = z.object({ text: z.string().trim().min(1).max(4000), original_text: z.string() })
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
+  const workspaceId = c.get('workspaceId');
+  const result = await getDb().begin(async (sql) => {
+    const [parent] = await sql`select id from customers
+      where id = ${parentId} and workspace_id = ${workspaceId} and deleted_at is null
+      and erased_at is null and merged_into_customer_id is null for update`;
+    if (!parent) return { status: 404 as const, body: { error: 'Note not found' } };
+    const [note] = await sql`select * from customer_notes
+      where id = ${noteId} and customer_id = ${parentId} and workspace_id = ${workspaceId}
+        and deleted_at is null for update`;
+    if (!note) return { status: 404 as const, body: { error: 'Note not found' } };
+    if (note.text !== parsed.data.original_text) {
+      return { status: 409 as const, body: { error: 'This note changed. Copy your edits, then reload the page to see the latest note.' } };
+    }
+    const [updated] = await sql`update customer_notes set text = ${parsed.data.text}
+      where id = ${noteId} and customer_id = ${parentId} and workspace_id = ${workspaceId}
+      returning id, text, author_user_id, created_at`;
+    await sql`insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata)
+      values (${workspaceId}, ${c.get('userId')}, 'customer_note.edited', 'customer_note', ${noteId},
+        ${sql.json({ customer_id: parentId, author_user_id: note.author_user_id,
+          previous_length: note.text.length, length: parsed.data.text.length })})`;
+    return { status: 200 as const, body: { note: updated } };
+  });
+  return c.json(result.body, result.status);
+});
+
 // DELETE /:id/notes/:noteId — SOFT delete, matching the codebase convention
 // (the row stays for recoverability; the audit row is the visible trail).
 // The two deliberate hard-delete paths for notes live elsewhere: GDPR
