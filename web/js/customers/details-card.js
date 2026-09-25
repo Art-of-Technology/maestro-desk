@@ -31,6 +31,8 @@ import { copyButton } from '../core/copy.js';
 // External reaches (interim, via window): escAttr, escHtml — still in app.js.
 
 import { CUSTOMERS } from '../core/data.js';
+import { CURRENT_PAGE } from '../core/state.js';
+import { refreshTicketCustomer } from '../tickets/detail.js';
 import { renderPage } from '../core/router.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
@@ -187,6 +189,20 @@ export function renderDetailsCard(c) {
           </div>
         </div>
         <div id="cust-pin-spacer" class="cust-pin-spacer" aria-hidden="true"></div>`;
+}
+
+export function showContactDetailsModal(custId) {
+  const c = CUSTOMERS.find((x) => x.id === custId);
+  if (!c || c.mergedInto || c.erased) return;
+  showModal('Contact profile', renderDetailsCard(c), null, null, true);
+}
+
+function refreshCustomerView(c) {
+  if (CURRENT_PAGE === 'customers') renderPage('customers');
+  else if (CURRENT_PAGE === 'tickets') {
+    refreshTicketCustomer(c);
+    if (document.querySelector('#modal-container #cust-pin')) showContactDetailsModal(c.id);
+  }
 }
 
 // ─── Sticky / condensed state ────────────────────────────────────────────────
@@ -413,7 +429,7 @@ async function saveDetails(c, changes) {
   }
   ED.custId = null; ED.values = null; ED.resume = false;
   closeModal();
-  renderPage('customers');
+  refreshCustomerView(c);
   showToast('Details saved', 'success');
 }
 
@@ -479,7 +495,7 @@ function showAddContactModal(custId, kind) {
       demoMirror(c, kind);
     }
     closeModal();
-    renderPage('customers');
+    refreshCustomerView(c);
     showToast(`${kind === 'email' ? 'Email' : 'Mobile'} added`, 'success');
   }, 'Add');
   document.getElementById('ac-value')?.focus();
@@ -516,7 +532,7 @@ function confirmRemoveContact(ds) {
         demoMirror(c, kind);
       }
       closeModal();
-      renderPage('customers');
+      refreshCustomerView(c);
       showToast(`${kind === 'email' ? 'Email' : 'Mobile'} removed`, 'success');
     },
   });
@@ -542,7 +558,7 @@ async function setPrimaryContact(ds) {
     list.forEach((x) => { x.is_primary = x === target; });
     demoMirror(c, kind);
   }
-  renderPage('customers');
+  refreshCustomerView(c);
   showToast(`${ds.value} is now the primary ${kind}`, 'success');
 }
 
