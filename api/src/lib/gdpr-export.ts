@@ -22,6 +22,7 @@ export interface CustomerExport {
   erased: boolean;
   customer: Record<string, unknown>;
   notes: Array<{ text: string; created_at: string }>;
+  note_revisions: Array<Record<string, unknown>>;
   // Every address the subject holds (Phase 4 contacts model), primary flagged.
   contacts: Array<{ kind: string; value: string; is_primary: boolean; created_at: string }>;
   tickets: Array<Record<string, unknown> & { messages: Array<Record<string, unknown>>; attachments: Array<Record<string, unknown>> }>;
@@ -56,6 +57,18 @@ export async function exportCustomer(args: {
     where workspace_id = ${workspaceId} and customer_id = ${customerId}
     order by created_at asc
   `;
+
+  const noteRevisions = await sql`select r.id, r.ticket_message_id, r.customer_note_id,
+      r.editor_label, r.before_text, r.after_text, r.before_html, r.created_at
+    from note_revisions r
+    left join customer_notes n on n.id = r.customer_note_id and n.workspace_id = r.workspace_id
+    left join ticket_messages m on m.id = r.ticket_message_id and m.workspace_id = r.workspace_id
+    left join tickets t on t.id = m.ticket_id and t.workspace_id = r.workspace_id
+    left join tickets source on source.id = m.merged_from_id and source.workspace_id = r.workspace_id
+    where r.workspace_id = ${workspaceId} and
+      (n.customer_id = ${customerId} or n.merged_from_customer_id = ${customerId}
+        or t.customer_id = ${customerId} or source.customer_id = ${customerId})
+    order by r.created_at, r.id`;
 
   // Contact rows — including any a merge re-homed onto a survivor (stamped
   // merged_from_customer_id = this customer): still this person's data, with
@@ -154,6 +167,7 @@ export async function exportCustomer(args: {
     erased: Boolean(customer.erased_at),
     customer: customerOut,
     notes,
+    note_revisions: noteRevisions,
     contacts,
     tickets: ticketsWithMessages,
     inbox_messages: inbox,
