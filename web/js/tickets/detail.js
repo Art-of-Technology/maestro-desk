@@ -77,6 +77,7 @@ import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { showCloseTickets, closureDetails } from './closure.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
+import { showContactDetailsModal } from '../customers/details-card.js';
 import { navTo } from '../core/keybindings.js';
 import {
   startPresence, setComposing, confirmIfOthersComposing,
@@ -120,6 +121,28 @@ function renderSentimentBadge(sentiment) {
   const p = palette[sentiment];
   if (!p) return '';
   return ` <span title="AI sentiment: ${sentiment}" style="margin-left:8px;display:inline-flex;align-items:center;gap:4px;padding:1px 6px;font-size:9px;font-weight:600;color:${p.color};background:transparent;border:1px solid ${p.color};border-radius:3px;font-family:'DM Mono',monospace;letter-spacing:.04em">${p.label}</span>`;
+}
+
+function renderTicketCustomer(cust) {
+  return `
+            <div class="ts-heading" style="display:flex;align-items:center;justify-content:space-between">Customer${cust.mergedInto || cust.erased ? '' : `<button type="button" class="btn btn-sm" data-action="td.editContact" data-cust-id="${window.escAttr(cust.id)}">Edit contact</button>`}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+              <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${window.escHtml((cust.first || '').charAt(0))}${window.escHtml((cust.last || '').charAt(0))}</div>
+              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div><div style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${window.escHtml(cust.id)}</div></div>
+            </div>
+            <div class="ts-contact" data-action="">
+              <span class="ts-key">Email</span>
+              <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
+            </div>
+            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
+            <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${window.escAttr((cust.vip || '').toLowerCase())}">${window.escHtml(cust.vip)}</span></div>
+            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
+}
+
+// Update only the contact panel so the composer, attachments and scroll stay intact.
+export function refreshTicketCustomer(cust) {
+  const panel = document.getElementById('ticket-customer');
+  if (panel?.dataset.custId === cust.id) panel.innerHTML = renderTicketCustomer(cust);
 }
 
 export function openTicket(id) {
@@ -628,20 +651,7 @@ export function openTicket(id) {
         <aside class="ticket-sidebar" id="ticket-details-${id}" aria-label="Ticket details">
           <div class="ticket-details-header"><strong>Ticket details</strong><button class="btn btn-sm" data-action="tl.closeDetails" data-ticket-id="${window.escAttr(id)}" aria-label="Close ticket details">Close</button></div>
           ${cust?`
-          <div class="ts-section" style="cursor:pointer" data-action="td.openCustomer" data-cust-id="${window.escAttr(cust.id)}">
-            <div class="ts-heading">Customer</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-              <div style="width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--w);flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
-              <div><div style="font-size:12px;font-weight:500;color:var(--ink)">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div><div style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${cust.id}</div></div>
-            </div>
-            <div class="ts-contact" data-action="">
-              <span class="ts-key">Email</span>
-              <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
-            </div>
-            <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
-            <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${cust.vip.toLowerCase()}">${window.escHtml(cust.vip)}</span></div>
-            <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>
-          </div>`:``}
+          <div class="ts-section" id="ticket-customer" data-cust-id="${window.escAttr(cust.id)}" style="cursor:pointer" data-action="td.openCustomer">${renderTicketCustomer(cust)}</div>`:``}
           <div class="ts-section">
             <div class="ts-heading">Properties</div>
             <select class="ts-select" aria-label="Ticket status" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
@@ -1293,6 +1303,7 @@ registerActions({
   'td.unlink':         (ds) => unlinkTicket(ds.ticketId, ds.linkedId),
   // Customer panel
   'td.openCustomer':   (ds) => openCustomerModal(ds.custId),
+  'td.editContact':    (ds) => showContactDetailsModal(ds.custId),
   // Per-ticket GDPR sidebar (stubs — same as the inline alerts they replace)
   'td.gdprErasure':    () => alert('Erasure request initiated'),
   'td.gdprRedact':     () => alert('Data redacted'),
