@@ -23,6 +23,7 @@ import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
 import { syncRoute, ticketUrl } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import { generateAITags, renderAITags } from '../ai/tags.js';
+import { changeTicketCategory, renderTicketCategory, ticketCategoryKey } from './category.js';
 import { handoverStale, handoverText } from '../ai/handover.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
@@ -557,12 +558,23 @@ export function openTicket(id) {
         ${mergedBanner}
         ${snoozeBanner}
         <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${window.escHtml(t.subject)}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <span class="tag tag-${t.status}">${t.status}</span>
-          <span class="tag tag-${t.priority}">${t.priority}</span>
-          <span class="tag tag-neutral">${window.escHtml(t.category)}</span>
+        <div class="ticket-metadata">
+          <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
+            <span class="ticket-status-dot" aria-hidden="true"></span>
+            <select aria-label="Ticket status" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
+              ${['open','pending','escalated','gdpr','resolved','closed'].map(s => `<option value="${s}"${t.status === s ? ' selected' : ''}>${s === 'gdpr' ? 'GDPR' : s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="ticket-inline-property ticket-inline-priority" data-priority="${window.escAttr(t.priority)}">
+            <span aria-hidden="true">⚑</span>
+            <select aria-label="Ticket priority" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
+              ${['low','normal','high','urgent'].map(p => `<option value="${p}"${t.priority === p ? ' selected' : ''}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('')}
+            </select>
+          </label>
+          <div class="ticket-tag-list" aria-label="Ticket tags">
           ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${window.escHtml(tg)}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
-          <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" placeholder="+ tag" style="background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-size:10px;color:var(--ink2);width:90px;outline:none;font-family:'Inter',sans-serif;letter-spacing:.03em;text-transform:uppercase"/>
+          <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" aria-label="Add ticket tag" placeholder="+ tag"/>
+          </div>
           <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="${t.status !== 'closed' && findMatchingSLAPolicy(t) ? `sla-${t.sla}` : ''}">${t.status === 'closed' ? 'N/A' : !findMatchingSLAPolicy(t) ? 'No matching policy' : t.sla.toUpperCase()}</span></span>
         </div>
       </div>
@@ -649,21 +661,9 @@ export function openTicket(id) {
           <div class="ts-section" id="ticket-customer" data-cust-id="${window.escAttr(cust.id)}" style="cursor:pointer" data-action="td.openCustomer">${renderTicketCustomer(cust)}</div>`:``}
           <div class="ts-section">
             <div class="ts-heading">Properties</div>
-            <select class="ts-select" aria-label="Ticket status" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
-              <option value="open" ${t.status==='open'?'selected':''}>Open</option>
-              <option value="pending" ${t.status==='pending'?'selected':''}>Pending</option>
-              <option value="escalated" ${t.status==='escalated'?'selected':''}>Escalated</option>
-              <option value="gdpr" ${t.status==='gdpr'?'selected':''}>GDPR</option>
-              <option value="resolved" ${t.status==='resolved'?'selected':''}>Resolved</option>
-              <option value="closed" ${t.status==='closed'?'selected':''}>Closed</option>
-            </select>
-            <select class="ts-select" aria-label="Ticket priority" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
-              <option value="urgent" ${t.priority==='urgent'?'selected':''}>Urgent</option>
-              <option value="high" ${t.priority==='high'?'selected':''}>High</option>
-              <option value="normal" ${t.priority==='normal'?'selected':''}>Normal</option>
-              <option value="low" ${t.priority==='low'?'selected':''}>Low</option>
-            </select>
-            <select class="ts-select" aria-label="Assigned agent" data-change-action="td.setAgent" data-ticket-id="${window.escAttr(id)}">
+            ${renderTicketCategory(t)}
+            <label class="ticket-assignee-label" for="ticket-agent-${window.escAttr(id)}">Assigned to</label>
+            <select class="ts-select" id="ticket-agent-${window.escAttr(id)}" aria-label="Assigned agent" data-change-action="td.setAgent" data-ticket-id="${window.escAttr(id)}">
               ${AGENTS.map(a=>`<option value="${window.escAttr(a.name)}" ${t.agent===a.name?'selected':''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
             </select>
           </div>
@@ -892,7 +892,7 @@ export async function changeTicketStatus(id, val) {
       t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
       if (res.survey) notifySurveyResult(res.survey);
     }
-    catch (err) { alert(`Couldn't change status: ${err?.message || err}`); return; }
+    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = t.status; } alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
@@ -969,7 +969,7 @@ export async function changeTicketPriority(id, val) {
   if (!t || t.priority === val) return;
   if (t._uuid) {
     try { applySavedActivity(t, await apiPatch(`/api/v1/tickets/${t._uuid}`, { priority_key: val })); }
-    catch (err) { alert(`Couldn't change priority: ${err?.message || err}`); return; }
+    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket priority"]'); if (el) el.value = t.priority; } alert(`Couldn't change priority: ${err?.message || err}`); return; }
   }
   if (!t._uuid) logTicketEvent(id, 'priority', `Priority: ${t.priority} → ${val}`);
   t.priority = val;
@@ -1366,6 +1366,16 @@ registerActions({
 });
 
 registerChangeActions({
+  'td.setCategory': async (ds, el) => {
+    const t = TICKETS.find(x => x.id === ds.ticketId);
+    el.disabled = true;
+    const changed = await changeTicketCategory(ds.ticketId, el.value);
+    el.disabled = false;
+    if (t && TICKETS.includes(t) && CURRENT_TICKET === ds.ticketId) {
+      if (changed) openTicket(ds.ticketId);
+      else el.value = ticketCategoryKey(t) || '';
+    }
+  },
   'td.setStatus':            (ds, el) => changeTicketStatus(ds.ticketId, el.value),
   'td.setPriority':          (ds, el) => changeTicketPriority(ds.ticketId, el.value),
   'td.setAgent':             (ds, el) => changeTicketAgent(ds.ticketId, el.value),

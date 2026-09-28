@@ -325,6 +325,27 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .msg{width:100%;max-width:100%;flex-shrink:0;border-radius:var(--r2);overflow-wrap:anywhere}
 .ticket-page .msg-agent,.ticket-page .msg-ai{align-self:stretch}
 .ticket-heading{padding:10px 20px;border-bottom:1px solid var(--rule);flex-shrink:0;overflow-wrap:anywhere}
+.ticket-metadata{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.ticket-inline-property{display:inline-flex;align-items:center;gap:4px;color:var(--ink2);flex-shrink:0}
+.ticket-inline-property select{font:inherit;font-size:12px;color:inherit;background:transparent;border:0;padding:2px 0;min-height:24px;field-sizing:content;max-width:120px}
+.ticket-inline-property option{color:var(--ink);background:var(--off)}
+.ticket-status-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan)}
+.ticket-inline-status[data-status="pending"] .ticket-status-dot{background:var(--amber)}
+.ticket-inline-status[data-status="escalated"] .ticket-status-dot{background:var(--escalate)}
+.ticket-inline-status[data-status="gdpr"] .ticket-status-dot{background:var(--red)}
+.ticket-inline-status[data-status="resolved"] .ticket-status-dot{background:var(--green)}
+.ticket-inline-status[data-status="closed"] .ticket-status-dot{background:var(--ink3)}
+.ticket-inline-priority[data-priority="urgent"]{color:var(--red);font-weight:600}
+.ticket-inline-priority[data-priority="high"]{color:var(--amber);font-weight:600}
+.ticket-tag-list{display:contents}
+.ticket-tag-list .tag{border-radius:4px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.ticket-tag-list input{background:transparent;border:1px dashed var(--rule2);border-radius:3px;padding:2px 8px;font-family:var(--font-sans);font-size:10px;color:var(--ink2);width:70px;min-height:24px}
+.ticket-property-row{display:grid;grid-template-columns:65px minmax(0,1fr);align-items:center;gap:6px;margin-bottom:6px}
+.ticket-property-row label,.ticket-assignee-label{font-size:11px;color:var(--ink3)}
+.ticket-assignee-label{display:block;margin-bottom:3px}
+.ticket-property-row .ts-select{margin:0;border-radius:4px;padding:5px 4px}
+.ticket-property-row .ts-select:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+@media(pointer:coarse){.ticket-inline-property select,.ticket-tag-list input,.ticket-property-row select{min-height:44px;font-size:16px}}
 .ticket-header-actions{margin-left:auto;display:flex;gap:6px;align-items:center}
 .ticket-back{font:inherit;color:var(--ink2);border:0;background:none;padding:0;cursor:pointer}
 .ticket-topbar .tb-breadcrumb{min-width:0;flex:1}

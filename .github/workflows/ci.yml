@@ -128,6 +128,7 @@ jobs:
           bun test scripts/feedback-resolution.test.js
           bun test scripts/handover.test.js
           bun test scripts/ai-tags.test.js
+          bun test scripts/ticket-category.test.js
           bun test scripts/knowledge-gaps.test.js
           bun test scripts/reply-language.test.js
           bun test scripts/language-detection-report.test.js

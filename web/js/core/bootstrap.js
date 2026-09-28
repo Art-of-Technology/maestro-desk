@@ -122,6 +122,7 @@ export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   t.closedByUserId = row.closed_by_user_id || null;
   t.priority      = row.priority_key;
   t.category      = labelCase(row.category_key) || 'Other';
+  t.categoryKey   = row.category_key ?? null;
   t.agent         = row.assigned_user_id == null ? '' : (userByUuid[row.assigned_user_id]?.name || t.agent);
   t.assignedUserId = row.assigned_user_id ?? null;
   t.customerId    = customerByUuid[row.customer_id]?.id || customerByUuid[row.customer_id]?.display_id || t.customerId;
@@ -165,6 +166,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     closedByUserId: t.closed_by_user_id || null,
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
+    categoryKey:     t.category_key ?? null,
     agent:           userByUuid[t.assigned_user_id]?.name || '',
     assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
@@ -344,6 +346,7 @@ export async function loadWorkspaceData() {
     closedByUserId: t.closed_by_user_id || null,
     priority:        t.priority_key,
     category:        labelCase(t.category_key) || 'Other',
+    categoryKey:     t.category_key ?? null,
     agent:           userByUuid[t.assigned_user_id]?.name || '',
     assignedUserId:  t.assigned_user_id ?? null,
     created:         isoDate(t.created_at),
@@ -613,6 +616,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   const res = await apiGet(`/api/v1/tickets/${t._uuid}`);
   const d = res.ticket;
   if (!d) return t;
+  t.categoryKey = d.category_key ?? null;
   t._listUpdatedAt = d.updated_at;
 
   // Refresh top-level fields on a force-reload so live-sync reflects
