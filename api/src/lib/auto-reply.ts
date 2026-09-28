@@ -79,6 +79,7 @@ export type AutoReplyDecision =
   | { eligible: true; reason: 'all_gates_passed' }
   | { eligible: false; reason:
       | 'workspace_disabled'
+      | 'tags_only'
       | 'category_not_allowed'
       | 'responsible_gambling_hold'
       | 'confidence_below_threshold' };

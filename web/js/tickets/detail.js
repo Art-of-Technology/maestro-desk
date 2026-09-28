@@ -22,6 +22,7 @@ import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinkin
 import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
 import { syncRoute, ticketUrl } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
+import { generateAITags, renderAITags } from '../ai/tags.js';
 import { handoverStale, handoverText } from '../ai/handover.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
@@ -220,15 +221,7 @@ export function openTicket(id) {
   const circumference = 2*Math.PI*18;
   const dash = (csatPct/100)*circumference;
 
-  const pendingAITags = t.aiTags.filter(x => !x.accepted);
-  const aiTagsHtml = pendingAITags.length ? `
-    <div class="ts-section">
-      <div class="ts-heading">AI Tag Suggestions</div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">
-        ${pendingAITags.map(at=>`<span class="ai-tag-chip" data-action="td.acceptAITag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(at.tag)}">${at.tag} <span class="conf">${at.conf}%</span></span>`).join('')}
-      </div>
-      <button class="btn btn-sm" data-action="td.acceptAllAITags" data-ticket-id="${window.escAttr(id)}">Accept all</button>
-    </div>` : '';
+  const aiTagsHtml = `<div class="ts-section" id="ticket-ai-tags" data-ticket-id="${window.escAttr(id)}">${renderAITags(t)}</div>`;
 
   const times = getTicketTimes(t);
   const timeBlock = `
@@ -1307,6 +1300,7 @@ registerActions({
   'td.deleteTicket':   (ds) => deleteTicketPrompt(ds.ticketId),
   'td.openTicket':     (ds) => openTicket(ds.ticketId),
   // AI tags
+  'td.generateAITags': (ds) => generateAITags(ds.ticketId),
   'td.acceptAITag':    (ds) => acceptAITag(ds.ticketId, ds.tag),
   'td.acceptAllAITags':(ds) => acceptAllAITags(ds.ticketId),
   // Sidebar info rows / SLA / KB
