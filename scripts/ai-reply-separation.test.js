@@ -34,7 +34,7 @@ test('only customer text enters the composer; internal references remain separat
   expect(review.sharedBody).toBe('<p>Here is your game: https://example.com/game</p>');
   expect(review.sharedIsHtml).toBe(true);
   expect(lastRequest.replyFormat).toBe(true);
-  expect(lastRequest.replyLanguage).toBe('Spanish');
+  expect(lastRequest.replyLanguage).toBe('English');
   expect(lastRequest.replyContext).toBe('reply');
   expect(shownEvents).toEqual([{path:'/api/v1/ai/reply-feedback/a0000000-0000-4000-8000-000000000001/shown',body:{}}]);
   expect(thinking).toBe(false);

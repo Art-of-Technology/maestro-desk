@@ -21,7 +21,7 @@ export async function aiAction(id, action) {
   const active = () => workspace === getWorkspaceId() && jwt === getJwt() && tab === COMPOSE_TAB
     && editor.isConnected && document.getElementById('compose-' + id) === editor;
   const current = getPlainText(id), originalHtml = getHtml(id);
-  const languageState = () => JSON.stringify([ticket.autoTranslateReplies !== false, !!ticket.customerLanguageManual,
+  const languageState = () => JSON.stringify([AGENT_PREFERRED_LANG, ticket.autoTranslateReplies !== false, !!ticket.customerLanguageManual,
     ticket.customerLanguageManual ? ticket.detectedCustomerLang : null, latestCustomerText(ticket).text]);
   const originalLanguageState = languageState();
   const previous = loadDraftReview(id, tab) || { references: [], notes: [] };
@@ -36,11 +36,11 @@ export async function aiAction(id, action) {
   const thinking = document.getElementById('thinking-' + id);
   thinking?.classList.add('show');
   try {
-    const replyLanguage = tab === 'reply' && ['draft','kb-reply','similar'].includes(action)
+    const customerLanguage = tab === 'reply' && ['draft','kb-reply','similar'].includes(action)
       ? ticket.autoTranslateReplies === false ? AGENT_PREFERRED_LANG : await ensureCustomerLanguage(ticket)
       : undefined;
     if (!active()) return;
-    if (tab === 'reply' && ['draft','kb-reply','similar'].includes(action) && !replyLanguage) {
+    if (tab === 'reply' && ['draft','kb-reply','similar'].includes(action) && !customerLanguage) {
       throw new Error('Choose the customer language before generating a reply. Your draft has been kept.');
     }
     let system, user;
@@ -75,7 +75,8 @@ export async function aiAction(id, action) {
       action: action === 'similar' ? 'similar_reply' : action === 'draft' ? 'kb_draft' : 'draft', system,
       ticketId: ['draft', 'kb-reply', 'similar'].includes(action) ? ticket._uuid : undefined,
       messages: [{ role: 'user', content: user }], maxTokens: 1600,
-      replyFormat: true, replySources, replyLanguage,
+      // Draft for the agent; prepareCustomerReply translates into the selected language on send.
+      replyFormat: true, replySources, replyLanguage: customerLanguage ? AGENT_PREFERRED_LANG : undefined,
       replyContext: tab === 'reply' ? 'reply' : 'note',
     });
     if (!active()) return;
