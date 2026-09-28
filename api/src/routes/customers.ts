@@ -15,6 +15,7 @@ import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { customerRisk } from '../lib/customer-risk.js';
 import { writeAudit } from '../middleware/platform-admin.js';
+import { setCustomerSpam } from '../lib/customer-spam.js';
 import {
   ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
   ensurePrimaryContacts, moveContactsForMerge, restoreContactsForUnmerge,
@@ -29,7 +30,7 @@ const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
 // response with the same mapper it bootstraps from). getDb() returns `since`
 // as a YYYY-MM-DD calendar value rather than a midnight-UTC timestamp.
 const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
-           jurisdiction, consent, since, backoffice_url, erased_at, created_at,
+           jurisdiction, consent, since, backoffice_url, erased_at, created_at, is_spam,
            maestro_user_id, maestro_member_id, maestro_global_id_verified,
            merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count`;
@@ -38,6 +39,19 @@ const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, emai
 export const customers = new Hono();
 
 customers.use('*', requireAuth);
+
+customers.delete('/:id/spam', async (c) => {
+  const customerId = c.req.param('id'), workspaceId = c.get('workspaceId');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const found = await getDb().begin(async sql => {
+    const [customer] = await sql`select id from customers where id = ${customerId} and workspace_id = ${workspaceId}
+      and deleted_at is null and erased_at is null and merged_into_customer_id is null for update`;
+    if (!customer) return false;
+    await setCustomerSpam(sql, workspaceId, customerId, false, c.get('userId'));
+    return true;
+  });
+  return found ? c.json({ customer: { id: customerId, is_spam: false } }) : c.json({ error: 'Customer not found' }, 404);
+});
 
 const CreateCustomer = z.object({
   first_name: z.string().trim().min(1).max(100),
@@ -681,6 +695,10 @@ customers.post('/:id/merge', async (c) => {
     }
     audit.backfilled = Object.keys(backfilled);
 
+    // Moved addresses must not bypass a spam preference. Unmark remains explicit.
+    await tx`update customers set is_spam = true where id = ${primaryId} and workspace_id = ${workspaceId}
+      and exists (select 1 from customers where id = ${sourceId} and workspace_id = ${workspaceId} and is_spam)`;
+
     // 6. Stamp the source as merged.
     const [stamped] = await tx<{ merged_at: string }[]>`
       update customers set merged_into_customer_id = ${primaryId}, merged_at = now()
@@ -715,7 +733,8 @@ customers.post('/:id/merge', async (c) => {
       status: 200,
       body: {
         source: { id: sourceId, display_id: source.display_id, merged_at: stamped.merged_at, ...sourceContacts },
-        primary: { id: primaryId, display_id: primary.display_id, ...primaryContacts },
+        primary: { id: primaryId, display_id: primary.display_id, ...primaryContacts,
+          is_spam: (await tx`select is_spam from customers where id = ${primaryId} and workspace_id = ${workspaceId}`)[0].is_spam },
         tickets_moved_ids: moved.map((m) => m.id),
         notes,
         backfilled_fields: backfilled,

@@ -11,6 +11,7 @@ import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
 import { ticketListCols } from '../lib/ticket-cols.js';
 import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
+import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { ReplyReview } from '../lib/reply-review.js';
@@ -347,15 +348,24 @@ tickets.post('/:id/close', async (c) => {
   const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
   const result = await getDb().begin(async (sql) => {
+    // Match the contacts/merge lock order: customer before ticket.
+    const [contact] = parsed.data.reason === 'spam' ? await sql`select c.id from customers c
+      join tickets t on t.customer_id = c.id and t.workspace_id = c.workspace_id
+      where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
+        and t.merged_into_id is null and c.deleted_at is null and c.erased_at is null
+        and c.merged_into_customer_id is null for update of c` : [];
     const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id, snoozed_until, snooze_reason,
       (csat_send_claim is not null and csat_send_started_at >= now() - interval '10 minutes') as survey_sending
       from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null for update`;
     if (!ticket) return { ok: false as const, error: 'Ticket not found', status: 404 as const };
-    if (ticket.status_key === 'closed') return { ok: true as const, ticket, changed: false, activity: [] };
     // The mailer claims the same row before sending. Do not report a silent
     // closure while an already-started survey is still being delivered.
     if (ticket.survey_sending) return { ok: false as const, error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
+    if (contact) await setCustomerSpam(sql, workspaceId, contact.id, true, c.get('userId'));
+    if (ticket.status_key === 'closed' && (parsed.data.reason !== 'spam' || ticket.closure_reason === 'spam')) {
+      return { ok: true as const, ticket, changed: false, activity: [] };
+    }
     const [updated] = await sql<ClosedTicketRow[]>`update tickets set status_key = 'closed',
       closure_reason = ${parsed.data.reason}, closure_note = ${parsed.data.note || null},
       closed_at = now(), closed_by_user_id = ${c.get('userId')}, resolved_at = null,

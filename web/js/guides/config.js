@@ -121,6 +121,7 @@ export const GUIDE_STEPS = [
       'GDPR: use for privacy requests under your team’s process. Ask the responsible colleague how to proceed before using data export, redaction or erasure controls.',
       'Resolved: the issue has been answered or completed. Choose Resolve, or Send and resolve when sending the final reply. Choose Reopen if more work is needed.',
       'Closed: use More → Close without resolution for spam, abuse, a duplicate or another reason that is not a successful resolution. Select the required reason and add context if needed. This action sends no customer email or satisfaction survey.',
+      'Spam: use More → Mark as spam, or select tickets and choose Mark as spam. This closes the tickets and filters future emails from their contacts in this workspace. Use Unmark contact as spam on the ticket or contact to stop filtering; old spam tickets stay closed.',
     ],
   },
   {

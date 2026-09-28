@@ -219,6 +219,7 @@ export function applyCustomerRow(target, c) {
   target.since        = isoDate(c.since);   // `date` column → YYYY-MM-DD whatever the wire form
   target.bo           = c.backoffice_url || '';
   target.erased       = Boolean(c.erased_at);
+  target.isSpam       = Boolean(c.is_spam);
   target.emailBounceState = c.email_bounce_state || 'none';
   target.emailBounceCount = c.email_bounce_count || 0;
   target.emailLastBounce  = c.email_last_bounce_at || null;

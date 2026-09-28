@@ -438,7 +438,9 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     const [reopened] = await sql`select * from tickets where id = ${tid}`;
     expect(reopened.closed_at).toBeNull();
     expect(reopened.closure_reason).toBeNull();
-    // Reopening is explicit; normal resolution and its survey work again.
+    // Reopening a ticket does not clear the contact's spam preference.
+    expect((await as(`/api/v1/customers/${ticket.customer_id}/spam`, { method: 'DELETE' })).status).toBe(200);
+    // After explicitly unmarking the contact, normal resolution sends its survey again.
     expect((await patchTicket(tid, { status_key: 'resolved' })).status).toBe(200);
     expect(postmarkCalls).toBe(1);
   });

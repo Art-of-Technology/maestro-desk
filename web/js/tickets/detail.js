@@ -77,7 +77,7 @@ import {
 } from '../kb-integration/index.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
-import { showCloseTickets, closureDetails } from './closure.js';
+import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { showContactDetailsModal } from '../customers/details-card.js';
@@ -538,6 +538,7 @@ export function openTicket(id) {
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
             ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
+            ${!t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam">Mark as spam</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.macroModal" data-ticket-id="${window.escAttr(id)}" title="Apply a macro">⚡ Macro</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.runRules" data-ticket-id="${window.escAttr(id)}" title="Auto-assign by rules">⇄ Run rules</button>`}
@@ -869,7 +870,7 @@ export async function insertMacro(ticketId, idx) {
 export async function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || t.status === val) return;
-  if (val === 'closed') {
+  if (val === 'closed' || val === 'spam') {
     const select = document.querySelector('[aria-label="Ticket status"]');
     if (select) select.value = t.status;
     showCloseTickets([id], async (succeeded) => {
@@ -877,7 +878,7 @@ export async function changeTicketStatus(id, val) {
       updateNavBadges();
       if (t._uuid) await loadTicketDetail(id);
       if (CURRENT_TICKET === id) openTicket(id);
-    });
+    }, val === 'spam' ? 'spam' : '');
     return;
   }
   if (t.status === 'closed' && val !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
@@ -1359,6 +1360,7 @@ registerActions({
   'td.gdprModal':      (ds) => showGDPRModal(ds.ticketId),
   'td.toggleAIMenu':   (ds) => toggleAIMenu(ds.ticketId),
   'td.aiAction':       (ds) => aiAction(ds.ticketId, ds.verb),
+  'td.unmarkSpam':     (ds) => unmarkSpamContact(TICKETS.find(t => t.id === ds.ticketId)?.customerId, () => { if (CURRENT_TICKET === ds.ticketId) openTicket(ds.ticketId); }),
   'td.loadSharedAiDraft': (ds) => { if(activateSharedAiDraft(ds.ticketId))openTicket(ds.ticketId); },
   'td.send':           (ds) => sendCompose(ds.ticketId),
   'td.toggleSendMenu': (ds) => toggleSendMenu(ds.ticketId),

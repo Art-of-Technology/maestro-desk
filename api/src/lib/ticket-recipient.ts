@@ -14,8 +14,8 @@ export interface TicketRecipient {
 export async function resolveTicketRecipient(workspaceId: string, ticketId: string): Promise<TicketRecipient | null> {
   const sql = getDb();
   const result = await sql.begin(async (tx) => {
-    const [customer] = await tx<{ id: string; email: string | null; mobile: string | null }[]>`
-      select c.id, c.email, c.mobile from tickets t
+    const [customer] = await tx<{ id: string; email: string | null; mobile: string | null; is_spam: boolean }[]>`
+      select c.id, c.email, c.mobile, c.is_spam from tickets t
       join customers c on c.id = t.customer_id and c.workspace_id = t.workspace_id
       where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
         and c.deleted_at is null and c.erased_at is null and c.merged_into_customer_id is null
@@ -35,7 +35,7 @@ export async function resolveTicketRecipient(workspaceId: string, ticketId: stri
     `;
     return recipient ? {
       email: recipient.email,
-      suppressed: recipient.bounce_state === 'hard' || recipient.bounce_state === 'spam',
+      suppressed: customer.is_spam || recipient.bounce_state === 'hard' || recipient.bounce_state === 'spam',
     } : null;
   });
   return result;
