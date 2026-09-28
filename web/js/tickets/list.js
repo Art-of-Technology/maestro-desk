@@ -284,6 +284,7 @@ export function renderTickets() {
         <option value="low">Low</option>
       </select>
       <button class="btn btn-sm" data-action="tickets.bulkTag">Add tag…</button>
+      <button class="btn btn-sm" data-action="tickets.bulkSpam">Mark as spam</button>
       <button class="btn btn-sm" data-action="snooze.bulkSnooze">💤 Snooze…</button>
       <button class="btn btn-sm" data-action="ar.bulkRun">⇄ Run rules</button>
       <select class="filter-select" data-change-action="macros.bulkRun">
@@ -694,12 +695,12 @@ function bulkAssignTickets() {
 
 async function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  if (v === 'closed') {
+  if (v === 'closed' || v === 'spam') {
     showCloseTickets([...TICKET_SELECTED_IDS], (succeeded) => {
       succeeded.forEach(id => TICKET_SELECTED_IDS.delete(id));
       updateNavBadges();
       if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
-    });
+    }, v === 'spam' ? 'spam' : '');
     return;
   }
   for (const id of [...TICKET_SELECTED_IDS]) {
@@ -798,6 +799,7 @@ function exportTicketList() {
 }
 
 registerActions({
+  'tickets.bulkSpam':          () => bulkSetStatus('spam'),
   'tickets.retryQueue': () => { invalidateWorkQueue(); renderPage('tickets'); },
   'tickets.urgencySort': () => { SORT_COL = 'urgency'; SORT_DIR = 1; renderPage('tickets'); },
   'tickets.newestSort': () => { SORT_COL = 'created'; SORT_DIR = -1; renderPage('tickets'); },

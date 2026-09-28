@@ -38,7 +38,7 @@ export async function exportCustomer(args: {
 
   const [customer] = await sql<Record<string, unknown>[]>`
     select id, display_id, first_name, last_name, username, email, mobile, brand,
-           vip_tier, jurisdiction, consent, since, backoffice_url,
+           vip_tier, jurisdiction, consent, since, backoffice_url, is_spam,
            to_jsonb(customers) ->> 'kyc_status' as kyc_status,
            to_jsonb(customers) ? 'kyc_status' as has_legacy_kyc,
            maestro_user_id, maestro_member_id,

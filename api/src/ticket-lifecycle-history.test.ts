@@ -64,7 +64,7 @@ run('ticket lifecycle history', () => {
     await bodyOf(await request(id, '/snooze', 'POST', { until: new Date(Date.now() + 3600000).toISOString(), reason: 'Waiting' }));
     const closed = await bodyOf(await request(id, '/close', 'POST', { reason: 'other', note: 'Preserve this decision' }));
     expect(closed.activity.map((e: any) => e.kind)).toEqual(['status', 'snooze']);
-    expect((await bodyOf(await request(id, '/close', 'POST', { reason: 'spam' }))).activity).toHaveLength(0);
+    expect((await bodyOf(await request(id, '/close', 'POST', { reason: 'other' }))).activity).toHaveLength(0);
     await Promise.all([1, 2].map(() => sql.begin(tx => reopenOnCustomerReply(tx, ws, id))));
     const detail = await bodyOf(await request(id));
     expect(detail.ticket.status_key).toBe('open');

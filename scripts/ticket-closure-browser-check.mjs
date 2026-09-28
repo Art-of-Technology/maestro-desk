@@ -81,6 +81,7 @@ export default async function checkTicketClosure(page, screenshotDir) {
   await page.locator('.closure-modal').waitFor({ state: 'detached' });
   check((await state()).selected.length === 0, 'Successful retry must clear selection');
   check(requests.length === 3 && requests.every(r => r.body.reason === 'duplicate'), 'Retry must only resend the failed closure');
+  await page.locator('[data-action="tickets.setStatus"][data-status="history"]').click();
   await page.locator('[data-action="tickets.setStatus"][data-status="closed"]').click();
   check(await page.locator('.tag-closed').count() === 2, 'Closed tickets must remain available in the Closed tab');
   return { layouts, bulkRequests: requests.length, checks: 'single closure, cancellation, escaping, metrics, reopen, bulk failure/retry, closed filter' };

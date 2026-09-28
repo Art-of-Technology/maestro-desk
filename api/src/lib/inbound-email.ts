@@ -3,6 +3,7 @@ import { reopenOnCustomerReply } from './reopen-customer-reply.js';
 import { applyAssignmentRules } from './assign-rules-engine.js';
 import { nextDisplayId } from './display-id.js';
 import { resolveCustomerByContact, ensurePrimaryContacts } from './customer-contacts.js';
+import { spamSender } from './customer-spam.js';
 import { scheduleLink } from './player-identity.js';
 import {
   extractInReplyTo,
@@ -228,7 +229,8 @@ export async function processInboundEmail(args: {
   payload: PostmarkInbound;
   deps?: InboundDeps;
 }): Promise<InboundResult> {
-  const { workspaceId, payload, deps } = args;
+  const { payload, deps } = args;
+  let workspaceId = args.workspaceId;
   const sql = getDb();
   const { email, name } = parseFrom(payload);
   const body = pickBody(payload);
@@ -290,11 +292,13 @@ export async function processInboundEmail(args: {
       limit 1
     `;
     if (t) {
-      return await attachReplyToTicket({
+      const attached = await attachReplyToTicket({
         workspaceId: t.workspace_id, ticketId: t.id, ticketDisplayId: t.display_id,
         customerId: t.customer_id, body, name, email,
         externalMessageId, payload, deps,
       });
+      if (attached) return attached;
+      workspaceId = t.workspace_id;
     }
   }
 
@@ -365,11 +369,15 @@ export async function processInboundEmail(args: {
   const channel = await resolveInboundChannel(workspaceId, to?.email ?? null);
   const defaults = channel?.matched ? channel : null;
   const ticketDisplayId = await nextDisplayId(sql, workspaceId, 'ticket');
-  const [newTicket] = await sql<{ id: string; display_id: string }[]>`
-    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state, last_inbound_email)
-    values (${workspaceId}, ${ticketDisplayId}, ${subject}, ${customerId}, 'open',
-            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok', ${email})
-    returning id, display_id
+  const [newTicket] = await sql<{ id: string; display_id: string; closure_reason: string | null }[]>`
+    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state, last_inbound_email,
+      closure_reason, closure_note, closed_at)
+    select ${workspaceId}, ${ticketDisplayId}, ${subject}, id, case when is_spam then 'closed' else 'open' end,
+            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok', ${email},
+            case when is_spam then 'spam' end, case when is_spam then 'Automatically marked as spam for this contact.' end,
+            case when is_spam then now() end
+    from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null
+    returning id, display_id, closure_reason
   `;
   if (!newTicket) throw new Error('Ticket create failed');
 
@@ -382,11 +390,19 @@ export async function processInboundEmail(args: {
     returning id
   `;
   if (!newMessage) throw new Error('Message create failed');
-  void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
+  const spam = newTicket.closure_reason === 'spam';
+  if (!spam) void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
   // 3'. Files + formatted body. Awaited (not fire-and-forget) so the ticket the
   //     agent opens moments later already has them; failures degrade to text.
   await persistRichBody({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body, payload, deps });
+
+  if (spam) {
+    await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, channelId: channel?.id ?? null, body });
+    void publishTicketChanged(workspaceId, newTicket.id);
+    return { ticket_id: newTicket.id, ticket_display_id: newTicket.display_id, customer_id: customerId,
+      is_new_customer: isNewCustomer, auto_triage_queued: false, deduped: false, threaded: false };
+  }
 
   // Route new customer tickets before publishing them. A rule failure must
   // not discard accepted mail; unmatched tickets remain unassigned.
@@ -464,22 +480,31 @@ async function attachReplyToTicket(args: {
   externalMessageId: string | null;
   payload: PostmarkInbound;
   deps?: InboundDeps;
-}): Promise<InboundResult> {
+}): Promise<InboundResult | null> {
   const { workspaceId, ticketId, ticketDisplayId, customerId, body, name, email, externalMessageId, payload, deps } = args;
   const sql = getDb();
 
   const authorLabel = name?.trim() || email;
-  const replyMessage = await sql.begin(async (tx) => {
-    await reopenOnCustomerReply(tx, workspaceId, ticketId);
+  const saved = await sql.begin(async (tx) => {
+    const senderId = await spamSender(tx, workspaceId, email);
+    if (senderId) {
+      const [ticket] = await tx`select customer_id, status_key, closure_reason from tickets
+        where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update`;
+      // A blocked sender cannot change somebody else's conversation, or reopen an old ticket.
+      // A null result routes the mail to a separate closed spam ticket.
+      if (ticket?.customer_id !== senderId || ticket.status_key !== 'closed' || ticket.closure_reason !== 'spam') return null;
+    } else await reopenOnCustomerReply(tx, workspaceId, ticketId);
     const [message] = await tx<{ id: string }[]>`
       insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
       values (${workspaceId}, ${ticketId}, 'customer', ${authorLabel}, ${body}, ${externalMessageId})
       returning id
     `;
-    return message;
+    return { message, spam: !!senderId };
   });
+  if (!saved) return null;
+  const { message: replyMessage, spam } = saved;
   if (!replyMessage) throw new Error('Reply attach failed');
-  void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
+  if (!spam) void scoreInboundMessage({ workspaceId, ticketId, messageId: replyMessage.id, body });
   await persistRichBody({ workspaceId, ticketId, messageId: replyMessage.id, body, payload, deps });
 
   // Same Maestro link attempt as the new-ticket path, so a contact whose first
@@ -488,7 +513,7 @@ async function attachReplyToTicket(args: {
   // linked only when the SENDER's address is one of that customer's own — a
   // colleague or third party replying on the thread must never bind the
   // customer to *their* player record. Resolution failures are swallowed.
-  try {
+  if (!spam) try {
     const sender = await resolveCustomerByContact(sql, workspaceId, 'email', email);
     if (sender && (sender.merged_into_customer_id || sender.id) === customerId) {
       scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
@@ -536,7 +561,7 @@ async function attachReplyToTicket(args: {
   await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null, body });
 
   const [current] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
-  if (current?.status_key === 'closed') {
+  if (spam || current?.status_key === 'closed') {
     void publishTicketChanged(workspaceId, ticketId);
     return { ticket_id: ticketId, ticket_display_id: ticketDisplayId, customer_id: customerId,
       is_new_customer: false, auto_triage_queued: false, deduped: false, threaded: true };
