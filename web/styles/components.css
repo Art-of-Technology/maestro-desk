@@ -220,6 +220,12 @@ textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
 .ai-tag-chip:hover{border-color:var(--purple);background:var(--purple-lt)}
 .ai-tag-chip .conf{font-family:var(--font-sans);font-size:10px;color:var(--ink3)}
 .ai-tag-chip.accepted{border-color:var(--green);background:var(--green-lt);color:var(--green)}
+.ai-tag-list{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+#ticket-ai-tags p{font-size:12px;line-height:1.5;margin:0 0 8px;color:var(--ink)}
+#ticket-ai-tags button{min-height:24px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+#ticket-ai-tags .ai-tag-chip{color:var(--ink);font-family:inherit}
+#ticket-ai-tags button:disabled{cursor:default;opacity:.6}
+@media(pointer:coarse){#ticket-ai-tags button{min-height:44px}}
 /* ── Misc ── */
 .sep{height:1px;background:var(--rule);margin:12px 0}
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;gap:8px;color:var(--ink3);background:var(--off);position:relative;overflow:hidden;isolation:isolate}

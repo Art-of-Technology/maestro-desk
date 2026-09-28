@@ -205,6 +205,7 @@ Call record_triage now with the complete result.`;
 export interface TriageInput {
   ticketId: string;
   workspaceId: string;
+  tagsOnly?: boolean;
   // null = system-triggered (e.g. auto-triage from inbound webhook). Schema
   // has user_id nullable on ai_usage_log specifically for this case.
   userId: string | null;
@@ -387,11 +388,11 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
 
   // 6. Persist in parallel: update ticket + replace AI tags + log usage + deduct budget.
   const [, , , balanceAfterMicro] = await Promise.all([
-    persistTicketTriage(ticketId, workspaceId, triage),
+    input.tagsOnly ? Promise.resolve() : persistTicketTriage(ticketId, workspaceId, triage),
     persistAITags(ticketId, workspaceId, triage.tags),
     logUsage({
       workspaceId, ticketId, userId,
-      action: 'triage',
+      action: input.tagsOnly ? 'tag_suggestions' : 'triage',
       model: MODEL,
       usage: response.usage,
       durationMs,
@@ -418,7 +419,9 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     ticketRes.subject,
     ...ticketRes.messages.filter((m) => m.role === 'customer').map((m) => m.body),
   ]);
-  const decision = evaluateAutoReply(triage, lookups.autoReply, rgConcern);
+  const decision: AutoReplyDecision = input.tagsOnly
+    ? { eligible: false, reason: 'tags_only' }
+    : evaluateAutoReply(triage, lookups.autoReply, rgConcern);
   let autoReply: TriageResult['auto_reply'] = { decision, posted: false };
   if (decision.eligible) {
     try {
@@ -577,14 +580,22 @@ async function persistAITags(
   workspaceId: string,
   tags: TriageOutput['tags'],
 ) {
-  // Wipe and replace — AI tags are derived data we can re-generate.
+  // Replace suggestions atomically; an agent's accepted tags survive retriage.
   const sql = getDb();
-  await sql`delete from ticket_ai_tags where ticket_id = ${ticketId}`;
-  if (tags.length === 0) return;
-  const rows = tags.map((t) => ({
-    workspace_id: workspaceId, ticket_id: ticketId, tag: t.tag, confidence: t.confidence, accepted: false,
-  }));
-  await sql`insert into ticket_ai_tags ${sql(rows)}`;
+  await sql.begin(async tx => {
+    const [ticket] = await tx`select id from tickets where id = ${ticketId}
+      and workspace_id = ${workspaceId} and deleted_at is null for update`;
+    if (!ticket) throw new TriageError('Ticket not found', 404);
+    await tx`delete from ticket_ai_tags where ticket_id = ${ticketId}
+      and workspace_id = ${workspaceId} and accepted = false`;
+    for (const t of tags) {
+      await tx`insert into ticket_ai_tags (workspace_id, ticket_id, tag, confidence, accepted)
+        select ${workspaceId}, ${ticketId}, ${t.tag}, ${t.confidence}, false
+        where not exists (select 1 from ticket_tags where ticket_id = ${ticketId}
+          and workspace_id = ${workspaceId} and tag = ${t.tag})
+        on conflict (ticket_id, tag) do nothing`;
+    }
+  });
 }
 
 async function logUsage(args: {
