@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import { readEmailUsage } from '../lib/email-usage.js';
+import { env } from '../lib/env.js';
+import { sendEmail, isPostmarkConfigured } from '../lib/postmark-outbound.js';
 import { auth } from '../lib/auth.js';
 import { deriveNameFromEmail, randomPassword } from '../lib/invite.js';
 import {
@@ -284,6 +286,7 @@ god.post('/brands/:id/invite', async (c) => {
   const { name, initials } = deriveNameFromEmail(email);
   const [existing] = await sql<{ id: string }[]>`select id from users where email = ${email}`;
   let authUserId: string;
+  let createdUser = false;
   if (existing) {
     authUserId = existing.id;
   } else {
@@ -300,6 +303,7 @@ god.post('/brands/:id/invite', async (c) => {
         return c.json({ error: 'Failed to create the invited user' }, 502);
       }
       authUserId = created.user.id;
+      createdUser = true;
     } catch (err) {
       const [raced] = await sql<{ id: string }[]>`select id from users where email = ${email}`;
       if (!raced) {
@@ -330,15 +334,27 @@ god.post('/brands/:id/invite', async (c) => {
       set role_id = excluded.role_id
   `;
 
-  // 5. Email the set-password link (best-effort — the membership is already
+  // 5. Email setup instructions or the sign-in invitation (best-effort — the membership is already
   // created, so a transient mail failure shouldn't 500 the invite; the
   // operator can re-invite to re-send).
-  let emailSent = true;
+  // This is a workspace destination, not a bearer credential or password reset.
+  const inviteUrl = new URL(env.APP_BASE_URL);
+  inviteUrl.search = '?invitation=1';
+  inviteUrl.hash = '/w/' + brandId + '/dashboard';
+  const inviteLink = inviteUrl.toString();
+  let emailSent = false;
   try {
-    await auth.api.requestPasswordReset({ body: { email } });
+    if (isPostmarkConfigured()) {
+      if (createdUser) await auth.api.requestPasswordReset({ body: { email } });
+      else await sendEmail({ to: email, subject: 'Your Respovia brand invitation',
+        textBody: 'You have been invited as an administrator of ' + brand.name + '.\n\nOpen your invitation: ' + inviteLink +
+          '\n\nSign in with this email address. If you have not set a password, choose Request a setup link on the sign-in page.',
+        fromEmail: env.POSTMARK_OUTBOUND_FROM, fromName: 'Respovia' });
+      emailSent = true;
+    }
   } catch (err) {
     emailSent = false;
-    console.error('[god/invite] requestPasswordReset failed:', err instanceof Error ? err.message : err);
+    console.error('[god/invite] Invitation email failed:', err instanceof Error ? err.message : err);
   }
 
   await writeAudit({
@@ -350,7 +366,8 @@ god.post('/brands/:id/invite', async (c) => {
     metadata: { email, invited_user_id: authUserId, email_sent: emailSent },
   });
 
-  return c.json({ user_id: authUserId, email, email_sent: emailSent }, 201);
+  return c.json({ user_id: authUserId, email, email_sent: emailSent, invite_link: inviteLink,
+    invitation_type: createdUser ? 'setup' : 'sign_in' }, 201);
 });
 
 // ─── Domain provisioning ───────────────────────────────────────────────────

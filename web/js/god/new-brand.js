@@ -14,6 +14,7 @@
 // Owner email + first domain are optional. The minimum viable brand is
 // just a name + slug.
 
+import { showToast } from '../core/toast.js';
 import { apiPost } from '../core/api-client.js';
 import { registerActions, registerInputActions } from '../core/event-delegation.js';
 
@@ -109,7 +110,7 @@ function renderForm() {
             <label class="form-label">Owner email</label>
             <input class="form-input" data-input-action="god.nb.owner_email" value="${escAttr(FORM.owner_email)}" placeholder="owner@acmecasino.com" type="email" ${disabled}/>
             <div style="font-size:11px;color:var(--ink3);margin-top:4px">
-              If provided, we generate a magic-link invite. The link appears on the result page for you to share.
+              If provided, we invite the owner and show a link you can copy and share.
             </div>
           </div>
         </div>
@@ -185,7 +186,7 @@ function renderResult() {
         <div class="card" style="max-width:720px;margin:0 auto 16px;border-left:3px solid var(--green)">
           <div class="card-title">${escAttr(brand.name)} is live</div>
           <div style="font-size:13px;color:var(--ink2);line-height:1.6">
-            Slug <code>${escAttr(brand.slug)}</code>. RLS-isolated. Default lookups + business hours seeded.
+            Your brand is ready. Reference: <code>${escAttr(brand.slug)}</code>.
             ${invite || domain ? 'Follow the steps below to finish setup.' : ''}
           </div>
         </div>
@@ -201,19 +202,23 @@ function renderResult() {
     </div>`;
 }
 
-function renderInvitePanel(invite) {
+export function renderInvitePanel(invite, retryAction = 'god.retryOwnerInvite') {
   return `
     <div class="card" style="max-width:720px;margin:0 auto 16px">
       <div class="card-title">Share this invite link with ${escAttr(invite.email)}</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:8px">
-        Paste it into Slack / email. The link signs them in and adds them as Admin of the brand.
+        Share this link with the owner. They must sign in with the invited email address. New owners must set their password first.
       </div>
       ${invite.invite_link
         ? `<div style="display:flex;gap:6px;align-items:stretch">
             <input class="form-input" readonly value="${escAttr(invite.invite_link)}" id="invite-link-input" style="font-family:'DM Mono',monospace;font-size:11px"/>
             <button class="btn" data-action="god.copyInviteLink">Copy</button>
           </div>`
-        : `<div style="font-size:12px;color:var(--amber)">No link returned by Supabase — check server logs.</div>`}
+        : `<div style="font-size:12px;color:var(--amber)">${escAttr(invite.error || 'The invitation could not be created. Retry below.')}</div>`}
+      <p role="status" style="font-size:12px;margin-top:12px;color:var(--ink2)">
+        ${invite.email_sent ? (invite.invitation_type === 'setup' ? 'Password-setup email sent to the owner. The private setup link expires after one hour.' : 'Invitation email sent to the owner.') : (invite.invite_link ? 'Email was not sent. You can share the link above or retry sending.' : 'Email was not sent. Retry below.')}
+      </p>
+      <button class="btn btn-sm" data-action="${escAttr(retryAction)}" style="margin-top:8px">Retry invitation email</button>
     </div>`;
 }
 
@@ -372,11 +377,19 @@ registerActions({
     resetForm();
     reRender();
   },
-  'god.copyInviteLink': () => {
+  'god.retryOwnerInvite': async (_ds, el) => {
+    if (!FORM.result?.brand?.id || !FORM.result.invite?.email) return;
+    const result = FORM.result;
+    el.disabled = true;
+    try { result.invite = await apiPost(`/api/v1/god/brands/${result.brand.id}/invite`, { email: result.invite.email }); }
+    catch (err) { result.invite = { ...result.invite, email_sent: false, error: err.message }; showToast(err.message || 'Could not send invitation.', 'error'); }
+    if (FORM.result === result) reRender();
+  },
+  'god.copyInviteLink': async () => {
     const el = document.getElementById('invite-link-input');
     if (!el) return;
-    el.select();
-    document.execCommand('copy');
+    try { await navigator.clipboard.writeText(el.value); showToast('Invitation link copied.', 'success'); }
+    catch { el.select(); showToast('Select and copy the invitation link.', 'info'); }
   },
   // god.openCreatedBrand is handled by god/index.js — see openBrand.
 });

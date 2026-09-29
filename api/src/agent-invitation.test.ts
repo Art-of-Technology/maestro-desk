@@ -48,6 +48,12 @@ dbTests('agent invitation registration', () => {
           : agents.request('/invite', { method: 'POST', headers, body: JSON.stringify({ email, role_id: role.id }) });
         const response = await invite();
         expect(response.status).toBe(201);
+        if (owner) {
+          const result = await response.json() as any;
+          expect(result.email_sent).toBe(false);
+          expect(new URL(result.invite_link).hash).toBe(`#/w/${workspace}/dashboard`);
+          expect(result.invite_link).not.toContain('reset_token');
+        }
         const [user] = await sql`select id from users where email = ${email}`;
         users.push(user.id);
         await sql`insert into workspace_members (workspace_id, user_id, role_id, active)
@@ -92,5 +98,59 @@ dbTests('agent invitation registration', () => {
         expect(await status(user.id)).toEqual({ active: false, invitation_pending: false });
       }
     } finally { env.POSTMARK_SERVER_TOKEN = mailToken; }
+  });
+  it('returns a safe share link for new and existing owners, including failed delivery', async () => {
+    const { auth } = await import('./lib/auth.js');
+    const { env } = await import('./lib/env.js');
+    const { god } = await import('./routes/god.js');
+    const sql = (await import('./lib/db.js')).getDb();
+    const oldFetch = globalThis.fetch;
+    const oldToken = env.POSTMARK_SERVER_TOKEN;
+    const oldFrom = env.POSTMARK_OUTBOUND_FROM;
+    const mail: any[] = [];
+    let fail = false;
+    globalThis.fetch = (async (_url: any, init: any) => {
+      mail.push(JSON.parse(init.body));
+      return fail ? new Response('Mail unavailable', { status: 503 })
+        : Response.json({ ErrorCode: 0, MessageID: crypto.randomUUID(), SubmittedAt: new Date().toISOString() });
+    }) as typeof fetch;
+    env.POSTMARK_SERVER_TOKEN = 'local-test-only';
+    env.POSTMARK_OUTBOUND_FROM = 'support@example.test';
+    try {
+      const admin = await auth.api.signUpEmail({ body: { email: `admin-${crypto.randomUUID()}@example.test`, name: 'Admin', password: 'Admin-password-123!' }, returnHeaders: true });
+      users.push(admin.response.user.id);
+      await sql`update users set is_platform_admin = true where id = ${admin.response.user.id}`;
+      const [{ id }] = await sql`select provision_brand(${`owner-${crypto.randomUUID()}`}, 'Owner invitation') as id`;
+      workspaces.push(id);
+      const email = `owner-${crypto.randomUUID()}@example.test`;
+      const headers = { Authorization: `Bearer ${admin.headers.get('set-auth-token')}`, 'Content-Type': 'application/json' };
+      const invite = () => god.request(`/brands/${id}/invite`, { method: 'POST', headers, body: JSON.stringify({ email }) });
+      const first = await (await invite()).json() as any;
+      users.push(first.user_id);
+      expect(first.email_sent).toBe(true);
+      expect(first.invitation_type).toBe('setup');
+      const link = new URL(first.invite_link);
+      expect(link.search).toBe('?invitation=1');
+      expect(link.hash).toBe(`#/w/${id}/dashboard`);
+      expect(mail[0].TextBody).toContain('reset_token=');
+      expect(JSON.stringify(first)).not.toContain('reset_token');
+      const tokenCount = async () => (await sql`select count(*)::int as count from verification where value = ${first.user_id}`)[0].count;
+      const before = await tokenCount();
+      const second = await (await invite()).json() as any;
+      expect(second.email_sent).toBe(true);
+      expect(second.invitation_type).toBe('sign_in');
+      expect(second.invite_link).toBe(first.invite_link);
+      expect(mail[1].TextBody).toContain(first.invite_link);
+      expect(mail[1].TextBody).not.toContain('reset_token');
+      expect(await tokenCount()).toBe(before);
+      fail = true;
+      const failed = await (await invite()).json() as any;
+      expect(failed.email_sent).toBe(false);
+      expect(failed.invite_link).toBe(first.invite_link);
+    } finally {
+      globalThis.fetch = oldFetch;
+      env.POSTMARK_SERVER_TOKEN = oldToken;
+      env.POSTMARK_OUTBOUND_FROM = oldFrom;
+    }
   });
 });

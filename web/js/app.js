@@ -342,6 +342,18 @@ initUrlRouting();
       history.replaceState({}, '', clean.toString());
       return;
     }
+    // A shareable invitation carries no credential. Require a fresh sign-in
+    // so the invited account, rather than a stored colleague session, is used.
+    if (new URLSearchParams(location.search).get('invitation') === '1') {
+      const hint = document.getElementById('owner-invitation-hint');
+      if (hint) hint.hidden = false;
+      const clean = new URL(location.href);
+      clean.searchParams.delete('invitation');
+      history.replaceState({}, '', clean.toString());
+      showAuthPanel('login');
+      initMaestroButton();
+      return;
+    }
     // Landing back from the Maestro OAuth bridge (#maestro_session=…)? Consume
     // it and complete sign-in; this wins over the stored-session resumes.
     if (await handleMaestroRedirect()) return;
@@ -353,4 +365,3 @@ initUrlRouting();
     console.warn('[startup] auto-resume failed:', err);
   }
 })();
-
