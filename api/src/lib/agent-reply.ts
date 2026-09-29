@@ -21,14 +21,16 @@ import { getDb } from './db.js';
 import { ticketReplyRecipients, type RecipientInput } from './email-recipients.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
 import type { OutboundFile } from './message-attachments.js';
+import { HTTPException } from 'hono/http-exception';
 
 export type AgentReplyDelivery =
-  | { emailed: true; reason: 'sent'; postmark_message_id: string }
+  | { emailed: true; reason: 'sent'; postmark_message_id: string; fallback_from?: string }
   | { emailed: false; reason:
       | 'postmark_not_configured'   // outbound not wired for this deployment
       | 'no_customer_email'         // portal-only customer / no address on file
       | 'email_suppressed'          // address hard-bounced or was marked spam
       | 'no_from'                   // no sender identity could be resolved
+      | 'sending_inbox_unavailable'
       | 'send_failed';              // Postmark refused the send
       detail?: string };
 
@@ -60,7 +62,8 @@ export async function sendAgentReplyEmail(args: {
   `;
   const recipient = ctx ? await ticketReplyRecipients(workspaceId, ticketId, args.recipients) : null;
   if (!ctx || !recipient?.can_send) return { emailed: false, reason: 'no_customer_email' };
-  await sql`update ticket_messages set email_metadata=${sql.json({ from: '', to: recipient.to, cc: args.recipients ? recipient.cc : [], status: 'saved' })}
+  const selectedInbox = recipient.sending_inboxes.find(inbox => inbox.id === args.recipients?.sending_channel_id);
+  await sql`update ticket_messages set email_metadata=${sql.json({ from: selectedInbox?.address || '', to: recipient.to, cc: args.recipients ? recipient.cc : [], status: 'saved' })}
     where id=${messageId} and workspace_id=${workspaceId}`;
   if (!isPostmarkConfigured()) return { emailed: false, reason: 'postmark_not_configured' };
   // Don't email addresses that hard-bounced or were marked as spam — sending
@@ -87,6 +90,8 @@ export async function sendAgentReplyEmail(args: {
     // safety net — see send-branded-email.ts.
     const result = await sendBrandedEmail({
       workspaceId,
+      sendingChannelId: args.recipients?.sending_channel_id,
+      expectedSendingAddress: args.recipients?.sending_address,
       fallbackFromName: ctx.ws_name || 'Support',
       to: recipient.to.join(','),
       cc: args.recipients ? recipient.cc.join(',') : undefined,
@@ -107,11 +112,16 @@ export async function sendAgentReplyEmail(args: {
     await sql`
       update ticket_messages set external_message_id = ${result.rfcMessageId},
         email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
-          status: 'sent', sent_at: result.submittedAt })}
+          status: 'sent', sent_at: result.submittedAt,
+          ...(args.recipients?.sending_channel_id ? { sending_channel_id: args.recipients.sending_channel_id,
+            reply_to: recipient.sending_inboxes.find(inbox => inbox.id === args.recipients?.sending_channel_id)?.address,
+            used_fallback_from: result.usedFallbackFrom } : {}) })}
       where id = ${messageId} and workspace_id = ${workspaceId}
     `;
-    return { emailed: true, reason: 'sent', postmark_message_id: result.messageId };
+    return { emailed: true, reason: 'sent', postmark_message_id: result.messageId,
+      ...(result.usedFallbackFrom ? { fallback_from: result.fromEmail } : {}) };
   } catch (err) {
+    if (err instanceof HTTPException && err.status === 409) return { emailed: false, reason: 'sending_inbox_unavailable' };
     const detail = err instanceof PostmarkSendError
       ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
       : err instanceof Error ? err.message : String(err);
