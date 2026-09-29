@@ -324,10 +324,10 @@ god.post('/brands/:id/invite', async (c) => {
   // different role, this PROMOTES them to Admin — intentional, since the
   // operator explicitly invited them as owner.
   await sql`
-    insert into workspace_members (workspace_id, user_id, role_id, active)
-    values (${brandId}, ${authUserId}, ${adminRole.id}, true)
+    insert into workspace_members (workspace_id, user_id, role_id, active, invitation_pending)
+    values (${brandId}, ${authUserId}, ${adminRole.id}, false, true)
     on conflict (workspace_id, user_id) do update
-      set role_id = excluded.role_id, active = true
+      set role_id = excluded.role_id
   `;
 
   // 5. Email the set-password link (best-effort — the membership is already

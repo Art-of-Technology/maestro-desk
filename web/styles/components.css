@@ -116,12 +116,20 @@
 .guide-spotlight{position:fixed;border:2px solid var(--purple);border-radius:10px;box-shadow:0 0 0 9999px rgba(32,18,56,.28),0 0 0 4px rgba(109,40,217,.15);pointer-events:none}
 .guide-card{position:fixed;display:flex;flex-direction:column;box-sizing:border-box;width:min(520px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:18px;background:var(--off);border:1px solid var(--rule2);border-radius:14px;box-shadow:0 16px 40px rgba(32,18,56,.2);opacity:0;outline:none}
 .guide-meta{display:flex;align-items:center;justify-content:space-between;color:var(--purple);font:500 10px var(--font-mono);letter-spacing:.04em}
-.guide-meta button{border:0;background:none;color:var(--purple);font:600 12px var(--font-sans);cursor:pointer;padding:4px}
+.guide-meta button{border:0;background:none;color:var(--purple);font:600 12px var(--font-sans);cursor:pointer;padding:4px;min-width:44px;min-height:44px}
 .guide-card h2,.guide-menu h2{margin:8px 0 4px;font:700 20px var(--font-sans);letter-spacing:-.03em;color:var(--ink)}
 .guide-card p,.guide-menu>p{margin:0;color:var(--ink2);font-size:13px;line-height:1.5}
 .guide-foot{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:18px}
 .guide-foot .btn:last-child{justify-self:end}
-.guide-instructions{min-height:0;overflow:auto;margin:14px 0 0;padding:2px 6px 2px 24px;color:var(--ink2);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.guide-foot .btn{min-height:44px}
+.guide-content{min-height:0;overflow:auto;margin-top:16px;padding:4px;color:var(--ink);font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.guide-highlights{margin:0;padding-left:24px}
+.guide-highlights li+li{margin-top:12px}
+.guide-highlights li::marker{color:var(--purple);font-weight:600}
+.guide-details{margin-top:16px;border-top:1px solid var(--rule2)}
+.guide-details summary{padding:12px 0;cursor:pointer;color:var(--purple);font-weight:600;min-height:44px;box-sizing:border-box}
+.guide-content:focus-visible,.guide-details summary:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+.guide-instructions{margin:0;padding:2px 6px 2px 24px;color:var(--ink2);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
 .guide-instructions li+li{margin-top:12px}
 .guide-instructions:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
 .guide-meta,.guide-card h2,.guide-card>p,.guide-foot{flex-shrink:0}

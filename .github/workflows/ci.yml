@@ -55,6 +55,9 @@ jobs:
       - name: Guided tour integrity
         run: bun test scripts/guides.test.js scripts/guides-behavior.test.js
 
+      - name: Password confirmation
+        run: bun test scripts/password-confirmation.test.js
+
       - name: Agent session expiry and warning
         run: |
           bun test scripts/session-lifetime.test.js

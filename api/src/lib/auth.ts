@@ -1,8 +1,10 @@
 import { betterAuth } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import { bearer, genericOAuth } from 'better-auth/plugins';
 import { Pool } from 'pg';
 import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './env.js';
 import { sendEmail, isPostmarkConfigured } from './postmark-outbound.js';
+import { getDb } from './db.js';
 
 // "Sign in with Maestro" (Maestro Connect OIDC). Only mounted when the app's
 // OAuth client credentials are configured — when they're absent (e.g. a dev
@@ -55,8 +57,23 @@ const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DAT
 
 const SESSION_SECONDS = 8 * 60 * 60;
 
+async function activatePendingInvitations(userId: string) {
+  await getDb()`update workspace_members
+    set active = true, invitation_pending = false
+    where user_id = ${userId} and invitation_pending = true`;
+}
+
 export const auth = betterAuth({
   session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
+  hooks: {
+    after: createAuthMiddleware(async (ctx) => {
+      // Existing agents can join another workspace with their own password.
+      // Invite-created signup sessions and failed logins must not activate them.
+      if (ctx.path === '/sign-in/email' && ctx.context.newSession) {
+        await activatePendingInvitations(ctx.context.newSession.user.id);
+      }
+    }),
+  },
   databaseHooks: {
     session: {
       create: {
@@ -90,6 +107,9 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
+    onPasswordReset: async ({ user }) => {
+      await activatePendingInvitations(user.id);
+    },
     // Require a reasonably strong password for agent/admin accounts (advisory
     // #23). We do NOT set requireEmailVerification: invited agents are created
     // email-first and never verify, so requiring it would lock them out.
@@ -111,6 +131,7 @@ export const auth = betterAuth({
         textBody:
           `You've been invited to Respovia.\n\n` +
           `Set your password using the link below (valid for 1 hour):\n${link}\n\n` +
+          `Already have a Respovia password? Sign in to join your invited workspace, or use the link above to change your password.\n\n` +
           `If you weren't expecting this, you can ignore this email.`,
         fromEmail: env.POSTMARK_OUTBOUND_FROM,
         fromName: 'Respovia',

@@ -5,6 +5,7 @@ export const GUIDE_STEPS = [
     title: 'See what needs attention',
     body: 'Use the dashboard for today’s workload, replies, and team activity.',
     source: 'web/js/dashboard/index.js',
+    highlights: ["Check your workspace and ask your lead which queue to use.","Use the sidebar to open Tickets, Customers or Knowledge Base.","This tour changes nothing. Exit whenever you are ready to try it."],
     instructions: [
       'Sign in with the account your team provided and check that you are in the right workspace. Ask your lead for access if you cannot see the tickets you need.',
       'Your session ends eight hours after login. A warning appears 30 minutes before expiry while you are active in the app. Finish your current work, then sign in again when prompted; staying active does not extend the session.',
@@ -19,6 +20,7 @@ export const GUIDE_STEPS = [
     title: 'Work through player requests',
     body: 'Open a ticket to reply, add a note, assign it, or change its status.',
     source: 'web/js/tickets/list.js',
+    highlights: ["Choose a ticket from your queue and check its priority and SLA.","Read the conversation and internal notes before replying.","Check ownership so two agents do not reply at once."],
     instructions: [
       'Open Tickets. Check Outstanding for work still needing attention, or Unassigned when your team asks you to pick up new work.',
       'Use search and filters to narrow the list by agent, priority or category. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
@@ -30,6 +32,7 @@ export const GUIDE_STEPS = [
     id: 'review', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Review before replying',
     body: 'Read the customer’s request and the work already done.',
+    highlights: ["Check the customer, brand and previous conversation.","Use current guidance to verify facts and promises.","Treat AI summaries as a starting point; check them against the ticket."],
     instructions: [
       'Read the latest customer message, then earlier replies and internal notes. Identify the question, any promises already made, and what is still unanswered.',
       'Open Details if the ticket sidebar is hidden. Check the customer, email, brand, jurisdiction, category and assigned agent. Use the copy button beside the email address to copy it. Other tickets shows ticket IDs and creation dates; times use your local timezone when available. Use Copy link beside the current ticket ID in the header to share it. Under Other tickets, copy an ID with its copy button, use Copy link to share a direct link, or select the subject to open the ticket. If copying a link fails, right-click Copy link and copy the link address. Review relevant attachments and linked tickets.',
@@ -45,6 +48,7 @@ export const GUIDE_STEPS = [
     title: 'Understand the player',
     body: 'Find player details, previous tickets, and account context here.',
     source: 'web/js/customers/index.js',
+    highlights: ["Open the customer from the ticket’s Details panel.","Check previous tickets for related issues.","Follow your team’s identity checks before sharing account information."],
     instructions: [
       'Open Customers and select the customer, or select the Customer section in a ticket’s Details sidebar.',
       'Check that the record belongs to the person and brand you are supporting. Review previous tickets for related problems and commitments.',
@@ -57,6 +61,7 @@ export const GUIDE_STEPS = [
     title: 'Find trusted answers',
     body: 'Search approved articles before replying to a player.',
     source: 'web/js/kb/index.js',
+    highlights: ["Search Knowledge Base for the issue.","Check the article’s review status, brand and market.","Ask your lead if guidance is missing or conflicting."],
     instructions: [
       'Open Knowledge Base and search for the issue. Read the relevant article rather than relying only on its title or search preview.',
       'Check the article’s review status, scope and currency. Confirm that its brand or market matches the customer before applying the advice.',
@@ -67,6 +72,7 @@ export const GUIDE_STEPS = [
     id: 'reply', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Write a customer reply',
     body: 'Choose Reply, answer the question and check what the customer will receive.',
+    highlights: ["Choose Reply for the customer, or Internal note for colleagues.","Answer the question and explain the next action.","Check the reply language, facts and attachments before sending."],
     instructions: [
       'Open the ticket and choose Reply. Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
       'Acknowledge the issue, answer each question and explain the next action. Use the editor for formatting and Attach for relevant files. Check the attachments belong to this customer.',
@@ -78,6 +84,7 @@ export const GUIDE_STEPS = [
     id: 'templates', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Use templates and placeholders',
     body: 'Personalise a saved response and fill missing details before inserting it.',
+    highlights: ["Choose Tools → Macros and preview a saved response.","Fill every placeholder with verified customer details.","Insert, personalise and reread. Inserting does not send the reply."],
     instructions: [
       'In the Reply composer, choose Tools → Macros to open “Insert canned response”, then select a response. Read the “Preview response” window before choosing Insert response.',
       'Templates fill {name} with the customer’s first name, {ticket} with the ticket ID, and {brand} with the customer’s brand when available. {agent} uses the assigned agent, falling back to your session name when no agent is assigned. Check the signature.',
@@ -91,6 +98,7 @@ export const GUIDE_STEPS = [
     id: 'ai-review', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Review an AI suggestion',
     body: 'Check sources and edit the draft before sending it.',
+    highlights: ["Use AI → Draft reply to prepare a suggestion.","Check its references and verify every claim.","Edit the draft before sending; AI suggestions can be wrong."],
     instructions: [
       'Use AI ▾ → Draft reply, or Tools → Similar replies when available. AI ▾ also offers writing changes such as Shorten and Improve writing. These prepare text for you to review.',
       'Read the entire suggestion. Verify the name, brand, language, amounts, eligibility, deadlines and next steps against this ticket and current guidance.',
@@ -103,6 +111,7 @@ export const GUIDE_STEPS = [
     id: 'send', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Check and send',
     body: 'Make the final check, send once and confirm the result.',
+    highlights: ["Check the customer, language, attachments and any remaining placeholders.","Read any warnings, then send once.","Check the saved message and delivery notice before retrying."],
     instructions: [
       'Before sending, confirm the correct ticket and Reply tab, customer name, language, facts, links and attachments. Remove placeholders and internal-only information.',
       'Choose Send to submit the reply. The arrow beside it offers Send and resolve, Send and set pending, or Send and escalate when you also want to change the status.',
@@ -114,6 +123,7 @@ export const GUIDE_STEPS = [
     id: 'statuses', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Choose the right status',
     body: 'Record whether work is active, waiting, escalated or finished.',
+    highlights: ["Use Open for work in progress, or Pending when waiting.","Escalate with a handover note when you need help.","Resolve completed work. Follow your team’s process for privacy requests."],
     instructions: [
       'Open Details → Properties → Ticket status to change status without composing a reply. Changing the status is separate from explaining the outcome to the customer.',
       'Open: work still needs attention. Pending: waiting for information or another action; leave a note stating what you are waiting for and who will follow up.',
@@ -128,6 +138,7 @@ export const GUIDE_STEPS = [
     id: 'handover', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Leave notes and hand over',
     body: 'Give the next agent enough context to continue without repeating work.',
+    highlights: ["Add an Internal note with the checks done and next action.","Name the next owner and assign the ticket.","Use Snooze for a timed follow-up; leave a note explaining why."],
     instructions: [
       'Choose Internal note. State the issue, checks completed, outcome, outstanding action and next owner. Type @ and choose a colleague to mention them, then choose Add note.',
       'Internal notes are for your team and are not customer replies. Send a separate Reply if the customer needs an update.',
@@ -142,6 +153,7 @@ export const GUIDE_STEPS = [
     title: 'See who is available',
     body: 'Review teammates, roles, workload, and availability.',
     source: 'web/js/agents/index.js',
+    highlights: ["Check teammates’ roles and workload before handing over.","Ask your lead if you cannot access a control.","Return to Guides whenever you need a reminder."],
     instructions: [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
       'If a control is missing, ask your lead whether your role or workspace has access. Some AI, template and administration controls depend on configuration or permissions.',
@@ -153,6 +165,7 @@ export const GUIDE_STEPS = [
     id: 'checklist', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Handle your first ticket',
     body: 'Use this checklist on a ticket your team has approved for you to handle.',
+    highlights: ["Read the ticket, confirm the customer and check current guidance.","Write and verify the reply, then send and check the result.","Set the status and record the next action and owner."],
     instructions: [
       'Choose a ticket in your queue. Confirm ownership, urgency and the correct customer.',
       'Read the conversation and notes, check customer context, and find the current guidance.',
@@ -164,6 +177,8 @@ export const GUIDE_STEPS = [
   },
 ];
 
+export const QUICK_START_IDS = ['dashboard', 'tickets', 'reply', 'send', 'handover'];
+
 // Changing any guide step automatically gives it a new completion version.
 export const GUIDE_VERSION = JSON.stringify(GUIDE_STEPS);
 
@@ -174,6 +189,7 @@ export function validateGuideConfig(steps = GUIDE_STEPS) {
     if (ids.has(step.id)) throw new Error(`Duplicate guide step: ${step.id}`);
     if (step.title.length > 40 || step.body.length > 100) throw new Error(`Guide copy is too long: ${step.id}`);
     if (!Array.isArray(step.instructions) || !step.instructions.length || step.instructions.some(text => typeof text !== 'string' || !text.trim())) throw new Error(`Guide instructions are missing: ${step.id}`);
+    if (!Array.isArray(step.highlights) || !step.highlights.length || step.highlights.length > 3 || step.highlights.some(text => typeof text !== 'string' || !text.trim() || text.length > 120)) throw new Error(`Guide highlights must contain 1–3 short instructions: ${step.id}`);
     ids.add(step.id);
   }
   return true;

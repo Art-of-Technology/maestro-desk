@@ -1,10 +1,12 @@
 import { CURRENT_PAGE, SESSION } from '../core/state.js';
 import { getWorkspaceId } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
-import { GUIDE_STEPS, GUIDE_VERSION } from './config.js';
+import { GUIDE_STEPS, GUIDE_VERSION, QUICK_START_IDS } from './config.js';
 
 let activeStep = null;
 let navigate = null;
+let activeTour = [];
+let returnFocus = null;
 
 function container() { return document.getElementById('guide-container'); }
 function storageKey() { return `respovia_guides:${getWorkspaceId() || 'demo'}:${SESSION?.userId || SESSION?.name || 'user'}`; }
@@ -14,7 +16,7 @@ function markComplete() { localStorage.setItem(storageKey(), String(GUIDE_VERSIO
 export function initGuides(nav) { navigate = nav; }
 
 export function maybeStartGuides() {
-  if (CURRENT_PAGE === 'dashboard' && !isComplete()) startGuide(0);
+  if (CURRENT_PAGE === 'dashboard' && !isComplete()) startQuickGuide();
 }
 
 export function guidePageRendered(page) {
@@ -22,28 +24,36 @@ export function guidePageRendered(page) {
 }
 
 export function closeGuides(remember = true) {
-  if (remember && activeStep !== null) markComplete();
+  if (remember && activeStep !== null && activeTour.length > 1) markComplete();
   activeStep = null;
   if (container()) container().innerHTML = '';
+  if (returnFocus?.isConnected) returnFocus.focus();
 }
 
-function startGuide(index) {
+function startQuickGuide() {
+  startGuide(0, QUICK_START_IDS.map(id => GUIDE_STEPS.findIndex(step => step.id === id)));
+}
+
+function startGuide(index, tour = [Number(index)]) {
   const next = Number(index);
   if (!Number.isInteger(next) || !GUIDE_STEPS[next]) return;
+  if (!container()?.firstElementChild) returnFocus = document.activeElement;
+  activeTour = tour;
   activeStep = next;
   const page = GUIDE_STEPS[next].page;
   if (CURRENT_PAGE === page) renderStep(); else navigate?.(page);
 }
 
 function move(offset) {
-  const next = activeStep + offset;
+  const next = activeTour.indexOf(activeStep) + offset;
   if (next < 0) return;
-  if (next >= GUIDE_STEPS.length) return closeGuides();
-  startGuide(next);
+  if (next >= activeTour.length) return closeGuides();
+  startGuide(activeTour[next], activeTour);
 }
 
 function renderStep() {
   const step = GUIDE_STEPS[activeStep];
+  const position = activeTour.indexOf(activeStep);
   const target = document.querySelector?.(`[data-guide="${step.target || step.id}"]`);
   const host = container();
   if (!target || !host) return;
@@ -52,14 +62,19 @@ function renderStep() {
     <div class="guide-layer">
       <div class="guide-spotlight" aria-hidden="true"></div>
       <section class="guide-card" role="dialog" aria-modal="true" aria-labelledby="guide-title" aria-describedby="guide-copy" tabindex="-1">
-        <div class="guide-meta"><span>GETTING STARTED · ${activeStep + 1} OF ${GUIDE_STEPS.length}</span><button type="button" data-action="guides.close">Exit</button></div>
+        <div class="guide-meta"><span>${activeTour.length > 1 ? 'GETTING STARTED' : 'QUICK HELP'} · ${position + 1} OF ${activeTour.length}</span><button type="button" data-action="guides.close">Exit</button></div>
         <h2 id="guide-title">${window.escHtml(step.title)}</h2>
         <p id="guide-copy">${window.escHtml(step.body)}</p>
-        <ol class="guide-instructions" tabindex="0" aria-label="Instructions">${step.instructions.map(text => `<li>${window.escHtml(text)}</li>`).join('')}</ol>
+        <div class="guide-content" tabindex="0" aria-label="Instructions">
+          <ol class="guide-highlights">${step.highlights.map(text => `<li>${window.escHtml(text)}</li>`).join('')}</ol>
+          <details class="guide-details"><summary>More detail</summary>
+            <ol class="guide-instructions">${step.instructions.map(text => `<li>${window.escHtml(text)}</li>`).join('')}</ol>
+          </details>
+        </div>
         <div class="guide-foot">
-          <button type="button" class="btn" data-action="guides.back" ${activeStep === 0 ? 'disabled' : ''}>← Back</button>
-          <span class="guide-progress">${activeStep + 1} / ${GUIDE_STEPS.length}</span>
-          <button type="button" class="btn btn-solid" data-action="guides.next">${activeStep === GUIDE_STEPS.length - 1 ? 'Finish' : 'Next →'}</button>
+          <button type="button" class="btn" data-action="guides.back" ${position === 0 ? 'disabled' : ''}>← Back</button>
+          <span class="guide-progress">${position + 1} / ${activeTour.length}</span>
+          <button type="button" class="btn btn-solid" data-action="guides.next">${position === activeTour.length - 1 ? 'Finish' : 'Next →'}</button>
         </div>
       </section>
     </div>`;
@@ -88,6 +103,7 @@ function positionStep(target) {
 }
 
 function openGuideMenu() {
+  returnFocus = document.activeElement;
   activeStep = null;
   const host = container();
   if (!host) return;
@@ -95,8 +111,8 @@ function openGuideMenu() {
     <div class="guide-layer guide-menu-layer" data-action="guides.closeMenu">
       <section class="guide-menu" role="dialog" aria-modal="true" aria-labelledby="guide-menu-title" data-action="" tabindex="-1">
         <div class="guide-menu-head"><div><div class="guide-kicker">GUIDED TOURS</div><h2 id="guide-menu-title">Learn Respovia</h2></div><button type="button" class="modal-close" data-action="guides.closeMenu" aria-label="Close">×</button></div>
-        <p>Learn how to handle your first ticket, or choose a topic for a reminder. Exit the tour when you are ready to practise.</p>
-        <button type="button" class="btn btn-solid guide-start" data-action="guides.start" data-step="0">Start the full tour</button>
+        <p>Start with the basics, or choose a topic below.</p>
+        <button type="button" class="btn btn-solid guide-start" data-action="guides.quickStart">Getting started · 5 steps</button>
         <div class="guide-menu-list">${GUIDE_STEPS.map((step, i) => `
           <button type="button" data-action="guides.start" data-step="${i}"><span>${window.escHtml(step.title)}</span><small>${window.escHtml(step.body)}</small><b>→</b></button>`).join('')}</div>
         ${isComplete() ? '<div class="guide-complete">✓ Tour viewed</div>' : ''}
@@ -108,6 +124,7 @@ function openGuideMenu() {
 registerActions({
   'guides.open': () => openGuideMenu(),
   'guides.start': ds => startGuide(ds.step),
+  'guides.quickStart': () => startQuickGuide(),
   'guides.close': () => closeGuides(),
   'guides.closeMenu': () => closeGuides(false),
   'guides.back': () => move(-1),
@@ -118,7 +135,7 @@ document.addEventListener?.('keydown', e => {
   if (!container()?.firstElementChild) return;
   if (e.key === 'Tab') {
     const surface = document.querySelector?.('.guide-card, .guide-menu');
-    const buttons = [...(surface?.querySelectorAll('button:not([disabled]), [tabindex="0"]') || [])];
+    const buttons = [...(surface?.querySelectorAll('button:not([disabled]), summary, [tabindex="0"]') || [])];
     if (!buttons.length) return;
     const edge = e.shiftKey ? buttons[0] : buttons.at(-1);
     if (document.activeElement === edge || (e.shiftKey && document.activeElement === surface)) {

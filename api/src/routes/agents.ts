@@ -20,7 +20,7 @@ agents.use('*', requireAuth);
 // Joined membership shape (users + roles nested, matching the old PostgREST
 // embed the SPA consumes). Soft-deleted users are excluded.
 const AGENT_SELECT = (sql: ReturnType<typeof getDb>, workspaceId: string, userId?: string) => sql`
-  select wm.user_id, wm.role_id, wm.active, wm.ooo_from, wm.ooo_to, wm.ooo_note, wm.joined_at,
+  select wm.user_id, wm.role_id, wm.active, wm.invitation_pending, wm.ooo_from, wm.ooo_to, wm.ooo_note, wm.joined_at,
          json_build_object('id', u.id, 'name', u.name, 'initials', u.initials, 'email', u.email) as users,
          case when r.id is null then null
               else json_build_object('name', r.name, 'is_admin', r.is_admin) end as roles
@@ -43,7 +43,7 @@ agents.get('/', async (c) => {
 // Scoped twin of the god owner-invite (routes/god.ts): same Better-Auth user
 // minting + set-password email, but on the caller's own workspace and at a
 // caller-chosen role (not hardcoded Admin). Idempotent — re-inviting an
-// existing member updates their role, reactivates them, and re-sends the link.
+// existing member updates their role and re-sends the link, preserving status.
 const InviteAgent = z.object({
   email:   z.string().email(),
   name:    z.string().trim().min(1).max(120).optional(),
@@ -106,10 +106,10 @@ agents.post('/invite', async (c) => {
 
   // Upsert membership at the chosen role (composite PK → idempotent).
   await sql`
-    insert into workspace_members (workspace_id, user_id, role_id, active)
-    values (${workspaceId}, ${authUserId}, ${role.id}, true)
+    insert into workspace_members (workspace_id, user_id, role_id, active, invitation_pending)
+    values (${workspaceId}, ${authUserId}, ${role.id}, false, true)
     on conflict (workspace_id, user_id) do update
-      set role_id = excluded.role_id, active = true
+      set role_id = excluded.role_id
   `;
 
   // Email the set-password link (best-effort — membership already exists, so a
@@ -163,12 +163,20 @@ agents.patch('/:userId', async (c) => {
     if (!role) return c.json({ error: 'Role not found in this workspace' }, 400);
   }
 
+  const changes = parsed.data.active === false
+    ? { ...parsed.data, invitation_pending: false } : parsed.data;
   const [updated] = await sql`
-    update workspace_members set ${sql(parsed.data)}
+    update workspace_members set ${sql(changes)}
     where workspace_id = ${workspaceId} and user_id = ${targetUserId}
+      and (${parsed.data.active === true} = false or invitation_pending = false)
     returning user_id
   `;
-  if (!updated) return c.json({ error: 'Membership not found' }, 404);
+  if (!updated) {
+    const [pending] = await sql`select 1 from workspace_members
+      where workspace_id = ${workspaceId} and user_id = ${targetUserId} and invitation_pending`;
+    if (pending) return c.json({ error: 'This agent must complete registration before becoming active.' }, 409);
+    return c.json({ error: 'Membership not found' }, 404);
+  }
 
   // Deactivating a member may remove their last access — revoke their sessions
   // so identity-only endpoints (/whoami, /push) stop working too (#22).
