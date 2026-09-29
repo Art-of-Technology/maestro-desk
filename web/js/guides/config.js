@@ -20,7 +20,7 @@ export const GUIDE_STEPS = [
     title: 'Work through player requests',
     body: 'Open a ticket to reply, add a note, assign it, or change its status.',
     source: 'web/js/tickets/list.js',
-    highlights: ["Choose a ticket from your queue and check its priority and SLA.","Read the conversation and internal notes before replying.","Check ownership so two agents do not reply at once."],
+    highlights: ["Choose a ticket from your queue and check its priority and SLA.","Read the conversation, email dates, receiving inbox and internal notes.","Check ownership so two agents do not reply at once."],
     instructions: [
       'Open Tickets. Check Outstanding for work still needing attention, or Unassigned when your team asks you to pick up new work.',
       'Use search and filters to narrow the list by agent, priority or category. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
@@ -72,11 +72,12 @@ export const GUIDE_STEPS = [
     id: 'reply', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Write a customer reply',
     body: 'Choose Reply, answer the question and check what the customer will receive.',
-    highlights: ["Choose Reply for the customer, or Internal note for colleagues.","Answer the question and explain the next action.","Check the reply language, facts and attachments before sending."],
+    highlights: ["Choose Reply for the customer, or Internal note for colleagues.","Answer the question and explain the next action.","Check To, CC, language, facts and attachments before sending."],
     instructions: [
       'Open the ticket and choose Reply. Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
       'Acknowledge the issue, answer each question and explain the next action. Use the editor for formatting and Attach for relevant files. Check the attachments belong to this customer.',
       'Automatic customer language detection uses the subject and latest customer message. Substantive body text takes precedence if they differ; you can choose a language manually.',
+      'In the email composer, choose Reply for the sender or Reply all to include the other recipients. Check To and edit CC before sending. Your own inboxes and duplicate addresses are excluded.',
       'Open Change beside the reply language to check the customer language and the “Send replies in customer language” setting. If translation is enabled, the outgoing reply may differ from the wording in your editor.',
       'Drafts are saved in this browser separately for Reply and Internal note. A restored draft has not been sent. Do not assume an ordinary draft is available on another device.',
     ],
