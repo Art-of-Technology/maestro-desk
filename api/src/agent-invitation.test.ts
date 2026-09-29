@@ -53,6 +53,8 @@ dbTests('agent invitation registration', () => {
         await sql`insert into workspace_members (workspace_id, user_id, role_id, active)
           values (${otherWorkspace}, ${user.id}, ${otherRole.id}, false)`;
         expect(await status(user.id)).toEqual({ active: false, invitation_pending: true });
+        await expect(auth.api.signInEmail({ body: { email, password: 'Wrong-password-123!' } })).rejects.toThrow();
+        expect((await status(user.id)).active).toBe(false);
         expect((await patch(user.id, true)).status).toBe(409);
         await invite();
         expect(await status(user.id)).toEqual({ active: false, invitation_pending: true });
@@ -76,6 +78,17 @@ dbTests('agent invitation registration', () => {
         expect((await patch(user.id, false)).status).toBe(200);
         await invite();
         await reset(user.id);
+        expect(await status(user.id)).toEqual({ active: false, invitation_pending: false });
+        // A registered user joins another workspace by signing in, without a reset.
+        await sql`delete from workspace_members where workspace_id = ${otherWorkspace} and user_id = ${user.id}`;
+        const secondHeaders = { ...headers, 'X-Workspace-Id': otherWorkspace };
+        const secondInvite = owner
+          ? await god.request(`/brands/${otherWorkspace}/invite`, { method: 'POST', headers, body: JSON.stringify({ email }) })
+          : await agents.request('/invite', { method: 'POST', headers: secondHeaders, body: JSON.stringify({ email, role_id: otherRole.id }) });
+        expect(secondInvite.status).toBe(201);
+        await auth.api.signInEmail({ body: { email, password: 'Registered-password-123!' } });
+        const [joined] = await sql`select active, invitation_pending from workspace_members where workspace_id = ${otherWorkspace} and user_id = ${user.id}`;
+        expect(joined).toEqual({ active: true, invitation_pending: false });
         expect(await status(user.id)).toEqual({ active: false, invitation_pending: false });
       }
     } finally { env.POSTMARK_SERVER_TOKEN = mailToken; }

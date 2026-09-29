@@ -6,6 +6,11 @@ an invitation preserves the member's current status. A password reset cannot
 reactivate a disabled member, and admins cannot activate a pending member before
 registration. Removing the membership cancels access.
 
+Already-registered agents can accept additional workspace invitations by signing
+in with their existing password. Only successful password login activates these
+pending memberships; signup sessions, failed logins and session refresh do not.
+The invitation email and set-password screen also offer this sign-in path.
+
 The password form requires matching passwords. The default guide covers five
 steps; all topics remain available from Guides, with longer instructions under
 More detail.
