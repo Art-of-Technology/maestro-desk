@@ -1,3 +1,4 @@
+import { inboundEmailMetadata } from './email-recipients.js';
 import { getDb } from './db.js';
 import { reopenOnCustomerReply } from './reopen-customer-reply.js';
 import { applyAssignmentRules } from './assign-rules-engine.js';
@@ -384,9 +385,10 @@ export async function processInboundEmail(args: {
   // 3. First message from the email body. The RFC Message-ID is stored so we
   //    can thread our reply via In-Reply-To when auto-reply fires.
   const authorLabel = name?.trim() || email;
+  const emailMetadata = await inboundEmailMetadata(workspaceId, payload);
   const [newMessage] = await sql<{ id: string }[]>`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
-    values (${workspaceId}, ${newTicket.id}, 'customer', ${authorLabel}, ${body}, ${externalMessageId})
+    insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id, email_metadata)
+    values (${workspaceId}, ${newTicket.id}, 'customer', ${authorLabel}, ${body}, ${externalMessageId}, ${sql.json(emailMetadata)})
     returning id
   `;
   if (!newMessage) throw new Error('Message create failed');
@@ -485,6 +487,7 @@ async function attachReplyToTicket(args: {
   const sql = getDb();
 
   const authorLabel = name?.trim() || email;
+  const emailMetadata = await inboundEmailMetadata(workspaceId, payload);
   const saved = await sql.begin(async (tx) => {
     const senderId = await spamSender(tx, workspaceId, email);
     if (senderId) {
@@ -495,8 +498,8 @@ async function attachReplyToTicket(args: {
       if (ticket?.customer_id !== senderId || ticket.status_key !== 'closed' || ticket.closure_reason !== 'spam') return null;
     } else await reopenOnCustomerReply(tx, workspaceId, ticketId);
     const [message] = await tx<{ id: string }[]>`
-      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id)
-      values (${workspaceId}, ${ticketId}, 'customer', ${authorLabel}, ${body}, ${externalMessageId})
+      insert into ticket_messages (workspace_id, ticket_id, role, author_label, body, external_message_id, email_metadata)
+      values (${workspaceId}, ${ticketId}, 'customer', ${authorLabel}, ${body}, ${externalMessageId}, ${tx.json(emailMetadata)})
       returning id
     `;
     return { message, spam: !!senderId };

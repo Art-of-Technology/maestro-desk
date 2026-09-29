@@ -645,6 +645,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   const ticketByUuid = Object.fromEntries(TICKETS.map((x) => [x._uuid, x.id]));
 
   // Map messages to data.js shape ({from, r, t, ts, mentions, mergedFrom?}).
+  t.replyRecipients = d.reply_recipients || null;
   t.msgs = (d.messages || []).map((m) => ({
     _uuid:      m.id,
     from:       m.author_label,
@@ -656,6 +657,8 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     internalReview: m.internal_review || null,
     attachments: m.attachments || [],
     ts:         fmtTime(m.created_at),
+    createdAt: m.created_at,
+    email: m.email_metadata || null,
     mentions:   m.mentions || [],
     sentiment:  m.sentiment || null,
     mergedFrom: m.merged_from_id ? (ticketByUuid[m.merged_from_id] || null) : undefined,

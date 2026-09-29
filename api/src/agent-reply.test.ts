@@ -105,6 +105,54 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(row.external_message_id).toMatch(/^<.+@.+>$/);
   });
 
+  it('sends reviewed reply-all recipients, keeps CC out of customer identity, and rejects invalid or foreign sources', async () => {
+    const email = `envelope-${RUN}@acme.test`, cc = `colleague-${RUN}@acme.test`;
+    const tid = await seedTicket(`AR-${RUN}-envelope`, { email });
+    await sql`insert into channels (workspace_id,display_id,name,type,address)
+      values (${ctx.wsId},${'CH-env-'+RUN},'VIP','email','vip@acme.test')`;
+    const [source] = await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,external_message_id,email_metadata)
+      values (${ctx.wsId},${tid},'customer','Customer','Question','<original@example.test>',${sql.json({from:email,to:['vip@acme.test',cc],cc:[email,cc,'support@maestro.test'],status:'received',received_via:'vip@acme.test',sent_at:'2026-09-29T12:30:00Z'})}) returning id`;
+    const detail = await (await as(`/api/v1/tickets/${tid}`)).json() as any;
+    expect(detail.ticket.reply_recipients.to).toEqual([email]);
+    expect(detail.ticket.reply_recipients.cc).toEqual([cc]);
+    const recipients = {source_message_id:source.id,to:[email],mode:'reply_all',cc:[cc,cc.toUpperCase(),'vip@acme.test',email]};
+    const send = (email_recipients: unknown, role='agent', ticket=tid) => as(`/api/v1/tickets/${ticket}/messages`, {method:'POST',body:JSON.stringify({role,body:'Reply',email_recipients})});
+    const sent = await (await send(recipients)).json() as any;
+    expect(sent.delivery.emailed).toBe(true);
+    expect(lastBody.To).toBe(email);
+    expect(lastBody.Cc).toBe(cc);
+    expect(lastBody.Headers).toContainEqual({Name:'In-Reply-To',Value:'<original@example.test>'});
+    expect(sent.message.email_metadata).toEqual({from:'support@maestro.test',to:[email],cc:[cc],status:'sent',sent_at:'2026-01-01T00:00:00Z'});
+    expect(await sql`select id from customer_contacts where workspace_id=${ctx.wsId} and value=${cc}`).toHaveLength(0);
+    const other = await seedTicket(`AR-${RUN}-foreign-envelope`, {email:'elsewhere@acme.test'});
+    expect((await send(recipients,'agent',other)).status).toBe(400);
+    expect((await send({...recipients,cc:['bad\r\nBcc: leak@example.test']})).status).toBe(400);
+    expect((await send({...recipients,to:['changed@example.test']})).status).toBe(409);
+    expect((await send(recipients,'note')).status).toBe(400);
+    expect(postmarkCalls).toBe(1);
+    failMail=true;
+    const failed = await (await send({...recipients,mode:'reply',cc:[]})).json() as any;
+    expect(failed.delivery.emailed).toBe(false);
+    expect(failed.message.email_metadata.status).toBe('saved');
+    expect(failed.message.email_metadata.to).toEqual([email]);
+    expect(failed.message.email_metadata.cc).toEqual([]);
+    expect(failed.message.email_metadata.sent_at).toBeUndefined();
+    const reloaded = await (await as(`/api/v1/tickets/${tid}`)).json() as any;
+    expect(reloaded.ticket.messages.find((m:any)=>m.id===failed.message.id).email_metadata.status).toBe('saved');
+    // The third party's erasure also reaches envelopes on this customer's ticket.
+    const [third] = await sql`insert into customers(workspace_id,display_id,first_name,email) values (${ctx.wsId},${'CC-'+RUN},'Colleague',${cc}) returning id`;
+    failMail=false;
+    await sql`update customers set email_bounce_state='hard' where id=${third.id}`;
+    const callsBeforeSuppression=postmarkCalls;
+    const suppressed=await (await send(recipients)).json() as any;
+    expect(suppressed.delivery.reason).toBe('email_suppressed');
+    expect(postmarkCalls).toBe(callsBeforeSuppression);
+    const {eraseCustomer}=await import('./lib/gdpr-erasure.js');
+    await eraseCustomer({workspaceId:ctx.wsId,customerId:third.id,requestedByUserId:admin.userId});
+    const [redacted]=await sql`select email_metadata from ticket_messages where id=${source.id}`;
+    expect(redacted.email_metadata).toBeNull();
+  });
+
   it('emails only customer text from a structured suggestion, without internal evidence', async () => {
     const { parseCustomerReply } = await import('./lib/customer-reply.js');
     const suggested = parseCustomerReply({

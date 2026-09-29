@@ -114,6 +114,28 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
     expect(inboxRow.channel_id).toBe(ctx.chComplaints);
   });
 
+  it('stores actual envelope details on initial and threaded mail without inventing a fallback inbox', async () => {
+    const sender=`envelope-${RUN}@cust.test`;
+    const first=await processInboundEmail({workspaceId:ctx.ws,payload:{
+      ...inbound({from:sender,to:'transport@inbound.postmarkapp.com',subject:'Envelope',text:'Hello',messageId:`<env-${RUN}@cust.test>`}),
+      ToFull:[{Email:'transport@inbound.postmarkapp.com'},{Email:addr('complaint')}],
+      CcFull:[{Email:'colleague@example.test'}], ReplyTo:'Customer <reply@example.test>', Date:'Tue, 29 Sep 2026 12:30:00 +0100',
+    }});
+    const [message]=await sql`select email_metadata from ticket_messages where ticket_id=${first.ticket_id} and role='customer'`;
+    expect(message.email_metadata.received_via).toBe(addr('complaint'));
+    expect(message.email_metadata.sent_at).toBe('2026-09-29T11:30:00.000Z');
+    expect(message.email_metadata.reply_to).toBe('reply@example.test');
+    expect(message.email_metadata.cc).toEqual(['colleague@example.test']);
+    const reply=await processInboundEmail({workspaceId:ctx.ws,payload:{
+      ...inbound({from:sender,to:addr('unmatched'),subject:'Re: Envelope',text:'Follow up',messageId:`<env2-${RUN}@cust.test>`,inReplyTo:`<env-${RUN}@cust.test>`}), Date:'not a date',
+    }});
+    expect(reply.threaded).toBe(true);
+    expect(reply.ticket_id).toBe(first.ticket_id);
+    const [latest]=await sql`select email_metadata from ticket_messages where ticket_id=${first.ticket_id} and body='Follow up'`;
+    expect(latest.email_metadata.received_via).toBeNull();
+    expect(latest.email_metadata.sent_at).toBeNull();
+  });
+
   it('stores a blank HTML-only email as the placeholder and keeps the original HTML on the inbox row', async () => {
     // Gmail mobile: empty TextBody, wrapper-only HtmlBody. The thread must not
     // show the raw tag; the inbox audit row keeps the original for later.

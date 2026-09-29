@@ -1,3 +1,4 @@
+import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
@@ -253,7 +254,7 @@ tickets.get('/:id', async (c) => {
 
   const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity, aiDraftRows] = await Promise.all([
     sql<{ id: string; body_html: string | null }[]>`
-        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at,
+        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata,
           r.review as internal_review
         from ticket_messages m left join reply_internal_reviews r
           on r.message_id=m.id and r.workspace_id=m.workspace_id
@@ -293,6 +294,7 @@ tickets.get('/:id', async (c) => {
       ...ticket,
       csat_send_claim: undefined,
       csat_send_started_at: undefined,
+      reply_recipients: await ticketReplyRecipients(workspaceId, ticketId),
       messages:     decorateMessages(msgs, attachmentsByMsg),
       tags:         tags.map((r: any) => r.tag),
       ai_tags:      aiTags,
@@ -705,6 +707,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
   role:     z.enum(['agent', 'note']),
+  email_recipients: EmailRecipients.optional(),
   // Plain-text body. Optional only when body_html is supplied (the text part
   // is then derived from it for plain-text mail clients and search).
   body:     z.string().min(1).max(100_000).optional(),
@@ -741,6 +744,11 @@ tickets.post('/:id/messages', async (c) => {
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
   `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+
+  if (input.email_recipients) {
+    if (input.role !== 'agent') return c.json({ error: 'Internal notes cannot have email recipients.' }, 400);
+    await ticketReplyRecipients(workspaceId, ticketId, input.email_recipients);
+  }
 
   // Resolve author display name from public.users so the row carries the
   // canonical name without trusting the client.
@@ -813,8 +821,8 @@ tickets.post('/:id/messages', async (c) => {
   try {
     message = await sql.begin(async (tx) => {
       const [row] = await tx<{ id: string; body_html: string | null; [key: string]: unknown }[]>`
-        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions)
-        values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []})
+        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions, email_metadata)
+        values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []}, ${input.role === 'agent' ? tx.json({ status: 'saved', from: '', to: [], cc: [] }) : null})
         returning id, role, author_user_id, author_label, body, body_html, mentions, created_at
       `;
       await claimAttachments(tx, { workspaceId, ticketId, messageId: row.id, ids: claimIds });
@@ -870,13 +878,16 @@ tickets.post('/:id/messages', async (c) => {
         : [];
       delivery = await sendAgentReplyEmail({
         workspaceId, ticketId, messageId: message.id, authorUserId: userId,
-        body: bodyText, bodyHtml, attachments: files,
+        body: bodyText, bodyHtml, attachments: files, recipients: input.email_recipients,
       });
     } catch (err) {
       console.error('[agent-reply] send threw:', err instanceof Error ? err.message : err);
       delivery = { emailed: false, reason: 'send_failed' };
     }
   }
+
+  const [emailRow] = await sql`select email_metadata from ticket_messages where id=${message.id} and workspace_id=${workspaceId}`;
+  Object.assign(message, { email_metadata: emailRow?.email_metadata || (input.role === 'agent' ? { status: 'saved', from: '', to: [], cc: [] } : null) });
 
   // Return the message in the same shape GET /:id uses (cid: tokens swapped for
   // presigned URLs, attachments listed) so the composer can push it straight
@@ -1212,8 +1223,8 @@ tickets.post('/:id/merge', async (c) => {
     `;
 
     // 2. Copy source messages onto primary, tagged with merged_from_id.
-    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null }[]>`
-      select id, role, author_user_id, author_label, body, mentions
+    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null; email_metadata: any }[]>`
+      select id, role, author_user_id, author_label, body, mentions, email_metadata
       from ticket_messages
       where ticket_id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
       order by created_at asc
@@ -1227,9 +1238,9 @@ tickets.post('/:id/merge', async (c) => {
     `;
     for (const m of srcMsgs) {
       const [copy] = await sql`
-        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id)
+        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id, email_metadata)
         values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
-                ${m.body}, ${m.mentions || []}, ${sourceId})
+                ${m.body}, ${m.mentions || []}, ${sourceId}, ${m.email_metadata ? sql.json(m.email_metadata) : null})
         returning id
       `;
       await sql`insert into reply_internal_reviews(message_id, workspace_id, review, saved_at)

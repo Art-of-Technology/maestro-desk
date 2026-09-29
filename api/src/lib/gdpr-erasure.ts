@@ -41,7 +41,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -109,6 +109,18 @@ export async function eraseCustomer(args: {
     `;
     const ticketIds = ticketRows.map((r) => r.id);
 
+    // A CC or third-party sender can also appear on somebody else's ticket.
+    // Clear that envelope without granting the contact ownership of the ticket.
+    await sql`update ticket_messages m set email_metadata=null where m.workspace_id=${workspaceId}
+      and m.email_metadata is not null and exists (
+        select 1 from jsonb_path_query(m.email_metadata, '$.** ? (@.type() == "string")') value
+        where lower(value #>> '{}') in (
+          select lower(value::text) from customer_contacts where workspace_id=${workspaceId}
+            and customer_id=${customerId} and kind='email'
+          union select lower(${email}::text)
+        )
+      )`;
+
     let messagesRedacted = 0;
     let ticketsAffected = 0;
     let inboxRedacted = 0;
@@ -129,6 +141,7 @@ export async function eraseCustomer(args: {
           -- The formatted body holds the same personal data as the text body
           -- (plus the customer's own markup): it must go with it.
           body_html = null,
+          email_metadata = null,
           author_label = case when role = 'customer' then ${ERASED} else author_label end
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
       `;
