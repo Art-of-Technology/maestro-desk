@@ -264,9 +264,9 @@ export function renderTickets() {
   // initTicketsPage reads this and applies the indeterminate DOM property after innerHTML.
   TICKET_HEADER_CB_INDETERMINATE = someSelected;
 
-  const bulkBar = TICKET_SELECTED_IDS.size > 0 ? `
-    <div style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
-      <span style="font-size:12px;color:var(--purple);font-weight:600">${TICKET_SELECTED_IDS.size} selected</span>
+  const bulkBar = `
+    <div id="ticket-bulk-bar" style="padding:8px 20px;border-bottom:1px solid var(--rule);background:var(--purple-lt);display:${TICKET_SELECTED_IDS.size ? 'flex' : 'none'};align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap">
+      <span id="ticket-selection-count" role="status" style="font-size:12px;color:var(--purple);font-weight:600">${TICKET_SELECTED_IDS.size} selected</span>
       <button class="btn btn-sm" data-action="tickets.bulkAssign">Assign…</button>
       <select class="filter-select" data-change-action="tickets.bulkStatus">
         <option value="">Set status…</option>
@@ -294,7 +294,7 @@ export function renderTickets() {
       <button class="btn btn-sm" data-action="tickets.bulkExport">Export selected</button>
       ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" data-action="tickets.bulkDelete">Delete</button>` : ''}
       <button class="btn btn-sm" data-action="tickets.clearSelection" style="margin-left:auto">Clear selection</button>
-    </div>` : '';
+    </div>`;
 
   return `
     <div class="page ticket-work-page">
@@ -393,7 +393,7 @@ export function renderTickets() {
         </span>
         </div>
       </div>
-      <div style="flex:1;overflow-y:auto">
+      <div id="ticket-list-scroll" style="flex:1;overflow-y:auto">
         <table class="tbl">
           <thead><tr>
             <th style="width:32px;padding-right:0" data-action="">
@@ -600,10 +600,36 @@ function groupTicketsBy(list, by) {
   return [...groups.entries()].map(([key, items]) => ({ key, items }));
 }
 
+// Selection changes must not replace the table, its scroll container or focused checkbox.
+function refreshTicketSelection() {
+  const scroller = document.getElementById('ticket-list-scroll');
+  const table = scroller?.querySelector('table');
+  const top = table?.getBoundingClientRect().top;
+  const bar = document.getElementById('ticket-bulk-bar');
+  const focusWasInBar = bar?.contains(document.activeElement);
+  scroller?.querySelectorAll('[data-change-action="tickets.toggleSelected"]').forEach(cb => {
+    cb.checked = TICKET_SELECTED_IDS.has(cb.dataset.id);
+    cb.closest('tr').style.background = cb.checked ? 'var(--purple-lt)' : '';
+  });
+  const ids = getFilteredTickets().map(t => t.id);
+  const all = ids.length > 0 && ids.every(id => TICKET_SELECTED_IDS.has(id));
+  const header = document.getElementById('ticket-select-all-cb');
+  if (header) {
+    header.checked = all;
+    header.indeterminate = !all && ids.some(id => TICKET_SELECTED_IDS.has(id));
+  }
+  const count = document.getElementById('ticket-selection-count');
+  if (count) count.textContent = TICKET_SELECTED_IDS.size + ' selected';
+  if (bar) bar.style.display = TICKET_SELECTED_IDS.size ? 'flex' : 'none';
+  // Compensate for the toolbar appearing/disappearing above the same live table.
+  if (table) scroller.scrollTop += table.getBoundingClientRect().top - top;
+  if (!TICKET_SELECTED_IDS.size && focusWasInBar) header?.focus({ preventScroll: true });
+}
+
 function toggleTicketSelected(id) {
   if (TICKET_SELECTED_IDS.has(id)) TICKET_SELECTED_IDS.delete(id);
   else TICKET_SELECTED_IDS.add(id);
-  renderPage('tickets');
+  refreshTicketSelection();
 }
 
 function toggleAllTickets() {
@@ -611,10 +637,10 @@ function toggleAllTickets() {
   const allSelected = ids.length > 0 && ids.every(id => TICKET_SELECTED_IDS.has(id));
   if (allSelected) ids.forEach(id => TICKET_SELECTED_IDS.delete(id));
   else ids.forEach(id => TICKET_SELECTED_IDS.add(id));
-  renderPage('tickets');
+  refreshTicketSelection();
 }
 
-function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); renderPage('tickets'); }
+function clearTicketSelection() { TICKET_SELECTED_IDS.clear(); refreshTicketSelection(); }
 
 let bulkAssignmentBusy = false;
 function bulkAssignTickets() {

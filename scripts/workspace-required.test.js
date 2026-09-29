@@ -8,6 +8,7 @@ document.getElementById = id => {
   return nodes.get(id);
 };
 window.escHtml = window.escAttr = value => String(value ?? '');
+window.canDeleteRecords = () => false;
 const { renderPage } = await import('../web/js/core/router.js');
 const { setJwt, setWorkspaceId } = await import('../web/js/core/api-client.js');
 const { loadWorkQueue, workQueueState } = await import('../web/js/tickets/work-queue.js');
