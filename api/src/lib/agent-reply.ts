@@ -18,7 +18,7 @@ import {
 import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
-import { resolveTicketRecipient } from './ticket-recipient.js';
+import { ticketReplyRecipients, type RecipientInput } from './email-recipients.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
 import type { OutboundFile } from './message-attachments.js';
 
@@ -33,6 +33,7 @@ export type AgentReplyDelivery =
       detail?: string };
 
 export async function sendAgentReplyEmail(args: {
+  recipients?: RecipientInput;
   workspaceId:  string;
   ticketId:     string;
   messageId:    string;   // the just-inserted agent ticket_messages row
@@ -46,7 +47,6 @@ export async function sendAgentReplyEmail(args: {
   attachments?: OutboundFile[];
 }): Promise<AgentReplyDelivery> {
   const { workspaceId, ticketId, messageId, authorUserId, body } = args;
-  if (!isPostmarkConfigured()) return { emailed: false, reason: 'postmark_not_configured' };
   const sql = getDb();
 
   const [ctx] = await sql<{
@@ -58,8 +58,11 @@ export async function sendAgentReplyEmail(args: {
     join workspaces w on w.id = t.workspace_id
     where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
   `;
-  const recipient = ctx ? await resolveTicketRecipient(workspaceId, ticketId) : null;
-  if (!ctx || !recipient) return { emailed: false, reason: 'no_customer_email' };
+  const recipient = ctx ? await ticketReplyRecipients(workspaceId, ticketId, args.recipients) : null;
+  if (!ctx || !recipient?.can_send) return { emailed: false, reason: 'no_customer_email' };
+  await sql`update ticket_messages set email_metadata=${sql.json({ from: '', to: recipient.to, cc: args.recipients ? recipient.cc : [], status: 'saved' })}
+    where id=${messageId} and workspace_id=${workspaceId}`;
+  if (!isPostmarkConfigured()) return { emailed: false, reason: 'postmark_not_configured' };
   // Don't email addresses that hard-bounced or were marked as spam — sending
   // again hurts sender reputation. (Soft bounces are transient → allowed.)
   if (recipient.suppressed) {
@@ -85,11 +88,12 @@ export async function sendAgentReplyEmail(args: {
     const result = await sendBrandedEmail({
       workspaceId,
       fallbackFromName: ctx.ws_name || 'Support',
-      to: recipient.email,
+      to: recipient.to.join(','),
+      cc: args.recipients ? recipient.cc.join(',') : undefined,
       subject: replySubject(ctx.subject),
       textBody: composed.text,
       htmlBody: composed.html,
-      inReplyTo: lastMsg?.external_message_id ?? null,
+      inReplyTo: args.recipients ? recipient.in_reply_to : recipient.in_reply_to || lastMsg?.external_message_id || null,
       replyTo: await resolveTicketReplyTo(workspaceId, ticketId),
       attachments: (args.attachments ?? []).map((f) => ({
         Name: f.filename,
@@ -101,7 +105,9 @@ export async function sendAgentReplyEmail(args: {
     // Stamp the RFC Message-Id (with brackets + domain) onto this reply so a
     // customer reply's In-Reply-To resolves to exactly this row.
     await sql`
-      update ticket_messages set external_message_id = ${result.rfcMessageId}
+      update ticket_messages set external_message_id = ${result.rfcMessageId},
+        email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
+          status: 'sent', sent_at: result.submittedAt })}
       where id = ${messageId} and workspace_id = ${workspaceId}
     `;
     return { emailed: true, reason: 'sent', postmark_message_id: result.messageId };

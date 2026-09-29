@@ -31,6 +31,17 @@ export function saveDraft(id, value, tab) {
 export function clearDraft(id, tab) {
   localStorage.removeItem(getDraftKey(id, tab));
   localStorage.removeItem(getDraftKey(id, tab) + ':ai-review');
+  localStorage.removeItem(getDraftKey(id, tab) + ':email-recipients');
+}
+
+export function loadDraftRecipients(id) {
+  try {
+    const value = JSON.parse(localStorage.getItem(getDraftKey(id, 'reply') + ':email-recipients') || 'null');
+    return value && ['reply', 'reply_all'].includes(value.mode) && Array.isArray(value.to) && typeof value.cc === 'string' ? value : null;
+  } catch { return null; }
+}
+export function saveDraftRecipients(id, value) {
+  localStorage.setItem(getDraftKey(id, 'reply') + ':email-recipients', JSON.stringify(value));
 }
 
 export function loadDraftReview(id, tab) {

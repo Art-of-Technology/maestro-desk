@@ -16,6 +16,7 @@ const ENDPOINT = 'https://api.postmarkapp.com/email';
 const STREAM = 'outbound';   // default transactional stream
 
 export interface SendEmailArgs {
+  cc?: string;
   to: string;
   subject: string;
   textBody: string;
@@ -105,6 +106,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   // allowed". It must go in the dedicated top-level `ReplyTo` field instead.
   const body: {
     From: string;
+    Cc?: string;
     To: string;
     Subject: string;
     TextBody: string;
@@ -116,6 +118,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   } = {
     From: formatFrom(args.fromName, args.fromEmail),
     To: args.to,
+    ...(args.cc ? { Cc: args.cc } : {}),
     Subject: args.subject,
     TextBody: args.textBody,
     MessageStream: STREAM,

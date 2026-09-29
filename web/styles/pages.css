@@ -768,3 +768,20 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
   .performance-filters input,.performance-filters select { width: 100%; min-width: 0; }
   .performance-kpis { grid-template-columns: minmax(0,1fr); }
 }
+
+/* Email envelope and composer recipients */
+.msg-from { flex-wrap: wrap; }
+.message-time { text-transform: none; letter-spacing: normal; margin-left: auto; color: var(--ink2); font-size: 12px; font-weight: 500; }
+.message-email-details { margin: 8px 0 14px; font-size: 12px; color: var(--ink2); overflow-wrap: anywhere; }
+.message-email-details dl { margin: 6px 0; }
+.message-email-details dl > div { display: flex; gap: 8px; margin: 3px 0; }
+.message-email-details dt { flex: 0 0 92px; color: var(--ink3); }
+.message-email-details dd { margin: 0; min-width: 0; }
+.message-email-details summary { cursor: pointer; padding: 4px 0; }
+.email-inbox { padding: 5px 0; }
+.reply-recipients { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.reply-recipients select, .reply-recipients input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--off); color: var(--ink); font: inherit; }
+.reply-recipients select { width: fit-content; }
+.reply-to { overflow-wrap: anywhere; }
+.reply-recipients small { grid-column: 2; color: var(--ink3); }
+@media (max-width: 600px) { .message-time { width: 100%; margin-left: 0; } }

@@ -96,7 +96,7 @@ export async function exportCustomer(args: {
   // All messages for the customer's tickets in one query, grouped in JS.
   const messages = ticketIds.length
     ? await sql<Record<string, unknown>[]>`
-        select ticket_id, role, author_label, body, body_html, created_at
+        select ticket_id, role, author_label, body, body_html, email_metadata, created_at
         from ticket_messages
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
           and deleted_at is null

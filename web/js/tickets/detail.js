@@ -54,6 +54,8 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
+import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
   hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
@@ -457,7 +459,8 @@ export function openTicket(id) {
     const sentimentBadge = m.r === 'customer' ? renderSentimentBadge(m.sentiment) : '';
     return `
     <div class="msg msg-${m.r}">
-      <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span style="margin-left:auto;font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3)">${window.escHtml(m.ts)}</span></div>
+      <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span class="message-time">${window.escHtml(messageTime(m))}</span></div>
+      ${renderEmailDetails(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
       ${m.r === 'note' ? '' : bodyNote}
@@ -600,6 +603,7 @@ export function openTicket(id) {
               </span>
             </div>
             <div class="composer-body" id="composer-body-${id}">
+              ${COMPOSE_TAB === 'reply' ? renderReplyRecipients(t) : ''}
               ${COMPOSE_TAB === 'reply'
                 // Rich editor host. Quill mounts into it after render
                 // (mountComposer below); the draft is restored as HTML there.
@@ -1067,6 +1071,7 @@ export function onComposeInput(id) {
   const text = getPlainText(id);
   saveDraft(id, draft);
   const ticket=TICKETS.find(t=>t.id===id);
+  if(COMPOSE_TAB==='reply' && ticket?.replyRecipients) saveDraftRecipients(id, replyDraft(ticket));
   if(COMPOSE_TAB==='reply')queueSharedAiDraftSave(id,ticket?._uuid,text,getHtml(id));
   const launcher = document.querySelector?.(`#ticket-page-${id} [data-compose-launch][data-tab="${COMPOSE_TAB}"]`);
   if (launcher) launcher.textContent = (COMPOSE_TAB === 'reply' ? 'Reply' : 'Internal note') + (draft ? ' · draft' : '');
@@ -1154,11 +1159,19 @@ async function sendComposeOnce(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return false;
   const scope = getWorkspaceId(), jwt = getJwt(), tab = COMPOSE_TAB;
+  if (tab === 'reply' && t._uuid && !t.replyRecipients) {
+    showToast('Email details are still loading. Try again in a moment.', 'error');
+    return false;
+  }
+  const recipients = tab === 'reply' ? replyRecipientPayload(t) : undefined;
+  const ccInput = document.getElementById(`reply-cc-${id}`);
+  if (tab === 'reply' && ccInput && !ccInput.reportValidity()) return false;
   const draftHtml = getHtml(id);
   const customerText = latestCustomerText(t).text;
   const stillCurrent = () => scope === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id
     && tab === COMPOSE_TAB && getPlainText(id).trim() === txt && getHtml(id) === draftHtml
-    && customerText === latestCustomerText(t).text;
+    && customerText === latestCustomerText(t).text
+    && JSON.stringify(recipients) === JSON.stringify(tab === 'reply' ? replyRecipientPayload(t) : undefined);
 
   // Soft double-handling guard — only for outbound replies, and only
   // for API-backed tickets where presence is actually running. Demo
@@ -1220,6 +1233,7 @@ async function sendComposeOnce(id) {
     try {
       const res = await apiPost(`/api/v1/tickets/${t._uuid}/messages`, {
         role: isNote ? 'note' : 'agent',
+        email_recipients: recipients,
         body: outgoing,
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
@@ -1238,6 +1252,8 @@ async function sendComposeOnce(id) {
     if (delivery) notifyReplyDelivery(delivery);
     t.msgs.push({
       _uuid: message.id,
+      createdAt: message.created_at,
+      email: message.email_metadata || null,
       from: message.author_label,
       r: message.role,
       t: message.body,
@@ -1277,7 +1293,7 @@ async function sendComposeOnce(id) {
 // Exported: the new-ticket flow (tickets/new-ticket.js) reuses the same
 // delivery→toast mapping after sending a first message on a fresh ticket.
 export function notifyReplyDelivery(delivery) {
-  if (delivery.emailed) { showToast('✓ Emailed to the customer', 'success'); return; }
+  if (delivery.emailed) { showToast('✓ Email sent', 'success'); return; }
   const msg = {
     no_customer_email:       'Reply saved. Not emailed — no email address on file for this customer.',
     email_suppressed:        'Reply saved. Not emailed — this address previously hard-bounced or was marked spam.',
@@ -1299,6 +1315,12 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.refreshRecipients': (ds) => {
+    const ticket = TICKETS.find(t => t.id === ds.ticketId);
+    if (!ticket?.replyRecipients) return;
+    changeReplyMode(ticket, replyDraft(ticket).mode);
+    openTicket(ticket.id);
+  },
   'td.savedActivity': ds => showSavedTicketActivity(ds.ticketUuid),
   // Snooze + merge banners
   'td.unsnooze':       (ds) => unsnoozeTicket(ds.ticketId),
@@ -1374,6 +1396,13 @@ registerActions({
 });
 
 registerChangeActions({
+  'td.replyMode': (ds, el) => {
+    const t = TICKETS.find(t => t.id === ds.ticketId);
+    if (!t?.replyRecipients) return;
+    changeReplyMode(t, el.value);
+    openTicket(t.id);
+    document.getElementById(`reply-mode-${t.id}`)?.focus({ preventScroll: true });
+  },
   'td.setCategory': async (ds, el) => {
     const t = TICKETS.find(x => x.id === ds.ticketId);
     el.disabled = true;
@@ -1393,6 +1422,10 @@ registerChangeActions({
 });
 
 registerInputActions({
+  'td.replyCc': (ds, el) => {
+    const t = TICKETS.find(t => t.id === ds.ticketId);
+    if (t) saveDraftRecipients(t.id, { ...replyDraft(t), cc: el.value });
+  },
   'td.composeInput': (ds) => onComposeInput(ds.ticketId),
 });
 

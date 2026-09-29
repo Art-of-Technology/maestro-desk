@@ -32,6 +32,9 @@ export const PostmarkInbound = z
     ToFull: z
       .array(z.object({ Email: z.string() }))
       .optional(),                                // the address it was sent to (our inbound addr)
+    CcFull: z.array(z.object({ Email: z.string() })).optional(),
+    ReplyTo: z.string().optional(),
+    OriginalRecipient: z.string().optional(),
     Headers: z
       .array(z.object({ Name: z.string(), Value: z.string() }))
       .optional(),                                // full RFC headers; we read Message-ID for threading
