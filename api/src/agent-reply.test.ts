@@ -29,15 +29,17 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   let postmarkCalls = 0;
   let lastBody: any = null;
   let failMail = false;
+  let rejectedSender = '';
   let mailGate: Promise<void> | null = null;
 
   beforeEach(() => {
-    postmarkCalls = 0; lastBody = null; failMail = false; mailGate = null;
+    postmarkCalls = 0; lastBody = null; failMail = false; mailGate = null; rejectedSender = '';
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith('https://api.postmarkapp.com/email')) {
         postmarkCalls++;
         lastBody = JSON.parse(String(init?.body ?? '{}'));
+        if (rejectedSender && lastBody.From.includes(rejectedSender)) return new Response(JSON.stringify({ErrorCode:400,Message:'Sender signature rejected'}), {status:422});
         if (mailGate) await mailGate;
         if (failMail) return new Response('Mail service unavailable', { status: 503 });
         return new Response(JSON.stringify({ MessageID: 'pm-id', SubmittedAt: '2026-01-01T00:00:00Z', To: 'x', ErrorCode: 0, Message: 'OK' }),
@@ -103,6 +105,60 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
       select external_message_id from ticket_messages where id = ${message.id}
     `;
     expect(row.external_message_id).toMatch(/^<.+@.+>$/);
+  });
+
+  it('selects a verified receiving inbox, validates its workspace and current address, and records sender fallback', async () => {
+    const email=`sender-choice-${RUN}@customer.test`, domain=`inboxes-${RUN}.test`, address=`vip@${domain}`;
+    const tid=await seedTicket(`AR-${RUN}-sender-choice`,{email});
+    const [domainRow]=await sql`insert into workspace_email_domains(workspace_id,domain,verified_at) values (${ctx.wsId},${domain},now()) returning id`;
+    const [inbox]=await sql`insert into channels(workspace_id,display_id,name,type,address) values (${ctx.wsId},${'CH-choice-'+RUN},'VIP','email',${address}) returning id`;
+    const [source]=await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,external_message_id,email_metadata)
+      values (${ctx.wsId},${tid},'customer','Customer','Question','<sender-choice@example.test>',${sql.json({from:email,to:[address],cc:[],received_via:address,status:'received'})}) returning id`;
+    const recipients={source_message_id:source.id,to:[email],cc:[],mode:'reply',sending_channel_id:inbox.id,sending_address:address};
+    const send=(selection=recipients)=>as(`/api/v1/tickets/${tid}/messages`,{method:'POST',body:JSON.stringify({role:'agent',body:'Answer',email_recipients:selection})});
+    try {
+      const detail=await (await as(`/api/v1/tickets/${tid}`)).json() as any;
+      expect(detail.ticket.reply_recipients.default_sending_channel_id).toBe(inbox.id);
+      expect(detail.ticket.reply_recipients.sending_inboxes).toContainEqual({id:inbox.id,address,name:'VIP'});
+      const sent=await (await send()).json() as any;
+      expect(sent.delivery.emailed).toBe(true);
+      expect(lastBody.From).toContain(`<${address}>`);
+      expect(lastBody.ReplyTo).toBe(address);
+      expect(lastBody.Headers).toContainEqual({Name:'In-Reply-To',Value:'<sender-choice@example.test>'});
+      expect(sent.message.email_metadata.from).toBe(address);
+      expect(sent.message.email_metadata.reply_to).toBe(address);
+      const calls=postmarkCalls;
+      expect((await send({...recipients,sending_channel_id:crypto.randomUUID()})).status).toBe(409);
+      expect((await send({...recipients,sending_address:'changed@example.test'})).status).toBe(409);
+      const [{provision_brand: otherWs}]=await sql`select provision_brand(${'other-sender-'+RUN},${'other-sender-'+RUN}) as provision_brand`;
+      try {
+        const [foreign]=await sql`insert into channels(workspace_id,display_id,name,type,address) values (${otherWs},'CH-foreign','Foreign','email',${address}) returning id`;
+        expect((await send({...recipients,sending_channel_id:foreign.id})).status).toBe(409);
+      } finally { await sql`delete from workspaces where id=${otherWs}`; }
+      await sql`update channels set status='inactive' where id=${inbox.id}`;
+      expect((await send()).status).toBe(409);
+      await sql`update channels set status='active' where id=${inbox.id}`;
+      await sql`update channels set deleted_at=now() where id=${inbox.id}`;
+      expect((await send()).status).toBe(409);
+      await sql`update channels set deleted_at=null where id=${inbox.id}`;
+      await sql`update workspace_email_domains set verified_at=null where id=${domainRow.id}`;
+      expect((await send()).status).toBe(409);
+      await sql`update workspace_email_domains set verified_at=now() where id=${domainRow.id}`;
+      await sql`update workspace_email_domains set degraded_at=now() where id=${domainRow.id}`;
+      expect((await send()).status).toBe(409);
+      expect(postmarkCalls).toBe(calls);
+      await sql`update workspace_email_domains set degraded_at=null where id=${domainRow.id}`;
+      rejectedSender=address;
+      const fallback=await (await send()).json() as any;
+      expect(fallback.delivery.fallback_from).toBe('support@maestro.test');
+      expect(lastBody.ReplyTo).toBe(address);
+      expect(fallback.message.email_metadata.from).toBe('support@maestro.test');
+      expect(fallback.message.email_metadata.used_fallback_from).toBe(true);
+      expect(postmarkCalls).toBe(calls+2);
+    } finally {
+      await sql`delete from channels where id=${inbox.id}`;
+      await sql`delete from workspace_email_domains where id=${domainRow.id}`;
+    }
   });
 
   it('sends reviewed reply-all recipients, keeps CC out of customer identity, and rejects invalid or foreign sources', async () => {

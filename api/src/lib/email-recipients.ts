@@ -2,11 +2,13 @@ import { z } from 'zod';
 import { HTTPException } from 'hono/http-exception';
 import { getDb } from './db.js';
 import { env } from './env.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { getOutboundFrom, getSendingInboxes } from './outbound-from.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
 import { parseFrom, type PostmarkInbound } from './postmark.js';
 
 export const EmailRecipients = z.object({
+  sending_channel_id: z.string().uuid().nullable().optional(),
+  sending_address: z.string().email().nullable().optional(),
   source_message_id: z.string().uuid().nullable(),
   to: z.array(z.string().trim().email().max(254)).max(1),
   mode: z.enum(['reply', 'reply_all']),
@@ -51,6 +53,11 @@ export async function ticketReplyRecipients(workspaceId: string, ticketId: strin
   const meta = source?.email_metadata as EmailMetadata | null;
   const channels = await sql`select address from channels where workspace_id=${workspaceId} and type='email'`;
   const branded = await getOutboundFrom(workspaceId);
+  const sendingInboxes = await getSendingInboxes(workspaceId);
+  if (input?.sending_channel_id && !sendingInboxes.some(inbox => inbox.id === input.sending_channel_id && inbox.address === input.sending_address?.toLowerCase())) {
+    throw new HTTPException(409, { message: 'The selected sending inbox is unavailable or no longer verified. Choose another From inbox.' });
+  }
+  const defaultInbox = sendingInboxes.find(inbox => inbox.address === meta?.received_via?.toLowerCase());
   const own = new Set(cleanEmails([...channels.map(c => c.address), branded?.fromEmail, env.POSTMARK_OUTBOUND_FROM, env.POSTMARK_INBOUND_REPLY_ADDRESS]));
   const external = (values: string[]) => cleanEmails(values).filter(e => !own.has(e) && !e.endsWith('@inbound.postmarkapp.com'));
   const to = external(meta ? [meta.reply_to || meta.from] : [recipient?.email || '']);
@@ -66,5 +73,7 @@ export async function ticketReplyRecipients(workspaceId: string, ticketId: strin
       and (c.email_bounce_state in ('hard','spam') or c.is_spam or c.erased_at is not null or c.deleted_at is not null)
     limit 1` : [];
   return { source_message_id: source?.id || null, to, cc, in_reply_to: source?.external_message_id || null,
+    sending_inboxes: sendingInboxes, default_sending_channel_id: defaultInbox?.id || null,
+    default_from: branded?.fromEmail || env.POSTMARK_OUTBOUND_FROM || '',
     suppressed: !!recipient?.suppressed || !!blocked.length, can_send: !!recipient && !!to.length };
 }

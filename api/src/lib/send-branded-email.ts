@@ -18,7 +18,8 @@
 // unchanged, so callers keep their existing failure handling.
 
 import { env } from './env.js';
-import { getOutboundFrom } from './outbound-from.js';
+import { HTTPException } from 'hono/http-exception';
+import { getOutboundFrom, requireSendingInbox } from './outbound-from.js';
 import { sendOpsAlert } from './alert.js';
 import { degradeDomainForSendRejection } from './email-domains.js';
 import {
@@ -31,6 +32,8 @@ import {
 
 export interface SendBrandedEmailArgs extends Omit<SendEmailArgs, 'fromEmail' | 'fromName'> {
   workspaceId: string;
+  sendingChannelId?: string | null;
+  expectedSendingAddress?: string | null;
   // From display name used when the workspace has no branded domain (the
   // branded path uses the domain row's own display name). Defaults 'Support'.
   fallbackFromName?: string;
@@ -51,11 +54,17 @@ export function isSenderSignatureError(err: unknown): err is PostmarkSendError {
 }
 
 export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<SendBrandedEmailResult> {
-  const { workspaceId, fallbackFromName, ...mail } = args;
+  const { workspaceId, fallbackFromName, sendingChannelId, expectedSendingAddress, ...mail } = args;
 
   const workspaceFrom = await getOutboundFrom(workspaceId);
   const platformFrom = env.POSTMARK_OUTBOUND_FROM;
-  const fromEmail = workspaceFrom?.fromEmail || platformFrom;
+  // Resolve from the workspace's verified channels immediately before sending.
+  const selectedInbox = sendingChannelId ? await requireSendingInbox(workspaceId, sendingChannelId) : null;
+  if (selectedInbox && selectedInbox.address !== expectedSendingAddress?.toLowerCase()) {
+    throw new HTTPException(409, { message: 'The sending inbox changed. Review the From inbox before sending.' });
+  }
+  const fromEmail = selectedInbox?.address || workspaceFrom?.fromEmail || platformFrom;
+  if (selectedInbox) mail.replyTo = selectedInbox.address;
   const fromName = workspaceFrom?.fromName || fallbackFromName || 'Support';
   // Neither a branded domain nor a platform sender — same terminal state
   // sendEmail itself reports for missing outbound config.

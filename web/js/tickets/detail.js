@@ -1293,12 +1293,13 @@ async function sendComposeOnce(id) {
 // Exported: the new-ticket flow (tickets/new-ticket.js) reuses the same
 // delivery→toast mapping after sending a first message on a fresh ticket.
 export function notifyReplyDelivery(delivery) {
-  if (delivery.emailed) { showToast('✓ Email sent', 'success'); return; }
+  if (delivery.emailed) { showToast(delivery.fallback_from ? `Email sent from ${delivery.fallback_from} because the preferred sender was unavailable.` : '✓ Email sent', delivery.fallback_from ? 'warn' : 'success'); return; }
   const msg = {
     no_customer_email:       'Reply saved. Not emailed — no email address on file for this customer.',
     email_suppressed:        'Reply saved. Not emailed — this address previously hard-bounced or was marked spam.',
     postmark_not_configured: 'Reply saved. Outbound email isn’t configured, so it wasn’t sent.',
     no_from:                 'Reply saved. Not emailed — no sender address is configured for this workspace.',
+    sending_inbox_unavailable: 'Reply saved but not emailed. The sending inbox changed or is no longer verified. Choose another From inbox.',
     send_failed:             'Reply saved, but the email failed to send. Try again or reach the customer another way.',
   }[delivery.reason] || 'Reply saved, but it wasn’t emailed.';
   showToast(msg, delivery.reason === 'send_failed' ? 'error' : 'warn', 6000);
@@ -1396,6 +1397,11 @@ registerActions({
 });
 
 registerChangeActions({
+  'td.replyFrom': (ds, el) => {
+    const ticket = TICKETS.find(t => t.id === ds.ticketId);
+    if (ticket) saveDraftRecipients(ticket.id, { ...replyDraft(ticket), sending_channel_id: el.value || null,
+      sending_address: ticket.replyRecipients?.sending_inboxes?.find(inbox => inbox.id === el.value)?.address || null });
+  },
   'td.replyMode': (ds, el) => {
     const t = TICKETS.find(t => t.id === ds.ticketId);
     if (!t?.replyRecipients) return;
