@@ -1,3 +1,4 @@
+import { getAgentReport, invalidateAgentReport } from './statistics.js';
 // ─── Agents ──────────────────────────────────────────────────────────────────
 // Agents config page: roster list with filter bar + KPIs, and per-agent
 // detail view (stats, charts, recent activity, assigned tickets). Admins can
@@ -23,14 +24,38 @@ import { openTicket } from '../tickets/detail.js';
 import { showAgentOOOModal, isAgentOOO } from '../tickets/assignment-rules.js';
 import { reassignAgent, setAgentActive, deleteAgentPrompt } from '../roles/index.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { apiPost } from '../core/api-client.js';
-import { getRoleUuid, reloadAgents } from '../core/bootstrap.js';
+import { apiGet, apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { getRoleUuid, reloadAgents, updateOrInsertTicket } from '../core/bootstrap.js';
 
 let AGENT_FILTER_ROLE = 'all';
 let AGENT_FILTER_STATUS = 'all';
 let AGENT_QUERY = '';
+let AGENT_RANGE = '30d';
+let liveReport = null;
 
-function getAgentStats(name) {
+function periodControls() {
+  const period = liveReport?.data?.period;
+  const format = value => new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const dates = period ? (period.start ? format(period.start) : 'All recorded history') + ' – ' + format(period.end) : '';
+  return `<div class="filter-bar" style="flex-wrap:wrap" data-agent-report>
+    <label for="agent-period" class="filter-label">Performance period</label>
+    <select id="agent-period" class="filter-select" data-change-action="agents.setPeriod">
+      ${[['7d','Last 7 days'],['30d','Last 30 days'],['90d','Last 90 days'],['all','All time']].map(([value,label]) => `<option value="${value}" ${AGENT_RANGE === value ? 'selected' : ''}>${label}</option>`).join('')}
+    </select>
+    <span style="font-size:12px;color:var(--ink3)">${window.escHtml(dates)}${liveReport ? '' : 'Demo figures'}</span>
+    <button class="btn btn-sm" data-action="agents.refreshStats">Refresh</button>
+    <span style="font-size:11px;color:var(--ink3)">Current workload is shown separately.</span>
+  </div>`;
+}
+
+
+function getAgentStats(a) {
+  if (liveReport?.data) {
+    const summary = liveReport.data.summaries.find(s => s.userId === a.userId);
+    return { open: 0, total: 0, resolved: 0, replies: 0, csatCount: 0, avgCSAT: 0, ...summary,
+      eligible: summary?.total || 0, tickets: liveReport.data.detail.tickets };
+  }
+  const name = a.name;
   const tickets = TICKETS.filter(t => t.agent === name);
   const open = tickets.filter(t => t.status === 'open' || t.status === 'escalated').length;
   const resolved = tickets.filter(t => t.status === 'resolved').length;
@@ -40,6 +65,12 @@ function getAgentStats(name) {
 }
 
 export function renderAgents() {
+  const selected = AGENTS.find(a => a.userId === AGENT_SELECTED || a.name === AGENT_SELECTED);
+  if (getJwt() && !document.querySelector('[data-agent-report]')) invalidateAgentReport();
+  liveReport = getAgentReport(AGENT_RANGE, selected?.userId, () => {
+    if (document.body.dataset.currentPage === 'agents') renderPage('agents');
+  });
+  if (liveReport && !liveReport.data) return `<div class="page"><div class="topbar"><div class="tb-title">Agents</div></div>${periodControls()}<div class="page-scroll" role="status">${liveReport.error ? window.escHtml(liveReport.error) : 'Loading agent statistics…'}</div></div>`;
   if (AGENT_SELECTED) return renderAgentDetail(AGENT_SELECTED);
   const admin = window.isAdmin();
   const allRoles = ROLES;
@@ -57,20 +88,20 @@ export function renderAgents() {
   const total = AGENTS.length;
   const activeN = AGENTS.filter(a => a.active).length;
   const totalLoad = AGENTS.filter(a => a.active).reduce((sum, a) =>
-    sum + TICKETS.filter(t => t.agent === a.name && (t.status === 'open' || t.status === 'escalated')).length, 0);
+    sum + getAgentStats(a).open, 0);
   const avgLoad = activeN ? (totalLoad / activeN).toFixed(1) : '0';
 
   let topAgent = null, topCSAT = 0;
   AGENTS.forEach(a => {
-    const s = getAgentStats(a.name);
+    const s = getAgentStats(a);
     if (s.csatCount > 0 && s.avgCSAT > topCSAT) { topCSAT = s.avgCSAT; topAgent = a; }
   });
 
   const cards = list.map(a => {
-    const s = getAgentStats(a.name);
+    const s = getAgentStats(a);
     const ooo = isAgentOOO(a.name);
     return `
-      <div class="agent-card ${a.active?'':'inactive'}" data-action="agents.openDetail" data-name="${window.escAttr(a.name)}">
+      <div class="agent-card ${a.active?'':'inactive'}" data-action="agents.openDetail" data-name="${window.escAttr(a.userId || a.name)}">
         <div class="agent-card-head">
           <div class="agent-av">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:0">
@@ -81,8 +112,8 @@ export function renderAgents() {
         </div>
         ${ooo ? `<div style="font-size:11px;color:var(--amber);font-style:italic;line-height:1.4">${window.escHtml(a.oooNote || `On leave until ${a.oooTo || '—'}`)}</div>` : ''}
         <div class="agent-stats">
-          <div class="agent-stat"><div class="agent-stat-n c-blue">${s.open}</div><div class="agent-stat-l">Open</div></div>
-          <div class="agent-stat"><div class="agent-stat-n">${s.total}</div><div class="agent-stat-l">Total</div></div>
+          <div class="agent-stat"><div class="agent-stat-n c-blue">${s.open}</div><div class="agent-stat-l">Current workload</div></div>
+          <div class="agent-stat"><div class="agent-stat-n">${s.resolved}</div><div class="agent-stat-l">Resolved</div></div>
           <div class="agent-stat"><div class="agent-stat-n c-amber">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="agent-stat-l">CSAT</div></div>
         </div>
       </div>`;
@@ -96,10 +127,11 @@ export function renderAgents() {
           ? `<button class="btn btn-solid btn-sm" data-action="agents.new">+ Invite Agent</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
+      ${periodControls()}
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Total agents</div></div>
         <div class="kpi"><div class="kpi-n c-green">${activeN}</div><div class="kpi-l">Active</div></div>
-        <div class="kpi"><div class="kpi-n c-blue">${avgLoad}</div><div class="kpi-l">Avg open load</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${avgLoad}</div><div class="kpi-l">Avg current workload</div></div>
         <div class="kpi"><div class="kpi-n c-amber" style="font-size:18px;line-height:1.1">${topAgent?window.escHtml(topAgent.name):'—'}</div><div class="kpi-l">Top CSAT ${topAgent?'· '+topCSAT.toFixed(1):''}</div></div>
       </div>
       <div class="filter-bar">
@@ -125,7 +157,13 @@ export function renderAgents() {
     </div>`;
 }
 
-function getAgentDeepStats(name) {
+function getAgentDeepStats(a) {
+  if (liveReport?.data) {
+    const ranks = AGENTS.filter(a => a.active).map(a => ({ userId: a.userId, open: getAgentStats(a).open })).sort((a,b) => b.open - a.open);
+    return { ...liveReport.data.detail, avgResponseMin: getAgentStats(a).avgResponseMin,
+      totalActive: ranks.length, rank: 1 + ranks.filter(r => r.open > getAgentStats(a).open).length };
+  }
+  const name = a.name;
   const tickets = TICKETS.filter(t => t.agent === name);
   const byStatus = {}, byPriority = {}, byCategory = {};
   tickets.forEach(t => {
@@ -186,17 +224,17 @@ function getAgentDeepStats(name) {
 function agentBarRow(label, count, max, color) {
   const pct = max ? (count / max) * 100 : 0;
   return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-    <div style="font-size:11px;color:var(--ink2);width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">${label}</div>
+    <div style="font-size:11px;color:var(--ink2);width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize">${window.escHtml(label)}</div>
     <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:${color || 'var(--purple)'};height:100%;width:${pct}%"></div></div>
     <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);width:24px;text-align:right">${count}</div>
   </div>`;
 }
 
 function renderAgentDetail(name) {
-  const a = AGENTS.find(x => x.name === name);
+  const a = AGENTS.find(x => x.userId === name || x.name === name);
   if (!a) { setAgentSelected(null); return renderAgents(); }
-  const s = getAgentStats(name);
-  const d = getAgentDeepStats(name);
+  const s = getAgentStats(a);
+  const d = getAgentDeepStats(a);
   const admin = window.isAdmin();
   const allRoles = ROLES;
 
@@ -226,7 +264,7 @@ function renderAgentDetail(name) {
   const topCustRows = d.topCustomers.length ? d.topCustomers.map(({ cust, count }) => {
     const pct = (count / d.topCustomers[0].count) * 100;
     return `<div data-action="agents.openCustomer" data-cust-id="${window.escAttr(cust.id)}" style="display:flex;align-items:center;gap:8px;margin-bottom:7px;cursor:pointer">
-      <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${window.escHtml(cust.first[0])}${window.escHtml(cust.last[0])}</div>
+      <div style="width:22px;height:22px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;color:#fff;flex-shrink:0">${window.escHtml(cust.first[0] || "")}${window.escHtml(cust.last[0] || "")}</div>
       <div style="font-size:12px;color:var(--ink2);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(cust.first)} ${window.escHtml(cust.last)}</div>
       <div style="flex:1;background:var(--off2);height:6px;border-radius:3px;overflow:hidden"><div style="background:var(--cyan);height:100%;width:${pct}%"></div></div>
       <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);width:22px;text-align:right">${count}</div>
@@ -240,9 +278,9 @@ function renderAgentDetail(name) {
   const recentRows = d.recent.length ? d.recent.map(r => `
     <div data-action="agents.openTicket" data-ticket-id="${window.escAttr(r.ticketId)}" style="padding:8px 4px;border-bottom:1px solid var(--rule);cursor:pointer;font-size:12px;transition:background .1s" onmouseover="this.style.background='var(--off2)'" onmouseout="this.style.background='transparent'">
       <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${r.ticketId}</span>
-        ${r.role === 'note' ? '<span class="note-mark">Note</span>' : '<span style="font-size:9px;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;font-weight:600">Reply</span>'}
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-left:auto">${r.ts}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(r.ticketId)}</span>
+        ${r.role === 'note' ? '<span class="note-mark">Note</span>' : '<span style="font-size:9px;color:var(--purple);text-transform:uppercase;letter-spacing:.06em;font-weight:600">' + (r.role === 'resolved' ? 'Resolved' : 'Reply') + '</span>'}
+        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-left:auto">${window.escHtml(liveReport ? new Date(r.ts).toLocaleString() : r.ts)}</span>
       </div>
       <div style="color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(r.text)}</div>
     </div>`).join('') : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No activity recorded</div>';
@@ -250,13 +288,13 @@ function renderAgentDetail(name) {
   const ticketRows = s.tickets.map(t => {
     const cust = CUSTOMERS.find(c => c.id === t.customerId);
     return `<tr data-action="agents.openTicket" data-ticket-id="${window.escAttr(t.id)}" style="cursor:pointer">
-      <td class="bold">${t.id}</td>
-      <td>${cust ? window.escHtml(cust.first + ' ' + cust.last) : '—'}</td>
+      <td class="bold">${window.escHtml(t.id)}</td>
+      <td>${window.escHtml(t.customerName || (cust ? cust.first + ' ' + cust.last : '—'))}</td>
       <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(t.subject)}</td>
-      <td><span class="tag tag-${t.status}">${t.status}</span></td>
-      <td><span class="tag tag-${t.priority}">${t.priority}</span></td>
-      <td><span class="sla-${t.sla}" style="font-size:11px;text-transform:uppercase;font-weight:500">${t.sla}</span></td>
-      <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${t.updated}</td>
+      <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
+      <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
+      <td><span class="sla-${window.escAttr(t.sla || "")}" style="font-size:11px;text-transform:uppercase;font-weight:500">${window.escHtml(t.sla || "—")}</span></td>
+      <td style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(liveReport ? new Date(t.updated).toLocaleString() : t.updated)}</td>
     </tr>`;
   }).join('');
 
@@ -269,12 +307,13 @@ function renderAgentDetail(name) {
           <span style="color:var(--ink);font-weight:500">${window.escHtml(a.name)}</span>
         </div>
       </div>
+      ${periodControls()}
       <div class="page-scroll">
-        <div style="display:flex;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
+        <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:8px 0 18px;border-bottom:1px solid var(--rule);margin-bottom:18px">
           <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
-          <div style="flex:1;min-width:0">
+          <div style="flex:1;min-width:160px">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(a.name)}</div>
-            <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by open load` : ''}</div>
+            <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by current workload` : ''}</div>
           </div>
           ${isAgentOOO(a.name)
             ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + window.escHtml(a.oooTo) : ''}</span>`
@@ -297,30 +336,30 @@ function renderAgentDetail(name) {
           <span style="margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(a.oooFrom)}${a.oooTo ? ' → ' + window.escHtml(a.oooTo) : ''}</span>
         </div>` : ''}
 
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-          <div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Open</div></div>
-          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Total assigned</div></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:16px">
+          <div class="r-tile" style="border-color:var(--cyan-bd);background:var(--cyan-lt)"><div class="r-tile-n" style="color:var(--cyan)">${s.open}</div><div class="r-tile-l" style="color:var(--cyan)">Current workload</div></div>
+          <div class="r-tile"><div class="r-tile-n" style="color:var(--ink)">${s.total}</div><div class="r-tile-l" style="color:var(--ink3)">Tickets handled</div></div>
           <div class="r-tile" style="border-color:var(--green-bd);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${s.resolved}</div><div class="r-tile-l" style="color:var(--green)">Resolved</div></div>
           <div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.csatCount?s.avgCSAT.toFixed(1):'—'}</div><div class="r-tile-l" style="color:var(--amber)">CSAT (${s.csatCount})</div></div>
         </div>
 
         <div class="card" style="margin-bottom:16px">
-          <div class="card-title">Performance</div>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:6px">
+          <div class="card-title">Performance</div><details style="margin-bottom:12px"><summary style="font-size:12px;cursor:pointer">How these figures are counted</summary><p style="font-size:12px;color:var(--ink3);line-height:1.5">Replies, notes and resolutions count towards tickets handled. Resolved counts each ticket once per agent in this period, even if it is later reassigned or reopened. CSAT credits the last recorded resolver before the rating. Older activity without a recorded agent cannot be attributed.</p></details>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:14px;margin-top:6px">
             <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${a.active && d.totalActive ? '#'+d.rank : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Rank by load</div></div>
-            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${window.fmtMinutes(d.avgResponseMin)}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Avg first response</div></div>
-            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${s.eligible ? Math.round(s.resolved/s.eligible*100) + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Resolution rate</div></div>
-            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:${d.slaCompliance>=80?'var(--green)':d.slaCompliance>=60?'var(--amber)':'var(--red)'};line-height:1">${s.total ? d.slaCompliance + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">SLA compliance</div></div>
+            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${d.avgResponseMin == null ? "—" : window.fmtMinutes(d.avgResponseMin)}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Avg first response</div></div>
+            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink);line-height:1">${s.eligible ? Math.round(s.resolved/s.eligible*100) + '%' : '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em;font-weight:500">Resolved / handled</div></div>
+            <div><div style="font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--ink)">${s.replies ?? '—'}</div><div style="font-size:10px;color:var(--ink3);margin-top:4px">Replies saved</div></div>
           </div>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
-          <div class="card"><div class="card-title">By status</div>${statusBars}</div>
-          <div class="card"><div class="card-title">By priority</div>${priBars}</div>
-          <div class="card"><div class="card-title">By category</div>${catBars}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:16px">
+          <div class="card"><div class="card-title">Handled tickets · current status</div>${statusBars}</div>
+          <div class="card"><div class="card-title">Handled tickets · current priority</div>${priBars}</div>
+          <div class="card"><div class="card-title">Handled tickets · current category</div>${catBars}</div>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:16px">
           <div class="card">
             <div class="card-title">CSAT distribution</div>
             ${s.csatCount ? csatRows : '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:20px 0">No CSAT ratings yet</div>'}
@@ -342,13 +381,13 @@ function renderAgentDetail(name) {
         </div>
 
         <div class="card">
-          <div class="card-title">Assigned tickets</div>
+          <div class="card-title">Tickets handled · latest 50</div>
           ${s.tickets.length ? `
-            <table class="tbl">
+            <div style="overflow-x:auto"><table class="tbl">
               <thead><tr><th>ID</th><th>Customer</th><th>Subject</th><th>Status</th><th>Priority</th><th>SLA</th><th>Updated</th></tr></thead>
               <tbody>${ticketRows}</tbody>
-            </table>
-          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets assigned</div><div class="empty-line"></div></div>`}
+            </table></div>
+          ` : `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">No tickets handled in this period</div><div class="empty-line"></div></div>`}
         </div>
       </div>
     </div>`;
@@ -426,13 +465,25 @@ registerActions({
   'agents.new':           () => agentNew(),
   'agents.resetPassword': (ds) => sendAgentPasswordReset(ds.name),
   'agents.openCustomer':  (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
-  'agents.openTicket':    (ds) => openTicket(ds.ticketId),
+  'agents.openTicket': async ds => {
+    try {
+      if (!TICKETS.some(t => t.id === ds.ticketId) && getJwt()) {
+        const workspace = getWorkspaceId(), token = getJwt();
+        const res = await apiGet('/api/v1/tickets/by-number/' + encodeURIComponent(ds.ticketId));
+        if (getWorkspaceId() !== workspace || getJwt() !== token) return;
+        updateOrInsertTicket(res.ticket);
+      }
+      openTicket(ds.ticketId);
+    } catch (error) { alert(error.message || 'Could not open ticket.'); }
+  },
+  'agents.refreshStats': () => { invalidateAgentReport(); renderPage('agents'); },
   'agents.editOOO':       (ds) => showAgentOOOModal(ds.name),
   'agents.setActive':     (ds) => setAgentActive(ds.name, ds.active === 'true'),
   'agents.delete':        (ds) => deleteAgentPrompt(ds.name),
 });
 
 registerChangeActions({
+  'agents.setPeriod': (ds, el) => { AGENT_RANGE = el.value; renderPage('agents'); },
   'agents.setRoleFilter':   (ds, el) => agentSetRole(el.value),
   'agents.setStatusFilter': (ds, el) => agentSetStatus(el.value),
   'agents.reassign':        (ds, el) => reassignAgent(ds.name, el.value),

@@ -1,7 +1,7 @@
 import { test, expect, mock, beforeEach } from 'bun:test';
 
 let scope = 'user:workspace', answer = 'Spanish', failure = false, release, calls = 0;
-const cacheOptions = [];
+const cacheOptions = [], requests = [];
 const storage = new Map(), tickets = [];
 globalThis.localStorage = { getItem: () => null };
 globalThis.sessionStorage = { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) };
@@ -13,7 +13,7 @@ mock.module('../web/js/tickets/detail.js', () => ({ openTicket() {} }));
 mock.module('../web/js/core/modal.js', () => ({ showModal() {} }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {} }));
 const request = async body => {
-  calls++;
+  calls++; requests.push(body);
   if (release) await new Promise(resolve => { release = resolve; });
   if (failure) throw new Error('Provider unavailable');
   return { text: body.action === 'detect_language' ? answer : 'Texto traducido' };
@@ -26,7 +26,7 @@ mock.module('../web/js/ai/formatted-translation.js', () => ({ translateFormatted
 } }));
 const tx = await import('../web/js/ai/translate.js');
 const fixture = () => ({ id:'T1', _uuid:'ticket-1', _detailLoaded:true, msgs:[{ _uuid:'m1',r:'customer',t:'Necesito ayuda con mi cuenta' }] });
-beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; storage.clear(); tickets.length=0; labels.clear(); });
+beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; requests.length=0; storage.clear(); tickets.length=0; labels.clear(); });
 
 test('default is enabled and detection updates visible labels without opening controls', async () => {
   const t=fixture(); labels.set('customer-language-T1',{}); labels.set('reply-language-T1',{});
@@ -120,4 +120,25 @@ test('untranslated replies skip detection without a comparison language and tole
   tx.setCustomerLanguage('T1','Spanish'); failure=true;
   res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
   expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+});
+
+test('subject-only tickets are detected and changing subject invalidates the result', async () => {
+  const t={...fixture(), subject:'Necesito ayuda con mi cuenta',msgs:[]};
+  await tx.ensureCustomerLanguage(t);
+  expect(t.detectedCustomerLang).toBe('Spanish');
+  expect(requests[0].messages[0].content).toContain(t.subject);
+  t.subject='Je ne peux pas accéder à mon compte'; answer='French';
+  await tx.ensureCustomerLanguage(t); expect(calls).toBe(2); expect(t.detectedCustomerLang).toBe('French');
+});
+test('subject and substantive body share the bounded sample with body precedence', async () => {
+  const t=fixture(); t.subject='English subject '.repeat(50); t.msgs[0].t += ' texto'.repeat(150);
+  await tx.ensureCustomerLanguage(t);
+  expect(requests[0].messages[0].content).toContain('Subject: English subject');
+  expect(requests[0].messages[0].content).toContain('Body: Necesito ayuda');
+  expect(requests[0].messages[0].content.length).toBeLessThanOrEqual(600);
+  expect(requests[0].system).toContain('Prefer substantive body text');
+});
+test('empty subject and body stay unknown without a request', async () => {
+  const t={...fixture(),subject:'  ',msgs:[]};
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull(); expect(calls).toBe(0);
 });
