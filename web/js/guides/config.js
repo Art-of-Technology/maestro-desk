@@ -76,6 +76,7 @@ export const GUIDE_STEPS = [
     instructions: [
       'Open the ticket and choose Reply. Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
       'Acknowledge the issue, answer each question and explain the next action. Use the editor for formatting and Attach for relevant files. Check the attachments belong to this customer.',
+      'Automatic customer language detection uses the subject and latest customer message. Substantive body text takes precedence if they differ; you can choose a language manually.',
       'Open Change beside the reply language to check the customer language and the “Send replies in customer language” setting. If translation is enabled, the outgoing reply may differ from the wording in your editor.',
       'Drafts are saved in this browser separately for Reply and Internal note. A restored draft has not been sent. Do not assume an ordinary draft is available on another device.',
     ],
@@ -153,9 +154,11 @@ export const GUIDE_STEPS = [
     title: 'See who is available',
     body: 'Review teammates, roles, workload, and availability.',
     source: 'web/js/agents/index.js',
-    highlights: ["Check teammates’ roles and workload before handing over.","Ask your lead if you cannot access a control.","Return to Guides whenever you need a reminder."],
+    highlights: ["Check teammates’ roles and workload before handing over.","Choose a performance period; current workload stays separate.","Return to Guides whenever you need a reminder."],
     instructions: [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
+      'Choose Last 7 days, Last 30 days, Last 90 days or All time to compare performance. The dates appear beside the filter. Current workload always shows tickets needing attention now.',
+      'Send and resolve credits the agent who resolves the ticket, regardless of its assignee. Each ticket counts once per agent in the selected period. Open an agent for saved replies, tickets handled and the counting explanation.',
       'If a control is missing, ask your lead whether your role or workspace has access. Some AI, template and administration controls depend on configuration or permissions.',
       'Use / to focus global search when you are not typing in a field. Use the arrow keys to select a result, Enter to open it and Escape to dismiss search.',
       'You can revisit any topic through Help & Support → Guided tours. Ask your lead when the app’s options do not tell you which business decision to make.',

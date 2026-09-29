@@ -228,10 +228,12 @@ export function latestCustomerText(t) {
 export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
   initialiseReplyLanguage(t);
   if (t.customerLanguageManual) return t.detectedCustomerLang;
-  const { message, text } = latestCustomerText(t);
+  const { message, text: body } = latestCustomerText(t);
+  const subject = String(t.subject || "").trim();
+  const text = subject ? `Subject: ${subject.slice(0, body ? 150 : 560)}\nBody: ${body.slice(0, 430)}` : body;
   const scope = translationScope();
   if (!scope || !t._uuid || !t._detailLoaded) return t.detectedCustomerLang || null;
-  const source = JSON.stringify([scope, message?._uuid, text]);
+  const source = JSON.stringify([scope, message?._uuid, subject, body]);
   if (!refresh && t.customerLanguageSource === source) return t.detectedCustomerLang || null;
   const pending = languageChecks.get(t);
   if (pending?.source === source && (!refresh || pending.refresh)) return pending.task;
@@ -245,10 +247,10 @@ export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
     let language = null;
     let failed = false;
     try {
-      if (text) language = await detectLanguage(text, messageTranslationRequest(message._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true, t._uuid);
+      if (text) language = await detectLanguage(text, messageTranslationRequest(message?._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true, t._uuid);
     } catch { failed = true; }
     const latest = latestCustomerText(t);
-    if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, latest.text]) !== source || languageChecks.get(t) !== check) return null;
+    if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, String(t.subject || "").trim(), latest.text]) !== source || languageChecks.get(t) !== check) return null;
     t.detectingCustomerLanguage = false;
     t.customerLanguageSource = source;
     t.detectedCustomerLang = language;

@@ -1,3 +1,4 @@
+import { invalidateAgentReport } from '../agents/statistics.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { showSavedTicketActivity } from '../core/activity-feed.js';
@@ -898,6 +899,7 @@ export async function changeTicketStatus(id, val) {
   const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
   t.status = val;
+  invalidateAgentReport();
   t.closureReason = null; t.closureNote = null; t.closedAt = null; t.closedByUserId = null;
   refreshTicketSLA(t);
   if (stampCsat) {
@@ -1113,7 +1115,7 @@ async function sendComposeAnd(id, status) {
   hideSendMenu(id);
   const sent = await sendCompose(id);
   if (sent === false) return;
-  changeTicketStatus(id, status);
+  await changeTicketStatus(id, status);
   if (CURRENT_TICKET === id) openTicket(id);
 }
 
@@ -1129,7 +1131,11 @@ function showSentTextModal(ticketId, msgIdx) {
 async function sendCompose(id) {
   if (sendingReplies.has(id)) return false;
   sendingReplies.add(id);
-  try { return await sendComposeOnce(id); }
+  try {
+    const result = await sendComposeOnce(id);
+    if (result !== false) invalidateAgentReport();
+    return result;
+  }
   finally { sendingReplies.delete(id); }
 }
 const sendingReplies = new Set();

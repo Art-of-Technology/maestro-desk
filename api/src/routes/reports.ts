@@ -1,3 +1,4 @@
+import { AgentReportQuery, agentReport } from '../lib/agent-report.js';
 import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
@@ -37,6 +38,13 @@ reports.get('/language-detection', async c => {
   const range = LanguageDetectionRange.safeParse(c.req.query('range') ?? '30d');
   if (!range.success) return c.json({ error: 'range must be 7d, 30d, 90d or all' }, 400);
   return c.json(await languageDetectionReport(c.get('workspaceId'), range.data));
+});
+
+reports.get('/agents', async c => {
+  c.header('Cache-Control', 'no-store');
+  const parsed = AgentReportQuery.safeParse(c.req.query());
+  if (!parsed.success) return c.json({ error: 'Choose a valid range and agent.' }, 400);
+  return c.json(await agentReport(c.get('workspaceId'), parsed.data));
 });
 
 const ALLOWED_DAYS = new Set([7, 30, 90]);
