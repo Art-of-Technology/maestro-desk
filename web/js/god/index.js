@@ -27,7 +27,7 @@ import { loadWorkspaceData } from '../core/bootstrap.js';
 import { startListSync, stopListSync } from '../tickets/list-sync.js';
 import { startRealtime, stopRealtime } from '../core/realtime.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { renderNewBrand, resetForm as resetNewBrandForm, setOnClose as setNewBrandOnClose } from './new-brand.js';
+import { renderNewBrand, renderInvitePanel, resetForm as resetNewBrandForm, setOnClose as setNewBrandOnClose } from './new-brand.js';
 
 // ─── State ────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,7 @@ const STATE = {
   unroutedOutstanding: null,
   brandsError: null,
   selectedId: null,
+  ownerInvite: null,
   detail: null,          // { brand, domains, counts }
   detailLoading: false,
   detailError: null,
@@ -267,6 +268,14 @@ function renderDetail() {
           ? `<button class="btn" data-action="god.unsuspend" data-id="${brand.id}" ${STATE.actionPending ? 'disabled' : ''}>Unsuspend brand</button>`
           : `<button class="btn btn-danger" data-action="god.suspend" data-id="${brand.id}" ${STATE.actionPending ? 'disabled' : ''}>Suspend brand</button>`}
       </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-title">Owner invitation</div>
+      <label class="form-label" for="brand-owner-email">Owner email</label>
+      <input class="form-input" type="email" id="brand-owner-email" value="${escAttr(STATE.ownerInvite?.email || '')}" placeholder="owner@example.com"/>
+      <button class="btn" data-action="god.inviteExistingOwner" style="margin-top:8px">Send owner invitation</button>
+      ${STATE.ownerInvite ? renderInvitePanel(STATE.ownerInvite, 'god.inviteExistingOwner') : ''}
     </div>
 
     <div class="card" style="margin-bottom:16px">
@@ -527,6 +536,19 @@ async function enterBrand(brandId) {
 // ─── Action handlers ──────────────────────────────────────────────────────
 
 registerActions({
+  'god.inviteExistingOwner': async (_ds, el) => {
+    const input = document.getElementById('brand-owner-email');
+    const brandId = STATE.selectedId;
+    if (!input?.value.trim() || !input.reportValidity() || !brandId) return;
+    const email = input.value.trim();
+    el.disabled = true;
+    try {
+      const invitation = await apiPost(`/api/v1/god/brands/${brandId}/invite`, { email });
+      if (STATE.selectedId === brandId) STATE.ownerInvite = invitation;
+    } catch (err) {
+      if (STATE.selectedId === brandId) STATE.ownerInvite = { email, error: err.message, email_sent: false };
+    } finally { el.disabled = false; if (STATE.selectedId === brandId) reRender(); }
+  },
   'god.refresh':       () => refreshList(),
   'god.refreshDetail': () => STATE.selectedId && refreshDetail(STATE.selectedId),
   'god.openBrand':     (ds) => openBrand(ds.id),
@@ -571,6 +593,7 @@ registerInputActions({
 });
 
 function openBrand(id) {
+  STATE.ownerInvite = null;
   STATE.selectedId = id;
   STATE.view = 'detail';
   STATE.detail = null;

@@ -31,6 +31,7 @@
       <div class="auth-sub" style="text-align:center">Support that runs itself</div>
 
       <div id="login-form" style="margin-top:24px">
+        <div id="owner-invitation-hint" hidden class="auth-sub" style="margin-bottom:16px">Sign in with the email address that received your invitation. New to Respovia? Check your email to set a password, or <button type="button" class="btn btn-sm" data-action="auth.showPanel" data-panel="forgot">Request a setup link</button>.</div>
         <div class="form-row">
           <label class="form-label">Email</label>
           <input class="form-input" id="login-email" type="email" placeholder="you@company.com" autocomplete="username"/>
@@ -69,7 +70,7 @@
     <div id="auth-forgot" style="display:none">
       <div class="auth-logo"><div class="sb-word">Respovia</div></div>
       <div class="auth-back" data-action="auth.showPanel" data-panel="login">← Back to sign in</div>
-      <div class="auth-title">Reset password</div>
+      <div class="auth-title">Set up or reset your password</div>
       <div class="auth-sub" style="margin-bottom:18px">Enter your work email and we'll send a reset link.</div>
       <div class="form-row"><label class="form-label">Work email</label><input class="form-input" id="forgot-email" type="email" placeholder="you@company.com"/></div>
       <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" data-action="auth.submitForgot">Send reset link</button>
