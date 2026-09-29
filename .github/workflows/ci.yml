@@ -73,7 +73,7 @@ jobs:
         run: bun test scripts/ticket-date-sort.test.js scripts/frontend-deployment-check.test.js
 
       - name: API build fingerprint and deployment verification
-        run: bun test scripts/api-fingerprint.test.js scripts/api-deployment-check.test.js
+        run: bun test scripts/api-fingerprint.test.js scripts/api-deployment-check.test.js scripts/current-deployment.test.js
 
       - name: Production web deployment payload and safe errors
         run: |

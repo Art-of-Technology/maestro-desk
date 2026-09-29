@@ -20,9 +20,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Newest push supersedes an in-flight check (we only care about the latest deploy).
+# A delayed old push must not cancel the current deployment check.
+# The preflight and polling guards skip commits superseded on main.
 concurrency:
-  group: post-deploy-healthcheck
+  group: post-deploy-healthcheck-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -37,7 +38,25 @@ env:
   SLEEP_SECONDS: "15"
 
 jobs:
+  current:
+    name: Check whether this deployment is still current
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      current: ${{ steps.check.outputs.current }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - id: check
+        run: node scripts/current-deployment.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
   api-version:
+    needs: current
+    if: needs.current.outputs.current == 'true'
     name: verify deployed API version
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -48,8 +67,12 @@ jobs:
           node-version: '22'
       - name: Wait for expected API build and database readiness
         run: node scripts/api-deployment-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   frontend:
+    needs: current
+    if: needs.current.outputs.current == 'true'
     name: verify deployed frontend version
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -60,8 +83,12 @@ jobs:
           node-version: '22'
       - name: Wait for expected frontend files
         run: node scripts/frontend-deployment-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   healthcheck:
+    needs: current
+    if: needs.current.outputs.current == 'true'
     name: API and site availability
     runs-on: ubuntu-latest
     # Worst case (both probes time out every attempt): 30 + 16×(10+10+15) ≈ 9.8 min,

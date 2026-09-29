@@ -1,3 +1,4 @@
+import { isCurrentDeployment } from './current-deployment.mjs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -20,8 +21,9 @@ export async function verifyApi(base, expected, fetchImpl = fetch) {
   }
 }
 
-export async function waitForApi(base, expected, { attempts = 16, delayMs = 15000, verify = verifyApi, pause = sleep, log = console.log } = {}) {
+export async function waitForApi(base, expected, { attempts = 16, delayMs = 15000, verify = verifyApi, pause = sleep, log = console.log, isCurrent = async () => true } = {}) {
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (!await isCurrent()) return;
     try {
       await verify(base, expected);
       log('API build fingerprint matches and database readiness passed.');
@@ -31,12 +33,13 @@ export async function waitForApi(base, expected, { attempts = 16, delayMs = 1500
       if (attempt < attempts) await pause(delayMs);
     }
   }
+  if (!await isCurrent()) return;
   throw new Error('API deployment not verified. Check Dokploy build and migration logs; a healthy previous container is not proof of deployment.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    await waitForApi(process.env.API_BASE || 'https://api.respovia.com', apiFingerprint(fileURLToPath(new URL('../', import.meta.url))));
+    await waitForApi(process.env.API_BASE || 'https://api.respovia.com', apiFingerprint(fileURLToPath(new URL('../', import.meta.url))), { isCurrent: isCurrentDeployment });
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

@@ -1,3 +1,4 @@
+import { isCurrentDeployment } from './current-deployment.mjs';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -37,9 +38,10 @@ export async function verifyFrontend(base, files, { fetchImpl = fetch, timeoutMs
   return failures;
 }
 
-export async function waitForFrontend(base, files, { attempts = 16, delayMs = 15000, verify = verifyFrontend, pause = sleep, log = console.log } = {}) {
+export async function waitForFrontend(base, files, { attempts = 16, delayMs = 15000, verify = verifyFrontend, pause = sleep, log = console.log, isCurrent = async () => true } = {}) {
   if (!files.length) throw new Error('No frontend files selected for verification');
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (!await isCurrent()) return;
     const failures = await verify(base, files);
     if (!failures.length) {
       log(`Frontend verified: all ${files.length} files match the expected version.`);
@@ -48,6 +50,7 @@ export async function waitForFrontend(base, files, { attempts = 16, delayMs = 15
     log(`Frontend pending (${attempt}/${attempts}): ${failures.length} files unavailable or different.\n${failures.slice(0, 8).join('\n')}`);
     if (attempt < attempts) await pause(delayMs);
   }
+  if (!await isCurrent()) return;
   throw new Error('Frontend deployment not verified. Production may still serve an older version; inspect Dokploy deployment status. API health alone does not prove a deployment completed.');
 }
 
@@ -55,7 +58,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const paths = execFileSync('git', ['ls-files', '-z', 'web'], { encoding: 'utf8' }).split('\0').filter(Boolean);
     const files = publicFrontendFiles(paths).map(path => ({ path: path.slice(4), content: readFileSync(path) }));
-    await waitForFrontend(process.env.SPA_BASE || 'https://app.respovia.com', files);
+    await waitForFrontend(process.env.SPA_BASE || 'https://app.respovia.com', files, { isCurrent: isCurrentDeployment });
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
