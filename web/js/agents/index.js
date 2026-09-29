@@ -47,7 +47,8 @@ export function renderAgents() {
   let list = [...AGENTS];
   if (AGENT_FILTER_ROLE !== 'all')   list = list.filter(a => a.role === AGENT_FILTER_ROLE);
   if (AGENT_FILTER_STATUS === 'active')   list = list.filter(a => a.active);
-  if (AGENT_FILTER_STATUS === 'inactive') list = list.filter(a => !a.active);
+  if (AGENT_FILTER_STATUS === 'inactive') list = list.filter(a => !a.active && !a.invited);
+  if (AGENT_FILTER_STATUS === 'invited') list = list.filter(a => a.invited);
   if (AGENT_QUERY.trim()) {
     const q = AGENT_QUERY.toLowerCase();
     list = list.filter(a => a.name.toLowerCase().includes(q) || a.role.toLowerCase().includes(q));
@@ -76,7 +77,7 @@ export function renderAgents() {
             <div class="agent-name">${window.escHtml(a.name)}</div>
             <div class="agent-role">${window.escHtml(a.role)}</div>
           </div>
-          ${ooo ? `<span class="tag" style="font-size:9px;flex-shrink:0;background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || ('Until ' + (a.oooTo || 'further notice')))}">OOO</span>` : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.active?'Active':'Off'}</span>`}
+          ${ooo ? `<span class="tag" style="font-size:9px;flex-shrink:0;background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || ('Until ' + (a.oooTo || 'further notice')))}">OOO</span>` : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}" style="font-size:9px;flex-shrink:0">${a.invited?'Invited':a.active?'Active':'Off'}</span>`}
         </div>
         ${ooo ? `<div style="font-size:11px;color:var(--amber);font-style:italic;line-height:1.4">${window.escHtml(a.oooNote || `On leave until ${a.oooTo || '—'}`)}</div>` : ''}
         <div class="agent-stats">
@@ -111,6 +112,7 @@ export function renderAgents() {
         <select class="filter-select" data-change-action="agents.setStatusFilter">
           <option value="all"      ${AGENT_FILTER_STATUS==='all'?'selected':''}>All statuses</option>
           <option value="active"   ${AGENT_FILTER_STATUS==='active'?'selected':''}>Active</option>
+          <option value="invited" ${AGENT_FILTER_STATUS==='invited'?'selected':''}>Invited</option>
           <option value="inactive" ${AGENT_FILTER_STATUS==='inactive'?'selected':''}>Inactive</option>
         </select>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
@@ -276,13 +278,13 @@ function renderAgentDetail(name) {
           </div>
           ${isAgentOOO(a.name)
             ? `<span class="tag" style="background:var(--amber-lt);color:var(--amber);border:1px solid var(--amber)" title="${window.escAttr(a.oooNote || '')}">OOO${a.oooTo ? ' until ' + window.escHtml(a.oooTo) : ''}</span>`
-            : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span>`}
+            : `<span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.invited?'Invited':a.active?'Active':'Deactivated'}</span>`}
           ${admin || (SESSION && SESSION.name === a.name) ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             ${admin ? `<select class="filter-select" data-change-action="agents.reassign" data-name="${window.escAttr(a.name)}" style="font-size:12px">
               ${allRoles.map(r => `<option value="${window.escAttr(r)}" ${a.role===r?'selected':''}>${window.escHtml(r)}</option>`).join('')}
             </select>` : ''}
             <button class="btn btn-sm" data-action="agents.editOOO" data-name="${window.escAttr(a.name)}">${isAgentOOO(a.name) ? 'Edit OOO' : 'Set OOO'}</button>
-            ${admin ? (a.active
+            ${admin && !a.invited ? (a.active
               ? `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
               : `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`) : ''}
             ${admin ? `<button class="btn btn-sm" data-action="agents.resetPassword" data-name="${window.escAttr(a.name)}">Send password reset</button>` : ''}

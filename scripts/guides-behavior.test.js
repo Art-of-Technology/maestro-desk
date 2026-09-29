@@ -29,13 +29,15 @@ mock.module('../web/js/core/state.js', () => ({ CURRENT_PAGE: 'dashboard', SESSI
 mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => 'spacecasino' }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions: map => Object.assign(actions, map) }));
 
-const { GUIDE_STEPS, GUIDE_VERSION } = await import('../web/js/guides/config.js');
+const { GUIDE_STEPS, GUIDE_VERSION, QUICK_START_IDS } = await import('../web/js/guides/config.js');
 const { guidePageRendered, initGuides, maybeStartGuides } = await import('../web/js/guides/index.js');
 
 test('first run opens, navigation advances, and finishing records the guide version', () => {
   initGuides(page => { navigated = page; });
   maybeStartGuides();
-  expect(host.innerHTML).toContain(`GETTING STARTED · 1 OF ${GUIDE_STEPS.length}`);
+  expect(host.innerHTML).toContain(`GETTING STARTED · 1 OF ${QUICK_START_IDS.length}`);
+  expect(host.innerHTML).toContain(GUIDE_STEPS[0].highlights[0]);
+  expect(host.innerHTML).toContain('<details class="guide-details"><summary>More detail</summary>');
   expect(host.innerHTML).toContain(GUIDE_STEPS[0].instructions[0]);
   expect(card.focused).toBe(true);
   let prevented = false;
@@ -46,14 +48,15 @@ test('first run opens, navigation advances, and finishing records the guide vers
   actions['guides.next']();
   expect(navigated).toBe('tickets');
   guidePageRendered('tickets');
-  expect(host.innerHTML).toContain(`GETTING STARTED · 2 OF ${GUIDE_STEPS.length}`);
+  expect(host.innerHTML).toContain(`GETTING STARTED · 2 OF ${QUICK_START_IDS.length}`);
 
-  for (let i = 2; i < GUIDE_STEPS.length; i++) {
+  for (let i = 2; i < QUICK_START_IDS.length; i++) {
+    const step = GUIDE_STEPS.find(step => step.id === QUICK_START_IDS[i]);
     actions['guides.next']();
-    guidePageRendered(GUIDE_STEPS[i].page);
-    expect(host.innerHTML).toContain(GUIDE_STEPS[i].title);
-    expect(host.innerHTML).toContain(escHtml(GUIDE_STEPS[i].instructions[0]));
-    expect(targetSelector).toBe(`[data-guide="${GUIDE_STEPS[i].target || GUIDE_STEPS[i].id}"]`);
+    guidePageRendered(step.page);
+    expect(host.innerHTML).toContain(step.title);
+    expect(host.innerHTML).toContain(escHtml(step.instructions[0]));
+    expect(targetSelector).toBe(`[data-guide="${step.target || step.id}"]`);
   }
   expect(host.innerHTML).toContain('Finish');
   actions['guides.next']();
@@ -68,6 +71,8 @@ test('a topic can be revisited directly and exited with Escape', () => {
   actions['guides.start']({ step: String(index) });
   guidePageRendered('tickets');
   expect(host.innerHTML).toContain('{transaction_reference}');
+  expect(host.innerHTML).toContain('QUICK HELP · 1 OF 1');
+  expect(host.innerHTML).toContain('Finish');
   keydown({ key: 'Escape' });
   expect(host.innerHTML).toBe('');
 });

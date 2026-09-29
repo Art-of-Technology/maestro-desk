@@ -724,6 +724,7 @@ function mapAgentRow(a) {
     initials: a.users?.initials || initialsFromName(a.users?.name || a.users?.email || ''),
     role:     a.roles?.name || 'Member',
     active:   Boolean(a.active),
+    invited:  Boolean(a.invitation_pending),
     oooFrom:  a.ooo_from || undefined,
     oooTo:    a.ooo_to   || undefined,
     oooNote:  a.ooo_note || undefined,

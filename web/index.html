@@ -81,11 +81,15 @@
       <div class="auth-title">Set your password</div>
       <div class="auth-sub" style="margin-bottom:18px">Choose a password for your Respovia account.</div>
       <div class="form-row">
-        <label class="form-label">New password</label>
-        <input class="form-input" id="sp-password" type="password" placeholder="At least 12 characters" autocomplete="new-password"/>
+        <label class="form-label" for="sp-password">New password</label>
+        <input class="form-input" id="sp-password" type="password" placeholder="At least 12 characters" autocomplete="new-password" minlength="12" required aria-describedby="sp-error"/>
+      </div>
+      <div class="form-row">
+        <label class="form-label" for="sp-password-confirm">Confirm password</label>
+        <input class="form-input" id="sp-password-confirm" type="password" autocomplete="new-password" required aria-describedby="sp-error"/>
       </div>
       <button class="btn btn-solid" style="width:100%;justify-content:center;margin-top:4px" id="sp-submit" data-action="auth.submitSetPassword">Set password</button>
-      <div id="sp-error" class="auth-error" style="display:none;margin-top:12px"></div>
+      <div id="sp-error" class="auth-error" role="alert" style="display:none;margin-top:12px"></div>
       <div id="sp-confirm" style="display:none;margin-top:12px;font-size:12px;color:var(--green);text-align:center;font-family:'DM Mono',monospace;letter-spacing:.04em">Password set — you can now sign in.</div>
     </div>
   </div>

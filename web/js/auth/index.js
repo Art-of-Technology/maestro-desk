@@ -65,13 +65,21 @@ async function submitForgot() {
 
 async function submitSetPassword() {
   const pw    = document.getElementById('sp-password')?.value || '';
+  const confirmation = document.getElementById('sp-password-confirm');
   const errEl = document.getElementById('sp-error');
   const okEl  = document.getElementById('sp-confirm');
   const btn   = document.getElementById('sp-submit');
   if (errEl) errEl.style.display = 'none';
   if (okEl)  okEl.style.display = 'none';
-  if (pwScore(pw) < 3) {
-    if (errEl) { errEl.textContent = 'Password is too weak — aim for "Good" or higher.'; errEl.style.display = 'block'; }
+  confirmation?.removeAttribute('aria-invalid');
+  if (pw.length < 12 || pwScore(pw) < 3) {
+    if (errEl) { errEl.textContent = 'Use at least 12 characters with a mix of letters, numbers or symbols.'; errEl.style.display = 'block'; }
+    return;
+  }
+  if (pw !== confirmation?.value) {
+    if (errEl) { errEl.textContent = 'Passwords do not match. Enter the same password in both fields.'; errEl.style.display = 'block'; }
+    confirmation?.setAttribute('aria-invalid', 'true');
+    confirmation?.focus();
     return;
   }
   if (!_resetToken) {

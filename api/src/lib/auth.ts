@@ -3,6 +3,7 @@ import { bearer, genericOAuth } from 'better-auth/plugins';
 import { Pool } from 'pg';
 import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './env.js';
 import { sendEmail, isPostmarkConfigured } from './postmark-outbound.js';
+import { getDb } from './db.js';
 
 // "Sign in with Maestro" (Maestro Connect OIDC). Only mounted when the app's
 // OAuth client credentials are configured — when they're absent (e.g. a dev
@@ -90,6 +91,11 @@ export const auth = betterAuth({
   },
   emailAndPassword: {
     enabled: true,
+    onPasswordReset: async ({ user }) => {
+      await getDb()`update workspace_members
+        set active = true, invitation_pending = false
+        where user_id = ${user.id} and invitation_pending = true`;
+    },
     // Require a reasonably strong password for agent/admin accounts (advisory
     // #23). We do NOT set requireEmailVerification: invited agents are created
     // email-first and never verify, so requiring it would lock them out.

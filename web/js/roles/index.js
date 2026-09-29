@@ -123,9 +123,9 @@ function renderRoleAgentsPage(role) {
         ? `<select class="filter-select" data-change-action="roles.reassign" data-name="${window.escAttr(a.name)}">${otherRoleOpts}</select>`
         : a.role}
       </td>
-      <td><span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.active?'Active':'Deactivated'}</span></td>
+      <td><span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.invited?'Invited':a.active?'Active':'Deactivated'}</span></td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
-        ${a.active
+        ${a.invited ? '' : a.active
           ? `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
           : `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`}
         <button class="btn btn-sm btn-danger" data-action="roles.deleteAgent" data-name="${window.escAttr(a.name)}">Delete</button>
