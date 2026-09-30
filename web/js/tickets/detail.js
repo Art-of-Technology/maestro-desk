@@ -1283,7 +1283,10 @@ async function sendComposeOnce(id) {
   clearComposer(id);
   clearDraft(id);
   onComposeInput(id);
-  if (CURRENT_TICKET === id) openTicket(id);
+  if (CURRENT_TICKET === id) {
+    openTicket(id);
+    if (!isNote) setComposerMode(id, 'read', true);
+  }
   return true;
 }
 
