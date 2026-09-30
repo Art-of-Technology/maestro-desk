@@ -313,6 +313,7 @@ function renderAgentDetail(name) {
           <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:160px">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(a.name)}</div>
+            <div style="font-size:12px;color:var(--ink2);margin-top:2px;overflow-wrap:anywhere">${window.escHtml(a.email || 'Email not available')}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by current workload` : ''}</div>
           </div>
           ${isAgentOOO(a.name)
@@ -326,7 +327,7 @@ function renderAgentDetail(name) {
             ${admin && !a.invited ? (a.active
               ? `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
               : `<button class="btn btn-sm" data-action="agents.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`) : ''}
-            ${admin ? `<button class="btn btn-sm" data-action="agents.resetPassword" data-name="${window.escAttr(a.name)}">Send password reset</button>` : ''}
+            ${admin ? `<button class="btn btn-sm" data-action="agents.resetPassword" data-user-id="${window.escAttr(a.userId || '')}">${a.invited ? 'Resend invite' : 'Send password reset'}</button>` : ''}
             ${admin ? `<button class="btn btn-sm btn-danger" data-action="agents.delete" data-name="${window.escAttr(a.name)}">Delete</button>` : ''}
           </div>` : ''}
         </div>
@@ -438,32 +439,41 @@ function agentNew() {
 // Admin-triggered password reset: email an existing agent a fresh set-password
 // link (the admin counterpart to the self-serve "forgot password" flow). The
 // agent's current password keeps working until they follow the link.
-function sendAgentPasswordReset(name) {
+function sendAgentPasswordReset(userId) {
   if (!window.isAdmin()) return;
-  const a = AGENTS.find(x => x.name === name);
-  if (!a) return;
-  if (!a.userId) {
-    alert(`${name} isn't a real account yet, so there's no password to reset.`);
+  if (!userId) {
+    alert('This agent does not have an account yet, so there is no invitation or password link to send.');
     return;
   }
-  showModal('Send password reset', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Email <strong style="color:var(--ink)">${window.escHtml(name)}</strong> a link to set a new password? Their current password keeps working until they use the link.</div>`, async () => {
+  const a = AGENTS.find(x => x.userId === userId);
+  if (!a) return;
+  const invited = a.invited;
+  const workspace = getWorkspaceId(), token = getJwt();
+  let sending = false;
+  showModal(invited ? 'Resend invite' : 'Send password reset', `<div style="font-size:13px;color:var(--ink2);line-height:1.6;overflow-wrap:anywhere">Email <strong style="color:var(--ink)">${window.escHtml(a.name)} (${window.escHtml(a.email || 'Email not available')})</strong> ${invited ? 'a new invitation link to finish setting up their account?' : 'a link to set a new password? Their current password keeps working until they use the link.'}</div>`, async () => {
+    if (sending || !window.isAdmin() || workspace !== getWorkspaceId() || token !== getJwt()) return;
+    sending = true;
+    closeModal();
     let res;
     try { res = await apiPost(`/api/v1/agents/${a.userId}/reset-password`, {}); }
-    catch (err) { alert(`Couldn't send the reset link: ${err?.message || err}`); return; }
-    closeModal();
-    if (res && res.email_sent === false) {
-      alert(`Couldn't email ${name} — the mail service rejected the send. Try again shortly.`);
-    } else {
-      alert(`A password-reset link is on its way to ${name}.`);
+    catch (err) {
+      if (workspace === getWorkspaceId() && token === getJwt()) alert(`Couldn't send the ${invited ? 'invite' : 'reset link'}: ${err?.message || err}`);
+      return;
     }
-  }, 'Send link');
+    if (workspace !== getWorkspaceId() || token !== getJwt()) return;
+    if (res && res.email_sent === false) {
+      alert(`Couldn't email ${a.name} — the mail service rejected the send. Try again shortly.`);
+    } else {
+      alert(`${invited ? 'An invitation' : 'A password-reset link'} is on its way to ${a.email || a.name}.`);
+    }
+  }, invited ? 'Resend invite' : 'Send link');
 }
 
 registerActions({
   'agents.openDetail':    (ds) => openAgentDetail(ds.name),
   'agents.closeDetail':   () => closeAgentDetail(),
   'agents.new':           () => agentNew(),
-  'agents.resetPassword': (ds) => sendAgentPasswordReset(ds.name),
+  'agents.resetPassword': (ds) => sendAgentPasswordReset(ds.userId),
   'agents.openCustomer':  (ds) => { setCustomerSelected(ds.custId); navTo('customers'); },
   'agents.openTicket': async ds => {
     try {
