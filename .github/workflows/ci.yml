@@ -58,6 +58,9 @@ jobs:
       - name: Agent invitation resend
         run: bun test scripts/agent-invite.test.js
 
+      - name: AI credit notification
+        run: bun test scripts/ai-credit-notification.test.js
+
       - name: Password confirmation
         run: bun test scripts/password-confirmation.test.js
 

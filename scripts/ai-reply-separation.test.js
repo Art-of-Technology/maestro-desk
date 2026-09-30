@@ -3,12 +3,14 @@ let workspace = 'one', text = 'Existing reply', html = '<p>Existing reply</p>', 
 let result, fail, lookupError, release;
 const shownEvents = [];
 const editor = { isConnected: true };
+const ticket = { id: 'T1', subject: 'Help', msgs: [] };
+let languageFailure = false, detectionOptions;
 globalThis.document = { getElementById: id => id === 'compose-T1' ? editor : null };
-mock.module('../web/js/core/data.js', () => ({ TICKETS: [{ id: 'T1', subject: 'Help', msgs: [] }] }));
+mock.module('../web/js/core/data.js', () => ({ TICKETS: [ticket] }));
 mock.module('../web/js/core/state.js', () => ({ AI_THINKING: false, COMPOSE_TAB: 'reply', setAiThinking: value => { thinking = value; } }));
 mock.module('../web/js/core/api-client.js', () => ({ apiPost: async (path,body) => { shownEvents.push({path,body});return {}; }, getJwt: () => 'session', getWorkspaceId: () => workspace }));
 mock.module('../web/js/tickets/detail.js', () => ({ onComposeInput() {} }));
-mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async () => 'Spanish', latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
+mock.module('../web/js/ai/translate.js', () => ({ ensureCustomerLanguage: async (_ticket,options) => { detectionOptions=options; return languageFailure ? null : 'Spanish'; }, latestCustomerText: () => ({text:'Hola'}), AGENT_PREFERRED_LANG: 'English' }));
 mock.module('../web/js/tickets/composer.js', () => ({ focusEnd() {}, getPlainText: () => text, getHtml: () => html, setText: (_id, value) => { text = value; html = null; } }));
 mock.module('../web/js/tickets/drafts.js', () => ({
   loadDraftReview: () => null,
@@ -23,6 +25,16 @@ mock.module('../web/js/ai/client.js', () => ({ callClaude: async args => {
   return result;
 } }));
 const { aiAction } = await import('../web/js/ai/reply.js');
+
+test('failed language detection surfaces the credit error and retries without losing the draft', async () => {
+  const before = text;
+  ticket.customerLanguageError = true; ticket.customerLanguageErrorMessage = 'Not enough AI credit.';
+  languageFailure = true;
+  await aiAction('T1', 'draft');
+  expect(review.notes).toContain('Not enough AI credit.'); expect(text).toBe(before);
+  expect(detectionOptions).toEqual({refresh:true}); expect(thinking).toBe(false);
+  languageFailure = false; ticket.customerLanguageError = false;
+});
 
 test('only customer text enters the composer; internal references remain separate', async () => {
   result = { text: 'Here is your game: https://example.com/game', data: { internal: { references: [{ id: 'KB-1', title: 'Game source' }], notes: ['Check jurisdiction.'] } } };

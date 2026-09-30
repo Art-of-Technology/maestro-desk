@@ -15,7 +15,7 @@ export async function replySearchTool(workspaceId: string, userId: string,
     output_tokens: 512, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
   });
   if (reserved > SEARCH_CALL_CAP_MICRO) return { input: null, costMicro: 0 };
-  const [reservation] = await sql`update workspaces set ai_credits_micro=ai_credits_micro-${reserved}
+  const [reservation] = await sql`update workspaces set ai_credits_micro=ai_credits_micro-${reserved}, ai_reserved_micro=ai_reserved_micro+${reserved}
     where id=${workspaceId} and ai_credits_micro>=${reserved} returning id`;
   if (!reservation) return { input: null, costMicro: 0 };
   const started = Date.now();
@@ -25,7 +25,7 @@ export async function replySearchTool(workspaceId: string, userId: string,
       messages: [{ role: 'user', content }], tools: [tool], tool_choice: { type: 'tool', name: tool.name } },
     { timeout: SEARCH_TIMEOUT_MS, maxRetries: 0 });
   } catch {
-    await sql`update workspaces set ai_credits_micro=ai_credits_micro+${reserved} where id=${workspaceId}`;
+    await sql`update workspaces set ai_credits_micro=ai_credits_micro+${reserved}, ai_reserved_micro=ai_reserved_micro-${reserved} where id=${workspaceId}`;
     return { input: null, costMicro: 0 };
   }
   const usage = {
@@ -36,7 +36,7 @@ export async function replySearchTool(workspaceId: string, userId: string,
   const costMicro = computeCostMicro(MODEL, usage);
   // Database/settlement failures propagate: never pretend a paid call was free.
   await sql.begin(async tx => {
-    await tx`update workspaces set ai_credits_micro=ai_credits_micro+${reserved - costMicro} where id=${workspaceId}`;
+    await tx`update workspaces set ai_credits_micro=ai_credits_micro+${reserved - costMicro}, ai_reserved_micro=ai_reserved_micro-${reserved} where id=${workspaceId}`;
     await tx`insert into ai_usage_log(workspace_id,user_id,action,model,input_tokens,output_tokens,
       cache_creation_input_tokens,cache_read_input_tokens,cost_usd_micro,duration_ms,request_id)
       values (${workspaceId},${userId},${action},${MODEL},${usage.input_tokens},${usage.output_tokens},

@@ -10,6 +10,14 @@ mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {},
 const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion, hydrateSharedAiDraft, activateSharedAiDraft, textHtml } = await import('../web/js/tickets/drafts.js');
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
+test('AI errors are visible without a suggestion and cannot enter the customer draft', () => {
+  saveDraft('error-ticket', '<p>Keep this draft</p>');
+  const output = renderReplyReview('error-ticket', {references:[], notes:['Not enough AI credit. <retry>']});
+  expect(output).toContain('role="status"');
+  expect(output).toContain('Not enough AI credit. &lt;retry&gt;');
+  expect(loadDraft('error-ticket')).toBe('<p>Keep this draft</p>');
+});
+
 test('evidence stays visible with dates, markets, safe navigation and escaped warnings',()=>{
   workspace='a0000000-0000-4000-8000-000000000001';
   const output=renderReplyReview('T1',{references:[

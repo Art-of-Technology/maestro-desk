@@ -104,6 +104,7 @@ export const GUIDE_STEPS = [
     highlights: ["Use AI → Draft reply to prepare a suggestion.","Check its references and verify every claim.","Edit the draft before sending; AI suggestions can be wrong."],
     instructions: [
       'Use AI ▾ → Draft reply, or Tools → Similar replies when available. AI ▾ also offers writing changes such as Shorten and Improve writing. These prepare text for you to review.',
+      'If AI cannot generate a reply, read the guidance beside the editor. Your existing draft is kept. For insufficient credit, ask a platform administrator to add credit, then choose Draft reply again; a failed language check will retry.',
       'Read the entire suggestion. Verify the name, brand, language, amounts, eligibility, deadlines and next steps against this ticket and current guidance.',
       'Expand the AI suggestion summary, then choose References to inspect supporting articles or previous replies, including dates, markets and warnings. No references means you must verify claims yourself. References and internal review notes are not sent to the customer.',
       'Edit incorrect or irrelevant wording. If the suggestion is unsuitable, Discard clears it from the composer. Give feedback lets you choose Helpful or Not helpful and a reason; feedback alone does not change the draft.',
@@ -159,6 +160,7 @@ export const GUIDE_STEPS = [
     highlights: ["Check teammates’ roles and workload before handing over.","Choose a performance period; current workload stays separate.","Return to Guides whenever you need a reminder."],
     instructions: [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
+      'Brand admins receive an in-app notification when AI credit falls below $2. Open it to view AI settings and ask a platform administrator to add credit. Reading or dismissing the alert is remembered until the balance recovers and falls below $2 again.',
       'Open an agent to see their email address. Admins can choose Resend invite for agents marked Invited, check the recipient, then confirm. Agents who have already joined have a Send password reset option instead.',
       'Choose Last 7 days, Last 30 days, Last 90 days or All time to compare performance. The dates appear beside the filter. Current workload always shows tickets needing attention now.',
       'Send and resolve credits the agent who resolves the ticket, regardless of its assignee. Each ticket counts once per agent in the selected period. Open an agent for saved replies, tickets handled and the counting explanation.',

@@ -77,11 +77,10 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
   refreshAllSLA();
   checkSnoozeWakeups();
   if (!window._snoozeTimer) {
-    // Poll every 30s for snoozes that have elapsed; in a real app this would
-    // be server-driven but for the demo a tick is sufficient.
+    // Refresh elapsed snoozes and brand-admin credit alerts every 30s.
     window._snoozeTimer = setInterval(() => {
-      const woke = checkSnoozeWakeups();
-      if (woke) refreshNotifBadge();
+      checkSnoozeWakeups();
+      refreshNotifBadge();
     }, 30 * 1000);
   }
   // Real-auth users (userId != null) get the always-on list-sync poll so

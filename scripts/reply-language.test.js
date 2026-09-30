@@ -78,8 +78,10 @@ test('Retry requests a fresh result and ordinary detection waits for it', async 
 test('Retry recovers from failure and clears the visible error', async () => {
   const t=fixture(); tickets.push(t); failure=true;
   await tx.ensureCustomerLanguage(t); expect(t.customerLanguageError).toBe(true);
+  expect(t.customerLanguageErrorMessage).toBeTruthy();
   failure=false; await tx.retryCustomerLanguage(t.id);
   expect(t.customerLanguageError).toBe(false); expect(tx.customerLanguageStatus(t)).toContain('Spanish');
+  expect(t.customerLanguageErrorMessage).toBeNull();
 });
 test('a superseded detection cannot overwrite a newer retry', async () => {
   const t=fixture(); tickets.push(t); release=true;

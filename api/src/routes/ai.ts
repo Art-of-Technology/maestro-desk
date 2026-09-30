@@ -13,6 +13,7 @@ import { meaningfulReplies } from '../lib/meaningful-replies.js';
 import { historicalReferences } from '../lib/reply-evidence.js';
 import { recordReplySuggestion } from '../lib/reply-feedback.js';
 import { replyFeedback } from './reply-feedback.js';
+import { aiCreditAlerts } from './ai-credit-alerts.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplySource, CUSTOMER_REPLY_INSTRUCTIONS, CUSTOMER_REPLY_TOOL, parseCustomerReply } from '../lib/customer-reply.js';
 import { classifyLanguageDetection, SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
@@ -80,6 +81,7 @@ ai.use('*', async (c, next) => {
 });
 
 ai.route('/reply-feedback', replyFeedback);
+ai.route('/credit-alert', aiCreditAlerts);
 
 ai.get('/status', async (c) => {
   const sql = getDb();
@@ -190,7 +192,7 @@ ai.post('/messages', async (c) => {
     cache_read_input_tokens: 0,
   });
   const [reservation] = await sql`
-    update workspaces set ai_credits_micro = ai_credits_micro - ${reserved}
+    update workspaces set ai_credits_micro = ai_credits_micro - ${reserved}, ai_reserved_micro = ai_reserved_micro + ${reserved}
     where id = ${workspaceId} and ai_credits_micro >= ${reserved}
     returning ai_credits_micro
   `;
@@ -225,7 +227,7 @@ ai.post('/messages', async (c) => {
     );
   } catch {
     await sql.begin(async tx => {
-      await tx`update workspaces set ai_credits_micro = ai_credits_micro + ${reserved} where id = ${workspaceId}`;
+      await tx`update workspaces set ai_credits_micro = ai_credits_micro + ${reserved}, ai_reserved_micro = ai_reserved_micro - ${reserved} where id = ${workspaceId}`;
       if (input.action === 'detect_language') {
         await tx`
           insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model, duration_ms, outcome, failure_code)
@@ -259,7 +261,7 @@ ai.post('/messages', async (c) => {
   // debited; do not issue an unearned refund after a paid provider response.
   const balance = await sql.begin(async (tx) => {
     const [row] = await tx`
-      update workspaces set ai_credits_micro = ai_credits_micro + ${reserved - cost}
+      update workspaces set ai_credits_micro = ai_credits_micro + ${reserved - cost}, ai_reserved_micro = ai_reserved_micro - ${reserved}
       where id = ${workspaceId} returning ai_credits_micro
     `;
     await tx`
