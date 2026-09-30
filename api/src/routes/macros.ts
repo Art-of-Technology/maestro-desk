@@ -6,14 +6,6 @@ import { getDb } from '../lib/db.js';
 
 export const macros = new Hono();
 macros.use('*', requireAuth);
-macros.use('*', async (c, next) => {
-  if (c.req.method !== 'GET' && !c.req.path.endsWith('/use')) {
-    const denied = await requireWorkspaceAdmin(c);
-    if (denied) return denied;
-  }
-  await next();
-});
-
 const Action = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('status'), value: z.enum(['open', 'pending', 'escalated', 'gdpr', 'resolved']) }).strict(),
   z.object({ kind: z.literal('priority'), value: z.enum(['urgent', 'high', 'normal', 'low']) }).strict(),
@@ -48,6 +40,8 @@ async function referencesExist(workspaceId: string, actions: z.infer<typeof Acti
 }
 
 macros.post('/', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   const parsed = Body.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid macro', issues: parsed.error.issues }, 400);
   const sql = getDb(), d = parsed.data, ws = c.get('workspaceId');
@@ -58,6 +52,8 @@ macros.post('/', async (c) => {
 });
 
 macros.put('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Invalid macro ID' }, 400);
   const parsed = Body.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid macro', issues: parsed.error.issues }, 400);
@@ -73,6 +69,8 @@ macros.put('/:id', async (c) => {
 });
 
 macros.delete('/:id', async (c) => {
+  const denied = await requireWorkspaceAdmin(c);
+  if (denied) return denied;
   if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Invalid macro ID' }, 400);
   const sql = getDb();
   const [row] = await sql`update workspace_macros set deleted_at=now(), updated_at=now()
