@@ -229,6 +229,7 @@ reconcileLayout(REPORT_LAYOUT, REPORT_WIDGETS);
 // string-escape utilities. Both stay in app.js — modules access via window.
 function fmtMinutes(m) {
   if (!m) return '—';
+  m = Math.round(m);
   if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   const min = m % 60;
