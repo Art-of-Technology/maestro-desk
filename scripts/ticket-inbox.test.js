@@ -51,8 +51,8 @@ test('remote moves reset a saved sender but retain recipients, and labels escape
   const t = tickets[0]; saveDraftRecipients(t.id, { ...replyDraft(t), cc:'reviewer@example.test' });
   t.channelId = 'b'; expect(replyDraft(t).sending_channel_id).toBe('b');
   expect(replyDraft(t).cc).toBe('reviewer@example.test');
-  expect(renderTicketInbox(t,true)).toContain('&lt;Payments&gt;');
-  expect(renderTicketInbox(t,true)).not.toContain('<Payments>');
+  expect(renderTicketInbox(t)).toContain('&lt;Payments&gt;');
+  expect(renderTicketInbox(t)).not.toContain('<Payments>');
 });
 test('existing drafts without an inbox snapshot keep their explicit sender', () => {
   const t = tickets[0];
