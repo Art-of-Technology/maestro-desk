@@ -1,6 +1,6 @@
 import { applySavedActivity } from '../core/ticket-history.js';
 import { ticketDateMs } from './date-sort.js';
-import { inboxLabel, renderTicketInbox } from './inbox.js';
+import { inboxLabel } from './inbox.js';
 import { copyButton } from '../core/copy.js';
 // ─── Tickets list ────────────────────────────────────────────────────────────
 // The Tickets index page: KPI bar, status tab bar, filter/group/view chips,
@@ -66,7 +66,7 @@ let SHOW_MORE_FILTERS = false;
 // breach filter and both CSV exports — dropping the column doesn't drop the
 // data.
 const TICKET_COLUMNS = [
-  ['id','ID'], ['customerId','Customer'], ['subject','Subject'], ['status','Status'],
+  ['id','ID'], ['customerId','Customer'], ['subject','Subject'], ['inbox','Inbox'], ['status','Status'],
   ['priority','Priority'], ['category','Category'], ['agent','Agent'], ['updated','Updated'],
 ];
 
@@ -249,7 +249,8 @@ export function renderTickets() {
       </td>
       <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}${copyButton(t.id, 'ticket number')}</td>
       <td>${window.escHtml(t.customerName || (cust ? cust.first+' '+cust.last : '—'))}</td>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}${renderTicketInbox(t, true)}</td>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
+      <td class="ticket-inbox-cell" title="${window.escAttr(inboxLabel(t))}">${window.escHtml(inboxLabel(t))}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
       <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
       <td>${window.escHtml(t.category)}</td>
@@ -597,6 +598,7 @@ function getFilteredTickets() {
   }
   const sortNow = Date.now();
   list.sort((a, b) => {
+    if (SORT_COL === 'inbox') return inboxLabel(a).localeCompare(inboxLabel(b)) * SORT_DIR;
     if (SORT_COL === 'urgency') return compareUrgency(a, b);
     if (SORT_COL === 'created' || SORT_COL === 'updated') {
       return (ticketDateMs(a, SORT_COL, sortNow) - ticketDateMs(b, SORT_COL, sortNow)) * SORT_DIR;

@@ -12,9 +12,8 @@ function channelFor(ticket) { return CHANNELS.find(c => (c._uuid || c.id) === ti
 export function inboxLabel(ticket) {
   return channelFor(ticket)?.name || (ticket.channelId ? 'Unavailable inbox' : 'Unassigned');
 }
-export function renderTicketInbox(ticket, compact = false) {
+export function renderTicketInbox(ticket) {
   const label = `Inbox: ${inboxLabel(ticket)}`;
-  if (compact) return `<div class="ticket-inbox-caption" title="${window.escAttr(label)}">${window.escHtml(label)}</div>`;
   const channel = channelFor(ticket);
   return `<details class="ticket-popover ticket-inbox">
     <summary class="btn btn-sm" title="${window.escAttr(label)}" aria-label="${window.escAttr(label)}">${window.escHtml(label)} <span aria-hidden="true">▾</span></summary>

@@ -14,6 +14,7 @@ function fixture() {
       {id:'4',status:'open',channelId:null,priority:'normal'},
       {id:'5',status:'resolved',channelId:'payments',priority:'high'}],
     isOutstanding:t=>!['resolved','closed'].includes(t.status), renderPage() {},
+    inboxLabel:t=>({support:'Zebra support',payments:'Accounts'}[t.channelId] || (t.channelId ? 'Unavailable inbox' : 'Unassigned')),
     registerInputActions() {},
   };
   for (const name of ['Category','Priority','Agent','Sentiment','Query']) state['setFilter'+name] = value => { state['FILTER_'+name.toUpperCase()] = value; };
@@ -43,4 +44,12 @@ test('saved searches round-trip the inbox and old searches reset it', () => {
   s.FILTER_INBOX='support'; s.applySavedSearch('new');
   expect(s.getFilteredTickets().map(t=>t.id)).toEqual(['2']);
   s.applySavedSearch('old'); expect(s.FILTER_INBOX).toBe('all'); expect(s.getFilteredTickets()).toHaveLength(4);
+});
+
+test('inbox sorting uses displayed names in both directions, including missing inboxes', () => {
+  const s=fixture(); s.SORT_COL='inbox';
+  s.TICKETS[2].channelId='deleted';
+  expect(s.getFilteredTickets().map(t=>t.id)).toEqual(['2','4','3','1']);
+  s.SORT_DIR=-1;
+  expect(s.getFilteredTickets().map(t=>t.id)).toEqual(['1','3','4','2']);
 });
