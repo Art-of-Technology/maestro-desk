@@ -106,4 +106,15 @@ run('ticket inbox moves', () => {
       expect((await current()).channel_id).toBe(before.channel_id);
     } finally { await sql.unsafe(`alter table audit_events drop constraint ${constraint}`); }
   });
+  it('saves and reloads inbox filters, including no-inbox and older searches', async () => {
+    const created = await request('saved-searches', 'POST', {name:'Payments',filters:{inbox:second,priority:'high'}});
+    expect(created.status).toBe(201);
+    const saved: any = await created.json();
+    const list: any = await (await request('saved-searches')).json();
+    expect(list.saved_searches.find((s: any)=>s.id===saved.saved_search.id).filters).toEqual({inbox:second,priority:'high'});
+    const updated = await request('saved-searches/'+saved.saved_search.id,'PATCH',{filters:{inbox:'none'}});
+    expect(updated.status).toBe(200);
+    expect((await updated.json() as any).saved_search.filters.inbox).toBe('none');
+    expect((await request('saved-searches','POST',{name:'Legacy',filters:{priority:'high'}})).status).toBe(201);
+  });
 });

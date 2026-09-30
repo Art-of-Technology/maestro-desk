@@ -144,6 +144,7 @@ jobs:
           bun test scripts/reply-feedback.test.js
           bun test scripts/reply-layout.test.js
           bun test scripts/ticket-inbox.test.js
+          bun test scripts/inbox-filter.test.js
           bun test scripts/reply-performance.test.js
           bun test scripts/sidebar-responsive.test.js
 
