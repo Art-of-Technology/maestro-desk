@@ -159,6 +159,7 @@ export const GUIDE_STEPS = [
     highlights: ["Check teammates’ roles and workload before handing over.","Choose a performance period; current workload stays separate.","Return to Guides whenever you need a reminder."],
     instructions: [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
+      'Open an agent to see their email address. Admins can choose Resend invite for agents marked Invited, check the recipient, then confirm. Agents who have already joined have a Send password reset option instead.',
       'Choose Last 7 days, Last 30 days, Last 90 days or All time to compare performance. The dates appear beside the filter. Current workload always shows tickets needing attention now.',
       'Send and resolve credits the agent who resolves the ticket, regardless of its assignee. Each ticket counts once per agent in the selected period. Open an agent for saved replies, tickets handled and the counting explanation.',
       'If a control is missing, ask your lead whether your role or workspace has access. Some AI, template and administration controls depend on configuration or permissions.',
