@@ -16,8 +16,8 @@ import { replaceSavedActivity } from './ticket-history.js';
 // CHANNELS, ROLES, CANNED_RESPONSES, TICKET_TEMPLATES, CUSTOM_FIELDS,
 // ASSIGN_RULES are still seeded from data.js. Each migrates per-feature.
 
-import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, KB_ARTICLES, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES } from './data.js';
-import { apiGet } from './api-client.js';
+import { AGENTS, ASSIGN_RULES, CANNED_RESPONSES, CATEGORIES, CHANNELS, CUSTOMERS, CUSTOM_FIELDS, KB_ARTICLES, MACROS, ROLES, SLA_POLICIES, TAG_LIBRARY, TICKETS, TICKET_TEMPLATES, mapMacro } from './data.js';
+import { apiGet, getJwt, getWorkspaceId } from './api-client.js';
 import { hydrateLayouts } from '../layouts/index.js';
 
 // Tickets pagination state. Bootstrap loads the first page; the SPA's
@@ -236,7 +236,9 @@ export function mapCustomerNote(n) {
 }
 
 export async function loadWorkspaceData() {
-  const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes, layoutsRes] = await Promise.all([
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  replaceInPlace(MACROS, []);
+  const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes, layoutsRes, macrosRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
@@ -271,7 +273,10 @@ export async function loadWorkspaceData() {
       console.warn('[bootstrap] layouts load failed:', err?.message || err);
       return { layouts: null };
     }),
+    apiGet('/api/v1/macros').catch(err => { if (err.status === 404) return { macros: [] }; throw err; }),
   ]);
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  replaceInPlace(MACROS, (macrosRes.macros || []).map(mapMacro));
 
   const customersRaw = customersRes.customers || [];
   const agentsRaw    = agentsRes.agents       || [];

@@ -161,3 +161,30 @@ export const KB_ARTICLES = [
 // data.js is now an ES module. The const collections are mutated in place
 // (.push/.splice and the bootstrap target.length=0 swap), so they read live
 // across importers and need no setter.
+
+
+export const MACROS = [
+  { id:'MAC-001', name:'Waiting on customer', icon:'⏸', description:'Pause for customer reply',
+    actions:[
+      { kind:'status',  value:'pending' },
+      { kind:'tag',     value:'waiting-customer' },
+      { kind:'reply',   templateId:'TPL-002' },
+    ], usageCount:14, lastUsed:'2025-04-15' },
+  { id:'MAC-002', name:'Resolve with thanks', icon:'✅', description:'Send a thank-you reply and resolve',
+    actions:[
+      { kind:'reply',   templateId:'TPL-004' },
+      { kind:'status',  value:'resolved' },
+    ], usageCount:23, lastUsed:'2025-04-16' },
+  { id:'MAC-003', name:'Escalate to billing', icon:'⬆', description:'High priority + billing tag + note',
+    actions:[
+      { kind:'priority', value:'high' },
+      { kind:'tag',      value:'billing-escalation' },
+      { kind:'note',     text:'Escalated to billing for review.' },
+    ], usageCount:7, lastUsed:'2025-04-14' },
+];
+
+export function mapMacro(row) {
+  return { _uuid: row.id, id: row.display_id, name: row.name, icon: row.icon,
+    description: row.description, actions: row.actions, usageCount: row.usage_count,
+    lastUsed: row.last_used_at ? String(row.last_used_at).slice(0, 10) : null };
+}

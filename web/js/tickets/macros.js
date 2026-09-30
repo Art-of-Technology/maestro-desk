@@ -23,38 +23,21 @@
 // logTicketEvent is imported from core/activity-log.js since that's already
 // extracted.
 
-import { AGENTS, CANNED_RESPONSES, CUSTOMERS, TICKETS } from '../core/data.js';
+import { AGENTS, CANNED_RESPONSES, MACROS, TICKETS, mapMacro } from '../core/data.js';
 import { CURRENT_TICKET, MACRO_FILTER_QUERY, SESSION, TICKET_SELECTED_IDS, setMacroFilterQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { navTo } from '../core/keybindings.js';
 import { insertMacro, openTicket, onComposeInput, changeTicketStatus, changeTicketPriority, changeTicketAgent, addTicketTag } from './detail.js';
+import { apiPost, apiPut, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { appendTemplate } from './template-content.js';
 import {
   registerActions, registerChangeActions,
   registerMousedownActions, registerInputActions,
 } from '../core/event-delegation.js';
 
-export const MACROS = [
-  { id:'MAC-001', name:'Waiting on customer', icon:'⏸', description:'Pause for customer reply',
-    actions:[
-      { kind:'status',  value:'pending' },
-      { kind:'tag',     value:'waiting-customer' },
-      { kind:'reply',   templateId:'TPL-002' },
-    ], usageCount:14, lastUsed:'2025-04-15' },
-  { id:'MAC-002', name:'Resolve with thanks', icon:'✅', description:'Send a thank-you reply and resolve',
-    actions:[
-      { kind:'reply',   templateId:'TPL-004' },
-      { kind:'status',  value:'resolved' },
-    ], usageCount:23, lastUsed:'2025-04-16' },
-  { id:'MAC-003', name:'Escalate to billing', icon:'⬆', description:'High priority + billing tag + note',
-    actions:[
-      { kind:'priority', value:'high' },
-      { kind:'tag',      value:'billing-escalation' },
-      { kind:'note',     text:'Escalated to billing for review.' },
-    ], usageCount:7, lastUsed:'2025-04-14' },
-];
+export { MACROS } from '../core/data.js';
 
 function macNextId() {
   const max = Math.max(0, ...MACROS.map(m => parseInt((m.id||'').split('-')[1] || '0', 10)));
@@ -76,7 +59,7 @@ function macActionSummary(a) {
   if (a.kind === 'assign')   return a.value === 'unassign' ? '→ unassign' : `→ assign to <strong>${window.escHtml(a.value)}</strong>`;
   if (a.kind === 'tag')      return `+ tag <strong>${window.escHtml(a.value)}</strong>`;
   if (a.kind === 'reply') {
-    const tpl = CANNED_RESPONSES.find(r => r.id === a.templateId);
+    const tpl = CANNED_RESPONSES.find(r => (r._uuid || r.id) === a.templateId);
     return `+ reply <strong>${window.escHtml(tpl ? tpl.name : a.templateId)}</strong>`;
   }
   if (a.kind === 'note') {
@@ -107,23 +90,38 @@ async function runMacro(macroId, ticketId) {
   const macro = MACROS.find(m => m.id === macroId);
   const t = TICKETS.find(x => x.id === ticketId);
   if (!macro || !t) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const active = () => workspace === getWorkspaceId() && jwt === getJwt() && TICKETS.includes(t);
   if (t.mergedInto) { alert(`${ticketId} is a merged duplicate. Open ${t.mergedInto} to apply macros.`); return; }
+  if ((macro.actions || []).some(a => a.kind === 'reply' && !CANNED_RESPONSES.some(r => (r._uuid || r.id) === a.templateId))) {
+    alert('A reply template is no longer available. Edit the macro before applying it.'); return;
+  }
+  if ((macro.actions || []).some(a => a.kind === 'assign' && a.value !== 'unassign' && !AGENTS.some(ag => ag.name === a.value))) {
+    alert('An assigned agent is no longer available. Edit the macro before applying it.'); return;
+  }
   const replies = [];
-  (macro.actions || []).forEach(a => {
-    if (a.kind === 'status' && a.value)   changeTicketStatus(ticketId, a.value);
-    else if (a.kind === 'priority' && a.value) changeTicketPriority(ticketId, a.value);
+  for (const a of macro.actions || []) {
+    if (!active()) return;
+    if (a.kind === 'status' && a.value)   await changeTicketStatus(ticketId, a.value);
+    else if (a.kind === 'priority' && a.value) await changeTicketPriority(ticketId, a.value);
     else if (a.kind === 'assign') {
-      if (a.value === 'unassign') changeTicketAgent(ticketId, '');
-      else if (a.value) changeTicketAgent(ticketId, a.value);
+      if (a.value === 'unassign') await changeTicketAgent(ticketId, '');
+      else if (a.value) await changeTicketAgent(ticketId, a.value);
     }
-    else if (a.kind === 'tag' && a.value) addTicketTag(ticketId, a.value);
+    else if (a.kind === 'tag' && a.value) await addTicketTag(ticketId, a.value);
     else if (a.kind === 'reply' && a.templateId) {
-      const tpl = CANNED_RESPONSES.find(r => r.id === a.templateId);
+      const tpl = CANNED_RESPONSES.find(r => (r._uuid || r.id) === a.templateId);
       if (tpl) {
         replies.push(tpl);
       }
     }
     else if (a.kind === 'note' && a.text) {
+      if (t._uuid) {
+        try { await apiPost(`/api/v1/tickets/${t._uuid}/messages`, { role: 'note', body: a.text }); }
+        catch (err) { alert(`Couldn't save macro note: ${err.message}`); return; }
+        if (!active()) return;
+        t._detailLoaded = false;
+      }
       t.msgs = t.msgs || [];
       t.msgs.push({
         from: SESSION?.name || 'Agent', r:'note',
@@ -131,9 +129,25 @@ async function runMacro(macroId, ticketId) {
         ts: new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }),
       });
     }
-  });
-  macro.usageCount = (macro.usageCount || 0) + 1;
-  macro.lastUsed = new Date().toISOString().slice(0, 10);
+    // The shared ticket editors report their own failures. Stop here instead
+    // of applying later steps or recording a successful macro usage.
+    if (!active()) return;
+    if (a.kind === 'status' && t.status !== a.value) return;
+    if (a.kind === 'priority' && t.priority !== a.value) return;
+    if (a.kind === 'tag' && !t.tags?.includes(a.value)) return;
+    if (a.kind === 'assign' && (t.agent || '') !== (a.value === 'unassign' ? '' : a.value)) return;
+  }
+  if (macro._uuid) {
+    try {
+      const { macro: usage } = await apiPost('/api/v1/macros/' + macro._uuid + '/use', {});
+      if (!active()) return;
+      macro.usageCount = usage.usage_count; macro.lastUsed = String(usage.last_used_at).slice(0, 10);
+    } catch (err) { alert('Macro steps completed, but usage could not be saved: ' + err.message); }
+  } else {
+    macro.usageCount = (macro.usageCount || 0) + 1;
+    macro.lastUsed = new Date().toISOString().slice(0, 10);
+  }
+  if (!active()) return;
   logTicketEvent(ticketId, 'system', `Macro applied: ${macro.name}`);
   if (CURRENT_TICKET === ticketId) {
     openTicket(ticketId);
@@ -147,10 +161,18 @@ async function runMacro(macroId, ticketId) {
   }
 }
 
-function bulkRunMacro(macroId) {
+async function bulkRunMacro(macroId) {
   if (!macroId || TICKET_SELECTED_IDS.size === 0) return;
+  if (MACROS.find(m => m.id === macroId)?.actions.some(a => a.kind === 'reply')) {
+    alert('Open each ticket to apply this macro and review its reply before sending.'); return;
+  }
+  const workspace = getWorkspaceId(), jwt = getJwt();
   const ids = [...TICKET_SELECTED_IDS];
-  ids.forEach(id => runMacro(macroId, id));
+  for (const id of ids) {
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    await runMacro(macroId, id);
+  }
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   TICKET_SELECTED_IDS.clear();
   renderPage('tickets');
 }
@@ -176,7 +198,7 @@ export function showApplyMacroModal(ticketId) {
 }
 
 function macStepRow(a, i) {
-  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const esc = s => window.escAttr(s || '');
   const valueInput = (() => {
     if (a.kind === 'status') {
       return `<select class="form-input" data-mac-val="${i}">${['open','pending','escalated','gdpr','resolved'].map(v=>`<option value="${v}" ${a.value===v?'selected':''}>${v}</option>`).join('')}</select>`;
@@ -188,7 +210,7 @@ function macStepRow(a, i) {
       return `<select class="form-input" data-mac-val="${i}"><option value="unassign" ${a.value==='unassign'?'selected':''}>Unassign</option>${AGENTS.map(ag=>`<option value="${window.escAttr(ag.name)}" ${a.value===ag.name?'selected':''}>${window.escHtml(ag.name)}</option>`).join('')}</select>`;
     }
     if (a.kind === 'reply') {
-      return `<select class="form-input" data-mac-tpl="${i}">${CANNED_RESPONSES.map(r=>`<option value="${window.escAttr(r.id)}" ${a.templateId===r.id?'selected':''}>${window.escHtml(r.name)}</option>`).join('')}</select>`;
+      return `<select class="form-input" data-mac-tpl="${i}">${CANNED_RESPONSES.map(r=>`<option value="${window.escAttr(r._uuid || r.id)}" ${a.templateId===(r._uuid || r.id)?'selected':''}>${window.escHtml(r.name)}</option>`).join('')}</select>`;
     }
     if (a.kind === 'note') {
       return `<input class="form-input" data-mac-text="${i}" value="${esc(a.text)}" placeholder="Internal note text"/>`;
@@ -204,7 +226,7 @@ function macStepRow(a, i) {
 }
 
 function macFormBody(m) {
-  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const esc = s => window.escAttr(s || '');
   const steps = (m?.actions || []).map(macStepRow).join('');
   return `
     <div class="form-row"><label class="form-label">Name</label><input class="form-input" id="mac-name" value="${esc(m?.name)}" placeholder="e.g. Waiting on customer"/></div>
@@ -253,7 +275,7 @@ function macStepKindChange(i, newKind) {
   const draft = _macReadDraft();
   // Reset value when kind changes; pick a sensible default per kind so the row
   // doesn't render empty inputs.
-  const defaults = { status:'open', priority:'normal', assign:'unassign', tag:'', reply: CANNED_RESPONSES[0]?.id, note:'' };
+  const defaults = { status:'open', priority:'normal', assign:'unassign', tag:'', reply: CANNED_RESPONSES[0]?._uuid || CANNED_RESPONSES[0]?.id, note:'' };
   draft[i] = { kind: newKind };
   if (newKind === 'reply') draft[i].templateId = defaults.reply;
   else if (newKind === 'note') draft[i].text = '';
@@ -261,50 +283,53 @@ function macStepKindChange(i, newKind) {
   _macReplaceSteps(draft);
 }
 
-function macNew() {
-  if (!window.isAdmin()) return;
-  const seed = { actions: [{ kind:'status', value:'pending' }] };
-  showModal('New macro', macFormBody(seed), () => {
-    const name = document.getElementById('mac-name').value.trim();
-    if (!name) { alert('Name is required.'); return; }
-    const actions = _macReadDraft().filter(a => a.kind && (a.value || a.text || a.templateId));
-    if (!actions.length) { alert('Add at least one step.'); return; }
-    MACROS.unshift({
-      id: macNextId(),
-      name,
-      icon: document.getElementById('mac-icon').value.trim() || '⚡',
-      description: document.getElementById('mac-desc').value.trim(),
-      actions,
-      usageCount: 0,
-      lastUsed: null,
-    });
-    closeModal(); renderPage('macros');
-  }, 'Create');
-}
+function macNew() { macOpen(null); }
+function macEdit(id) { const m = MACROS.find(x => x.id === id); if (m) macOpen(m); }
 
-function macEdit(id) {
+function macOpen(m) {
   if (!window.isAdmin()) return;
-  const m = MACROS.find(x => x.id === id); if (!m) return;
-  showModal('Edit macro · ' + m.id, macFormBody(m), () => {
-    const name = document.getElementById('mac-name').value.trim();
-    if (!name) { alert('Name is required.'); return; }
-    const actions = _macReadDraft().filter(a => a.kind && (a.value || a.text || a.templateId));
-    if (!actions.length) { alert('Add at least one step.'); return; }
-    m.name = name;
-    m.icon = document.getElementById('mac-icon').value.trim() || '⚡';
-    m.description = document.getElementById('mac-desc').value.trim();
-    m.actions = actions;
-    closeModal(); renderPage('macros');
-  }, 'Save');
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal(m ? 'Edit macro' : 'New macro', macFormBody(m || { actions: [{ kind:'status', value:'pending' }] }) +
+    '<p id="mac-error" role="status"></p>', async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    const name = input.value.trim();
+    const actions = _macReadDraft();
+    if (!name || !actions.length) { status.textContent = 'Enter a name and at least one step.'; return; }
+    const body = { name, icon: document.getElementById('mac-icon').value.trim() || '⚡',
+      description: document.getElementById('mac-desc').value.trim(), actions };
+    saving = true; button.disabled = true;
+    try {
+      const saved = jwt ? mapMacro((m?._uuid
+        ? await apiPut('/api/v1/macros/' + m._uuid, body)
+        : await apiPost('/api/v1/macros', body)).macro)
+        : { ...body, id: m?.id || macNextId(), usageCount: m?.usageCount || 0, lastUsed: m?.lastUsed || null };
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      if (m) Object.assign(m, saved); else MACROS.unshift(saved);
+      if (document.getElementById('mac-name') === input) { closeModal(); renderPage('macros'); }
+    } catch (err) { if (status.isConnected) status.textContent = "Couldn't save: " + err.message; }
+    finally { saving = false; if (button.isConnected) button.disabled = false; }
+  }, m ? 'Save' : 'Create');
+  const input = document.getElementById('mac-name');
+  const status = document.getElementById('mac-error');
+  const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
 }
 
 function macDelete(id) {
   if (!window.isAdmin()) return;
   const m = MACROS.find(x => x.id === id); if (!m) return;
-  showModal('Delete macro', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(m.name)}</strong>?</div>`, () => {
-    const i = MACROS.findIndex(x => x.id === id);
-    if (i >= 0) MACROS.splice(i, 1);
-    closeModal(); renderPage('macros');
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Delete macro', '<p>Delete <strong>' + window.escHtml(m.name) + '</strong>?</p>', async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    saving = true;
+    try {
+      if (jwt) await apiDelete('/api/v1/macros/' + m._uuid);
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      const i = MACROS.indexOf(m); if (i >= 0) MACROS.splice(i, 1);
+      closeModal(); renderPage('macros');
+    } catch (err) { alert("Couldn't delete macro: " + err.message); }
+    finally { saving = false; }
   }, 'Delete');
 }
 
@@ -389,7 +414,7 @@ registerChangeActions({
 
 registerMousedownActions({
   // apply-macro picker rows — mousedown so it fires before the modal dismiss
-  'macros.runAndClose': (ds) => { closeModal(); runMacro(ds.macroId, ds.ticketId); },
+  'macros.runAndClose': (ds) => { closeModal(); return runMacro(ds.macroId, ds.ticketId); },
 });
 
 registerInputActions({
