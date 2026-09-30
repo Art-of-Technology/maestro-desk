@@ -6,7 +6,7 @@ const source = readFileSync(new URL('../web/js/agents/index.js', import.meta.url
 const handler = source.slice(source.indexOf('function sendAgentPasswordReset('), source.indexOf('registerActions({'));
 
 test('resend confirms the correct agent, sends once, and reports failures without changing membership', async () => {
-  for (const result of ['success', 'rejected', 'offline', 'active', 'non-admin', 'switched']) {
+  for (const result of ['success', 'rejected', 'offline', 'active', 'non-admin', 'switched', 'missing-id']) {
     let confirm, calls = 0, title, body, workspace = 'one';
     const messages = [];
     const agents = [{ userId:'first', name:'Same name', email:'first@example.test', invited:true },
@@ -22,8 +22,9 @@ test('resend confirms the correct agent, sends once, and reports failures withou
         return {email_sent:result !== 'rejected'};
       },
     };
-    runInNewContext(handler + "sendAgentPasswordReset('second');", context);
+    runInNewContext(handler + `sendAgentPasswordReset('${result === 'missing-id' ? '' : 'second'}');`, context);
     expect(calls).toBe(0);
+    if (result === 'missing-id') { expect(confirm).toBeUndefined(); expect(messages[0]).toContain('does not have an account'); continue; }
     if (result === 'non-admin') { expect(confirm).toBeUndefined(); continue; }
     expect(title).toBe(result === 'active' ? 'Send password reset' : 'Resend invite');
     expect(body).toContain('second@example.test'); expect(body).not.toContain('first@example.test');

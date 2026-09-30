@@ -441,12 +441,12 @@ function agentNew() {
 // agent's current password keeps working until they follow the link.
 function sendAgentPasswordReset(userId) {
   if (!window.isAdmin()) return;
-  const a = AGENTS.find(x => x.userId === userId);
-  if (!a) return;
-  if (!a.userId) {
-    alert(`${a.name} isn't a real account yet, so there's no invitation or password link to send.`);
+  if (!userId) {
+    alert('This agent does not have an account yet, so there is no invitation or password link to send.');
     return;
   }
+  const a = AGENTS.find(x => x.userId === userId);
+  if (!a) return;
   const invited = a.invited;
   const workspace = getWorkspaceId(), token = getJwt();
   let sending = false;
