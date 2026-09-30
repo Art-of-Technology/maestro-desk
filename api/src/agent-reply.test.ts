@@ -161,6 +161,25 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     }
   });
 
+  it('defaults a reply without an explicit sender to the ticket current inbox', async () => {
+    const tid = await seedTicket(`AR-${RUN}-moved`, { email: `moved-${RUN}@customer.test` });
+    const domain = `moved-${RUN}.test`, address = `payments@${domain}`;
+    const [d] = await sql`insert into workspace_email_domains(workspace_id,domain,verified_at) values (${ctx.wsId},${domain},now()) returning id`;
+    const [inbox] = await sql`insert into channels(workspace_id,display_id,name,type,address)
+      values (${ctx.wsId},${'CH-moved-'+RUN},'Payments','email',${address}) returning id`;
+    try {
+      await sql`update tickets set channel_id=${inbox.id} where id=${tid}`;
+      const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Your payment update.' }) });
+      const body: any = await response.json();
+      expect(response.status).toBe(201); expect(body.delivery.emailed).toBe(true);
+      expect(lastBody.From).toContain(address); expect(lastBody.ReplyTo).toBe(address);
+      expect(body.message.email_metadata.sending_channel_id).toBe(inbox.id);
+    } finally {
+      await sql`delete from channels where id=${inbox.id}`;
+      await sql`delete from workspace_email_domains where id=${d.id}`;
+    }
+  });
+
   it('sends reviewed reply-all recipients, keeps CC out of customer identity, and rejects invalid or foreign sources', async () => {
     const email = `envelope-${RUN}@acme.test`, cc = `colleague-${RUN}@acme.test`;
     const tid = await seedTicket(`AR-${RUN}-envelope`, { email });

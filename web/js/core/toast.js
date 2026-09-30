@@ -12,7 +12,7 @@ const COLORS = {
   info:    'var(--ink2, #413d54)',
 };
 
-export function showToast(message, kind = 'info', ms = 4000, onClick = null) {
+export function showToast(message, kind = 'info', ms = 4000, onClick = null, action = null) {
   let host = document.getElementById('toast-host');
   if (!host) {
     host = document.createElement('div');
@@ -24,6 +24,18 @@ export function showToast(message, kind = 'info', ms = 4000, onClick = null) {
   el.setAttribute('role', 'status');
   el.style.cssText = `pointer-events:auto;max-width:340px;padding:10px 14px;border-radius:16px;background:var(--off,#ffffff);color:var(--ink,#201238);font-size:13px;line-height:1.4;box-shadow:0 8px 24px -8px rgba(19,14,48,0.35);border-left:3px solid ${COLORS[kind] || COLORS.info};opacity:0;transform:translateY(6px);transition:opacity .18s ease,transform .18s ease`;
   el.textContent = message;
+  if (action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn btn-sm';
+    button.textContent = action.label;
+    button.style.marginLeft = '8px';
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await action.onClick(); } finally { el.remove(); }
+    });
+    el.appendChild(button);
+  }
   if (onClick) {
     el.style.cursor = 'pointer';
     el.addEventListener('click', () => { try { onClick(); } finally { el.remove(); } });

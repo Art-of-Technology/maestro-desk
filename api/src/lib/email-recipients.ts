@@ -57,7 +57,10 @@ export async function ticketReplyRecipients(workspaceId: string, ticketId: strin
   if (input?.sending_channel_id && !sendingInboxes.some(inbox => inbox.id === input.sending_channel_id && inbox.address === input.sending_address?.toLowerCase())) {
     throw new HTTPException(409, { message: 'The selected sending inbox is unavailable or no longer verified. Choose another From inbox.' });
   }
-  const defaultInbox = sendingInboxes.find(inbox => inbox.address === meta?.received_via?.toLowerCase());
+  const [ticket] = await sql`select channel_id from tickets where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null`;
+  const defaultInbox = ticket?.channel_id
+    ? sendingInboxes.find(inbox => inbox.id === ticket.channel_id)
+    : sendingInboxes.find(inbox => inbox.address === meta?.received_via?.toLowerCase());
   const own = new Set(cleanEmails([...channels.map(c => c.address), branded?.fromEmail, env.POSTMARK_OUTBOUND_FROM, env.POSTMARK_INBOUND_REPLY_ADDRESS]));
   const external = (values: string[]) => cleanEmails(values).filter(e => !own.has(e) && !e.endsWith('@inbound.postmarkapp.com'));
   const to = external(meta ? [meta.reply_to || meta.from] : [recipient?.email || '']);

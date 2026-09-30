@@ -25,6 +25,7 @@ import { syncRoute, ticketUrl } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
 import { generateAITags, renderAITags } from '../ai/tags.js';
 import { changeTicketCategory, renderTicketCategory, ticketCategoryKey } from './category.js';
+import { renderTicketInbox, showMoveInbox } from './inbox.js';
 import { handoverStale, handoverText } from '../ai/handover.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
@@ -564,6 +565,7 @@ export function openTicket(id) {
         ${snoozeBanner}
         <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${window.escHtml(t.subject)}</div>
         <div class="ticket-metadata">
+          ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
             <span class="ticket-status-dot" aria-hidden="true"></span>
             <select aria-label="Ticket status" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
@@ -1316,6 +1318,7 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.moveInbox': ds => showMoveInbox(ds.ticketId),
   'td.refreshRecipients': (ds) => {
     const ticket = TICKETS.find(t => t.id === ds.ticketId);
     if (!ticket?.replyRecipients) return;

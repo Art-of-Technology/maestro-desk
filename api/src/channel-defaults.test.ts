@@ -103,10 +103,11 @@ runDbTests('channel inbound defaults (DB-backed)', () => {
       payload: inbound({ from: `angry-${RUN}@cust.test`, to: addr('complaint'), subject: 'This is unacceptable', text: 'complaint body', messageId: `<c1-${RUN}@cust.test>` }),
     });
     expect(res.threaded).toBe(false);
-    const [t] = await sql<{ priority_key: string; category_key: string | null }[]>`
-      select priority_key, category_key from tickets where id = ${res.ticket_id}`;
+    const [t] = await sql<{ priority_key: string; category_key: string | null; channel_id: string | null }[]>`
+      select priority_key, category_key, channel_id from tickets where id = ${res.ticket_id}`;
     expect(t.priority_key).toBe('urgent');
     expect(t.category_key).toBe('Complaints');
+    expect(t.channel_id).toBe(ctx.chComplaints);
 
     // Inbox audit row attributed to the SAME channel the defaults came from.
     const [inboxRow] = await sql<{ channel_id: string }[]>`

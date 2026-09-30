@@ -1,5 +1,6 @@
 import { applySavedActivity } from '../core/ticket-history.js';
 import { ticketDateMs } from './date-sort.js';
+import { renderTicketInbox } from './inbox.js';
 import { copyButton } from '../core/copy.js';
 // ─── Tickets list ────────────────────────────────────────────────────────────
 // The Tickets index page: KPI bar, status tab bar, filter/group/view chips,
@@ -242,7 +243,7 @@ export function renderTickets() {
       </td>
       <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}${copyButton(t.id, 'ticket number')}</td>
       <td>${window.escHtml(t.customerName || (cust ? cust.first+' '+cust.last : '—'))}</td>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}${renderTicketInbox(t, true)}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
       <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
       <td>${window.escHtml(t.category)}</td>

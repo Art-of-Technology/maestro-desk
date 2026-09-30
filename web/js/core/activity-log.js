@@ -107,6 +107,7 @@ const ACT_KIND_META = {
   status:   { label: 'Status',   color: 'var(--cyan)' },
   priority: { label: 'Priority', color: 'var(--amber)' },
   agent:    { label: 'Agent',    color: 'var(--purple)' },
+  inbox:    { label: 'Inbox',    color: 'var(--ink2)' },
   tag:      { label: 'Tag',      color: 'var(--green)' },
   note:     { label: 'Note',     color: 'var(--amber)' },
   created:  { label: 'Created',  color: 'var(--cyan)' },

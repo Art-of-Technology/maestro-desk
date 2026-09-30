@@ -62,7 +62,8 @@ export async function sendAgentReplyEmail(args: {
   `;
   const recipient = ctx ? await ticketReplyRecipients(workspaceId, ticketId, args.recipients) : null;
   if (!ctx || !recipient?.can_send) return { emailed: false, reason: 'no_customer_email' };
-  const selectedInbox = recipient.sending_inboxes.find(inbox => inbox.id === args.recipients?.sending_channel_id);
+  const sendingChannelId = args.recipients ? args.recipients.sending_channel_id : recipient.default_sending_channel_id;
+  const selectedInbox = recipient.sending_inboxes.find(inbox => inbox.id === sendingChannelId);
   await sql`update ticket_messages set email_metadata=${sql.json({ from: selectedInbox?.address || '', to: recipient.to, cc: args.recipients ? recipient.cc : [], status: 'saved' })}
     where id=${messageId} and workspace_id=${workspaceId}`;
   if (!isPostmarkConfigured()) return { emailed: false, reason: 'postmark_not_configured' };
@@ -90,8 +91,8 @@ export async function sendAgentReplyEmail(args: {
     // safety net — see send-branded-email.ts.
     const result = await sendBrandedEmail({
       workspaceId,
-      sendingChannelId: args.recipients?.sending_channel_id,
-      expectedSendingAddress: args.recipients?.sending_address,
+      sendingChannelId,
+      expectedSendingAddress: args.recipients ? args.recipients.sending_address : selectedInbox?.address,
       fallbackFromName: ctx.ws_name || 'Support',
       to: recipient.to.join(','),
       cc: args.recipients ? recipient.cc.join(',') : undefined,
@@ -113,8 +114,8 @@ export async function sendAgentReplyEmail(args: {
       update ticket_messages set external_message_id = ${result.rfcMessageId},
         email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
           status: 'sent', sent_at: result.submittedAt,
-          ...(args.recipients?.sending_channel_id ? { sending_channel_id: args.recipients.sending_channel_id,
-            reply_to: recipient.sending_inboxes.find(inbox => inbox.id === args.recipients?.sending_channel_id)?.address,
+          ...(sendingChannelId ? { sending_channel_id: sendingChannelId,
+            reply_to: selectedInbox?.address,
             used_fallback_from: result.usedFallbackFrom } : {}) })}
       where id = ${messageId} and workspace_id = ${workspaceId}
     `;

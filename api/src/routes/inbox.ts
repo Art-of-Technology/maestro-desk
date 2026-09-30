@@ -124,10 +124,10 @@ inbox.post('/:id/convert', async (c) => {
     const displayId = await nextDisplayId(tx, workspaceId, 'ticket');
     const [t] = await tx`
       insert into tickets
-        (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, source_inbox_id, sla_state)
+        (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, source_inbox_id, channel_id, sla_state)
       values
         (${workspaceId}, ${displayId}, ${msg.subject || '(no subject)'}, ${customer.id},
-         'open', 'normal', ${categoryKey}, ${msg.id}, 'ok')
+         'open', 'normal', ${categoryKey}, ${msg.id}, ${msg.channel_id}, 'ok')
       returning id, display_id
     `;
     await tx`
