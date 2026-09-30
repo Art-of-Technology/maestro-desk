@@ -313,6 +313,7 @@ function renderAgentDetail(name) {
           <div style="width:56px;height:56px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:16px;flex-shrink:0">${window.escHtml(a.initials)}</div>
           <div style="flex:1;min-width:160px">
             <div style="font-size:18px;font-weight:600;color:var(--ink)">${window.escHtml(a.name)}</div>
+            <div style="font-size:12px;color:var(--ink2);margin-top:2px;overflow-wrap:anywhere">${window.escHtml(a.email || 'Email not available')}</div>
             <div style="font-size:12px;color:var(--ink3);margin-top:2px">${window.escHtml(a.role)}${a.active && d.totalActive ? ` · Rank #${d.rank} of ${d.totalActive} by current workload` : ''}</div>
           </div>
           ${isAgentOOO(a.name)
