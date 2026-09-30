@@ -7,10 +7,9 @@
 //   2. The full Notifications page (sidebar nav) — type/read filters,
 //      Mark read / Dismiss per entry, Mark all read, Clear all.
 //
-// Notifications themselves aren't stored — getNotifications() derives the
-// current list from live ticket state each call. NOTIFICATIONS_READ and
-// NOTIFICATIONS_DISMISSED track per-id flags inside the module (not
-// persisted; resets on reload, same as ticket state).
+// Ticket notifications are derived from live ticket state, with read/dismiss
+// flags kept in memory. AI credit alerts and their acknowledgements persist
+// per brand and admin through the API.
 //
 // Click/change/mousedown handlers route through core/event-delegation.js.
 // Bell-dropdown actions use mousedown rather than click so they fire before
@@ -37,6 +36,7 @@ import { getWorkspaceId, getJwt } from '../core/api-client.js';
 import { workQueueState, loadWorkQueue } from '../tickets/work-queue.js';
 import { unassignedNotifications } from './unassigned.js';
 import { wakeNotification } from './wake.js';
+import { creditNotification, acknowledgeCredit } from './ai-credit.js';
 // setSettingsTab is reached via window to avoid a notifications↔settings
 // import cycle (settings imports refreshNotifBadge from here). Settings is
 // still bridged; this can become a direct import once Settings migrates.
@@ -65,6 +65,11 @@ function getNotifications() {
     NOTIFICATIONS_DISMISSED.clear();
   }
   const out = [];
+  const credit = creditNotification(refreshNotifBadge);
+  if (credit) {
+    if (credit.read) NOTIFICATIONS_READ.add(credit.id);
+    if (!NOTIFICATIONS_DISMISSED.has(credit.id)) out.push(credit);
+  }
   if (getJwt() && !getWorkspaceId()) return out;
   if (workQueueState().ready) {
     const unassigned = unassignedNotifications(TICKETS);
@@ -234,7 +239,21 @@ function toggleNotifications() {
   btn?.classList.add('active');
 }
 
+function persistCredit(id, dismissed = false) {
+  const context = notificationContext;
+  void acknowledgeCredit(id, dismissed).catch(() => {
+    if (notificationContext !== context) return;
+    NOTIFICATIONS_READ.delete(id); NOTIFICATIONS_DISMISSED.delete(id);
+    refreshNotifBadge();
+    showToast('Could not save the credit notification change. Please retry.', 'error');
+  });
+}
+
 function openNotification(notifId, ticketId) {
+  if (notifId.startsWith('ai-credit-')) {
+    persistCredit(notifId);
+    navTo('settings'); window.setSettingsTab('ai');
+  }
   NOTIFICATIONS_READ.add(notifId);
   const dd = document.getElementById('notif-dropdown');
   dd?.classList.remove('show');
@@ -244,18 +263,23 @@ function openNotification(notifId, ticketId) {
 }
 
 function markAllNotifRead() {
-  getNotifications().forEach(n => NOTIFICATIONS_READ.add(n.id));
+  getNotifications().forEach(n => {
+    NOTIFICATIONS_READ.add(n.id);
+    if (n.type === 'ai-credit') persistCredit(n.id);
+  });
   refreshNotifBadge();
   renderNotifications();
 }
 
 function markNotifRead(id) {
+  if (id.startsWith('ai-credit-')) persistCredit(id);
   NOTIFICATIONS_READ.add(id);
   refreshNotifBadge();
   renderPage('notifications');
 }
 
 function dismissNotif(id) {
+  if (id.startsWith('ai-credit-')) persistCredit(id, true);
   NOTIFICATIONS_DISMISSED.add(id);
   refreshNotifBadge();
   renderPage('notifications');
@@ -263,13 +287,17 @@ function dismissNotif(id) {
 
 function clearAllNotifications() {
   showModal('Clear notifications', '<div style="font-size:13px;color:var(--ink2);line-height:1.6">Dismiss all current notifications? They will be removed from the bell and the notifications page.</div>', () => {
-    getNotifications().forEach(n => NOTIFICATIONS_DISMISSED.add(n.id));
+    getNotifications().forEach(n => {
+      NOTIFICATIONS_DISMISSED.add(n.id);
+      if (n.type === 'ai-credit') persistCredit(n.id, true);
+    });
     refreshNotifBadge();
     closeModal(); renderPage('notifications');
   }, 'Clear all');
 }
 
 function openNotificationFromPage(id, ticketId) {
+  if (id.startsWith('ai-credit-')) { openNotification(id, ticketId); return; }
   NOTIFICATIONS_READ.add(id);
   refreshNotifBadge();
   if (ticketId) openTicket(ticketId);
@@ -290,7 +318,7 @@ export function renderNotificationsPage() {
   const total = all.length;
   const unread = all.filter(n => !NOTIFICATIONS_READ.has(n.id)).length;
   const read = total - unread;
-  const types = { breach:0, escalated:0, gdpr:0, warn:0, response:0, unassigned:0 };
+  const types = { breach:0, escalated:0, gdpr:0, warn:0, response:0, unassigned:0, 'ai-credit':0 };
   all.forEach(n => { if (types[n.type] !== undefined) types[n.type]++; });
   const highPri = types.breach + types.escalated + types.gdpr;
 
@@ -305,7 +333,7 @@ export function renderNotificationsPage() {
             ${!isRead ? '<span style="width:6px;height:6px;border-radius:50%;background:var(--purple);box-shadow:0 0 6px var(--purple);flex-shrink:0"></span>' : ''}
             <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${window.escHtml(n.ts || '')}</span>
           </span>
-          <span style="display:block;font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(n.body)}</span>
+          <span style="display:block;font-size:12.5px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:${n.type === 'ai-credit' ? 'normal' : 'nowrap'}">${window.escHtml(n.body)}</span>
         </button>
         <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center" data-action="">
           ${!isRead ? `<button class="btn btn-sm" data-action="notif.markRead" data-notif-id="${window.escAttr(n.id)}" title="Mark read">Mark read</button>` : ''}
@@ -337,6 +365,7 @@ export function renderNotificationsPage() {
           <option value="warn"      ${NOTIF_PAGE_FILTER_TYPE==='warn'?'selected':''}>SLA warning (${types.warn})</option>
           <option value="response"  ${NOTIF_PAGE_FILTER_TYPE==='response'?'selected':''}>New responses (${types.response})</option>
           <option value="unassigned" ${NOTIF_PAGE_FILTER_TYPE==='unassigned'?'selected':''}>Unassigned (${types.unassigned})</option>
+          ${window.isAdmin?.() ? `<option value="ai-credit" ${NOTIF_PAGE_FILTER_TYPE==='ai-credit'?'selected':''}>AI credit (${types['ai-credit']})</option>` : ''}
         </select>
         <select class="filter-select" data-change-action="notif.setFilterRead">
           <option value="all"    ${NOTIF_PAGE_FILTER_READ==='all'?'selected':''}>All statuses</option>
@@ -350,7 +379,7 @@ export function renderNotificationsPage() {
         ${list.length === 0
           ? (workQueueState().ready ? `<div class="empty-state"><div class="empty-line"></div><div class="empty-txt">${total === 0 ? 'All caught up — no notifications' : 'No notifications match the filters'}</div><div class="empty-line"></div></div>` : '')
           : `<div style="display:flex;flex-direction:column;gap:8px">${items}</div>
-             <div style="font-size:11px;color:var(--ink3);text-align:center;margin-top:18px;line-height:1.6">Notifications are computed live from ticket state. Configure which types appear in <span class="link" data-action="notif.gotoSettingsNotif">Settings → Notifications</span>.</div>`}
+             <div style="font-size:11px;color:var(--ink3);text-align:center;margin-top:18px;line-height:1.6">Ticket notifications follow your preferences in <span class="link" data-action="notif.gotoSettingsNotif">Settings → Notifications</span>. AI credit alerts appear for brand admins.</div>`}
       </div>
     </div>`;
 }

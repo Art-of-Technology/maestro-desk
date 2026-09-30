@@ -14,7 +14,10 @@ function safeLink(value) {
 
 export function renderReplyReview(id, value = loadDraftReview(id), saved = false) {
   if (!value) return '';
-  if(!saved)return renderReplyFeedback(id,value);
+  if(!saved) {
+    const notes = (value.notes || []).filter(n => typeof n === 'string');
+    return `${notes.length ? `<div class="reply-internal-review" role="status"><strong>AI reply guidance — not sent</strong><ul>${notes.map(n => `<li>${window.escHtml(n)}</li>`).join('')}</ul></div>` : ''}${renderReplyFeedback(id,value)}`;
+  }
   return renderInternalReview(id,value,true);
 }
 

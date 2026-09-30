@@ -37,11 +37,11 @@ export async function aiAction(id, action) {
   thinking?.classList.add('show');
   try {
     const customerLanguage = tab === 'reply' && ['draft','kb-reply','similar'].includes(action)
-      ? ticket.autoTranslateReplies === false ? AGENT_PREFERRED_LANG : await ensureCustomerLanguage(ticket)
+      ? ticket.autoTranslateReplies === false ? AGENT_PREFERRED_LANG : await ensureCustomerLanguage(ticket, { refresh: !!ticket.customerLanguageError })
       : undefined;
     if (!active()) return;
     if (tab === 'reply' && ['draft','kb-reply','similar'].includes(action) && !customerLanguage) {
-      throw new Error('Choose the customer language before generating a reply. Your draft has been kept.');
+      throw new Error(ticket.customerLanguageError && ticket.customerLanguageErrorMessage || 'Choose the customer language before generating a reply. Your draft has been kept.');
     }
     let system, user;
     let replySources = [];

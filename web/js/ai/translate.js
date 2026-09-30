@@ -246,15 +246,17 @@ export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
   const task = Promise.resolve().then(async () => {
     let language = null;
     let failed = false;
+    let errorMessage = null;
     try {
       if (text) language = await detectLanguage(text, messageTranslationRequest(message?._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true, t._uuid);
-    } catch { failed = true; }
+    } catch (error) { failed = true; errorMessage = error?.message || 'Language detection failed. Retry or choose a language.'; }
     const latest = latestCustomerText(t);
     if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, String(t.subject || "").trim(), latest.text]) !== source || languageChecks.get(t) !== check) return null;
     t.detectingCustomerLanguage = false;
     t.customerLanguageSource = source;
     t.detectedCustomerLang = language;
     t.customerLanguageError = failed;
+    t.customerLanguageErrorMessage = errorMessage;
     refreshLanguageStatus(t);
     return language;
   }).finally(() => { if (languageChecks.get(t) === check) languageChecks.delete(t); });
