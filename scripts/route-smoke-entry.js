@@ -10,6 +10,10 @@ import '../web/js/app.js';
 import { renderPage } from '../web/js/core/router.js';
 import { CUSTOMER_SELECTED, setCustomerSelected } from '../web/js/core/state.js';
 
+for (const [minutes, expected] of [[20992.83619782448, '14d 13h 53m'], [1439.9, '1d'], [1441, '1d 1m'], [59.9, '1h'], [23, '23m']]) {
+  if (window.fmtMinutes(minutes) !== expected) throw new Error(`Duration formatting failed for ${minutes}`);
+}
+
 globalThis.__renderPage = renderPage;
 // The customer DETAIL view (renderCustomerDetail + customers/details-card.js)
 // only renders with a selection, so the suffix drives it explicitly — the

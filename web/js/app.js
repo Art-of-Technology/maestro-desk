@@ -231,9 +231,10 @@ function fmtMinutes(m) {
   if (!m) return '—';
   m = Math.round(m);
   if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
+  const d = Math.floor(m / 1440);
+  const h = Math.floor(m / 60) % 24;
   const min = m % 60;
-  return `${h}h${min ? ' ' + min + 'm' : ''}`;
+  return [d ? `${d}d` : '', h ? `${h}h` : '', min ? `${min}m` : ''].filter(Boolean).join(' ');
 }
 // Escapes the five HTML-significant chars. Safe for both text nodes AND
 // double/single-quoted attribute values (quotes are escaped too). Mirrors the
