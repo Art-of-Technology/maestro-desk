@@ -5,6 +5,7 @@
 import { DASH_LAYOUT, REPORT_LAYOUT, SESSION, setDashLayout, setReportLayout, setSession } from './core/state.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
 import { setWorkspaceSlug } from './core/api-client.js';
+import { setEmailLogo } from './tickets/message-html.js';
 import { refreshAllSLA } from './tickets/sla.js';
 import { registerActions } from './core/event-delegation.js';
 import './core/dismiss.js';
@@ -99,6 +100,7 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
 // copy because they never carry workspace metadata.
 function applyWorkspaceBrand(brand) {
   setWorkspaceSlug(brand?.slug);
+  setEmailLogo(brand?.logoUrl);
   if (!brand) return;
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');
@@ -135,6 +137,7 @@ function applyWorkspaceBrand(brand) {
 // copy so a subsequent demo-persona sign-in doesn't show stale
 // branding from a previous workspace session.
 function resetWorkspaceBrand() {
+  setEmailLogo(null);
   const wordEl = document.querySelector('.sb-logo .sb-word');
   const subEl  = document.querySelector('.sb-logo .sb-sub');
   // textContent assignment also removes a workspace-logo <img> child.

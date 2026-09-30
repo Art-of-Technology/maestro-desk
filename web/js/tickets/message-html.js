@@ -25,6 +25,51 @@
 // toggle triggers, and resets on reload (a deliberate per-session choice).
 const REMOTE_IMAGES_ON = new Set();
 
+let emailLogo = null;
+
+// Only workspace settings establish trust, never an email's alt text or host.
+export function setEmailLogo(url) {
+  emailLogo = typeof url === 'string' && /^https:\/\//i.test(url)
+    ? { url, image: null } : null;
+}
+
+function embeddedLogo(logo) {
+  return logo.image ||= new Promise(resolve => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.referrerPolicy = 'no-referrer';
+    image.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        // Bound rasterisation memory without enlarging the logo's intrinsic size.
+        const scale = Math.min(1, 1024 / Math.max(image.naturalWidth, image.naturalHeight));
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/png'));
+      } catch { resolve(null); } // CORS/canvas failures keep the manual image control.
+    };
+    image.onerror = () => resolve(null);
+    image.src = logo.url;
+  });
+}
+
+async function showEmailLogo(frame, doc) {
+  const logo = emailLogo;
+  const images = [...doc.images].filter(img => img.getAttribute('src') === logo?.url);
+  if (!images.length) return;
+  const source = await embeddedLogo(logo);
+  if (!source || emailLogo !== logo || !frame.isConnected || frame.contentDocument !== doc) return;
+  for (const img of images) {
+    if (img.getAttribute('src') === logo.url) img.src = source;
+  }
+  // Leave the CSP unchanged: only the exact logo becomes an embedded image.
+  if (!hasRemoteImages(doc.body.innerHTML)) {
+    const notice = frame.previousElementSibling;
+    if (notice?.classList.contains('msg-remote-note')) notice.remove();
+  }
+}
+
 export function remoteImagesKey(ticketId, idx) { return `${ticketId}:${idx}`; }
 export function remoteImagesEnabled(ticketId, idx) { return REMOTE_IMAGES_ON.has(remoteImagesKey(ticketId, idx)); }
 export function enableRemoteImages(ticketId, idx) { REMOTE_IMAGES_ON.add(remoteImagesKey(ticketId, idx)); }
@@ -151,6 +196,7 @@ export function sizeMessageFrames(root, initialScrollTop = null) {
     try {
       const doc = frame.contentDocument;
       if (!doc?.body || doc.URL !== 'about:srcdoc') return;
+      void showEmailLogo(frame, doc);
       loaded.add(frame);
       if (doc.readyState === 'complete') settled.add(frame);
       // Some emails bring their own fixed-height scrolling divs. Expand only
