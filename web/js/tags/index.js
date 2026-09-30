@@ -20,7 +20,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
-import { apiPatch, apiPost, apiDelete } from '../core/api-client.js';
+import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 export function renderTags() {
@@ -165,12 +165,7 @@ function toggleAllTags() {
 }
 function clearTagSelection() { TAG_SELECTED_NAMES.clear(); renderPage('tags'); }
 
-function tagsApiBacked() {
-  // ticket_tags-bootstrapped tags don't carry a per-row UUID (composite
-  // PK), so we treat the whole library as API-backed when TICKETS came
-  // from the API. Demo persona has no _uuid on any ticket.
-  return TICKETS.some((t) => t._uuid);
-}
+function tagsApiBacked() { return !!getJwt(); }
 
 async function bulkSetTagType(v) {
   if (!window.isAdmin() || !v || TAG_SELECTED_NAMES.size === 0) return;
@@ -445,43 +440,56 @@ function normalizeTagName(s) {
   return String(s).trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
-function tagNew() {
+function tagNew() { tagOpen(null); }
+function tagEdit(name) { const t = TAG_LIBRARY.find(x => x.tag === name); if (t) tagOpen(t); }
+function tagOpen(t) {
   if (!window.isAdmin()) return;
-  showModal('New tag', tagFormBody(null), () => {
-    const name = normalizeTagName(document.getElementById('tag-name').value);
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal(t ? 'Edit tag' : 'New tag', tagFormBody(t) + '<p id="tag-error" role="status"></p>', async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    const name = normalizeTagName(input.value);
     const type = document.getElementById('tag-type').value;
-    const conf = type === 'ai' ? (parseInt(document.getElementById('tag-conf').value) || null) : null;
-    if (!name || TAG_LIBRARY.find(t => t.tag === name)) return;
-    TAG_LIBRARY.unshift({ tag: name, count: 0, type, conf });
-    closeModal(); renderPage('tags');
-  }, 'Create');
-}
-
-function tagEdit(name) {
-  if (!window.isAdmin()) return;
-  const t = TAG_LIBRARY.find(x => x.tag === name); if (!t) return;
-  showModal(`Edit tag`, tagFormBody(t), () => {
-    const newName = normalizeTagName(document.getElementById('tag-name').value);
-    const type = document.getElementById('tag-type').value;
-    const conf = type === 'ai' ? (parseInt(document.getElementById('tag-conf').value) || null) : null;
-    if (!newName) return;
-    if (newName !== t.tag && TAG_LIBRARY.find(x => x.tag === newName)) return;
-    if (newName !== t.tag) {
-      TICKETS.forEach(tk => {
-        tk.tags = (tk.tags || []).map(x => x === t.tag ? newName : x);
-        tk.aiTags = (tk.aiTags || []).map(at => at.tag === t.tag ? { ...at, tag: newName } : at);
-      });
-    }
-    t.tag = newName; t.type = type; t.conf = conf;
-    closeModal(); renderPage('tags');
-  }, 'Save');
+    const conf = type === 'ai' ? Number(document.getElementById('tag-conf').value || 90) : null;
+    if (!name || name.length > 64) { status.textContent = 'Enter a tag name of up to 64 characters.'; return; }
+    if (TAG_LIBRARY.some(x => x !== t && x.tag === name)) { status.textContent = 'This tag already exists.'; return; }
+    saving = true; button.disabled = true;
+    try {
+      const body = { tag: name, kind: type, ai_confidence: conf };
+      const saved = jwt ? (t ? await apiPatch('/api/v1/tags/' + encodeURIComponent(t.tag), body)
+        : await apiPost('/api/v1/tags', body)).tag : { tag: name, kind: type, ai_confidence: conf };
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      if (t) {
+        const oldName = t.tag;
+        TICKETS.forEach(tk => {
+          tk.tags = (tk.tags || []).map(x => x === oldName ? saved.tag : x);
+          tk.aiTags = (tk.aiTags || []).map(at => at.tag === oldName ? { ...at, tag: saved.tag } : at);
+        });
+        if (TAG_SELECTED === oldName) setTagSelected(saved.tag);
+        TAG_SELECTED_NAMES.delete(oldName);
+        Object.assign(t, { tag: saved.tag, type: saved.kind, conf: saved.ai_confidence });
+      } else TAG_LIBRARY.unshift({ tag: saved.tag, type: saved.kind, conf: saved.ai_confidence, count: saved.count || 0 });
+      if (document.getElementById('tag-name') === input) { closeModal(); renderPage('tags'); }
+    } catch (err) { if (status.isConnected) status.textContent = "Couldn't save: " + err.message; }
+    finally { saving = false; if (button.isConnected) button.disabled = false; }
+  }, t ? 'Save' : 'Create');
+  const input = document.getElementById('tag-name');
+  const status = document.getElementById('tag-error');
+  const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
 }
 
 function tagDelete(name) {
   if (!window.isAdmin()) return;
   const t = TAG_LIBRARY.find(x => x.tag === name); if (!t) return;
   const inUse = TICKETS.filter(tk => (tk.tags||[]).includes(name) || (tk.aiTags||[]).some(at => at.tag === name)).length;
-  showModal('Delete tag', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${name}</strong>?${inUse?` This tag is currently used by <strong style="color:var(--ink)">${inUse} ticket${inUse===1?'':'s'}</strong> — it will be removed from those tickets.`:''}</div>`, () => {
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Delete tag', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${name}</strong>?${inUse?` This tag is currently used by <strong style="color:var(--ink)">${inUse} ticket${inUse===1?'':'s'}</strong> — it will be removed from those tickets.`:''}</div>`, async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    saving = true;
+    try { if (jwt) await apiDelete('/api/v1/tags/' + encodeURIComponent(name)); }
+    catch (err) { saving = false; alert("Couldn't delete: " + err.message); return; }
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     TICKETS.forEach(tk => {
       tk.tags = (tk.tags || []).filter(x => x !== name);
       tk.aiTags = (tk.aiTags || []).filter(at => at.tag !== name);

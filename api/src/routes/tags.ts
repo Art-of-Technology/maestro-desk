@@ -2,11 +2,37 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
 export const tags = new Hono();
 
 tags.use('*', requireAuth);
+tags.use('*', async (c, next) => {
+  if (c.req.method !== 'GET') {
+    const denied = await requireWorkspaceAdmin(c);
+    if (denied) return denied;
+  }
+  await next();
+});
+
+const TagName = z.string().trim().toLowerCase().transform(s => s.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+  .pipe(z.string().min(1).max(64));
+const NewTag = z.object({
+  tag: TagName,
+  kind: z.enum(['manual', 'ai']).default('manual'),
+  ai_confidence: z.number().int().min(0).max(100).nullable().optional(),
+}).strict();
+
+tags.post('/', async (c) => {
+  const parsed = NewTag.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid tag', issues: parsed.error.issues }, 400);
+  const sql = getDb(), d = parsed.data;
+  const [row] = await sql`insert into tag_library (workspace_id, tag, kind, ai_confidence)
+    values (${c.get('workspaceId')}, ${d.tag}, ${d.kind}, ${d.kind === 'manual' ? null : (d.ai_confidence ?? 90)})
+    on conflict (workspace_id, tag) do nothing returning tag, kind, ai_confidence`;
+  return row ? c.json({ tag: { ...row, count: 0 } }, 201) : c.json({ error: 'This tag already exists.' }, 409);
+});
 
 // ─── GET / — list the workspace tag library with usage counts ────────────
 // Counts come from a per-row subquery (manual tags against ticket_tags, AI
@@ -30,6 +56,7 @@ tags.get('/', async (c) => {
 
 // ─── PATCH /:tag — change kind (manual ↔ ai) ─────────────────────────────
 const PatchTag = z.object({
+  tag:           TagName.optional(),
   kind:          z.enum(['manual', 'ai']).optional(),
   ai_confidence: z.number().int().min(0).max(100).nullable().optional(),
 }).strict();
@@ -56,11 +83,22 @@ tags.patch('/:tag', async (c) => {
     if (!current?.ai_confidence) updates.ai_confidence = 90;
   }
 
-  const [row] = await sql`
-    update tag_library set ${sql(updates)}
-    where workspace_id = ${workspaceId} and tag = ${tag}
-    returning tag, kind, ai_confidence
-  `;
+  let row;
+  try {
+    row = await sql.begin(async tx => {
+      const [saved] = await tx`update tag_library set ${tx(updates)}
+        where workspace_id=${workspaceId} and tag=${tag} returning tag, kind, ai_confidence`;
+      if (saved && saved.tag !== tag) {
+        for (const table of ['ticket_tags', 'ticket_ai_tags'] as const) {
+          await tx`update ${tx(table)} set tag=${saved.tag} where workspace_id=${workspaceId} and tag=${tag}`;
+        }
+      }
+      return saved;
+    });
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') return c.json({ error: 'This tag already exists. Use Merge instead.' }, 409);
+    throw err;
+  }
   if (!row) return c.json({ error: 'Tag not found' }, 404);
   return c.json({ tag: row });
 });

@@ -102,6 +102,9 @@ jobs:
       - name: Bulk priority and tag tests
         run: bun test scripts/bulk-edit.test.js scripts/ticket-history.test.js
 
+      - name: Macro and tag persistence
+        run: bun test scripts/library-persistence.test.js
+
       # Catches a module that READS a shared state/data binding without
       # IMPORTING it — a bug the bundled smokes can't see (the bare name resolves
       # in the single bundle scope) but native ESM throws on in production.
