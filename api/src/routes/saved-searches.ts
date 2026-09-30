@@ -25,6 +25,7 @@ const Filters = z.object({
   priority:  z.string().max(40).optional(),
   agent:     z.string().max(120).optional(),
   sentiment: z.string().max(40).optional(),
+  inbox:     z.string().max(80).optional(),
   view:      z.string().max(40).optional(),
   query:     z.string().max(200).optional(),
 }).strict();

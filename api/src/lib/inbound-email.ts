@@ -371,10 +371,10 @@ export async function processInboundEmail(args: {
   const defaults = channel?.matched ? channel : null;
   const ticketDisplayId = await nextDisplayId(sql, workspaceId, 'ticket');
   const [newTicket] = await sql<{ id: string; display_id: string; closure_reason: string | null }[]>`
-    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state, last_inbound_email,
+    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, sla_state, last_inbound_email, channel_id,
       closure_reason, closure_note, closed_at)
     select ${workspaceId}, ${ticketDisplayId}, ${subject}, id, case when is_spam then 'closed' else 'open' end,
-            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok', ${email},
+            ${defaults?.default_priority_key ?? 'normal'}, ${defaults?.default_category_key ?? null}, 'ok', ${email}, ${channel?.id ?? null},
             case when is_spam then 'spam' end, case when is_spam then 'Automatically marked as spam for this contact.' end,
             case when is_spam then now() end
     from customers where id = ${customerId} and workspace_id = ${workspaceId} and deleted_at is null

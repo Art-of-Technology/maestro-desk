@@ -8,7 +8,7 @@ export function snoozeState(ticket: { snoozed_until?: string | Date | null; snoo
 // together; deliberately do not use the best-effort administrative audit helper.
 export async function recordTicketActivity(sql: TransactionSql, input: {
   workspaceId: string; ticketId: string; actorId: string | null;
-  kind: 'agent' | 'priority' | 'tag' | 'status' | 'snooze'; before: string | null; after: string | null;
+  kind: 'agent' | 'priority' | 'tag' | 'status' | 'snooze' | 'inbox'; before: string | null; after: string | null;
   source?: 'customer_reply' | 'assignment_rule' | 'snooze_expired' | 'close' | 'merge' | 'unmerge';
   context?: Record<string, string | null>;
 }) {
@@ -31,9 +31,18 @@ export async function recordTicketActivity(sql: TransactionSql, input: {
     const label = (id: string | null) => id ? users.find(u => u.id === id)?.name || 'Former agent' : 'Unassigned';
     beforeLabel = label(before); afterLabel = label(after);
   }
+  if (kind === 'inbox') {
+    const ids = [before, after].filter((id): id is string => Boolean(id));
+    const channels = ids.length ? await sql`select id, name, address from channels where workspace_id=${workspaceId} and id in ${sql(ids)}` : [];
+    const label = (id: string | null) => {
+      const channel = channels.find(c => c.id === id);
+      return channel ? `${channel.name}${channel.address ? ' · ' + channel.address : ''}` : id ? 'Unavailable inbox' : 'Unassigned';
+    };
+    beforeLabel = label(before); afterLabel = label(after);
+  }
   const change = kind === 'tag'
     ? after === null ? `Tag removed: ${before}` : `Tagged: ${after}`
-    : `${({ agent: 'Assigned', priority: 'Priority', status: 'Status', snooze: 'Snooze' })[kind]}: ${beforeLabel || 'None'} → ${afterLabel || 'None'}`;
+    : `${({ agent: 'Assigned', priority: 'Priority', status: 'Status', snooze: 'Snooze', inbox: 'Inbox' })[kind]}: ${beforeLabel || 'None'} → ${afterLabel || 'None'}`;
   const source = input.source === 'assignment_rule' ? `Rule: ${input.context?.rule_name}`
     : input.source === 'customer_reply' ? 'Customer replied'
     : input.source === 'snooze_expired' ? 'Snooze expired'

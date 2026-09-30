@@ -23,9 +23,10 @@ export const GUIDE_STEPS = [
     highlights: ["Choose a ticket from your queue and check its priority and SLA.","Read the conversation, email dates, receiving inbox and internal notes.","Check ownership so two agents do not reply at once."],
     instructions: [
       'Open Tickets. Check Outstanding for work still needing attention, or Unassigned when your team asks you to pick up new work.',
-      'Use search and filters to narrow the list by agent, priority or category. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
+      'Use search and filters to narrow the list by agent, priority or category. Under More filters, use Inbox to choose a mailbox or find tickets with no inbox assigned. Remove the Inbox chip to show all inboxes again. Saved searches remember the inbox selection. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
       'Check priority and SLA indicators before choosing a ticket. SLA shows response or resolution timing; follow your team’s order of work when something is overdue.',
       'Select a ticket to open its conversation. Check the assigned agent and any indicators that someone else is composing before starting a second reply.',
+      'Inbox below the subject shows where the ticket sits. Open the Inbox dropdown to see its email address or choose Move to inbox. Choose the appropriate inbox and select Move; the confirmation offers Undo. Future replies default to the new inbox when its sender is verified. Received via on earlier messages keeps the original receiving address.',
     ],
   },
   {

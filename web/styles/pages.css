@@ -326,6 +326,13 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .msg-agent,.ticket-page .msg-ai{align-self:stretch}
 .ticket-heading{padding:10px 20px;border-bottom:1px solid var(--rule);flex-shrink:0;overflow-wrap:anywhere}
 .ticket-metadata{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.ticket-inbox-caption{font-size:11px;font-weight:400;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:4px}
+.ticket-inbox{min-width:0;max-width:100%}
+.ticket-inbox>summary{display:block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ticket-inbox .ticket-popover-panel{left:0;right:auto;overflow-wrap:anywhere}
+@media(pointer:coarse){.ticket-page .ticket-inbox>summary,#move-inbox{min-height:44px}}
+.filter-tag[data-filter="inbox"]{min-height:24px;cursor:pointer}
+@media(pointer:coarse){.filter-tag[data-filter="inbox"],.filter-select[data-filter="inbox"]{min-height:44px}}
 .ticket-inline-property{display:inline-flex;align-items:center;gap:4px;color:var(--ink2);flex-shrink:0}
 .ticket-inline-property select{font:inherit;font-size:12px;color:inherit;background:transparent;border:0;padding:2px 0;min-height:24px;field-sizing:content;max-width:120px}
 .ticket-inline-property option{color:var(--ink);background:var(--off)}

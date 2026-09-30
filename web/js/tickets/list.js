@@ -1,5 +1,6 @@
 import { applySavedActivity } from '../core/ticket-history.js';
 import { ticketDateMs } from './date-sort.js';
+import { inboxLabel, renderTicketInbox } from './inbox.js';
 import { copyButton } from '../core/copy.js';
 // ─── Tickets list ────────────────────────────────────────────────────────────
 // The Tickets index page: KPI bar, status tab bar, filter/group/view chips,
@@ -19,7 +20,7 @@ import { copyButton } from '../core/copy.js';
 // (snooze.bulkSnooze / ar.bulkRun / macros.bulkRun). The FILTER_* set/clear
 // handlers assign the core/state.js globals directly, as before.
 
-import { AGENTS, CUSTOMERS, TICKETS } from '../core/data.js';
+import { AGENTS, CHANNELS, CUSTOMERS, TICKETS } from '../core/data.js';
 import { CURRENT_PAGE, CURRENT_TICKET, FILTER_AGENT, FILTER_CATEGORY, FILTER_PRIORITY, FILTER_QUERY, FILTER_SENTIMENT, SESSION, TICKET_SELECTED_IDS, setFilterAgent, setFilterCategory, setFilterPriority, setFilterQuery, setFilterSentiment } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { MACROS } from './macros.js';
@@ -43,12 +44,14 @@ import { showBulkEdit } from './bulk-edit.js';
 // writes these, so they don't need to live in core/state.js.
 let FILTER_STATUS = 'outstanding';
 let FILTER_VIEW = 'all';
+let FILTER_INBOX = 'all';
+let inboxFilterScope = null;
 let TICKET_GROUP_BY = 'none';
 let TICKET_HEADER_CB_INDETERMINATE = false;
 let SORT_COL = 'created';
 let SORT_DIR = -1;
 let VISIBLE_LIMIT = 50;
-// The four advanced selects live behind "More filters" (issue #447). Closed by
+// The advanced selects live behind "More filters" (issue #447). Closed by
 // default; anything actually filtering is still visible as a removal chip in
 // the main bar, so nothing hides silently.
 let SHOW_MORE_FILTERS = false;
@@ -180,6 +183,8 @@ export function initTicketsPage() {
 }
 
 export function renderTickets() {
+  const scopeKey = JSON.stringify([getWorkspaceId(), getJwt()]);
+  if (inboxFilterScope !== scopeKey) { FILTER_INBOX = 'all'; inboxFilterScope = scopeKey; }
   ensureSavedSearchesLoaded();
   const history = ['history', 'resolved', 'closed'].includes(FILTER_STATUS);
   const scopes = history ? ['outstanding', 'history'] : ['outstanding'];
@@ -204,10 +209,12 @@ export function renderTickets() {
   const list = getFilteredTickets();
   const groups = groupTicketsBy(list.slice(0, VISIBLE_LIMIT), TICKET_GROUP_BY);
   const cats = [...new Set(TICKETS.map(t => t.category))];
-  // How many of the four "More filters" selects are actually narrowing the
+  const inboxes = CHANNELS.filter(c => c.type === 'email');
+  const selectedInboxLabel = FILTER_INBOX === 'none' ? 'No inbox assigned' : inboxLabel({ channelId: FILTER_INBOX });
+  // How many of the "More filters" selects are actually narrowing the
   // list. Badged on the toggle so a closed row never hides an active filter.
   // Group-by is excluded on purpose — it rearranges rows, it doesn't drop any.
-  const advancedN = [FILTER_CATEGORY, FILTER_PRIORITY, FILTER_AGENT, FILTER_SENTIMENT].filter(v => v !== 'all').length;
+  const advancedN = [FILTER_CATEGORY, FILTER_PRIORITY, FILTER_AGENT, FILTER_SENTIMENT, FILTER_INBOX].filter(v => v !== 'all').length;
   // Chips that carry an × — advanced filters plus the query and the grouping.
   // Drives the separator that divides "views you can pick" from "filters
   // currently applied", since both render as .filter-tag.
@@ -242,7 +249,7 @@ export function renderTickets() {
       </td>
       <td class="bold" style="white-space:nowrap">${slaFlag(t.sla)}${window.escHtml(t.id)}${copyButton(t.id, 'ticket number')}</td>
       <td>${window.escHtml(t.customerName || (cust ? cust.first+' '+cust.last : '—'))}</td>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
+      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}${renderTicketInbox(t, true)}</td>
       <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
       <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
       <td>${window.escHtml(t.category)}</td>
@@ -316,7 +323,7 @@ export function renderTickets() {
       <div class="tab-bar" aria-label="Ticket status">${tabs}</div>
       ${/* One bar, not two (issue #447). What stays out here is what an agent
              uses constantly — search, the saved views, and a chip for every
-             filter currently narrowing the list. The four rarely-touched
+             filter currently narrowing the list. The rarely-touched
              selects moved behind "More filters", which carries a count so a
              collapsed row can never hide an active filter. */''}
       <div class="filter-bar" style="flex-wrap:wrap">
@@ -344,6 +351,7 @@ export function renderTickets() {
         ${FILTER_PRIORITY!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_PRIORITY)}<span class="rm" data-action="tickets.clearFilter" data-filter="priority">×</span></span>`:''}
         ${FILTER_AGENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_AGENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="agent">×</span></span>`:''}
         ${FILTER_SENTIMENT!=='all'?`<span class="filter-tag">${window.escHtml(FILTER_SENTIMENT)}<span class="rm" data-action="tickets.clearFilter" data-filter="sentiment">×</span></span>`:''}
+        ${FILTER_INBOX!=='all'?`<button type="button" class="filter-tag" data-action="tickets.clearFilter" data-filter="inbox" aria-label="Clear inbox filter: ${window.escAttr(selectedInboxLabel)}">Inbox: ${window.escHtml(selectedInboxLabel)} <span aria-hidden="true">×</span></button>`:''}
         ${FILTER_QUERY?`<span class="filter-tag">"${window.escHtml(FILTER_QUERY)}"<span class="rm" data-action="tickets.clearFilter" data-filter="query">×</span></span>`:''}
         ${/* Grouping isn't a filter (it drops no rows, so it's not in the
              badge) but it does visibly restructure the table, and with the
@@ -358,6 +366,12 @@ export function renderTickets() {
              closed. It is not itself a .filter-bar — collapsible.js indexes
              those positionally for its persisted ids. */''}
         <div class="filter-subbar" id="tickets-more-filters" ${SHOW_MORE_FILTERS?'':'hidden'}>
+        <select class="filter-select" aria-label="Filter by inbox" data-change-action="tickets.setFilter" data-filter="inbox">
+          <option value="all" ${FILTER_INBOX==='all'?'selected':''}>All inboxes</option>
+          <option value="none" ${FILTER_INBOX==='none'?'selected':''}>No inbox assigned</option>
+          ${inboxes.map(c=>`<option value="${window.escAttr(c._uuid || c.id)}" ${FILTER_INBOX===(c._uuid || c.id)?'selected':''}>${window.escHtml(c.name)}${c.status==='inactive'?' (inactive)':''}</option>`).join('')}
+          ${!['all','none'].includes(FILTER_INBOX) && !inboxes.some(c=>(c._uuid || c.id)===FILTER_INBOX)?`<option value="${window.escAttr(FILTER_INBOX)}" selected>Unavailable inbox</option>`:''}
+        </select>
         <select class="filter-select" data-change-action="tickets.setFilter" data-filter="category">
           <option value="all">All categories</option>
           ${cats.map(c=>`<option value="${window.escAttr(c)}" ${FILTER_CATEGORY===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
@@ -433,6 +447,7 @@ function currentFilterSnapshot() {
     priority:  FILTER_PRIORITY,
     agent:     FILTER_AGENT,
     sentiment: FILTER_SENTIMENT,
+    inbox:     FILTER_INBOX,
     view:      FILTER_VIEW,
     query:     FILTER_QUERY,
   };
@@ -460,6 +475,8 @@ function applySavedSearch(id) {
   setFilterPriority(f.priority  || 'all');
   setFilterAgent(f.agent     || 'all');
   setFilterSentiment(f.sentiment || 'all');
+  FILTER_INBOX     = f.inbox     || 'all';
+  VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear();
   FILTER_VIEW      = f.view      || 'all';
   setFilterQuery(f.query     || '');
   renderPage('tickets');
@@ -565,6 +582,7 @@ function getFilteredTickets() {
   if (FILTER_PRIORITY !== 'all') list = list.filter(t => t.priority === FILTER_PRIORITY);
   if (FILTER_AGENT !== 'all')    list = list.filter(t => t.agent === FILTER_AGENT);
   if (FILTER_SENTIMENT !== 'all') list = list.filter(t => t.sentiment === FILTER_SENTIMENT);
+  if (FILTER_INBOX !== 'all') list = list.filter(t => FILTER_INBOX === 'none' ? !t.channelId : t.channelId === FILTER_INBOX);
   if (FILTER_QUERY.trim()) {
     const q = FILTER_QUERY.toLowerCase();
     list = list.filter(t => {
@@ -833,6 +851,7 @@ registerActions({
     FILTER_STATUS = ds.focus === 'escalated' ? 'escalated' : 'outstanding';
     FILTER_VIEW = ds.focus === 'overdue' ? 'overdue' : 'all';
     setFilterCategory('all'); setFilterPriority('all'); setFilterAgent('all'); setFilterSentiment('all'); setFilterQuery('');
+    FILTER_INBOX = 'all';
     SORT_COL = 'urgency'; SORT_DIR = 1; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear();
     renderPage('tickets');
   },
@@ -873,6 +892,7 @@ registerActions({
     else if (ds.filter === 'agent')     setFilterAgent('all');
     else if (ds.filter === 'sentiment') setFilterSentiment('all');
     else if (ds.filter === 'query')     setFilterQuery('');
+    else if (ds.filter === 'inbox') { FILTER_INBOX = 'all'; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear(); }
     renderPage('tickets');
   },
 });
@@ -890,6 +910,7 @@ registerChangeActions({
     if      (ds.filter === 'category')  setFilterCategory(el.value);
     else if (ds.filter === 'priority')  setFilterPriority(el.value);
     else if (ds.filter === 'sentiment') setFilterSentiment(el.value);
+    else if (ds.filter === 'inbox') { FILTER_INBOX = el.value; VISIBLE_LIMIT = 50; TICKET_SELECTED_IDS.clear(); }
     renderPage('tickets');
   },
 });

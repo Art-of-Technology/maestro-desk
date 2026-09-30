@@ -187,7 +187,7 @@ tickets.get('/sync', async (c) => {
   const cursorTs = pipeIdx === -1 ? rawCursor : rawCursor.slice(0, pipeIdx);
   const cursorId = pipeIdx === -1 ? ''        : rawCursor.slice(pipeIdx + 1);
 
-  const cols = sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id,
+  const cols = sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, channel_id,
     closure_reason, closure_note, closed_at, closed_by_user_id,
     customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
     snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at`;
@@ -398,8 +398,42 @@ tickets.post('/:id/close', async (c) => {
     closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id }, activity: result.activity });
 });
 
+// Move the current inbox without changing message-level receiving history.
+const MoveInbox = z.object({
+  channel_id: z.string().uuid().nullable(),
+  expected_channel_id: z.string().uuid().nullable(),
+  expected_updated_at: z.string().datetime(),
+}).strict();
+
+tickets.patch('/:id/inbox', async c => {
+  const workspaceId = c.get('workspaceId'), ticketId = c.req.param('id');
+  const parsed = MoveInbox.safeParse(await c.req.json().catch(() => null));
+  if (!z.string().uuid().safeParse(ticketId).success || !parsed.success) return c.json({ error: 'Invalid inbox move' }, 400);
+  const input = parsed.data, sql = getDb();
+  const result = await sql.begin(async tx => {
+    const [ticket] = await tx`select channel_id, updated_at from tickets
+      where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null and merged_into_id is null for update`;
+    if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
+    if (ticket.channel_id !== input.expected_channel_id || ticket.updated_at.toISOString() !== input.expected_updated_at) {
+      return c.json({ error: 'The ticket changed. Refresh it before moving it.' }, 409);
+    }
+    if (input.channel_id) {
+      const [channel] = await tx`select id from channels where id=${input.channel_id} and workspace_id=${workspaceId}
+        and type='email' and status='active' and deleted_at is null for share`;
+      if (!channel) return c.json({ error: 'Choose an active email inbox in this workspace.' }, 400);
+    }
+    if (ticket.channel_id === input.channel_id) return { ticket, activity: [] };
+    const [saved] = await tx`update tickets set channel_id=${input.channel_id}
+      where id=${ticketId} and workspace_id=${workspaceId} returning channel_id, updated_at`;
+    const activity = await recordTicketActivity(tx, { workspaceId, ticketId, actorId: c.get('userId'),
+      kind: 'inbox', before: ticket.channel_id, after: input.channel_id });
+    return { ticket: saved, activity };
+  });
+  if (result instanceof Response) return result;
+  return c.json({ ...result, reply_recipients: await ticketReplyRecipients(workspaceId, ticketId) });
+});
+
 // ─── PATCH /:id — update status / priority / assignment / category ───────
-//
 // All fields optional; only provided ones are written. Empty body is a
 // 400 (probably a client bug, fail loudly). assigned_user_id may be null
 // to unassign.

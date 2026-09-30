@@ -27,9 +27,11 @@ export function renderEmailDetails(message) {
 }
 export function replyDraft(ticket) {
   const saved = loadDraftRecipients(ticket.id);
-  const inbox = ticket.replyRecipients?.sending_inboxes?.find(inbox => inbox.id === ticket.replyRecipients.default_sending_channel_id);
-  return { sending_channel_id: inbox?.id || null, sending_address: inbox?.address || null, ...(saved || { mode: 'reply', source_message_id: ticket.replyRecipients?.source_message_id || null,
-    to: ticket.replyRecipients?.to || [], cc: '' }) };
+  const inbox = ticket.replyRecipients?.sending_inboxes?.find(inbox => inbox.id === (ticket.channelId || ticket.replyRecipients.default_sending_channel_id));
+  const sender = { sending_channel_id: inbox?.id || null, sending_address: inbox?.address || null };
+  const moved = saved && Object.hasOwn(saved, 'ticket_channel_id') && (saved.ticket_channel_id || null) !== (ticket.channelId || null);
+  return { ...sender, ...(saved || { mode: 'reply', source_message_id: ticket.replyRecipients?.source_message_id || null,
+    to: ticket.replyRecipients?.to || [], cc: '' }), ...(moved ? sender : {}), ticket_channel_id: ticket.channelId || null };
 }
 export function renderReplyRecipients(ticket) {
   if (!ticket._uuid || !ticket.replyRecipients) return '';
