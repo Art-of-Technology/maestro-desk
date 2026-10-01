@@ -44,9 +44,11 @@ export function getJwt() {
 }
 
 export function setJwt(jwt) {
-  if (jwt !== getJwt()) workspaceSlugs.clear();
+  const changed = jwt !== getJwt();
+  if (changed) workspaceSlugs.clear();
   if (jwt) sessionStorage.setItem(JWT_KEY, jwt);
   else     sessionStorage.removeItem(JWT_KEY);
+  if (changed) globalThis.window?.dispatchEvent?.(new CustomEvent('respovia:auth-scope-changed'));
 }
 
 export function getWorkspaceId() {
@@ -54,8 +56,10 @@ export function getWorkspaceId() {
 }
 
 export function setWorkspaceId(id) {
+  const changed = id !== getWorkspaceId();
   if (id) sessionStorage.setItem(WORKSPACE_ID_KEY, id);
   else    sessionStorage.removeItem(WORKSPACE_ID_KEY);
+  if (changed) globalThis.window?.dispatchEvent?.(new CustomEvent('respovia:auth-scope-changed'));
 }
 
 export function getBrandId() {

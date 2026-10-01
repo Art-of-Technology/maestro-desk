@@ -57,6 +57,7 @@ import { stopPresence } from './presence.js';
 import { taglineCheck } from '../tagline-sdk/index.js';
 import { syncRoute, beginRouteNavigation } from './url-navigation.js';
 import { guidePageRendered } from '../guides/index.js';
+import { resetAttachmentThumbnails } from '../tickets/attachment-thumbnails.js';
 
 // Merged sidebar destinations own extra page keys through their header tabs
 // (Insights = reports|activity). Map those tab
@@ -86,6 +87,7 @@ export function highlightNav(page, el) {
 }
 
 export function renderPage(page) {
+  resetAttachmentThumbnails();
   if (page !== 'roles')     setRolesViewAgents(null);
   if (page !== 'kb')        setKbSelected(null);
   if (page !== 'agents')    setAgentSelected(null);

@@ -12,6 +12,7 @@
 // External reaches (interim, via window): escAttr, escHtml — still in app.js.
 
 import './attachment-preview.js';
+import { attachmentBadge } from './attachment-thumbnails.js';
 
 export function fmtBytes(n) {
   if (n == null) return '';
@@ -34,10 +35,11 @@ export function renderAttachmentChips(attachments, ticketUuid) {
   const ordered = [...list].sort((a, b) => Number(a.is_inline) - Number(b.is_inline));
   const chips = ordered.map((a) => {
     const size = fmtBytes(a.size_bytes);
-    const label = `${window.escHtml(a.filename)}${size ? ` <span class="att-size">${size}</span>` : ''}`;
+    const label = `<span class="att-file-label">${window.escHtml(a.filename)}${size ? ` <span class="att-size">${size}</span>` : ''}</span>`;
+    const badge = attachmentBadge(a,ticketUuid);
     const inline = a.is_inline ? ' · shown above' : '';
     if (ticketUuid) return `<button type="button" class="att-chip" data-action="att.preview" data-ticket-uuid="${window.escAttr(ticketUuid)}"
-      data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}" title="Preview ${window.escAttr(a.filename)}">${PAPERCLIP}${label}</button>`;
+      data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}" title="Preview ${window.escAttr(a.filename)}">${badge}${label}</button>`;
     if (!a.url) {
       return `<span class="att-chip att-chip-dead" title="File storage is not configured">${PAPERCLIP}${label}</span>`;
     }

@@ -7,7 +7,18 @@ globalThis.sessionStorage = {
   setItem: (key, value) => stored.set(key, value),
   removeItem: key => stored.delete(key),
 };
-const { apiGet, setJwt } = await import('../web/js/core/api-client.js');
+const { apiGet, setJwt, setWorkspaceId } = await import('../web/js/core/api-client.js');
+
+test('account and workspace changes invalidate private attachment caches only when the scope changes',()=>{
+  stored.clear();let changes=0;
+  const changed=()=>changes++;
+  window.addEventListener('respovia:auth-scope-changed',changed);
+  try {
+    setJwt('agent');setWorkspaceId('workspace');expect(changes).toBe(2);
+    setJwt('agent');setWorkspaceId('workspace');expect(changes).toBe(2);
+    setWorkspaceId('other');setJwt(null);expect(changes).toBe(4);
+  }finally{window.removeEventListener('respovia:auth-scope-changed',changed);stored.clear();}
+});
 
 test('401 expires only the session that made the request, never a newer login or a public request', async () => {
   let expired = 0;

@@ -66,6 +66,7 @@ import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
 import { showAttachPanel } from './attachments.js';
 import { renderAttachmentChips } from './attachment-chips.js';
+import { mountAttachmentThumbnails } from './attachment-thumbnails.js';
 import {
   clear as clearComposer, getHtml, getPlainText, insertAtCursor,
   isEmpty as isComposerEmpty, mountComposer,
@@ -768,6 +769,7 @@ export function openTicket(id) {
     document.querySelector(`[data-action="${focusedLanguageAction}"]`)?.focus({ preventScroll: true });
   }
   ensureConversationTranslation(t);
+  mountAttachmentThumbnails(document.getElementById('ticket-page-'+id),t._uuid);
   void ensureCustomerLanguage(t);
 }
 
