@@ -151,6 +151,7 @@ jobs:
           bun test scripts/reply-layout.test.js
           bun test scripts/ticket-draft-controls.test.js
           bun test scripts/personal-draft-sync.test.js
+          bun test scripts/customer-privacy.test.js
           bun test scripts/draft-attachments.test.js
           bun test scripts/ticket-inbox.test.js
           bun test scripts/inbox-filter.test.js

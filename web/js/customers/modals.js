@@ -12,13 +12,7 @@ import { renderPage } from '../core/router.js';
 import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { applyCustomerRow } from '../core/bootstrap.js';
 
-export function showGDPRModal(id) {
-  showModal('GDPR actions', `
-    <div class="gdpr-action"><div class="gdpr-action-title">Request erasure</div><div class="gdpr-action-desc">Permanently delete this customer's personal data under Article 17.</div><button class="btn btn-sm btn-danger" data-action="modal.close">Request erasure</button></div>
-    <div class="gdpr-action"><div class="gdpr-action-title">Redact in-thread data</div><div class="gdpr-action-desc">Mask PII in this ticket's messages.</div><button class="btn btn-sm" data-action="modal.close">Redact</button></div>
-    <div class="gdpr-action"><div class="gdpr-action-title">SAR export</div><div class="gdpr-action-desc">Export all data held about this customer.</div><button class="btn btn-sm" data-action="modal.close">Export</button></div>
-  `, null, null);
-}
+export { showGDPRModal } from './privacy.js';
 
 export function openCustomerModal(custId) {
   const c = CUSTOMERS.find(x => x.id === custId); if (!c) return;
