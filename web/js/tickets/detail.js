@@ -552,6 +552,7 @@ export function openTicket(id) {
               ? `<button class="btn btn-sm" data-action="td.unsnooze" data-ticket-id="${window.escAttr(id)}" title="Wake the ticket up now">💤 Wake up</button>`
               : `<button class="btn btn-sm" data-action="td.snooze" data-ticket-id="${window.escAttr(id)}" title="Pause SLA until a chosen time">💤 Snooze</button>`) : ''}
                 <button class="btn btn-sm" data-action="td.gdprModal" data-ticket-id="${window.escAttr(id)}">Privacy / GDPR</button>
+                ${(window.canDeleteRecords() || isTicketBlank(t)) ? `<button class="btn btn-sm btn-danger" data-action="td.deleteTicket" data-ticket-id="${window.escAttr(id)}">Delete ticket</button>` : ''}
               </div>
             </details>
             ${!['resolved', 'closed'].includes(t.status)
@@ -563,7 +564,7 @@ export function openTicket(id) {
       <div class="ticket-heading">
         ${mergedBanner}
         ${snoozeBanner}
-        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px">${window.escHtml(t.subject)}</div>
+        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px"><span id="ticket-subject-${id}">${window.escHtml(t.subject)}</span> <button type="button" class="btn btn-sm" data-action="td.editSubject" data-ticket-id="${window.escAttr(id)}">Edit subject</button></div>
         <div class="ticket-metadata">
           ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
@@ -619,6 +620,7 @@ export function openTicket(id) {
               </div>
             </div>
               <div class="composer-foot">
+                <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}" title="Keeps your unsent message in this browser">Save draft and exit</button>
                 <div class="composer-actions">
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <details class="ticket-popover composer-insert">
@@ -1043,6 +1045,51 @@ function prevNextTicket(dir) {
 }
 
 
+function editTicketSubject(id) {
+  const ticket = TICKETS.find(t => t.id === id);
+  if (!ticket) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Edit subject', `<label class="form-label" for="edit-ticket-subject">Subject</label>
+    <input class="form-input" id="edit-ticket-subject" value="${window.escAttr(ticket.subject)}" required maxlength="500">
+    <p id="edit-subject-error" role="alert"></p>`, async () => {
+    const input = document.getElementById('edit-ticket-subject');
+    if (saving || !input || workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(ticket)) return;
+    input.value = input.value.trim();
+    if (!input.reportValidity()) return;
+    saving = true;
+    try {
+      const result = ticket._uuid
+        ? await apiPatch(`/api/v1/tickets/${ticket._uuid}`, { subject: input.value })
+        : { ticket: { subject: input.value } };
+      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(ticket)) return;
+      ticket.subject = result.ticket.subject;
+      if (CURRENT_TICKET === id) {
+        const heading = document.getElementById('ticket-subject-' + id);
+        if (heading) heading.textContent = ticket.subject;
+      }
+      if (input === document.getElementById('edit-ticket-subject')) closeModal();
+      showToast('Subject saved', 'success');
+    } catch (error) {
+      if (input === document.getElementById('edit-ticket-subject')) {
+        document.getElementById('edit-subject-error').textContent = error?.message || 'Could not save the subject. Try again.';
+      }
+    } finally { saving = false; }
+  });
+  document.getElementById('edit-ticket-subject')?.focus();
+}
+
+function saveDraftAndExit(id) {
+  const editor = document.getElementById('compose-' + id);
+  if (!editor || (editor.dataset.rich === '1' && !editor.querySelector('.ql-editor'))) {
+    showToast('The editor is still loading. Try again in a moment.', 'warn');
+    return;
+  }
+  try { onComposeInput(id); }
+  catch { showToast('Could not save your draft. Keep this ticket open and try again.', 'error'); return; }
+  renderPage('tickets');
+}
+
 function editTicketNote(ds) {
   if (!window.isAdmin()) return;
   const t = TICKETS.find(x => x.id === ds.ticketId);
@@ -1370,6 +1417,8 @@ registerActions({
   'td.gdprExport':     () => alert('SAR export started'),
   // Toolbar
   'td.openTicketsList':() => renderPage('tickets'),
+  'td.editSubject': (ds) => editTicketSubject(ds.ticketId),
+  'td.saveDraftAndExit': (ds) => saveDraftAndExit(ds.ticketId),
   'td.prev':           () => prevNextTicket(-1),
   'td.next':           () => prevNextTicket(1),
   'td.macroModal':     (ds) => showApplyMacroModal(ds.ticketId),

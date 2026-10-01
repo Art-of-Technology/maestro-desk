@@ -438,6 +438,7 @@ tickets.patch('/:id/inbox', async c => {
 // 400 (probably a client bug, fail loudly). assigned_user_id may be null
 // to unassign.
 const PatchTicket = z.object({
+  subject:          z.string().trim().min(1).max(500).optional(),
   status_key:        z.string().optional(),
   priority_key:      z.string().optional(),
   category_key:      z.string().nullable().optional(),
@@ -517,7 +518,7 @@ tickets.patch('/:id', async (c) => {
     const reopenSet = statusTransition && existing.status_key === 'closed'
       ? sql`, closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null` : sql``;
     const [saved] = await sql`update tickets set ${sql(updates)}${resolvedAtSet}${reopenSet}
-      where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id, display_id, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
+      where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
         csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at`;
     if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
 

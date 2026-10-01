@@ -85,7 +85,7 @@ async function runLookup() {
     const res = await apiGet(`/api/v1/maestro/players?${key}=${encodeURIComponent(queryValue)}`, { brand: true });
     PLAYER = normalizePlayer(res.member || {});
     PLAYER.bo = res.backofficeUrl || '';
-    CONVERSATION_SUBJECT = `Outreach to ${PLAYER.first || PLAYER.name}`.trim().slice(0, 500);
+    CONVERSATION_SUBJECT = '';
     CONVERSATION_ERROR = '';
     LOOKUP_STATE = 'done';
   } catch (err) {

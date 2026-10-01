@@ -96,6 +96,28 @@ runDbTests('ticket create (DB-backed)', () => {
     expect(ticket.assigned_user_id).toBe(admin.userId);
   });
 
+  it('edits and persists a trimmed subject, rejecting invalid subjects and non-members', async () => {
+    const created = await create({ subject: 'Original', customer_id: ctx.custId });
+    const { ticket } = await created.json() as any;
+    const path = `/api/v1/tickets/${ticket.id}`;
+    const patch = (subject: unknown, token = admin.token) => as(token, ctx.ws, path, {
+      method: 'PATCH', body: JSON.stringify({ subject }),
+    });
+    const saved = await patch('  Account question  ');
+    expect(saved.status).toBe(200);
+    expect(((await saved.json()) as any).ticket.subject).toBe('Account question');
+    for (const subject of ['', '   ', 'x'.repeat(501), null, 42]) {
+      expect((await patch(subject)).status).toBe(400);
+    }
+    const fetched = await as(admin.token, ctx.ws, path);
+    expect(((await fetched.json()) as any).ticket.subject).toBe('Account question');
+    const other = await signUp(`tc-subject-out-${RUN}@t.test`);
+    try { expect((await patch('Forbidden', other.token)).status).toBe(403); }
+    finally { await sql`delete from users where id = ${other.id}`; }
+    const [row] = await sql`select subject from tickets where id = ${ticket.id}`;
+    expect(row.subject).toBe('Account question');
+  });
+
   it('honors an explicit assignee and does NOT run assignment rules over it', async () => {
     // A rule that would grab everything for the admin — the explicit pick
     // must still win because the engine is skipped.
