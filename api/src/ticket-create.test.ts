@@ -182,11 +182,13 @@ runDbTests('ticket create (DB-backed)', () => {
     expect(draft.attachments[0].filename).toBe('receipt.pdf');expect(draft.attachments[0].storage_key).toBeUndefined();
     expect((await as(admin.token,ctx.ws,path+'/attachments/'+file,{method:'DELETE'})).status).toBe(404);
     expect((await as(agent.token,ctx.ws,path+'/attachments/'+file+'/content')).status).toBe(404);
+    expect((await as(agent.token,ctx.ws,path+'/attachments/'+file+'/content?thumbnail=1')).status).toBe(404);
     const [{provision_brand:otherWs}]=await sql`select provision_brand(${'tc-files-'+RUN},${'tc-files-'+RUN})`;
     ctx.otherWs=otherWs;
     const [otherRole]=await sql`select id from roles where workspace_id=${otherWs} and is_admin=true limit 1`;
     await sql`insert into workspace_members(workspace_id,user_id,role_id,active) values(${otherWs},${admin.userId},${otherRole.id},true)`;
     expect((await as(admin.token,otherWs,path+'/attachments/'+file+'/content')).status).toBe(404);
+    expect((await as(admin.token,otherWs,path+'/attachments/'+file+'/content?thumbnail=1')).status).toBe(404);
     expect((await as(admin.token,otherWs,path+'/drafts/reply')).status).toBe(404);
     expect((await as(admin.token,ctx.ws,path+'/messages',{method:'POST',body:JSON.stringify({role:'note',body:'Cannot steal a file',attachment_ids:[otherFile]})})).status).toBe(400);
     const {sweepUnclaimedAttachments}=await import('./lib/message-attachments.js');
@@ -202,6 +204,34 @@ runDbTests('ticket create (DB-backed)', () => {
       expect(preview.status).toBe(200);expect(preview.headers.get('content-type')).toBe('application/pdf');
       expect(preview.headers.get('cache-control')).toBe('no-store');expect(preview.headers.get('x-content-type-options')).toBe('nosniff');
       expect(await preview.text()).toBe('%PDF-1.7 sample');
+      const thumbnailPath=path+'/attachments/'+file+'/content?thumbnail=1';
+      expect((await as(admin.token,ctx.ws,thumbnailPath)).status).toBe(422);
+      expect((await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content?thumbnail=large')).status).toBe(400);
+      const {default:sharp}=await import('sharp');
+      const original=await sharp({create:{width:1600,height:1200,channels:3,background:'purple'}}).png().toBuffer();
+      globalThis.fetch=(async()=>new Response(original)) as unknown as typeof fetch;
+      const thumbnail=await as(admin.token,ctx.ws,thumbnailPath);
+      expect(thumbnail.status).toBe(200);
+      expect(thumbnail.headers.get('content-type')).toBe('image/webp');
+      expect(thumbnail.headers.get('cache-control')).toBe('no-store');
+      expect(thumbnail.headers.get('x-content-type-options')).toBe('nosniff');
+      const thumbBytes=Buffer.from(await thumbnail.arrayBuffer());
+      expect(thumbBytes.length).toBeLessThan(original.length/10);
+      expect((await sharp(thumbBytes).metadata()).width).toBe(80);
+      const full=await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content');
+      expect(Buffer.from(await full.arrayBuffer()).equals(original)).toBe(true);
+      const releases:Array<()=>void>=[];
+      globalThis.fetch=(async()=>new Promise<Response>(resolve=>releases.push(()=>resolve(new Response(original))))) as unknown as typeof fetch;
+      const pending=Array.from({length:4},()=>as(admin.token,ctx.ws,thumbnailPath));
+      try {
+        for(let attempts=0;releases.length<4 && attempts<100;attempts++) await new Promise(resolve=>setTimeout(resolve,5));
+        expect(releases.length).toBe(4);
+        expect((await as(admin.token,ctx.ws,thumbnailPath)).status).toBe(503);
+      } finally { for(const release of releases) release(); await Promise.all(pending); }
+      globalThis.fetch=(async()=>new Response(original)) as unknown as typeof fetch;
+      expect((await as(admin.token,ctx.ws,thumbnailPath)).status).toBe(200);
+      globalThis.fetch=(async()=>new Response(Buffer.from([0xff,0xd8,0xff]))) as unknown as typeof fetch;
+      expect((await as(admin.token,ctx.ws,thumbnailPath)).status).toBe(422);
       globalThis.fetch=(async()=>new Response('<script>bad()</script>',{headers:{'Content-Type':'application/pdf'}})) as unknown as typeof fetch;
       const spoof=await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content');
       expect(spoof.headers.get('content-type')).toBe('application/octet-stream');
@@ -221,6 +251,7 @@ runDbTests('ticket create (DB-backed)', () => {
     await sweepUnclaimedAttachments(24,{store});
     expect((await sql`select id from ticket_attachments where id=${file}`).length).toBe(0);
     expect((await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content')).status).toBe(404);
+    expect((await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content?thumbnail=1')).status).toBe(404);
     expect((await put(2,[file])).status).toBe(409);
   });
 

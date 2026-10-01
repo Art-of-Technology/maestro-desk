@@ -33,6 +33,7 @@ import { extractDataImages, sanitizeEmailHtml } from '../lib/email-html.js';
 import { htmlToText } from '../lib/html-text.js';
 import { attachmentsStore, contentDispositionFor, isAttachmentsStorageConfigured } from '../lib/r2.js';
 import { sniffImageMime } from '../lib/image-sniff.js';
+import { attachmentThumbnail } from '../lib/attachment-thumbnail.js';
 import { drainObjectDeletions, enqueueObjectDeletions } from '../lib/object-outbox.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 
@@ -658,7 +659,10 @@ tickets.post('/:id/attachments', async (c) => {
 });
 
 // Authenticated content for in-ticket previews and downloads, including the owner's unsent files.
+let activeThumbnails = 0;
 tickets.get('/:id/attachments/:attId/content', async c => {
+  const thumbnail = c.req.query('thumbnail');
+  if (thumbnail !== undefined && thumbnail !== '1') return c.json({error:'Invalid thumbnail option'},400);
   if (![c.req.param('id'),c.req.param('attId')].every(id=>z.string().uuid().safeParse(id).success)) return c.json({error:'Attachment not found'},404);
   const [row] = await getDb()`select a.storage_key,a.filename,a.size_bytes from ticket_attachments a
     join tickets t on t.id=a.ticket_id and t.workspace_id=a.workspace_id
@@ -667,12 +671,27 @@ tickets.get('/:id/attachments/:attId/content', async c => {
   if (!row) return c.json({error:'Attachment not found'},404);
   if (!isAttachmentsStorageConfigured()) return c.json({error:'Attachment storage is unavailable'},503);
   if (Number(row.size_bytes)>20*1024*1024) return c.json({error:'This file is too large to preview'},413);
+  if (thumbnail) {
+    const limited = await enforceRateLimit(c, { name: 'attachment-thumbnail', by: c.get('userId'), max: 120, windowSeconds: 60, failClosed: true });
+    if (limited) return limited;
+    // ponytail: cap per-process work; a busy server leaves the file badge visible instead of queuing image buffers.
+    if (activeThumbnails >= 4) return c.json({error:'Thumbnail unavailable. Try again shortly.'},503);
+    activeThumbnails++;
+  }
   try {
     const {bytes} = await attachmentsStore().getObject(row.storage_key);
+    if (thumbnail) {
+      let resized;
+      try { resized = await attachmentThumbnail(bytes); }
+      catch { return c.json({error:'A thumbnail is unavailable for this file.'},422); }
+      return new Response(new Uint8Array(resized), {headers:{'Content-Type':'image/webp','Content-Disposition':'inline',
+        'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+    }
     const mime = sniffImageMime(bytes) || (new TextDecoder().decode(bytes.subarray(0,5))==='%PDF-' ? 'application/pdf' : 'application/octet-stream');
     return new Response(bytes, {headers:{'Content-Type':mime,'Content-Disposition':contentDispositionFor('attachment',row.filename),
       'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
   } catch { return c.json({error:'Could not load the file. Try again.'},502); }
+  finally { if (thumbnail) activeThumbnails--; }
 });
 
 // ─── DELETE /:id/attachments/:attId — drop an unsent upload ──────────────
