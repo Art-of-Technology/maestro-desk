@@ -244,3 +244,13 @@ test('expiry during logout and account changes cannot sign out the next session'
   let release;const b=logoutHarness(()=>new Promise(r=>{release=r;}));const switching=b.logout();
   b.context.SESSION={userId:'next-agent'};release();await switching;expect(b.calls).toEqual([]);
 });
+
+test('editing one field before verification cannot reveal other cached fields',async()=>{
+  const a=device();a.storage.set('draft:v2:workspace:agent:TK-1:reply','Private cached body');
+  a.storage.set('draft:v2:workspace:agent:TK-1:reply:ai-review',JSON.stringify({references:[],notes:['Private review']}));
+  a.saveDraftRecipients('TK-1',{mode:'reply',to:['new@example.test'],cc:''});
+  expect(a.loadDraft('TK-1')).toBe('');expect(a.loadDraftReview('TK-1')).toBeNull();
+  expect(a.loadDraftRecipients('TK-1').to).toEqual(['new@example.test']);
+  a.control.denied=403;await a.refreshPersonalDraft('TK-1');
+  expect(a.loadDraftRecipients('TK-1')).toBeNull();
+});

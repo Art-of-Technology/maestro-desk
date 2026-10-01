@@ -31,12 +31,12 @@ function cacheAllowed(id) {
   return (!closed || (SESSION?.userId && jwt && jwt!==revokedJwt)) &&
     !unavailable.has(getDraftPrefix(id)) && (!SESSION?.userId || (jwt && jwt !== revokedJwt));
 }
-function visible(s) { return s.loaded || s.edited; }
+function visible(s, field) { return s.loaded || s.edited?.[field]; }
 
 export function loadDraft(id, tab) {
   if (!cacheAllowed(id)) return '';
   const s=personalState(id,tab);
-  return s ? (visible(s) ? s.local.body : '') : SESSION?.userId ? '' : (localStorage.getItem(getDraftKey(id,tab)) || '');
+  return s ? (visible(s,'body') ? s.local.body : '') : SESSION?.userId ? '' : (localStorage.getItem(getDraftKey(id,tab)) || '');
 }
 
 export function saveDraft(id, value, tab) {
@@ -46,7 +46,7 @@ export function saveDraft(id, value, tab) {
   if (loadDraft(id,tab) === (value || '')) return;
   if (value && value.length) localStorage.setItem(key, value);
   else localStorage.removeItem(key);
-  if (s) { s.local.body = value || ''; s.edited=true; }
+  if (s) { s.local.body = value || ''; (s.edited||={}).body=true; }
   queuePersonalDraft(id, tab);
 }
 
@@ -58,14 +58,14 @@ export function clearDraft(id, tab) {
   localStorage.removeItem(getDraftKey(id, tab) + ':ai-review');
   localStorage.removeItem(getDraftKey(id, tab) + ':email-recipients');
   localStorage.removeItem(getDraftKey(id, tab) + ':attachments');
-  if (s) {s.local = {body:'',recipients:null,review:null,attachments:[]};s.edited=true;}
+  if (s) {s.local = {body:'',recipients:null,review:null,attachments:[]};s.edited={body:true,recipients:true,review:true,attachments:true};}
   queuePersonalDraft(id, tab);
 }
 
 export function loadDraftRecipients(id) {
   if (!cacheAllowed(id)) return null;
   const s = personalState(id,'reply');
-  if (s) return visible(s) ? s.local.recipients : null;
+  if (s) return visible(s,'recipients') ? s.local.recipients : null;
   if (SESSION?.userId) return null;
   try {
     const value = JSON.parse(localStorage.getItem(getDraftKey(id, 'reply') + ':email-recipients') || 'null');
@@ -78,14 +78,14 @@ export function saveDraftRecipients(id, value) {
   const key = getDraftKey(id, 'reply') + ':email-recipients', json = JSON.stringify(value);
   if (JSON.stringify(loadDraftRecipients(id)) === json) return;
   localStorage.setItem(key, json);
-  if (s) { s.local.recipients = value; s.edited=true; }
+  if (s) { s.local.recipients = value; (s.edited||={}).recipients=true; }
   queuePersonalDraft(id, 'reply');
 }
 
 export function loadDraftReview(id, tab) {
   if (!cacheAllowed(id)) return null;
   const s = personalState(id,tab);
-  if (s) return visible(s) ? s.local.review : null;
+  if (s) return visible(s,'review') ? s.local.review : null;
   if (SESSION?.userId) return null;
   try {
     const value = JSON.parse(localStorage.getItem(getDraftKey(id, tab) + ':ai-review') || 'null');
@@ -100,7 +100,7 @@ export function saveDraftReview(id, value, tab) {
     const key = getDraftKey(id, tab) + ':ai-review', json = JSON.stringify(value);
     if (JSON.stringify(loadDraftReview(id,tab)) === json) return;
     localStorage.setItem(key, json);
-    if (s) { s.local.review = value; s.edited=true; }
+    if (s) { s.local.review = value; (s.edited||={}).review=true; }
     queuePersonalDraft(id, tab);
   } catch { /* The panel still shows for this render. */ }
 }
@@ -157,7 +157,7 @@ function cancelSharedSave(id) {
 export function loadDraftAttachments(id) {
   if (!cacheAllowed(id)) return [];
   const s = personalState(id,'reply');
-  if (s) return visible(s) ? s.local.attachments : [];
+  if (s) return visible(s,'attachments') ? s.local.attachments : [];
   if (SESSION?.userId) return [];
   try { const files=JSON.parse(localStorage.getItem(getDraftKey(id,'reply')+':attachments')); return Array.isArray(files)?files:[]; }
   catch { return []; }
@@ -168,7 +168,7 @@ export function saveDraftAttachments(id, files) {
   if (s?.sending) throw Error('Wait for the reply to finish sending before changing attachments.');
   if (sameDraft(loadDraftAttachments(id),files)) return;
   localStorage.setItem(getDraftKey(id,'reply')+':attachments',JSON.stringify(files));
-  if(s){s.local.attachments=files;s.edited=true;}
+  if(s){s.local.attachments=files;(s.edited||={}).attachments=true;}
   queuePersonalDraft(id,'reply');
 }
 export function draftSending(id) { return !!personalState(id,'reply')?.sending; }
