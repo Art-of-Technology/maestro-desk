@@ -113,7 +113,7 @@ function identify(userId) {
   } catch (err) {
     // Fail-silent for the app, but not invisible to a debugger: a vendor
     // API change would otherwise die in this catch with no trace.
-    console.warn('[tagline-sdk] init failed', err);
+    console.warn('[tagline-sdk] init failed');
   }
 }
 
@@ -131,6 +131,6 @@ export function taglineCheck(page) {
     lastCheckAt = now;
     window.Tagline.check();
   } catch (err) {
-    console.warn('[tagline-sdk] check failed', err);
+    console.warn('[tagline-sdk] check failed');
   }
 }

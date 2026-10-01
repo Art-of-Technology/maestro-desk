@@ -118,7 +118,7 @@ function ensureSavedSearchesLoaded() {
     .catch((err) => {
       SAVED_SEARCHES_LOADED = false;
       const last = SAVED_SEARCHES_ATTEMPTS >= SAVED_SEARCHES_MAX_ATTEMPTS;
-      console.warn(`[tickets] saved searches load failed${last ? ' (giving up)' : ', will retry'}:`, err);
+      console.warn(`[tickets] saved searches load failed${last ? ' (giving up)' : ', will retry'}:`);
     });
 }
 

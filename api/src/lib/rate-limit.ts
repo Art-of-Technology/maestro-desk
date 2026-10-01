@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import type { Context } from 'hono';
 import { ipAddress } from '@vercel/functions';
 import { getConnInfo } from '@hono/node-server/conninfo';
@@ -110,7 +111,7 @@ export async function enforceRateLimit(c: Context, opts: RateLimitOptions): Prom
     `;
     if (row) { allowed = row.allowed; retryAfter = row.retry_after; }
   } catch (err) {
-    console.warn('[rate-limit] check failed:', err instanceof Error ? err.message : err);
+    console.warn('[rate-limit] check failed:', safeError(err));
     return limiterErrorResult(c, opts);
   }
 

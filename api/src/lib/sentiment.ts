@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Per-message sentiment classification via Claude Haiku.
 //
 // Cheap (~$0.0001 / message), fire-and-forget. Called from the
@@ -95,7 +96,7 @@ export async function scoreMessageSentiment(args: {
       messages: [{ role: 'user', content: truncated }],
     });
   } catch (err) {
-    console.warn('[sentiment] Anthropic call failed:', err instanceof Error ? err.message : err);
+    console.warn('[sentiment] Anthropic call failed:', safeError(err));
     return null;
   }
   const durationMs = Date.now() - startedAt;

@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { getDb } from './db.js';
 import { clearTicketSnooze } from './ticket-snooze.js';
 import { publishTicketChanged } from './pubby.js';
@@ -40,8 +41,7 @@ export async function processExpiredSnoozes(signal?: AbortSignal) {
       }
     } catch (error) {
       failed++;
-      console.error('[snooze-worker] ticket failed', { workspaceId: row.workspace_id, ticketId: row.id,
-        code: error && typeof error === 'object' && 'code' in error ? String(error.code) : 'unknown' });
+      console.error('[snooze-worker] ticket failed:', safeError(error));
     }
   }
   if (candidates.length < 100 && sweepCursor?.id === candidates.at(-1)?.id) sweepCursor = null;

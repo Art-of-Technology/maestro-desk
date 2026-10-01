@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // GDPR right-to-erasure for a customer (data subject).
 //
 // Nulls/redacts the customer's personal data across every PII surface and
@@ -260,18 +261,15 @@ export async function eraseCustomer(args: {
   if (result && !result.alreadyErased && attachmentKeys.length) {
     const { failed } = await drainObjectDeletions(attachmentKeys, deleteObjects);
     if (failed.length) {
-      console.error(
-        `[gdpr-erase] R2 object deletion failed for ${failed.length} key(s) of customer ${customerId} (workspace ${workspaceId}) — left in the outbox for retry`,
-      );
+      console.error('[gdpr-erase] object deletion deferred', { failed: failed.length });
       await sendOpsAlert({
-        signature: `gdpr-erase-r2-fail:${workspaceId}:${customerId}`,
+        signature: `gdpr-erase-r2-fail:${workspaceId}`,
         severity: 'critical',
         title: 'GDPR erasure: attachment file deletion failed',
         detail:
-          `Customer ${customerId} (workspace ${workspaceId}) was erased in the database, but ` +
+          `Database erasure completed in workspace ${workspaceId}, but ` +
           `${failed.length} attachment object(s) could not be deleted from storage. ` +
-          `Left in pending_object_deletions for automatic retry on the next retention cron.\nKeys:\n` +
-          failed.map((k) => `  • ${k}`).join('\n'),
+          `Left in pending_object_deletions for automatic retry on the next retention cron.`,
       }).catch(() => {});
     }
   }
@@ -309,7 +307,7 @@ export async function retryPendingObjectDeletions(
       console.warn(`[object-outbox] ${swept.failed.length} parked object deletion(s) still failing`);
     }
   } catch (err) {
-    console.warn('[object-outbox] sweep failed:', err instanceof Error ? err.message : err);
+    console.warn('[object-outbox] sweep failed:', safeError(err));
   }
   // Legacy: keys parked on gdpr_erasures.pending_object_keys by erasures that
   // ran before the outbox existed. Drained here until the column is empty.
@@ -328,7 +326,7 @@ export async function retryPendingObjectDeletions(
       cleared++;
       keysDeleted += row.pending_object_keys.length;
     } catch (err) {
-      console.warn(`[gdpr-erase] retry still failing for erasure ${row.id}:`, err instanceof Error ? err.message : err);
+      console.warn('[gdpr-erase] retry still failing:', safeError(err));
     }
   }
   return { swept: rows.length, cleared, keysDeleted, parkedKeysDeleted, stuck };

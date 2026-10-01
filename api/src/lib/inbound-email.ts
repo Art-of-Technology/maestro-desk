@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { inboundEmailMetadata } from './email-recipients.js';
 import { getDb } from './db.js';
 import { reopenOnCustomerReply } from './reopen-customer-reply.js';
@@ -62,7 +63,7 @@ async function persistRichBody(args: {
       `;
     }
   } catch (err) {
-    console.error('[inbound-email] rich body/attachments failed (message kept as text):', err instanceof Error ? err.message : err);
+    console.error('[inbound-email] rich body/attachments failed (message kept as text):', safeError(err));
   }
 }
 
@@ -72,7 +73,7 @@ async function persistRichBody(args: {
 // gets its 200 and the message row is already persisted.
 function scoreInboundMessage(args: { workspaceId: string; ticketId: string; messageId: string; body: string }): void {
   void scoreMessageSentiment(args).catch((err) => {
-    console.warn('[sentiment] inbound score failed:', err instanceof Error ? err.message : err);
+    console.warn('[sentiment] inbound score failed:', safeError(err));
   });
 }
 
@@ -147,7 +148,7 @@ async function recordInboundInInbox(args: {
     // Unique violation on (channel_id, external_id) is expected on Postmark
     // retries — silent skip. Anything else, log it.
     if ((err as any)?.code !== '23505') {
-      console.warn('[inbound-email] inbox_messages insert failed:', err instanceof Error ? err.message : err);
+      console.warn('[inbound-email] inbox_messages insert failed:', safeError(err));
     }
   }
 }
@@ -409,7 +410,7 @@ export async function processInboundEmail(args: {
   // Route new customer tickets before publishing them. A rule failure must
   // not discard accepted mail; unmatched tickets remain unassigned.
   try { await applyAssignmentRules({ workspaceId, ticketId: newTicket.id }); }
-  catch (err) { console.error('[inbound-email] assignment failed:', err); }
+  catch (err) { console.error('[inbound-email] assignment failed:', safeError(err)); }
 
   // 3a. Attach the contact to its Maestro player (ids + username; fills blank
   //     VIP / country). Runs AFTER the ticket + message land so it never
@@ -442,12 +443,12 @@ export async function processInboundEmail(args: {
       if (err instanceof BudgetExceededError) {
         console.log(`[inbound-email] auto-triage skipped — workspace ${workspaceId} out of budget`);
       } else {
-        console.error('[inbound-email] auto-triage failed:', err);
+        console.error('[inbound-email] auto-triage failed:', safeError(err));
       }
     });
     autoTriageQueued = true;
   } catch (err) {
-    console.error('[inbound-email] failed to queue auto-triage:', err);
+    console.error('[inbound-email] failed to queue auto-triage:', safeError(err));
   }
 
   void publishTicketChanged(workspaceId, newTicket.id);
@@ -522,7 +523,7 @@ async function attachReplyToTicket(args: {
       scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
     }
   } catch (err) {
-    console.warn('[inbound-email] player-link sender check failed on thread-attach:', err instanceof Error ? err.message : err);
+    console.warn('[inbound-email] player-link sender check failed on thread-attach:', safeError(err));
   }
 
   // Unlike channel defaults, the reply address follows each accepted inbound
@@ -558,7 +559,7 @@ async function attachReplyToTicket(args: {
   const to = parseTo(payload);
   const channel = await resolveInboundChannel(workspaceId, to?.email ?? null)
     .catch((err) => {
-      console.warn('[inbound-email] channel resolve failed on thread-attach:', err instanceof Error ? err.message : err);
+      console.warn('[inbound-email] channel resolve failed on thread-attach:', safeError(err));
       return null;
     });
   await recordInboundInInbox({ workspaceId, payload, ticketId, channelId: channel?.id ?? null, body });
@@ -578,19 +579,19 @@ async function attachReplyToTicket(args: {
       if (err instanceof BudgetExceededError) {
         console.log(`[inbound-email] retriage skipped — workspace ${workspaceId} out of budget`);
       } else {
-        console.error('[inbound-email] retriage failed:', err);
+        console.error('[inbound-email] retriage failed:', safeError(err));
       }
     });
     autoTriageQueued = true;
   } catch (err) {
-    console.error('[inbound-email] failed to queue retriage:', err);
+    console.error('[inbound-email] failed to queue retriage:', safeError(err));
   }
 
   // Push the assigned agent if they're not currently in the app (offline-agent
   // notifications, stage 3). Awaited so the work isn't dropped on serverless
   // freeze; fully guarded so a push hiccup never fails the inbound webhook.
   try { await pushOfflineAssignee(workspaceId, ticketId); }
-  catch (err) { console.warn('[push] offline-assignee notify failed:', err instanceof Error ? err.message : err); }
+  catch (err) { console.warn('[push] offline-assignee notify failed:', safeError(err)); }
 
   void publishTicketChanged(workspaceId, ticketId);
   return {

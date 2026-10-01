@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { betterAuth } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import { bearer, genericOAuth } from 'better-auth/plugins';
@@ -64,6 +65,13 @@ async function activatePendingInvitations(userId: string) {
 }
 
 export const auth = betterAuth({
+  logger: {
+    log(level, _message, ...args) {
+      if (level === 'error' || level === 'warn') {
+        console[level]('[auth] authentication diagnostic', safeError(args.find(arg => arg instanceof Error)));
+      }
+    },
+  },
   session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
   hooks: {
     after: createAuthMiddleware(async (ctx) => {

@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import type { getDb } from './db.js';
 
 // Session revocation on loss of access (advisory #22).
@@ -29,6 +30,6 @@ export async function revokeSessionsIfNoAccess(sql: ReturnType<typeof getDb>, us
     if (row?.has_active || row?.platform_admin) return;
     await sql`delete from "session" where "userId" = ${userId}`;
   } catch (err) {
-    console.warn('[sessions] revokeSessionsIfNoAccess failed:', err instanceof Error ? err.message : err);
+    console.warn('[sessions] revokeSessionsIfNoAccess failed:', safeError(err));
   }
 }

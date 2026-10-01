@@ -1,3 +1,4 @@
+import { safeError } from './lib/diagnostics.js';
 // CLI entry for the scheduled jobs — exec'd INSIDE the API container (same
 // env, same DB). Designed for the Dokploy application schedules
 // (deploy/dokploy/provision-schedules.mjs), which have been FAILING since late
@@ -43,17 +44,17 @@ const jobs: Record<string, () => Promise<unknown>> = {
 const name = process.argv[2] ?? '';
 const job = jobs[name];
 if (!job) {
-  console.error(`usage: cron-run.ts <${Object.keys(jobs).join('|')}> (got ${JSON.stringify(name)})`);
+  console.error(`usage: cron-run.ts <${Object.keys(jobs).join('|')}>`);
   process.exit(2);
 }
 
 job().then(
   (result) => {
-    console.log(`[cron-run] ${name} ok: ${JSON.stringify(result)}`);
+    console.log(`[cron-run] ${name} completed`);
     process.exit(0);
   },
   (err) => {
-    console.error(`[cron-run] ${name} failed:`, err instanceof Error ? err.message : err);
+    console.error(`[cron-run] ${name} failed:`, safeError(err));
     process.exit(1);
   },
 );

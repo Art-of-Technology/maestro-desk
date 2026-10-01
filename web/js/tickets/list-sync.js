@@ -114,7 +114,7 @@ export async function tick() {
       stopListSync();
       return;
     }
-    console.warn('[list-sync] failed:', err?.status || '', err?.message);
+    console.warn('[list-sync] failed:');
   } finally {
     state.inFlight = false;
   }

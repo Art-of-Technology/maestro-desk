@@ -263,7 +263,7 @@ export async function loadWorkspaceData() {
     // whole all-or-nothing bootstrap down (e.g. web deployed ahead of api,
     // where the old API 404s this endpoint and every login would fail).
     apiGet('/api/v1/customers/notes').catch((err) => {
-      console.warn('[bootstrap] customer notes load failed:', err?.message || err);
+      console.warn('[bootstrap] customer notes load failed:');
       return { notes: [] };
     }),
     // Web-ahead-of-api tolerance is a 404 ONLY — there the endpoint doesn't
@@ -273,7 +273,7 @@ export async function loadWorkspaceData() {
     // otherwise PUT code defaults over the workspace's saved layout.
     apiGet('/api/v1/workspace/layouts').catch((err) => {
       if (err?.status === 404) return { layouts: [] };
-      console.warn('[bootstrap] layouts load failed:', err?.message || err);
+      console.warn('[bootstrap] layouts load failed:');
       return { layouts: null };
     }),
     apiGet('/api/v1/macros').catch(err => { if (err.status === 404) return { macros: [] }; throw err; }),

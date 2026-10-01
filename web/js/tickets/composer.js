@@ -59,7 +59,7 @@ async function loadQuill() {
       await import(/* @vite-ignore */ QUILL_JS);
       return window.Quill;
     })().catch((err) => {
-      console.warn('[composer] rich editor unavailable, falling back to plain text:', err);
+      console.warn('[composer] rich editor unavailable, falling back to plain text:');
       quillLoad = null;
       return null;
     });

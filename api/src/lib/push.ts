@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import webpush from 'web-push';
 import { Agent } from 'node:https';
 import { env } from './env.js';
@@ -89,14 +90,14 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       if (status === 404 || status === 410) {
         dead.push(s.id);   // subscription is gone — prune it
       } else {
-        console.warn(`[push] send failed for sub ${s.id}: ${err?.message ?? err}`);
+        console.warn('[push] send failed:', safeError(err));
       }
     }
   }));
 
   if (dead.length > 0) {
     try { await sql`delete from push_subscriptions where id = any(${dead})`; }
-    catch (err) { console.warn('[push] prune failed:', err instanceof Error ? err.message : err); }
+    catch (err) { console.warn('[push] prune failed:', safeError(err)); }
   }
   if (sent > 0) {
     try { await sql`update push_subscriptions set last_used_at = now() where user_id = ${userId}`; }

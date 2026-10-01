@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Outbox for R2 object deletions (pending_object_deletions).
 //
 // R2 is not transactional, so "delete the rows, then delete the files" has a
@@ -35,9 +36,9 @@ const DEFAULT_BUDGET_MS = 20_000;
 // operator hears about it instead of it retrying silently forever.
 export const STUCK_ATTEMPTS = 5;
 
-// Truncate an error for the last_error column.
+// Store only safe diagnostics; provider messages may contain storage keys or PII.
 function errText(err: unknown): string {
-  return (err instanceof Error ? err.message : String(err)).slice(0, 500);
+  return JSON.stringify(safeError(err));
 }
 
 /** In-transaction: record keys that are about to lose their DB pointer. */
@@ -106,7 +107,7 @@ export async function drainObjectDeletions(
       `;
     }
   } catch (err) {
-    console.warn('[object-outbox] bookkeeping failed:', errText(err));
+    console.warn('[object-outbox] bookkeeping failed:', safeError(err));
   }
 
   return { deleted, failed: failed.map((f) => f.key), deferred };

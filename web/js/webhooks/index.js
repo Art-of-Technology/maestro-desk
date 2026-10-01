@@ -54,7 +54,7 @@ function seedWebhooks() {
 }
 function saveWebhooks() {
   try { localStorage.setItem('webhooks', JSON.stringify(WEBHOOKS)); }
-  catch (e) { console.warn('[webhooks] persist failed', e); }
+  catch (e) { console.warn('[webhooks] persist failed'); }
 }
 function whNextId() {
   const max = Math.max(0, ...WEBHOOKS.map(w => parseInt((w.id||'').split('-')[1] || '0', 10)));

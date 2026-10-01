@@ -7,7 +7,7 @@
 // we stub global fetch, which BOTH the real sendEmail (→ api.postmarkapp.com)
 // and the Slack webhook go through, and route by URL.
 
-import { describe, expect, it, mock, afterAll, beforeEach } from 'bun:test';
+import { describe, expect, it, mock, afterAll, beforeEach, spyOn } from 'bun:test';
 
 process.env.DATABASE_URL ||= 'postgresql://u:p@localhost:5432/test?sslmode=require';
 process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
@@ -98,6 +98,22 @@ describe('alertingConfigured', () => {
 });
 
 describe('sendOpsAlert', () => {
+  it('cron failure diagnostics omit private error text from logs, email and Slack', async () => {
+    envObj.ALERT_EMAIL_TO = 'ops@respovia.test';
+    envObj.SLACK_ALERT_WEBHOOK_URL = SLACK_URL;
+    const secret = 'private-person@example.test_secret-token_passport.pdf';
+    const logs: unknown[][] = [];
+    const spy = spyOn(console, 'error').mockImplementation((...args) => { logs.push(args); });
+    try {
+      const { alertCronFailure } = await import('./cron-jobs.js');
+      await alertCronFailure('retention', Object.assign(new Error(secret), { code: '23505', detail: secret }));
+      expect(postmarkCalls).toHaveLength(1);
+      expect(slackCalls).toHaveLength(1);
+      expect(JSON.stringify({ logs, postmarkCalls, slackCalls })).not.toContain(secret);
+      expect(postmarkCalls[0]).toContain('23505');
+    } finally { spy.mockRestore(); }
+  });
+
   it('no-ops (no delivery) when unconfigured', async () => {
     await sendOpsAlert(alert);
     expect(postmarkCalls).toHaveLength(0);

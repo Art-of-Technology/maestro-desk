@@ -16,6 +16,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
+import { safeError } from '../src/lib/diagnostics.js';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -40,7 +41,7 @@ const sql = postgres(DATABASE_URL, {
   // time. Other notices (e.g. from the migration files themselves) stay
   // visible — they can carry real signal. Errors are unaffected either way.
   onnotice: (n) => {
-    if (!/already exists, skipping/.test(n.message ?? '')) console.log(`NOTICE: ${n.message}`);
+    if (!/already exists, skipping/.test(n.message ?? '')) console.log('Migration notice:', safeError(n));
   },
 });
 
@@ -135,7 +136,7 @@ async function main() {
 try {
   await main();
 } catch (err) {
-  console.error(err instanceof Error ? err.message : err);
+  console.error('Migration failed:', safeError(err));
   process.exitCode = 1;
 } finally {
   await sql.end();

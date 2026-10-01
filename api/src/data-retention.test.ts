@@ -166,7 +166,7 @@ runDbTests('data retention (DB-backed)', () => {
     `;
     expect(parked).toHaveLength(1);
     expect(parked[0].attempts).toBe(1);
-    expect(parked[0].last_error).toBe('R2 unavailable');
+    expect(parked[0].last_error).toBe(JSON.stringify({ type: 'Error', code: null }));
 
     // The retention-cron retry sweep deletes the parked object and clears the row.
     const { retryPendingObjectDeletions } = await import('./lib/gdpr-erasure.js');
@@ -208,7 +208,7 @@ runDbTests('data retention (DB-backed)', () => {
     const mine = stuck.find((s) => s.storage_key === key);
     expect(mine).toBeTruthy();
     expect(mine!.attempts).toBeGreaterThanOrEqual(STUCK_ATTEMPTS);
-    expect(mine!.last_error).toBe('403 forbidden');
+    expect(mine!.last_error).toBe(JSON.stringify({ type: 'Error', code: null }));
     // Still deletable once storage recovers.
     const ok = await sweepPendingObjectDeletions(50, async () => {});
     expect(ok.deleted).toContain(key);

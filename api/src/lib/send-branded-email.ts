@@ -86,10 +86,10 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
       // The PLATFORM sender itself was rejected — there is nothing to fall
       // back to and every outbound email is failing. Alert, then propagate.
       await sendOpsAlert({
-        signature: `platform-sender-rejected:${fromEmail}`,
+        signature: 'platform-sender-rejected',
         severity: 'critical',
         title: 'Platform email sender rejected by Postmark — all outbound email failing',
-        detail: `from=${fromEmail} postmarkCode=${err.code} http=${err.httpStatus}. Check the Postmark sender signature for this address.`,
+        detail: `postmarkCode=${err.code} http=${err.httpStatus}. Check the configured platform sender signature in Postmark.`,
       });
       throw err;
     }
@@ -117,10 +117,10 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
       // since the branch above only covers first-attempt platform sends.
       if (isSenderSignatureError(retryErr)) {
         await sendOpsAlert({
-          signature: `platform-sender-rejected:${platformFrom}`,
+          signature: 'platform-sender-rejected',
           severity: 'critical',
           title: 'Platform email sender rejected by Postmark — all outbound email failing',
-          detail: `from=${platformFrom} postmarkCode=${retryErr.code} http=${retryErr.httpStatus}. Check the Postmark sender signature for this address.`,
+          detail: `postmarkCode=${retryErr.code} http=${retryErr.httpStatus}. Check the configured platform sender signature in Postmark.`,
         });
       }
       throw retryErr;

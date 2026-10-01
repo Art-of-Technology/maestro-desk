@@ -251,7 +251,7 @@ export async function autoResumeAgent() {
   try {
     await bootShell(me.user, m);
   } catch (err) {
-    console.warn('[autoResumeAgent] bootstrap failed:', err);
+    console.warn('[autoResumeAgent] bootstrap failed:');
     setWorkspaceId(null);
     return false;
   }

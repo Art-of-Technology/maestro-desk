@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
@@ -195,7 +196,7 @@ publicRoutes.post('/:slug/tickets', async (c) => {
   // Only new submissions are routed; replies retain the thread's owner.
   // Keep the accepted ticket even if a rule cannot be evaluated.
   try { await applyAssignmentRules({ workspaceId: ws.id, ticketId: ticket.id }); }
-  catch (err) { console.error('[public] ticket assignment failed:', err); }
+  catch (err) { console.error('[public] ticket assignment failed:', safeError(err)); }
 
   // Attach the contact to its Maestro player — same fire-and-forget hook as
   // the inbound-email path (lib/player-identity.ts), after the ticket has
@@ -212,7 +213,7 @@ publicRoutes.post('/:slug/tickets', async (c) => {
               ${sql.json({ customer_id: customerId, from_email: email, from_name: input.name })})
     `;
   } catch (err) {
-    console.warn('[public] portal.ticket_submitted audit insert failed:', err instanceof Error ? err.message : err);
+    console.warn('[public] portal.ticket_submitted audit insert failed:', safeError(err));
   }
 
   return c.json({
@@ -253,7 +254,7 @@ publicRoutes.post('/:slug/kb-suggest', async (c) => {
     });
     return c.json({ suggestions: res.suggestions });
   } catch (err) {
-    console.error('[public] kb-suggest failed:', err);
+    console.error('[public] kb-suggest failed:', safeError(err));
     // Don't surface the error to the customer — they'll just submit
     // their ticket without suggestions, which is the correct fallback.
     return c.json({ suggestions: [] });
@@ -314,7 +315,7 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
     const link = await createMagicLink({ workspaceId: ws.id, customerId: customer.merged_into_customer_id || customer.id });
     token = link.token;
   } catch (err) {
-    console.error('[portal-auth] createMagicLink failed:', err);
+    console.error('[portal-auth] createMagicLink failed:', safeError(err));
     return c.json(genericOk);
   }
 
@@ -359,18 +360,8 @@ publicRoutes.post('/:slug/auth/request', async (c) => {
   const sep = base.includes('?') ? '&' : '?';
   const url = `${base}${sep}token=${token}`;
 
-  // Logging policy: the magic-link URL carries a live auth token and the
-  // email is customer PII — neither may reach production logs (they're
-  // retained by the platform). Only in local dev do we print the full link,
-  // so first-run setups can copy it from the console when Postmark isn't
-  // configured. Anywhere production-like (Vercel or NODE_ENV=production) we
-  // log only non-sensitive identifiers for traceability — see isLocalDev,
-  // which fails safe so a non-Vercel production env still redacts.
-  if (isLocalDev) {
-    console.log(`[portal-auth] magic link for ${email}: ${url}`);
-  } else {
-    console.log(`[portal-auth] magic link issued for customer ${customer.id} (ws ${ws.slug})`);
-  }
+  // Never log a usable sign-in link, including in local development.
+  console.log('[portal-auth] magic link issued');
 
   // Best-effort email send — log + swallow failures so the customer-facing
   // response stays consistent. From identity: brand-owned verified domain
@@ -403,9 +394,9 @@ This link expires in 15 minutes. If you didn't request it, you can ignore this e
     });
   } catch (err) {
     if (err instanceof PostmarkSendError) {
-      console.warn('[portal-auth] postmark send failed:', err.message);
+      console.warn('[portal-auth] postmark send failed:', safeError(err));
     } else {
-      console.warn('[portal-auth] email send failed:', err);
+      console.warn('[portal-auth] email send failed:', safeError(err));
     }
   }
 

@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth } from '../lib/auth.js';
@@ -66,6 +67,6 @@ export async function writeAudit(args: {
       )
     `;
   } catch (err) {
-    console.error('audit_events insert failed:', { args, error: err instanceof Error ? err.message : err });
+    console.error('audit_events insert failed:', safeError(err));
   }
 }

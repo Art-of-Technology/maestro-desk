@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.js';
@@ -307,7 +308,7 @@ god.post('/brands/:id/invite', async (c) => {
     } catch (err) {
       const [raced] = await sql<{ id: string }[]>`select id from users where email = ${email}`;
       if (!raced) {
-        console.error('[god/invite] signUpEmail failed:', err instanceof Error ? err.message : err);
+        console.error('[god/invite] signUpEmail failed:', safeError(err));
         return c.json({ error: 'Could not create the invited user' }, 502);
       }
       authUserId = raced.id;
@@ -354,7 +355,7 @@ god.post('/brands/:id/invite', async (c) => {
     }
   } catch (err) {
     emailSent = false;
-    console.error('[god/invite] Invitation email failed:', err instanceof Error ? err.message : err);
+    console.error('[god/invite] Invitation email failed:', safeError(err));
   }
 
   await writeAudit({

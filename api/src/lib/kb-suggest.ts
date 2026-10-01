@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
@@ -144,7 +145,7 @@ Always use the suggest_kb_articles tool. Refer to articles by their display id (
       )
     `;
   } catch (err) {
-    console.warn('[kb-suggest] usage log / deduct failed:', err);
+    console.warn('[kb-suggest] usage log / deduct failed:', safeError(err));
   }
 
   return { suggestions, cost_micro: costMicro };

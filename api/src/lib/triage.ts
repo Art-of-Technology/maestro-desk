@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { z } from 'zod';
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
@@ -449,7 +450,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
         };
       }
     } catch (err) {
-      console.error('[triage] auto-reply post failed:', err);
+      console.error('[triage] auto-reply post failed:', safeError(err));
       // Unexpected throw (idempotency-check DB error etc). Surface so callers know.
       autoReply = {
         decision,
@@ -626,6 +627,6 @@ async function logUsage(args: {
         ${cost}, ${args.durationMs}, ${args.requestId ?? null})
     `;
   } catch (err) {
-    console.error('ai_usage_log insert failed:', err instanceof Error ? err.message : err);
+    console.error('ai_usage_log insert failed:', safeError(err));
   }
 }

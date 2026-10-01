@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Email mentioned agents when a teammate @s them in an internal
 // note. Fire-and-forget after the message row is persisted; the
 // POST /messages return shouldn't block on Postmark.
@@ -9,7 +10,7 @@
 //   - a mentioned user has no email on file
 
 import { env } from './env.js';
-import { isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
+import { isPostmarkConfigured } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
@@ -95,10 +96,7 @@ export async function notifyMentionedAgents(args: {
       });
       sent++;
     } catch (err) {
-      const detail = err instanceof PostmarkSendError
-        ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
-        : err instanceof Error ? err.message : String(err);
-      console.warn(`[mention-notify] failed for user ${u.id} on ticket ${ticketId}: ${detail}`);
+      console.warn('[mention-notify] send failed:', safeError(err));
       skipped++;
     }
   }

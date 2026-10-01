@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Maestro Connect gateway client.
 //
 // One module, two callers — both hit the orchestrator at
@@ -187,12 +188,7 @@ export async function getUserAccessToken(userId: string, headers: Headers): Prom
     // is what a token minted by a previous issuer looks like after the platform
     // moved domains. (b) is silent and self-inflicted, so log it; the user-facing
     // remedy (sign in with Maestro again) is the same either way.
-    console.warn(
-      `[maestro] getAccessToken failed for user ${userId} — treating as unlinked. ` +
-      'If they HAVE linked Maestro, their stored token was rejected by the current ' +
-      `issuer (${env.MAESTRO_ISSUER}) and they need to sign in again:`,
-      err instanceof Error ? err.message : String(err),
-    );
+    console.warn('[maestro] getAccessToken failed; sign in again:', safeError(err));
     return null;
   }
 }

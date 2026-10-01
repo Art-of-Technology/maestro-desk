@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Player identity linking — attach a contact to its Maestro player.
 //
 // Contacts created from inbound email / the portal are stubs (name + email).
@@ -171,10 +172,7 @@ async function runLink(args: LinkArgs): Promise<LinkOutcome> {
   try {
     return await link(args);
   } catch (err) {
-    console.warn(
-      `[player-identity] link failed (${args.reason}, customer ${args.customerId}):`,
-      err instanceof Error ? err.message : err,
-    );
+    console.warn('[player-identity] link failed:', safeError(err));
     return 'failed';
   }
 }
@@ -414,7 +412,7 @@ export async function runPlayerIdentityBackfillJob(opts: BackfillOptions = {}): 
       try {
         await conn`select pg_advisory_unlock(hashtext(${BACKFILL_LOCK_KEY}))`;
       } catch (err) {
-        console.warn('[player-identity] advisory unlock failed, retrying with unlock_all:', err instanceof Error ? err.message : err);
+        console.warn('[player-identity] advisory unlock failed, retrying with unlock_all:', safeError(err));
         try { await conn`select pg_advisory_unlock_all()`; } catch { /* connection is gone — lock gone with it */ }
       }
     }

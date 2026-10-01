@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { HTTPException } from 'hono/http-exception';
@@ -66,24 +67,17 @@ webhooks.post('/postmark/inbound', bodyLimit({ maxSize: POSTMARK_INBOUND_MAX_BYT
       `;
     }
 
-    // Log lines diverge by dedup / threaded / new-ticket so the dev tail
-    // can see at a glance whether a retry hit existing state. Routing info
-    // is included in every variant.
-    const routing = resolution.routed ? `matched ${resolution.matchedDomain}` : 'UNROUTED';
-    const dest = `workspace ${resolution.workspaceId} (${routing})`;
+    // Outcome only; routing and customer identifiers stay out of diagnostics.
     if (result.deduped) {
-      console.log(`[postmark] inbound → ${dest} → DEDUPED to existing ticket ${result.ticket_display_id}`);
+      console.log('[postmark] inbound deduplicated');
     } else if (result.threaded) {
-      console.log(`[postmark] inbound → ${dest} → THREADED reply on ticket ${result.ticket_display_id}`);
+      console.log('[postmark] inbound threaded');
     } else {
-      console.log(
-        `[postmark] inbound → ${dest} ` +
-          `→ ticket ${result.ticket_display_id} (new_customer=${result.is_new_customer}, auto_triage=${result.auto_triage_queued})`,
-      );
+      console.log('[postmark] inbound ticket created', { routed: resolution.routed });
     }
     return c.json({ ...result, routed: resolution.routed }, 200);
   } catch (err) {
-    console.error('[postmark] processInboundEmail failed:', err);
+    console.error('[postmark] processInboundEmail failed:', safeError(err));
     // 500 (not 400) so Postmark will retry — likely a transient DB issue,
     // not a malformed payload.
     throw new HTTPException(500, {
@@ -176,7 +170,7 @@ webhooks.post('/slack/events', async (c) => {
     try {
       await sql`update slack_integrations set team_id = ${teamId} where workspace_id = ${verified.workspace_id}`;
     } catch (err) {
-      console.warn('[slack-events] team_id backfill failed:', err instanceof Error ? err.message : err);
+      console.warn('[slack-events] team_id backfill failed:', safeError(err));
     }
   }
 
@@ -187,7 +181,7 @@ webhooks.post('/slack/events', async (c) => {
       payload,
     });
   } catch (err) {
-    console.error('[slack-events] handler failed:', err);
+    console.error('[slack-events] handler failed:', safeError(err));
     // Still ack 200 so Slack doesn't retry on an internal bug; the
     // event is logged for follow-up.
   }
@@ -211,7 +205,7 @@ webhooks.post('/postmark/bounce', async (c) => {
     // Bad shape from Postmark is extremely unlikely — log and 200 so
     // they don't replay. If we ever start seeing these in logs,
     // tighten the schema.
-    console.warn('[postmark-bounce] invalid payload:', parsed.error.issues);
+    console.warn('[postmark-bounce] invalid payload');
     return c.json({ ok: false, error: 'Invalid payload' }, 200);
   }
 
@@ -222,16 +216,10 @@ webhooks.post('/postmark/bounce', async (c) => {
   });
 
   if (!result.ok) {
-    console.warn(`[postmark-bounce] ${parsed.data.Type} for ${parsed.data.Email}: ${result.error}`);
+    console.warn('[postmark-bounce] processing failed');
     return c.json({ ok: false, error: result.error }, 200);
   }
 
-  const tag = result.matched
-    ? `customer=${result.customerId}`
-    : 'no customer match';
-  console.log(
-    `[postmark-bounce] ${parsed.data.Type} for ${parsed.data.Email} → ` +
-      `workspace=${result.workspaceId} state=${result.state} ${tag}`,
-  );
+  console.log('[postmark-bounce] processed', { matched: result.matched });
   return c.json({ ok: true, matched: result.matched, state: result.state });
 });
