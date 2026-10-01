@@ -23,8 +23,8 @@ redact the personal data** and stamp `customers.erased_at`.
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason`, `last_inbound_email` | `subject → '[erased]'`; other listed fields → null | Row kept; status/category/timestamps retained for analytics. The last inbound sender is included in the data-subject export and cleared on erasure. |
 | `ticket_messages` | `body` (NOT NULL), `body_html`, `author_label`, `email_metadata` | `body → '[erased]'`; `body_html` and `email_metadata → null`; `author_label → '[erased]'` only where `role = 'customer'` | Row kept (thread structure / audit). Email envelopes are included in ticket exports. Erasure also clears envelopes on other tickets containing the subject's email addresses, including CC and copied merge messages. Envelope addresses never establish customer identity. Agent/AI author labels are staff, not the data subject. |
 | `inbox_messages` | `from_name`, `from_email`, `subject`, `body`, `body_html`, `raw` | **null** all | Matched by `converted_ticket_id ∈ customer's tickets` OR `from_email = customer.email`. |
-| `message_drafts` | `body`, `recipients`, `review`, attachment references | **delete all agents' drafts** on the subject's tickets | Database guards reject stale content writes after erasure; Browser cleanup is described below; export coverage remains a follow-up. |
-| `custom_field_values` | `value` | **delete** customer values and values on their tickets | Scoped by workspace and entity type/id. Database guards prevent stale writes; export coverage remains a follow-up. |
+| `message_drafts` | `body`, `recipients`, `review`, attachment references | **delete all agents' drafts** on the subject's tickets | Database guards reject stale content writes after erasure; browser cleanup is described below. Included in the administrator review export. |
+| `custom_field_values` | `value` | **delete** customer values and values on their tickets | Scoped by workspace and entity type/id. Database guards prevent stale writes. Included in the administrator review export. |
 | `webhook_deliveries` | Customer details and ticket subject in `payload` | **delete** matching customer or ticket snapshots, including pending retries | Scoped by workspace and payload identifiers. A delivery already in flight finishes before erasure can complete. Copies already delivered to recipients require a separate downstream process. |
 | `gdpr_erasures` | — | **insert** the erasure record | `requested_by_user_id`, `completed_at`, `fields_erased[]`, `reason`. |
 
@@ -71,6 +71,22 @@ Inbound and uploaded attachments are live product features and can contain perso
   contents. Complete the access-request workflow with review/redaction and secure
   delivery of relevant documents.
 
+## Administrator privacy actions
+
+The ticket privacy dialog and sidebar use the same admin-only customer export and erasure
+APIs. Erasure requires typing the customer display ID; merged-profile conflicts and API
+errors are shown without claiming success. Successful erasure clears known browser drafts
+and reloads the active workspace in other open tabs. The initiating tab reloads after the
+administrator acknowledges the returned result. No erasure is performed merely by opening
+the dialog. The unsupported selective-redaction button has been removed.
+
+The JSON review export now includes saved reply/note drafts from all agents and customer/
+ticket custom fields. It flags review_required and attachment_contents_included=false.
+It is an administrator review bundle, not an automatically customer-ready response: it
+may contain third-party/staff information, and attachment files need separate review and
+secure delivery. Export/erasure responses use Cache-Control: no-store. Downloaded copies
+are outside browser-cache cleanup.
+
 ## Browser drafts
 
 Manual logout saves pending drafts in the active workspace before clearing this agent's
@@ -95,7 +111,7 @@ when `erased_at` is set. It leaves other customers and workspaces unchanged. The
 guards cover these three surfaces; they are not a product-wide ban on every possible
 write to an erased ticket.
 
-Still to assess/remediate: export completeness and wiring the customer GDPR dialog actions (currently placeholders); legacy
+Still to assess/remediate: remaining export completeness and document review/delivery; legacy
 AI content and other copied records; logs and notification payloads; staff-data rights;
 retention by data category; backup restore erasure replay; downstream recipient deletion;
 processor contracts, locations/transfers, AI handling, privacy notices and DPIA needs.

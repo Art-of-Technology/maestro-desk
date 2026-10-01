@@ -55,6 +55,7 @@ export const GUIDE_STEPS = [
       'Open Customers and select the customer, or select the Customer section in a ticket’s Details sidebar.',
       'Check that the record belongs to the person and brand you are supporting. Review previous tickets for related problems and commitments.',
       'Follow your team’s identity checks before disclosing account information or acting on a request. Include only the customer information needed in replies and notes.',
+      'Administrators can open Privacy / GDPR on a ticket to download customer records for review or erase customer data. Exports include saved drafts and custom fields, but not attachment files. Review other people’s information and any documents before sharing. Erasure requires typing the customer ID and cannot be undone; check your team’s retention requirements first. The workspace reloads after erasure to clear old data.',
     ],
   },
   {

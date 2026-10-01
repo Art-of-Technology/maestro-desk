@@ -1215,6 +1215,7 @@ customers.get('/:id/tickets', async (c) => {
 });
 
 customers.get('/:id/export', async (c) => {
+  c.header('Cache-Control', 'no-store');
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
 
@@ -1254,6 +1255,7 @@ customers.get('/:id/export', async (c) => {
 // owner handles erasure requests; platform admins too via requireWorkspaceAdmin).
 // Nulls/redacts the customer's PII across all surfaces + writes the audit row.
 customers.post('/:id/erase', async (c) => {
+  c.header('Cache-Control', 'no-store');
   const denied = await requireWorkspaceAdmin(c);
   if (denied) return denied;
 

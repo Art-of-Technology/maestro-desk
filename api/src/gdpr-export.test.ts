@@ -68,6 +68,27 @@ runDbTests('GDPR export (DB-backed)', () => {
       returning id
     `;
     ctx.ticketId = tk.id;
+    for(const type of ['customer','ticket']) {
+      const [f]=await sql`insert into custom_fields(workspace_id,entity_type,key,label,field_type)
+        values(${wsId},${type},'privacy_export','Review details','text') returning id`;
+      await sql`insert into custom_field_values(workspace_id,field_id,entity_type,entity_id,value)
+        values(${wsId},${f.id},${type},${type==='customer'?cust.id:tk.id},${type+' personal value'})`;
+    }
+    await sql`insert into message_drafts(workspace_id,user_id,ticket_id,compose_tab,body,recipients,review) values
+      (${wsId},${admin.userId},${tk.id},'reply','Unsent reply','{"to":["jane@example.test"]}','{"notes":["Review context"]}'),
+      (${wsId},${agent.userId},${tk.id},'note','Unsent note',null,null)`;
+    const [other]=await sql`insert into customers(workspace_id,display_id,first_name)
+      values(${wsId},'M-other','OTHER_CUSTOMER_PRIVATE') returning id`;
+    const [otherTicket]=await sql`insert into tickets(workspace_id,display_id,subject,customer_id,status_key,priority_key)
+      values(${wsId},'TK-other','OTHER_CUSTOMER_PRIVATE',${other.id},'open','normal') returning id`;
+    await sql`insert into message_drafts(workspace_id,user_id,ticket_id,compose_tab,body)
+      values(${wsId},${admin.userId},${otherTicket.id},'reply','OTHER_CUSTOMER_PRIVATE')`;
+    const [{id:foreignWs}]=await sql`select provision_brand(${slug+'-other'},${slug+'-other'}) as id`;
+    ctx.foreignWs=foreignWs;
+    const [foreign]=await sql`insert into customers(workspace_id,display_id,first_name)
+      values(${foreignWs},'M-foreign','FOREIGN_PRIVATE') returning id`;
+    ctx.foreignCustomer=foreign.id;
+
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_label, body) values (${wsId}, ${tk.id}, 'customer', 'Jane Doe', 'Where is my withdrawal?')`;
     await sql`insert into customer_notes (workspace_id, customer_id, text) values (${wsId}, ${cust.id}, 'Patient VIP')`;
     // Contacts model: primary + secondary address — both belong in the bundle.
@@ -86,7 +107,7 @@ runDbTests('GDPR export (DB-backed)', () => {
 
   afterAll(async () => {
     if (!sql) return;
-    if (ctx.wsId) await sql`delete from workspaces where id = ${ctx.wsId}`;
+    if (ctx.wsId) await sql`delete from workspaces where id in (${ctx.wsId},${ctx.foreignWs})`;
     const ids = [admin.userId, agent.userId].filter(Boolean);
     if (ids.length) await sql`delete from users where id in ${sql(ids)}`;
   });
@@ -101,10 +122,11 @@ runDbTests('GDPR export (DB-backed)', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns the full personal-data bundle as a download', async () => {
+  it('returns an admin review bundle with drafts and custom fields as a download', async () => {
     const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/export`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-disposition')).toContain('attachment');
+    expect(res.headers.get('cache-control')).toBe('no-store');
     const body: any = await res.json();
 
     expect(body.customer.email).toBe(`jane-${slug}@player.test`);
@@ -115,6 +137,14 @@ runDbTests('GDPR export (DB-backed)', () => {
     else expect(body.customer).not.toHaveProperty('kyc_status');
     expect(body.customer).not.toHaveProperty('has_legacy_kyc');
 
+    expect(body.review_required).toBe(true);
+    expect(body.attachment_contents_included).toBe(false);
+    expect(body.custom_fields[0]).toMatchObject({key:'privacy_export',value:'customer personal value'});
+    expect(body.tickets[0].custom_fields[0]).toMatchObject({value:'ticket personal value'});
+    expect(body.tickets[0].drafts.map((d:any)=>d.body).sort()).toEqual(['Unsent note','Unsent reply']);
+    expect(body.tickets[0].drafts.find((d:any)=>d.compose_tab==='reply').review.notes).toEqual(['Review context']);
+    expect(JSON.stringify(body)).not.toContain('OTHER_CUSTOMER_PRIVATE');
+    expect(JSON.stringify(body)).not.toContain('FOREIGN_PRIVATE');
     expect(body.notes.length).toBe(1);
     expect(body.notes[0].text).toBe('Patient VIP');
 
@@ -133,6 +163,24 @@ runDbTests('GDPR export (DB-backed)', () => {
     expect(typeof body.exported_at).toBe('string');
     expect(body.workspace.slug).toBe(slug);     // provenance, not internal uuid
     expect((body as any).workspace_id).toBeUndefined();
+  });
+
+  it('refuses a customer from another workspace',async()=>{
+    expect((await as(admin.token,`/api/v1/customers/${ctx.foreignCustomer}/export`)).status).toBe(404);
+    expect((await as(admin.token,`/api/v1/customers/${ctx.foreignCustomer}/erase`,{method:'POST',body:'{}'})).status).toBe(404);
+    const [kept]=await sql`select first_name,erased_at from customers where id=${ctx.foreignCustomer}`;
+    expect(kept.first_name).toBe('FOREIGN_PRIVATE');expect(kept.erased_at).toBeNull();
+  });
+
+  it('exports draft attachment metadata without storage keys or file contents',async()=>{
+    const [a]=await sql`insert into ticket_attachments(workspace_id,ticket_id,filename,storage_key,mime_type)
+      values(${ctx.wsId},${ctx.ticketId},'private.pdf','DO_NOT_EXPORT_STORAGE_KEY','application/pdf') returning id`;
+    try {
+      await sql`update message_drafts set attachment_ids=array[${a.id}::uuid] where ticket_id=${ctx.ticketId} and compose_tab='reply'`;
+      const res=await as(admin.token,`/api/v1/customers/${ctx.customerId}/export`);const body:any=await res.json();
+      expect(body.tickets[0].drafts.find((d:any)=>d.compose_tab==='reply').attachments[0].filename).toBe('private.pdf');
+      expect(JSON.stringify(body)).not.toContain('DO_NOT_EXPORT_STORAGE_KEY');
+    } finally {await sql`delete from ticket_attachments where id=${a.id}`;}
   });
 
   it('returns 410 Gone once the customer has been erased', async () => {

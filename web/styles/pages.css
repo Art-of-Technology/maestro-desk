@@ -811,3 +811,7 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .att-chip:has(.att-file-badge){gap:8px;padding:4px 8px;border-radius:var(--r)}
 .att-file-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .att-preview-button:has(.att-file-badge){display:inline-flex;align-items:center;gap:8px;min-width:0}
+
+/* Customer privacy actions share the existing modal, with readable groups and touch targets. */
+.privacy-modal p{margin:8px 0}
+.privacy-modal .btn{min-height:44px}

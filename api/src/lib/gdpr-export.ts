@@ -13,6 +13,9 @@ import { inboxFromThisCustomer } from './customer-contacts.js';
 
 export interface CustomerExport {
   exported_at: string;
+  review_required: true;
+  attachment_contents_included: false;
+  custom_fields: Array<Record<string, unknown>>;
   // Provenance for the data subject: which brand/workspace held the data. The
   // internal workspace uuid is deliberately not exposed (cf. the stripped
   // customer.id).
@@ -92,6 +95,21 @@ export async function exportCustomer(args: {
     order by created_at asc
   `;
   const ticketIds = tickets.map((t) => t.id as string);
+  const customFields = await sql<Record<string, unknown>[]>`
+    select v.entity_type, v.entity_id, f.key, f.label, f.field_type, v.value, v.updated_at
+    from custom_field_values v join custom_fields f
+      on f.id=v.field_id and f.workspace_id=v.workspace_id and f.entity_type=v.entity_type
+    where v.workspace_id=${workspaceId} and (
+      (v.entity_type='customer' and v.entity_id=${customerId}) or
+      (v.entity_type='ticket' and ${ticketIds.length ? sql`v.entity_id in ${sql(ticketIds)}` : sql`false`})
+    ) order by f.sort_order, f.key`;
+  const fieldsFor = (type: string, id: string) => customFields
+    .filter(v => v.entity_type===type && v.entity_id===id)
+    .map(({entity_id: _id, entity_type: _type, ...value}) => value);
+  const drafts = ticketIds.length ? await sql<Record<string, unknown>[]>`
+    select ticket_id, compose_tab, body, recipients, review, attachment_ids, updated_at
+    from message_drafts where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)}
+    order by updated_at, user_id, compose_tab` : [];
 
   // All messages for the customer's tickets in one query, grouped in JS.
   const messages = ticketIds.length
@@ -116,7 +134,7 @@ export async function exportCustomer(args: {
   // presigned URLs. Erasure deletes both, so the two stay in step.
   const attachments = ticketIds.length
     ? await sql<Record<string, unknown>[]>`
-        select ticket_id, filename, size_bytes, mime_type, is_inline, created_at
+        select id, ticket_id, filename, size_bytes, mime_type, is_inline, created_at
         from ticket_attachments
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
         order by created_at asc
@@ -126,7 +144,7 @@ export async function exportCustomer(args: {
   for (const a of attachments) {
     const key = a.ticket_id as string;
     if (!attByTicket.has(key)) attByTicket.set(key, []);
-    const { ticket_id: _dropAtt, ...rest } = a;
+    const { ticket_id: _dropAtt, id: _attId, ...rest } = a;
     attByTicket.get(key)!.push(rest);
   }
 
@@ -134,6 +152,12 @@ export async function exportCustomer(args: {
     const { id: _id, ...rest } = t;
     return {
       ...rest,
+      custom_fields: fieldsFor('ticket',t.id as string),
+      drafts: drafts.filter(d => d.ticket_id===t.id).map(d => ({
+        compose_tab:d.compose_tab, body:d.body, recipients:d.recipients, review:d.review, updated_at:d.updated_at,
+        attachments:attachments.filter(a => a.ticket_id===t.id && (d.attachment_ids as string[]).includes(a.id as string))
+          .map(({id:_id,ticket_id:_ticketId,...file})=>file),
+      })),
       messages: byTicket.get(t.id as string) ?? [],
       attachments: attByTicket.get(t.id as string) ?? [],
     };
@@ -163,6 +187,9 @@ export async function exportCustomer(args: {
 
   return {
     exported_at: new Date().toISOString(),
+    review_required: true,
+    attachment_contents_included: false,
+    custom_fields: fieldsFor('customer',customerId),
     workspace: { name: ws?.name ?? '', slug: ws?.slug ?? '' },
     erased: Boolean(customer.erased_at),
     customer: customerOut,

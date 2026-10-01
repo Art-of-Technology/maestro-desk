@@ -709,9 +709,8 @@ export function openTicket(id) {
           ${t.status==='gdpr'||t.category==='GDPR'?`
           <div class="ts-section">
             <div class="ts-heading">GDPR Actions</div>
-            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprErasure">Request Erasure</button>
-            <button class="btn btn-sm" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprRedact">Redact Data</button>
-            <button class="btn btn-sm" style="width:100%;justify-content:center" data-action="td.gdprExport">SAR Export</button>
+            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprErasure">Erase customer data</button>
+            <button class="btn btn-sm" style="width:100%;justify-content:center" data-action="td.gdprExport">Export for review</button>
           </div>`:''}
           ${mergedFromBlock}
           ${linkedBlock}
@@ -1466,10 +1465,9 @@ registerActions({
   'td.editNote': (ds) => editTicketNote(ds),
   'td.openCustomer':   (ds) => openCustomerModal(ds.custId),
   'td.editContact':    (ds) => showContactDetailsModal(ds.custId),
-  // Per-ticket GDPR sidebar (stubs — same as the inline alerts they replace)
-  'td.gdprErasure':    () => alert('Erasure request initiated'),
-  'td.gdprRedact':     () => alert('Data redacted'),
-  'td.gdprExport':     () => alert('SAR export started'),
+  // Per-ticket privacy actions resolve the customer through the shared dialog.
+  'td.gdprErasure':    () => showGDPRModal(CURRENT_TICKET, 'erase'),
+  'td.gdprExport':     () => showGDPRModal(CURRENT_TICKET),
   // Toolbar
   'td.openTicketsList':() => renderPage('tickets'),
   'td.editSubject': (ds) => editTicketSubject(ds.ticketId),
