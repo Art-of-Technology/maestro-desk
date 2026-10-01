@@ -1111,7 +1111,7 @@ function renderCustomerDetail(custId) {
     // core/router.js gives an unknown page key.
     const kept = row.filter(k => {
       if (Object.hasOwn(areas, k)) return true;
-      console.warn(`[customers] unknown profile area "${k}" — skipped`);
+      console.warn('[customers] unknown profile area — skipped');
       return false;
     });
     const parts = kept.map(k => areas[k]);

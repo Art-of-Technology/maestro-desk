@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Scheduled-job implementations, shared by BOTH invocation paths:
 //   - routes/cron.ts    — HTTP endpoints (Vercel Cron / manual curl, CRON_SECRET-gated)
 //   - src/cron-run.ts   — CLI entry (self-hosted Dokploy schedules exec it in-container)
@@ -30,7 +31,7 @@ export async function runPlayerIdentityBackfill(opts: BackfillOptions = {}): Pro
   } catch (err) {
     if (err instanceof BackfillBusyError) throw err;
     if (err instanceof BackfillAbortError && err.kind === 'unconfigured') {
-      console.warn('[cron] player-identity-backfill:', err.message);
+      console.warn('[cron] player-identity-backfill:', safeError(err));
       throw err;
     }
     await alertCronFailure('player-identity-backfill', err);
@@ -44,12 +45,12 @@ export async function runPlayerIdentityBackfill(opts: BackfillOptions = {}): Pro
 export async function alertCronFailure(job: string, err: unknown): Promise<void> {
   // One log line per failure lives HERE (not at every call site) so the
   // message shape — and any future redaction of raw error text — is decided once.
-  console.error(`[cron] ${job} failed:`, err instanceof Error ? err.message : err);
+  console.error(`[cron] ${job} failed:`, safeError(err));
   await sendOpsAlert({
     signature: `cron:${job}:fail`,
     severity: 'critical',
     title: `Cron job "${job}" failed`,
-    detail: `The scheduled "${job}" job threw: ${err instanceof Error ? err.message : String(err)}`,
+    detail: `The scheduled "${job}" job failed: ${JSON.stringify(safeError(err))}`,
   });
 }
 
@@ -68,9 +69,9 @@ export async function runWebhookRetryJob(): Promise<{ processed: number }> {
   // Piggyback the daily housekeeping prunes (drop long-expired rate-limit
   // buckets and stale ops-alert dedup signatures). Best-effort.
   try { await getDb()`select prune_rate_limits()`; }
-  catch (err) { console.warn('[cron] prune_rate_limits failed:', err instanceof Error ? err.message : err); }
+  catch (err) { console.warn('[cron] prune_rate_limits failed:', safeError(err)); }
   try { await getDb()`select prune_ops_alerts()`; }
-  catch (err) { console.warn('[cron] prune_ops_alerts failed:', err instanceof Error ? err.message : err); }
+  catch (err) { console.warn('[cron] prune_ops_alerts failed:', safeError(err)); }
   return { processed };
 }
 
@@ -153,8 +154,7 @@ export async function runRetentionJob(): Promise<RetentionJobResult> {
         detail:
           `${stuck.length} attachment object(s) have failed deletion at least ${STUCK_ATTEMPTS} times and are still ` +
           `in storage after their rows were removed (GDPR erasure / retention purge). Check R2_ATTACHMENTS_BUCKET ` +
-          `and the R2 token's permissions.\n` +
-          stuck.map((k) => `  • ${k.storage_key} (${k.attempts} attempts) — ${k.last_error ?? 'no error recorded'}`).join('\n'),
+          `and the R2 token's permissions. Inspect pending_object_deletions through authorised database access.`,
       }).catch(() => {});
     }
   } catch (err) {

@@ -2,7 +2,7 @@
 // Verifies the purge deletes only expired resolved tickets (cascading their
 // children), respects a NULL window, and that the window is admin-configurable.
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 
 const runDbTests = process.env.RUN_DB_TESTS ? describe : describe.skip;
 
@@ -10,6 +10,17 @@ runDbTests('data retention (DB-backed)', () => {
   let app: { request: (path: string, init?: RequestInit) => Promise<Response> };
   let sql: ReturnType<typeof import('./lib/db.js').getDb>;
   let purgeExpiredTickets: typeof import('./lib/retention.js').purgeExpiredTickets;
+
+  it('does not copy PostgreSQL notice messages or detail into diagnostics', async () => {
+    const logs: unknown[][] = [];
+    const spy = spyOn(console, 'warn').mockImplementation((...args) => { logs.push(args); });
+    try {
+      await sql`do $$ begin raise notice 'private-person@example.test' using detail = 'secret-token'; end $$`;
+      expect(logs).toHaveLength(1);
+      expect(JSON.stringify(logs)).not.toContain('private-person@example.test');
+      expect(JSON.stringify(logs)).not.toContain('secret-token');
+    } finally { spy.mockRestore(); }
+  });
 
   const RUN = Date.now();
   const slug = `ret-${RUN}`;
@@ -166,7 +177,7 @@ runDbTests('data retention (DB-backed)', () => {
     `;
     expect(parked).toHaveLength(1);
     expect(parked[0].attempts).toBe(1);
-    expect(parked[0].last_error).toBe('R2 unavailable');
+    expect(parked[0].last_error).toBe(JSON.stringify({ type: 'Error', code: null }));
 
     // The retention-cron retry sweep deletes the parked object and clears the row.
     const { retryPendingObjectDeletions } = await import('./lib/gdpr-erasure.js');
@@ -208,7 +219,7 @@ runDbTests('data retention (DB-backed)', () => {
     const mine = stuck.find((s) => s.storage_key === key);
     expect(mine).toBeTruthy();
     expect(mine!.attempts).toBeGreaterThanOrEqual(STUCK_ATTEMPTS);
-    expect(mine!.last_error).toBe('403 forbidden');
+    expect(mine!.last_error).toBe(JSON.stringify({ type: 'Error', code: null }));
     // Still deletable once storage recovers.
     const ok = await sweepPendingObjectDeletions(50, async () => {});
     expect(ok.deleted).toContain(key);

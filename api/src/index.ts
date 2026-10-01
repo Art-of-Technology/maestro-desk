@@ -1,11 +1,11 @@
 // Sentry must initialise before anything else loads. DSN-gated, so this is a
 // no-op until SENTRY_DSN is set (see lib/instrument.ts).
 import { captureException, flushSentry } from './lib/instrument.js';
+import { safeError, requestDiagnostic, requestLogger } from './lib/diagnostics.js';
 import { sendOpsAlert } from './lib/alert.js';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
-import { logger } from 'hono/logger';
 import { HTTPException } from 'hono/http-exception';
 import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './lib/env.js';
 import { auth } from './lib/auth.js';
@@ -82,7 +82,7 @@ function isPublicApiPath(rawPath: string): boolean {
   return path.startsWith('/api/v1/public/');
 }
 
-app.use('*', logger());
+app.use('*', requestLogger);
 app.use('*', cors({
   origin: (origin, c) => {
     // Public/portal API is intentionally open: it's unauthenticated and is
@@ -189,20 +189,19 @@ app.onError(async (err, c) => {
     if (err.status < 500) return c.json({ error: err.message || 'Request failed' }, err.status);
     return c.json({ error: 'Server error' }, err.status);
   }
-  // Report the unhandled error to Sentry (no-op when the DSN is unset), then
-  // log it server-side. The DB error text (table/column/constraint names) is
-  // an information-leak vector, so it stays in the log, not the response.
-  captureException(err, { path: c.req.path, method: c.req.method });
-  console.error('Unhandled error:', err);
+  // Report only safe diagnostic fields; raw errors can contain customer data.
+  captureException(err);
+  console.error('Unhandled error:', safeError(err));
   // Live alert (no-op until a channel is configured; best-effort — never throws).
-  // De-dup signature is method+path+error-type so a hot broken route collapses
-  // to one message/hour. No request body / PII: just the error name + message.
-  const name = err instanceof Error ? err.constructor.name : 'Error';
+  // De-duplicate by registered route and safe error type, never request data.
+  const diagnostic = safeError(err);
+  const { route, method } = requestDiagnostic(c);
+  const name = diagnostic.type;
   await sendOpsAlert({
-    signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
+    signature: `api-error:${method}:${route}:${name}`,
     severity: 'critical',
-    title: `Unhandled API error: ${name} at ${c.req.method} ${c.req.path}`,
-    detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
+    title: `Unhandled API error: ${name} at ${method} ${route}`,
+    detail: JSON.stringify(diagnostic),
   });
   // Flush before the serverless function can freeze, so the event isn't lost.
   await flushSentry();

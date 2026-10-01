@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Live ops-alert fan-out. When something critical happens — an audit-chain
 // tamper, an unhandled API error, a failed cron — sendOpsAlert pushes a message
 // to every configured channel (email via Postmark, Slack via incoming webhook).
@@ -14,7 +15,7 @@
 //      take down the thing that triggered it.
 //
 // PII rule: the `detail` passed in MUST NOT contain player/customer PII. These
-// messages land in inboxes and Slack — keep them to error types, ids, counts.
+// messages land in inboxes and Slack — keep them to fixed event names, safe error codes and counts.
 
 import { env } from './env.js';
 import { getDb } from './db.js';
@@ -30,7 +31,6 @@ export interface OpsAlert {
   detail: string;  // body; NO player/customer PII
   severity?: AlertSeverity;
 }
-
 const COOLDOWN_SECONDS = 3600;   // at most one message per signature per hour
 const DELIVERY_TIMEOUT_MS = 5000;
 
@@ -52,7 +52,7 @@ export async function sendOpsAlert(alert: OpsAlert): Promise<void> {
     suppressedSince = rows[0]?.suppressed_since ?? 0;
   } catch (err) {
     // Fail open — a dedup outage must not swallow a real alert.
-    console.warn('[alert] dedup claim failed, sending anyway:', errMsg(err));
+    console.warn('[alert] dedup claim failed, sending anyway:', safeError(err));
   }
   if (!shouldSend) return;
 
@@ -86,7 +86,7 @@ async function deliverEmail(severity: AlertSeverity, title: string, body: string
       DELIVERY_TIMEOUT_MS,
     );
   } catch (err) {
-    console.error('[alert] email delivery failed:', errMsg(err));
+    console.error('[alert] email delivery failed:', safeError(err));
   }
 }
 
@@ -105,7 +105,7 @@ async function deliverSlack(severity: AlertSeverity, title: string, body: string
     );
     if (!res.ok) console.error(`[alert] slack webhook returned HTTP ${res.status}`);
   } catch (err) {
-    console.error('[alert] slack delivery failed:', errMsg(err));
+    console.error('[alert] slack delivery failed:', safeError(err));
   }
 }
 
@@ -117,8 +117,4 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
       (e) => { clearTimeout(t); reject(e); },
     );
   });
-}
-
-function errMsg(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

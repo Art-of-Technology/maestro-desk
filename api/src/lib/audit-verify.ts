@@ -47,7 +47,7 @@ async function handleVerifyRows(rows: VerifyRow[]): Promise<{ checked: number; t
     console.error('[audit-verify] TAMPER DETECTED in audit_events:', JSON.stringify(tampered));
     captureException(
       new Error(`audit_events tamper detected in ${tampered.length} workspace chain(s)`),
-      { tampered },
+      'audit-tamper',
     );
     // Live alert. Signature keyed on the affected workspaces so a different set
     // re-alerts immediately rather than being suppressed by an earlier one.

@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import type { TransactionSql } from 'postgres';
 import { Hono } from 'hono';
 import { z } from 'zod';
@@ -27,7 +28,7 @@ async function write<T>(workspace: string, user: string, fn: (sql: TransactionSq
     if (error instanceof HTTPException) throw error;
     if ((error as {code?: string}).code === '23505')
       throw new HTTPException(409, {message: 'A saved filter already has that name. Choose another name.'});
-    console.error('[kb-saved-filters] write failed', (error as {code?: string}).code || 'unknown');
+    console.error('[kb-saved-filters] write failed:', safeError(error));
     throw new HTTPException(500, {message: 'Could not save the filter change. Try again.'});
   }
 }

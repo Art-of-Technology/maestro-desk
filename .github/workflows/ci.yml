@@ -89,6 +89,9 @@ jobs:
       - name: Deployment alert tests (offline)
         run: node --test scripts/deployment-alert.test.mjs
 
+      - name: Web server logging privacy
+        run: node scripts/nginx-logging-smoke.mjs
+
       - name: Scheduled job monitoring tests (offline)
         run: |
           node --test scripts/scheduled-job-monitor.test.mjs

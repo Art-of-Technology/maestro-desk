@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Email an agent's public reply to the customer. Called from
 // POST /tickets/:id/messages when an agent posts a `role:'agent'` reply (not
 // an internal note). Turns the portal-only reply into a real two-way email
@@ -126,7 +127,7 @@ export async function sendAgentReplyEmail(args: {
     const detail = err instanceof PostmarkSendError
       ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
       : err instanceof Error ? err.message : String(err);
-    console.warn(`[agent-reply] Postmark send failed for ticket ${ticketId}: ${detail}`);
+    console.warn('[agent-reply] Postmark send failed:', safeError(err));
     return { emailed: false, reason: 'send_failed', detail };
   }
 }

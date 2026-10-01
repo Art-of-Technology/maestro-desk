@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { getDb } from './db.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). Reads/writes via getDb().
@@ -44,7 +45,7 @@ export async function deductBudget(workspaceId: string, costMicro: number): Prom
     `;
     return row ? Number(row.balance) : null;
   } catch (err) {
-    console.error('deduct_ai_credits failed:', err instanceof Error ? err.message : err, { workspaceId, costMicro });
+    console.error('deduct_ai_credits failed:', safeError(err));
     return null;
   }
 }

@@ -30,7 +30,7 @@ function loadLogo() {
   EB_LOGO_LOADED = true;
   apiGet('/api/v1/workspace/settings')
     .then((res) => { EB_LOGO_URL = res.workspace?.logo_url || null; renderPage('settings'); })
-    .catch((err) => { console.warn('[email-branding] logo load failed:', err); });
+    .catch((err) => { console.warn('[email-branding] logo load failed:'); });
 }
 
 // ─── Admin: brand header/footer templates ─────────────────────────────────
@@ -41,7 +41,7 @@ export function settingsEmailBranding() {
     EB_TEMPLATES_LOADED = true;
     apiGet('/api/v1/email-branding/templates')
       .then((res) => { EB_TEMPLATES = res.templates || []; renderPage('settings'); })
-      .catch((err) => { console.warn('[email-branding] templates load failed:', err); });
+      .catch((err) => { console.warn('[email-branding] templates load failed:'); });
   }
   loadLogo();
 
@@ -208,7 +208,7 @@ export function settingsMySignature() {
     EB_SIGS_LOADED = true;
     apiGet('/api/v1/email-branding/signatures')
       .then((res) => { EB_SIGS = res.signatures || []; renderPage('settings'); })
-      .catch((err) => { console.warn('[email-branding] signatures load failed:', err); });
+      .catch((err) => { console.warn('[email-branding] signatures load failed:'); });
   }
   const rows = EB_SIGS.length === 0
     ? `<div style="color:var(--ink3);font-size:12px;padding:12px 0">No signature yet — add one to sign emails you send.</div>`

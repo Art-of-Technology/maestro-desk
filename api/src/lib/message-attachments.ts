@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Ticket attachments: storing inbound email files and serving them back.
 //
 // Objects live in the PRIVATE attachments bucket under
@@ -160,7 +161,7 @@ export async function uploadInboundAttachments(
         result.pending.push(r.value);
         if (r.value.contentId) result.cidMap.set(r.value.contentId, r.value.id);
       } else {
-        console.error(`[attachments] R2 upload failed for ${slice[idx].filename}:`, r.reason instanceof Error ? r.reason.message : r.reason);
+        console.error('[attachments] R2 upload failed:', safeError(r.reason));
         result.skipped.push(formatSkipNote(slice[idx].filename, 'storage error'));
       }
     });
@@ -198,14 +199,14 @@ export async function insertAttachmentRows(
   try {
     await sql`insert into ticket_attachments ${sql(rows)}`;
   } catch (err) {
-    console.error('[attachments] row insert failed — queueing objects for deletion:', err instanceof Error ? err.message : err);
+    console.error('[attachments] row insert failed — queueing objects for deletion:', safeError(err));
     const keys = pending.map((p) => p.storageKey);
     const deleter = deps.store ? (k: string[]) => deps.store!.deleteKeys(k) : undefined;
     try {
       await enqueueObjectDeletions(getDb(), keys, 'orphan');
       await drainObjectDeletions(keys, deleter);
     } catch (cleanupErr) {
-      console.error('[attachments] orphan cleanup failed:', cleanupErr instanceof Error ? cleanupErr.message : cleanupErr);
+      console.error('[attachments] orphan cleanup failed:', safeError(cleanupErr));
     }
     throw err;
   }
@@ -238,7 +239,7 @@ export async function loadAttachmentsForTicket(
       try {
         return await store.presignGet(r.storage_key);
       } catch (err) {
-        console.warn(`[attachments] presign failed for ${r.id}:`, err instanceof Error ? err.message : err);
+        console.warn('[attachments] presign failed:', safeError(err));
         return null;
       }
     }),

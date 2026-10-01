@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { getDb } from '../lib/db.js';
@@ -27,7 +28,7 @@ async function dbReadiness(c: Context) {
   } catch (err) {
     // Log the detail server-side; don't leak connection/internal detail to the
     // client in the probe response.
-    console.error('[health] db readiness check failed:', err);
+    console.error('[health] db readiness check failed:', safeError(err));
     return c.json({ ok: false, db: 'postgres', error: 'database unavailable' }, 503);
   }
 }

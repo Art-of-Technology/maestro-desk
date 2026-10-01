@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -86,7 +87,7 @@ workspace.post('/branding/logo', async (c) => {
   } catch (err) {
     // Log the detail server-side (it can include the R2/S3 error body, which
     // may echo signing internals); return a generic message to the client.
-    console.error('[workspace-branding] R2 upload failed:', err instanceof Error ? err.message : err);
+    console.error('[workspace-branding] R2 upload failed:', safeError(err));
     return c.json({ error: 'Upload failed' }, 500);
   }
 
@@ -96,7 +97,7 @@ workspace.post('/branding/logo', async (c) => {
     const stale = (await store.listKeys(`${workspaceId}/`)).filter((k) => k !== key);
     await store.deleteKeys(stale);
   } catch (err) {
-    console.warn('[workspace-branding] cleanup failed:', err instanceof Error ? err.message : err);
+    console.warn('[workspace-branding] cleanup failed:', safeError(err));
   }
 
   const logoUrl = publicUrl(key);

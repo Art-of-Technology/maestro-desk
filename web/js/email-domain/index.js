@@ -39,7 +39,7 @@ function edRerender() {
 function edLoad() {
   apiGet('/api/v1/email-domains')
     .then((res) => { ED_DATA = res; edRerender(); })
-    .catch((err) => { console.warn('[email-domain] load failed:', err); });
+    .catch((err) => { console.warn('[email-domain] load failed:'); });
 }
 
 // ─── Zero-click verification poll ─────────────────────────────────────────

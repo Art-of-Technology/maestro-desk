@@ -1,3 +1,4 @@
+import { safeError, requestDiagnostic } from '../lib/diagnostics.js';
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth, maestroSignInEnabled, MAESTRO_PROVIDER_ID } from '../lib/auth.js';
@@ -57,14 +58,16 @@ function reportAndRedirect(c: Context, err: unknown, code: 'unavailable' | 'sign
   // freeze to outrun, unlike app.onError's await) and any reporting failure is
   // swallowed so it can't escape to app.onError as a raw 500.
   try {
-    captureException(err, { path: c.req.path, method: c.req.method });
-    console.error(`${c.req.path} failed:`, err);
-    const name = err instanceof Error ? err.constructor.name : 'Error';
+    captureException(err, 'maestro-signin');
+    console.error('[maestro] sign-in failed:', safeError(err));
+    const diagnostic = safeError(err);
+    const { route, method } = requestDiagnostic(c);
+    const name = diagnostic.type;
     void sendOpsAlert({
-      signature: `api-error:${c.req.method}:${c.req.path}:${name}`,
+      signature: `api-error:${method}:${route}:${name}`,
       severity: 'critical',
-      title: `Maestro sign-in failure: ${name} at ${c.req.method} ${c.req.path}`,
-      detail: `${name}: ${err instanceof Error ? err.message : String(err)}`,
+      title: `Maestro sign-in failure: ${name} at ${method} ${route}`,
+      detail: JSON.stringify(diagnostic),
     }).catch(() => {});
   } catch { /* never trade the user's redirect for telemetry */ }
   return c.redirect(`${SPA_ORIGIN}/#maestro_error=${code}`);
@@ -124,10 +127,7 @@ maestro.get('/login', async (c) => {
 // or the agent cancels consent. User cancels land here too, so this logs
 // without alerting.
 maestro.get('/oauth-error', (c) => {
-  // Caller-controlled query param: strip CR/LF and cap length so a crafted
-  // ?error= can't inject fake log lines.
-  const reason = String(c.req.query('error') ?? 'unknown').replace(/[\r\n]/g, ' ').slice(0, 200);
-  console.warn('maestro/oauth-error:', reason);
+  console.warn('[maestro] OAuth callback failed');
   return c.redirect(`${SPA_ORIGIN}/#maestro_error=signin_failed`);
 });
 

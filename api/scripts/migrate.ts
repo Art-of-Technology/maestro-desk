@@ -16,6 +16,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
+import { safeError } from '../src/lib/diagnostics.js';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -35,13 +36,9 @@ const sql = postgres(DATABASE_URL, {
   ssl: DATABASE_URL.includes('sslmode=disable') ? false : 'require',
   max: 1,
   prepare: false,
-  // This runs on every container boot; without this, `create table if not
-  // exists schema_migrations` dumps a NOTICE object into the deploy log each
-  // time. Other notices (e.g. from the migration files themselves) stay
-  // visible — they can carry real signal. Errors are unaffected either way.
-  onnotice: (n) => {
-    if (!/already exists, skipping/.test(n.message ?? '')) console.log(`NOTICE: ${n.message}`);
-  },
+  // Notices can interpolate database values. Keep migration filenames/progress
+  // and filtered failures below, but suppress routine server notice text.
+  onnotice: () => {},
 });
 
 // App-wide advisory lock so two concurrently booting containers (e.g. a
@@ -135,7 +132,7 @@ async function main() {
 try {
   await main();
 } catch (err) {
-  console.error(err instanceof Error ? err.message : err);
+  console.error('Migration failed:', safeError(err));
   process.exitCode = 1;
 } finally {
   await sql.end();

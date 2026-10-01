@@ -524,7 +524,7 @@
           if (data?.slug) return data.slug;
         }
       } catch (err) {
-        console.warn('[portal] resolve-host failed:', err);
+        console.warn('[portal] resolve-host failed:');
       }
       return 'demo';
     }

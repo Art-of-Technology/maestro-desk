@@ -259,7 +259,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(parked).toHaveLength(1);
     expect(parked[0].reason).toBe('erasure');
     expect(parked[0].attempts).toBe(1);
-    expect(parked[0].last_error).toBe('R2 unavailable');
+    expect(parked[0].last_error).toBe(JSON.stringify({ type: 'Error', code: null }));
 
     // The retry sweep, given a working deleter, deletes the object and clears the row.
     const { retryPendingObjectDeletions } = await import('./lib/gdpr-erasure.js');

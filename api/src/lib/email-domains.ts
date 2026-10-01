@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Sender-domain orchestration shared by the god panel and the workspace
 // self-serve routes. Adding a domain is a two-system operation: a local
 // workspace_email_domains row AND a Postmark Domains API registration that
@@ -143,7 +144,7 @@ export async function addEmailDomain(workspaceId: string, domain: string): Promi
       pmDomain = await createOrAdoptDomain(domain);
     } catch (err) {
       postmarkError = err instanceof Error ? err.message : String(err);
-      console.error(`[email-domains] Postmark createDomain failed for ${domain}: ${postmarkError}`);
+      console.error('[email-domains] Postmark createDomain failed:', safeError(err));
     }
     if (pmDomain) {
       const dnsSetup = dnsRecommendations(pmDomain);
@@ -155,7 +156,7 @@ export async function addEmailDomain(workspaceId: string, domain: string): Promi
         `;
         row = { ...row, postmark_domain_id: String(pmDomain.ID), dns_records: dnsSetup };
       } catch (err) {
-        console.error('[email-domains] postmark_domain_id update failed:', err instanceof Error ? err.message : err);
+        console.error('[email-domains] postmark_domain_id update failed:', safeError(err));
       }
     }
   }
@@ -213,7 +214,7 @@ export async function checkEmailDomain(
       await sql`update workspace_email_domains set postmark_domain_id = ${String(pmDomain.ID)} where id = ${row.id}`;
       row.postmark_domain_id = String(pmDomain.ID);
     } catch (err) {
-      console.error('[email-domains] postmark_domain_id update failed:', err instanceof Error ? err.message : err);
+      console.error('[email-domains] postmark_domain_id update failed:', safeError(err));
     }
   } else if (opts.readOnly) {
     pmDomain = await pmGetDomain(Number(row.postmark_domain_id));
@@ -297,7 +298,7 @@ export async function removeEmailDomain(workspaceId: string, domainId: string): 
         // Already gone at Postmark — treat as success.
       } else {
         postmarkDeleteError = err instanceof Error ? err.message : String(err);
-        console.error(`[email-domains] Postmark delete failed for ${row.domain}: ${postmarkDeleteError}`);
+        console.error('[email-domains] Postmark delete failed:', safeError(err));
       }
     }
   }
@@ -370,7 +371,7 @@ export async function sweepEmailDomains(): Promise<SweepResult> {
         }
       }
     } catch (err) {
-      console.warn(`[email-domains] sweep check failed for ${r.domain}:`, err instanceof Error ? err.message : err);
+      console.warn('[email-domains] sweep check failed:', safeError(err));
     }
   }
 
@@ -395,7 +396,7 @@ export async function sweepEmailDomains(): Promise<SweepResult> {
       const removed = await removeEmailDomain(r.workspace_id, r.id);
       if (removed) out.expired++;
     } catch (err) {
-      console.warn(`[email-domains] sweep expiry failed for ${r.domain}:`, err instanceof Error ? err.message : err);
+      console.warn('[email-domains] sweep expiry failed:', safeError(err));
     }
   }
 
@@ -415,6 +416,6 @@ export async function degradeDomainForSendRejection(workspaceId: string, domain:
       where workspace_id = ${workspaceId} and domain = ${domain} and deleted_at is null
     `;
   } catch (err) {
-    console.warn('[email-domains] degrade-on-rejection failed:', err instanceof Error ? err.message : err);
+    console.warn('[email-domains] degrade-on-rejection failed:', safeError(err));
   }
 }

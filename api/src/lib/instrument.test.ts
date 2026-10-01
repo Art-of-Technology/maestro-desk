@@ -1,60 +1,24 @@
-// Proves the Sentry PII scrubber strips request bodies, secrets and user
-// identifiers before an event leaves the process — the GDPR backstop that
-// keeps Sentry from becoming a second store of player/customer data. Hermetic:
-// scrubEvent is a pure function, so no DSN, init, or network is involved.
-
-import { describe, expect, it } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { scrubEvent } from './instrument.js';
 
-describe('scrubEvent (Sentry PII scrubber)', () => {
-  function eventWithPii(): any {
-    return {
-      exception: { values: [{ type: 'Error', value: 'boom' }] },
-      request: {
-        url: 'https://api/api/v1/tickets',
-        method: 'POST',
-        data: { body: 'customer says: my card is 4111 1111 1111 1111, email a@b.com' },
-        cookies: { session: 'secret-cookie' },
-        query_string: 'token=abc123&email=a@b.com',
-        headers: {
-          'authorization': 'Bearer secret-token',
-          'Cookie': 'session=secret',
-          'x-workspace-id': 'ws-123',
-          'content-type': 'application/json',
-        },
-      },
-      user: { id: 'u-1', email: 'agent@desk.test', ip_address: '1.2.3.4' },
-    };
-  }
-
-  it('strips request body, cookies and query string', () => {
-    const out: any = scrubEvent(eventWithPii());
-    expect(out.request.data).toBeUndefined();
-    expect(out.request.cookies).toBeUndefined();
-    expect(out.request.query_string).toBeUndefined();
-  });
-
-  it('strips auth + cookie + workspace headers but keeps benign ones', () => {
-    const out: any = scrubEvent(eventWithPii());
-    expect(out.request.headers.authorization).toBeUndefined();
-    expect(out.request.headers.Cookie).toBeUndefined();
-    expect(out.request.headers['x-workspace-id']).toBeUndefined();
-    // Non-sensitive headers are preserved (useful for debugging).
-    expect(out.request.headers['content-type']).toBe('application/json');
-  });
-
-  it('drops the user object entirely', () => {
-    const out: any = scrubEvent(eventWithPii());
-    expect(out.user).toBeUndefined();
-  });
-
-  it('preserves the exception payload (we still report the error)', () => {
-    const out: any = scrubEvent(eventWithPii());
-    expect(out.exception.values[0].value).toBe('boom');
-  });
-
-  it('is safe on an event with no request', () => {
-    const out: any = scrubEvent({ exception: { values: [] } } as any);
-    expect(out).toBeDefined();
-  });
+test('Sentry rebuilds events from safe fields, dropping nested and future PII fields', () => {
+  const secret = 'private-person@example.test_secret-token_passport.pdf';
+  const event: any = {
+    event_id: 'a'.repeat(32), timestamp: 12345,
+    exception: { values: [{ type: 'TypeError', value: secret, stacktrace: { frames: [{ filename: secret, vars: { secret } }] } }, { type: secret, value: secret }] },
+    request: { url: secret, query_string: secret, data: secret, cookies: secret, headers: { AUTHORIZATION: secret, 'x-custom': secret } },
+    user: { email: secret, ip_address: secret }, breadcrumbs: [{ message: secret, data: { secret } }],
+    extra: { code: '23505', status: 503, secret }, contexts: { secret }, tags: { secret },
+    message: secret, logentry: { message: secret }, transaction: secret, server_name: secret, environment: secret,
+    fingerprint: [secret], future_sdk_field: { secret },
+  };
+  const out = scrubEvent(event);
+  expect(JSON.stringify(out)).not.toContain(secret);
+  expect(out.event_id).toBe('a'.repeat(32));
+  expect(out.environment).toBeDefined();
+  expect(out.extra).toEqual({ kind: 'api-error', code: '23505', status: 503 });
+  expect(out.exception?.values?.map(e => e.type)).toEqual(['TypeError', 'Error']);
+  expect(out.request).toBeUndefined();
+  expect(out.breadcrumbs).toBeUndefined();
+  expect(scrubEvent({ type: undefined })).toBeDefined();
 });

@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
@@ -182,7 +183,7 @@ tickets.get('/sync', async (c) => {
   // isn't dropped when the serverless function freezes after responding;
   // a stamp failure is swallowed so it never breaks the sync.
   try { await sql`update users set last_active_at = now() where id = ${userId}`; }
-  catch (err) { console.warn('[activity] last_active_at stamp failed:', err instanceof Error ? err.message : err); }
+  catch (err) { console.warn('[activity] last_active_at stamp failed:', safeError(err)); }
 
   if (!rawCursor) {
     return c.json({ tickets: [], cursor: `${new Date().toISOString()}|` });
@@ -396,7 +397,7 @@ tickets.post('/:id/close', async (c) => {
   // Outgoing subscriptions are explicit, and only a new closure emits one.
   if (result.changed) {
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.closed', ticketId }); }
-    catch (err) { console.warn('[outgoing-webhooks] closed failed:', err); }
+    catch (err) { console.warn('[outgoing-webhooks] closed failed:', safeError(err)); }
   }
   const t = result.ticket;
   return c.json({ ticket: { id: t.id, status_key: t.status_key, closure_reason: t.closure_reason,
@@ -548,23 +549,23 @@ tickets.patch('/:id', async (c) => {
   let survey: ReturnType<typeof publicSurveyResult> | undefined;
   if (statusChanged && updates.status_key === 'resolved') {
     try { await notifySlack({ workspaceId, event: 'ticket.resolved',  ticketId }); }
-    catch (err) { console.warn('[slack] notify resolved failed:', err); }
+    catch (err) { console.warn('[slack] notify resolved failed:', safeError(err)); }
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.resolved',  ticketId }); }
-    catch (err) { console.warn('[outgoing-webhooks] resolved failed:', err); }
+    catch (err) { console.warn('[outgoing-webhooks] resolved failed:', safeError(err)); }
     // Await the mailer so the response reports whether a survey was sent.
     survey = await requestSurvey(workspaceId, ticketId);
   }
   if (statusChanged && updates.status_key === 'escalated') {
     try { await notifySlack({ workspaceId, event: 'ticket.escalated', ticketId }); }
-    catch (err) { console.warn('[slack] notify escalated failed:', err); }
+    catch (err) { console.warn('[slack] notify escalated failed:', safeError(err)); }
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.escalated', ticketId }); }
-    catch (err) { console.warn('[outgoing-webhooks] escalated failed:', err); }
+    catch (err) { console.warn('[outgoing-webhooks] escalated failed:', safeError(err)); }
   }
   if (priorityChanged && updates.priority_key === 'urgent') {
     try { await notifySlack({ workspaceId, event: 'priority.urgent',  ticketId }); }
-    catch (err) { console.warn('[slack] notify urgent failed:', err); }
+    catch (err) { console.warn('[slack] notify urgent failed:', safeError(err)); }
     try { await dispatchTicketEvent({ workspaceId, event: 'priority.urgent',  ticketId }); }
-    catch (err) { console.warn('[outgoing-webhooks] urgent failed:', err); }
+    catch (err) { console.warn('[outgoing-webhooks] urgent failed:', safeError(err)); }
   }
 
   // Survey delivery runs after commit and stamps these fields separately.
@@ -651,7 +652,7 @@ tickets.post('/:id/attachments', async (c) => {
       filename: file.name, declaredMime: file.type || null, bytes, maxBytes: MAX_UPLOAD_FILE_BYTES,
     });
   } catch (err) {
-    console.error('[attachments] upload failed:', err instanceof Error ? err.message : err);
+    console.error('[attachments] upload failed:', safeError(err));
     return c.json({ error: 'Upload failed' }, 500);
   }
   if (!stored.ok) return c.json({ error: `Cannot attach this file: ${stored.reason}` }, 400);
@@ -720,7 +721,7 @@ tickets.delete('/:id/attachments/:attId', async (c) => {
     await drainObjectDeletions([row.storage_key]);
   } catch (err) {
     // The row is gone and the key is parked; the cron finishes the job.
-    console.warn('[attachments] delete cleanup deferred:', err instanceof Error ? err.message : err);
+    console.warn('[attachments] delete cleanup deferred:', safeError(err));
   }
   return c.json({ ok: true });
 });
@@ -869,7 +870,7 @@ tickets.post('/:id/messages', async (c) => {
           html = html.replace(`cid:${img.id}`, `cid:${stored.row.id}`);
           inlineIds.push(stored.row.id);
         } catch (err) {
-          console.error('[attachments] inline image upload failed:', err instanceof Error ? err.message : err);
+          console.error('[attachments] inline image upload failed:', safeError(err));
           return c.json({ error: 'Could not store a pasted image' }, 500);
         }
       }
@@ -943,7 +944,7 @@ tickets.post('/:id/messages', async (c) => {
       authorLabel,
       mentions:     input.mentions,
       body:         bodyText,
-    }).catch((err) => console.warn('[mention-notify] failed:', err instanceof Error ? err.message : err));
+    }).catch((err) => console.warn('[mention-notify] failed:', safeError(err)));
   }
 
   // Public agent replies are emailed to the customer (internal notes are not).
@@ -957,7 +958,7 @@ tickets.post('/:id/messages', async (c) => {
     // so the next customer reply re-notifies. Awaited (serverless-safe) and
     // swallowed so it never blocks the reply.
     try { await sql`update tickets set last_reply_notified_at = null where id = ${ticketId} and workspace_id = ${workspaceId}`; }
-    catch (err) { console.warn('[push] clear notify throttle failed:', err instanceof Error ? err.message : err); }
+    catch (err) { console.warn('[push] clear notify throttle failed:', safeError(err)); }
     try {
       // Load the bytes of everything bound to this message so Postmark can
       // carry them (inline images keep the cid: token the HTML references).
@@ -969,7 +970,7 @@ tickets.post('/:id/messages', async (c) => {
         body: bodyText, bodyHtml, attachments: files, recipients: input.email_recipients,
       });
     } catch (err) {
-      console.error('[agent-reply] send threw:', err instanceof Error ? err.message : err);
+      console.error('[agent-reply] send threw:', safeError(err));
       delivery = { emailed: false, reason: 'send_failed' };
     }
   }
@@ -1093,7 +1094,7 @@ tickets.post('/:id/tags', async (c) => {
       on conflict (workspace_id, tag) do nothing
     `;
   } catch (err) {
-    console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
+    console.warn('[tickets] tag_library upsert failed:', safeError(err));
   }
 
   return c.json({ tag, activity: result }, 201);
@@ -1169,7 +1170,7 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
       on conflict (workspace_id, tag) do nothing
     `;
   } catch (err) {
-    console.warn('[tickets] tag_library upsert failed:', err instanceof Error ? err.message : err);
+    console.warn('[tickets] tag_library upsert failed:', safeError(err));
   }
 
   return c.json({ tag, accepted: true, activity });
@@ -1691,18 +1692,18 @@ tickets.post('/', async (c) => {
   // engine may override that with a rule's pick.
   if (input.assigned_user_id == null) {
     try { await applyAssignmentRules({ workspaceId, ticketId: created.id }); }
-    catch (err) { console.error('[assign-rules-engine] post-create failure:', err); }
+    catch (err) { console.error('[assign-rules-engine] post-create failure:', safeError(err)); }
   }
 
   // Slack notification on creation. AWAITED deliberately: an unawaited
   // dispatch can be dropped when the runtime freezes the moment the response
   // is written (the same reason /sync awaits its last_active_at stamp).
   try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[slack] notify created failed:', err); }
+  catch (err) { console.warn('[slack] notify created failed:', safeError(err)); }
   // Generic outgoing webhooks (any URL the workspace configured) — awaited
   // for the same durability reason.
   try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[outgoing-webhooks] created failed:', err); }
+  catch (err) { console.warn('[outgoing-webhooks] created failed:', safeError(err)); }
 
   void publishTicketChanged(workspaceId, created.id);
 

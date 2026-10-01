@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { env } from './env.js';
+import { safeError } from './diagnostics.js';
 
 // Neon Postgres connection (migration to Neon — Step 1).
 //
@@ -24,6 +25,8 @@ export function getDb() {
   }
   if (!_sql) {
     _sql = postgres(env.DATABASE_URL, {
+      // postgres.js otherwise prints raw server notices, including their detail.
+      onnotice: notice => console.warn('[db] server notice:', safeError(notice)),
       // Neon requires TLS (the prod URL carries sslmode=require). A local /
       // CI Postgres has no TLS, so honour an explicit sslmode=disable in the
       // connection string and skip it there — used by the DB-backed tests.

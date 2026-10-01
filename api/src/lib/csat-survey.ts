@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // CSAT survey dispatcher. Triggered when a ticket transitions to
 // resolved (see tickets.ts PATCH). Generates a one-shot token,
 // stamps csat_requested_at, and sends a short Postmark email with a
@@ -31,13 +32,7 @@ export type CsatSurveyResult =
 
 // Provider and SQL errors can contain recipient addresses or query parameters.
 // Keep diagnostics useful without logging those bodies or the survey token.
-export function surveyErrorContext(err: unknown) {
-  const code = (err as { code?: unknown } | null)?.code;
-  return {
-    type: err instanceof PostmarkSendError ? 'PostmarkSendError' : err instanceof Error ? err.constructor.name : 'UnknownError',
-    code: typeof code === 'string' && /^[A-Z0-9]{5}$/.test(code) ? code : null,
-  };
-}
+export const surveyErrorContext = safeError;
 
 export async function sendCsatSurvey(args: {
   workspaceId: string;
@@ -173,7 +168,7 @@ async function sendClaimedSurvey(args: {
     const detail = err instanceof PostmarkSendError
       ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
       : err instanceof Error ? err.message : String(err);
-    console.warn(`[csat-survey] Postmark send failed for ticket ${ticketId}: ${detail}`);
+    console.warn('[csat-survey] Postmark send failed:', safeError(err));
     return { sent: false, reason: 'send_failed', detail };
   }
 

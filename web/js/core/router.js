@@ -150,7 +150,7 @@ export function renderPage(page) {
   // renderer while leaving its sidebar row would keep CI green and only
   // surface as a console message in the user's browser.
   if (!Object.hasOwn(pages, page)) {
-    console.warn(`[router] unknown page "${page}" — falling back to dashboard`);
+    console.warn('[router] unknown page — falling back to dashboard');
     // Guard the recursion: if 'dashboard' itself ever goes missing, fail
     // loudly instead of overflowing the stack.
     if (page === 'dashboard') throw new Error('[router] dashboard renderer is missing');

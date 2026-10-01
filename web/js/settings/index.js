@@ -180,7 +180,7 @@ function settingsWorkspaceBranding() {
     WORKSPACE_SETTINGS_LOADED = true;
     apiGet('/api/v1/workspace/settings')
       .then((res) => { WORKSPACE_SETTINGS = res.workspace; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] workspace load failed:', err); });
+      .catch((err) => { console.warn('[settings] workspace load failed:'); });
   }
   const ws = WORKSPACE_SETTINGS;
   const isAdmin = window.isAdmin();
@@ -483,7 +483,7 @@ function settingsNotifications() {
     ME_PREFS_LOADED = true;
     apiGet('/api/v1/me')
       .then((res) => { ME_PREFS = res.user; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] me load failed:', err); });
+      .catch((err) => { console.warn('[settings] me load failed:'); });
   }
   const mentionEmailOn = ME_PREFS ? ME_PREFS.mention_email_enabled !== false : true;
   return `
@@ -726,7 +726,7 @@ function settingsIntegrations() {
     SLACK_LOADED = true;
     apiGet('/api/v1/integrations/slack')
       .then((res) => { SLACK_INTEGRATION = res.integration; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] slack load failed:', err); });
+      .catch((err) => { console.warn('[settings] slack load failed:'); });
   }
   const slack = SLACK_INTEGRATION;
   const events = slack?.events || ['ticket.resolved', 'ticket.escalated'];
@@ -804,7 +804,7 @@ function settingsOutgoingWebhooksSection() {
     OUTGOING_WEBHOOKS_LOADED = true;
     apiGet('/api/v1/integrations/webhooks')
       .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] webhooks load failed:', err); });
+      .catch((err) => { console.warn('[settings] webhooks load failed:'); });
   }
   const list = OUTGOING_WEBHOOKS;
 
@@ -944,7 +944,7 @@ function settingsSuppressionListSection() {
       .catch((err) => {
         if (suppressionScope() !== scope) return;
         SUPPRESSED_LOADED = false;
-        console.warn('[settings] suppression load failed:', err);
+        console.warn('[settings] suppression load failed:');
       });
   }
   const list = SUPPRESSED_CUSTOMERS;
@@ -1260,7 +1260,7 @@ const setKbCfgHandler = (ds, el) => {
 function settingsCategories() {
   if (!CATEGORIES_LOADED) {
     CATEGORIES_LOADED = true;
-    refreshCategories().catch((err) => console.warn('[settings] categories load failed:', err));
+    refreshCategories().catch((err) => console.warn('[settings] categories load failed:'));
   }
   const isAdmin = window.isAdmin();
   const sorted   = [...CATEGORIES].sort((a, b) => (a.label || '').localeCompare(b.label || ''));

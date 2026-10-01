@@ -113,7 +113,7 @@ export function reloadTicketByUuid(changedUuid) {
   if (!t) return;
   loadTicketDetail(t.id, { force: true }).then(() => {
     if (CURRENT_TICKET === t.id) openTicket(t.id);
-  }).catch((err) => console.warn('[ticket-detail] live-sync reload failed:', err));
+  }).catch((err) => console.warn('[ticket-detail] live-sync reload failed:'));
 }
 setTicketChangedCallback(({ uuid: changedUuid }) => reloadTicketByUuid(changedUuid));
 
@@ -179,7 +179,7 @@ export function openTicket(id) {
   if (t._uuid && !t._detailLoaded) {
     loadTicketDetail(id).then(() => {
       if (CURRENT_TICKET === id) openTicket(id);
-    }).catch(err => console.warn('[ticket-detail] load failed:', err));
+    }).catch(err => console.warn('[ticket-detail] load failed:'));
   }
   if(COMPOSE_TAB==='reply'&&t.aiDraft&&personalDraftReady(id,'reply'))hydrateSharedAiDraft(id,t.aiDraft);
   // Real-time presence — heartbeat starts on first open and re-paints
@@ -762,7 +762,7 @@ export function openTicket(id) {
       readOnly: !personalDraftEditable(id),
       placeholder: 'Write a reply or use AI…',
       onChange: () => onComposeInput(id),
-    }).then(() => syncTicketLayout(id)).catch((err) => console.warn('[composer] mount failed:', err));
+    }).then(() => syncTicketLayout(id)).catch((err) => console.warn('[composer] mount failed:'));
     renderPendingAttachments(id);
   }
   if (['td.originalConversation', 'td.translatedConversation'].includes(focusedLanguageAction)) {

@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Outgoing webhook fan-out + retry pipeline.
 //
 // Architecture: dispatchTicketEvent ENQUEUES rows in webhook_deliveries (one
@@ -182,7 +183,7 @@ export async function dispatchTicketEvent(args: {
       `;
     }
   } catch (err) {
-    console.error('[outgoing-webhooks] enqueue failed:', err instanceof Error ? err.message : err);
+    console.error('[outgoing-webhooks] enqueue failed:', safeError(err));
     return 0;
   }
 
@@ -201,12 +202,12 @@ export async function dispatchTicketEvent(args: {
     waitUntil(
       processPendingDeliveries().then(
         () => {},
-        (err) => console.error('[outgoing-webhooks] inline flush failed:', err instanceof Error ? err.message : err),
+        (err) => console.error('[outgoing-webhooks] inline flush failed:', safeError(err)),
       ),
     );
   } else if (process.env.NODE_ENV !== 'test') {
     processPendingDeliveries().catch(
-      (err) => console.error('[outgoing-webhooks] inline flush failed:', err instanceof Error ? err.message : err),
+      (err) => console.error('[outgoing-webhooks] inline flush failed:', safeError(err)),
     );
   }
   return subscribed.length;
@@ -252,7 +253,7 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       returning d.id, d.workspace_id, d.webhook_id, d.attempts, d.payload
     `];
   } catch (err) {
-    console.error('[webhook-worker] poll failed:', err instanceof Error ? err.message : err);
+    console.error('[webhook-worker] poll failed:', safeError(err));
     return { processed: 0 };
   }
   if (deliveries.length === 0) return { processed: 0 };
@@ -305,7 +306,7 @@ async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; se
     await assertSafeWebhookUrl(wh.url);
   } catch (e) {
     blockedUrl = true;
-    err = e instanceof Error ? e.message.slice(0, 200) : 'blocked URL';
+    err = 'Webhook destination blocked by network policy';
   }
 
   if (!blockedUrl) {
@@ -338,9 +339,9 @@ async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; se
       const cause = (e as { cause?: NodeJS.ErrnoException })?.cause;
       if (cause?.code === 'EBLOCKED') {
         blockedUrl = true;
-        err = cause.message.slice(0, 200);
+        err = 'Webhook destination blocked by network policy';
       } else {
-        err = e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200);
+        err = JSON.stringify(safeError(e));
       }
     }
   }
@@ -407,7 +408,7 @@ export function startWebhookWorker(intervalMs: number = POLL_INTERVAL_MS): void 
   if (workerTimer) return;
   workerTimer = setInterval(() => {
     processPendingDeliveries().catch((err) => {
-      console.error('[webhook-worker] tick failed:', err);
+      console.error('[webhook-worker] tick failed:', safeError(err));
     });
   }, intervalMs);
 }

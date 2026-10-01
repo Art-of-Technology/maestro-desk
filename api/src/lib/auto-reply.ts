@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import type { TriageOutput } from './triage.js';
 import { getDb } from './db.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
@@ -220,7 +221,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
     const detail = err instanceof PostmarkSendError
       ? `code=${err.code} status=${err.httpStatus}: ${err.message}`
       : err instanceof Error ? err.message : String(err);
-    console.error(`[auto-reply] Postmark send failed for ticket ${ticketId}: ${detail}`);
+    console.error('[auto-reply] Postmark send failed:', safeError(err));
     return { posted: false, reason: 'send_failed', detail };
   }
 
@@ -244,7 +245,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
         ${`Auto-reply sent (confidence ${confidence}, model ${model}, postmark_id ${postmarkMessageId})`})
     `;
   } catch (err) {
-    console.error('[auto-reply] event log failed:', err instanceof Error ? err.message : err);
+    console.error('[auto-reply] event log failed:', safeError(err));
     // Don't fail the whole post — the email already went out + message row exists.
   }
 

@@ -191,7 +191,7 @@ async function tick() {
       if (state.lastTicketUpdatedAt && res.ticket_updated_at !== state.lastTicketUpdatedAt) {
         if (onTicketChanged) {
           try { onTicketChanged({ uuid: entityId, updatedAt: res.ticket_updated_at }); }
-          catch (err) { console.warn('[presence] onTicketChanged callback threw:', err); }
+          catch (err) { console.warn('[presence] onTicketChanged callback threw:'); }
         }
       }
       state.lastTicketUpdatedAt = res.ticket_updated_at;
@@ -212,7 +212,7 @@ async function tick() {
       return;
     }
     // Transient failure — log and let the next beat retry.
-    console.warn('[presence] heartbeat failed:', err?.status || '', err?.message);
+    console.warn('[presence] heartbeat failed:');
   } finally {
     state.inFlight = false;
   }

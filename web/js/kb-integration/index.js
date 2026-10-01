@@ -38,7 +38,7 @@ export let KB_INTEGRATION = Object.assign({}, KB_INTEGRATION_DEFAULTS, (() => {
 
 export function saveKbIntegration() {
   try { localStorage.setItem('kb_integration', JSON.stringify(KB_INTEGRATION)); }
-  catch (e) { console.warn('[kb] persist failed', e); }
+  catch (e) { console.warn('[kb] persist failed'); }
 }
 
 function getByPath(obj, path) {

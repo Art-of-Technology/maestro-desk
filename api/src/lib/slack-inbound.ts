@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Slack inbound event handling. Called after signature verification.
 //
 // Scope of this first pass: thread-reply → ticket message. We:
@@ -92,7 +93,7 @@ export async function handleSlackEvent(args: {
       values (${workspaceId}, ${mapping.ticket_id}, ${role}, ${authorUserId}, ${authorName}, ${ev.text})
     `;
   } catch (err) {
-    console.error('[slack-inbound] ticket_messages insert failed:', err instanceof Error ? err.message : err);
+    console.error('[slack-inbound] ticket_messages insert failed:', safeError(err));
   }
 }
 
@@ -108,7 +109,7 @@ async function slackUserInfo(botToken: string, slackUserId: string): Promise<Sla
     });
     const json = await res.json() as any;
     if (!json.ok) {
-      console.warn(`[slack-inbound] users.info failed: ${json.error}`);
+      console.warn('[slack-inbound] users.info failed', { status: res.status });
       return null;
     }
     return {
@@ -116,7 +117,7 @@ async function slackUserInfo(botToken: string, slackUserId: string): Promise<Sla
       name:  json.user?.real_name || json.user?.name || null,
     };
   } catch (err) {
-    console.warn('[slack-inbound] users.info error:', err);
+    console.warn('[slack-inbound] users.info error:', safeError(err));
     return null;
   }
 }

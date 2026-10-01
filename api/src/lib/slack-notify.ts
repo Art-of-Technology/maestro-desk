@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { getDb } from './db.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
@@ -147,7 +148,7 @@ export async function notifySlack(args: {
       });
       const json = await res.json().catch(() => ({})) as any;
       if (!json.ok) {
-        console.warn(`[slack] chat.postMessage failed: ${json.error || res.status}`);
+        console.warn('[slack] chat.postMessage failed', { status: res.status });
         return true;
       }
       // First message in this thread — record the mapping so replies
@@ -160,7 +161,7 @@ export async function notifySlack(args: {
         `;
       }
     } catch (err) {
-      console.warn('[slack] chat.postMessage error:', err);
+      console.warn('[slack] chat.postMessage error:', safeError(err));
     }
     return true;
   }
@@ -177,10 +178,10 @@ export async function notifySlack(args: {
       body:    JSON.stringify(body),
     });
     if (!res.ok) {
-      console.warn(`[slack] post returned ${res.status}: ${await res.text().catch(() => '')}`);
+      console.warn('[slack] post failed', { status: res.status });
     }
   } catch (err) {
-    console.warn('[slack] post failed:', err);
+    console.warn('[slack] post failed:', safeError(err));
   }
   return true;
 }

@@ -59,7 +59,7 @@ function saveLayout(key, layout) {
   // a developer can see it in console, but let the in-memory layout keep
   // working for the rest of the session.
   try { localStorage.setItem(key, JSON.stringify(layout)); }
-  catch (e) { console.warn('[layout] persist failed', key, e); }
+  catch (e) { console.warn('[layout] persist failed'); }
 }
 
 // New widgets added in code releases need to land at the end of the order so

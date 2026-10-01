@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from './env.js';
 
-export const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+// SDK debug logs can include prompts and responses; callers log safe failures.
+export const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, logLevel: 'off' });
 
 // Model rate card in micro-dollars per 1M tokens (1 USD = 1_000_000 micro).
 // Cache writes are 1.25× input for 5-min TTL (we don't use 1h TTL yet);

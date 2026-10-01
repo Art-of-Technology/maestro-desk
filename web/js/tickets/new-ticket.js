@@ -420,7 +420,7 @@ async function finishCreate(args) {
   try {
     await runCreate(args);
   } catch (err) {
-    console.error('[new-ticket] create failed:', err);
+    console.error('[new-ticket] create failed:');
     showToast(`Couldn't finish creating the ticket: ${err?.message || err}`, 'error', 8000);
     setBusy(false);
   }

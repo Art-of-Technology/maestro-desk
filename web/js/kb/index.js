@@ -287,7 +287,7 @@ async function incrementKBView(id) {
       a.viewCount = res.view_count;
     } catch (err) {
       // Best-effort — a missed view ping isn't worth alerting the user.
-      console.warn('[kb] view increment failed:', err);
+      console.warn('[kb] view increment failed:');
     }
     return;
   }

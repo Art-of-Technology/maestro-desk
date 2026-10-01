@@ -103,6 +103,31 @@ is checked. This is not remote deletion from every device or browser backup. Leg
 unscoped browser drafts are cleared at logout/expiry. A stale unsaved-tab marker can
 conservatively require explicit discard if its contents were overwritten in shared storage.
 
+## Operational diagnostics
+
+API request logs use registered route patterns, method, status and duration, never
+raw URLs or query strings. Application failure logs use allowlisted error types/codes
+and numeric status; provider messages, SQL details, customer identifiers, filenames
+and sign-in links are omitted. The Better Auth logger follows the same policy.
+Anthropic SDK logging is disabled; callers retain safe failure diagnostics. Respovia's
+own browser-console warnings retain fixed operation messages without raw errors.
+Operational deletion alerts report counts, not attachment keys or saved error text.
+New object-deletion and webhook retry error records also omit raw exception text.
+
+Sentry remains DSN-gated. Explicit reports are rebuilt from error types/codes and
+event metadata; request data, arbitrary context, breadcrumbs, raw stacks/messages
+and attachments are excluded. Automatic SDK integrations are disabled. This reduces
+diagnostic detail deliberately; ordinary application logs retain the failing operation.
+
+The production nginx access log retains status, duration and byte count only. Its
+unstructured error log is disabled because it can include request URLs and IPs.
+Use access-log status counts and deployment health checks to detect web failures.
+
+This changes new diagnostics, not historical logs or backups. Reverse-proxy/CDN,
+hosting and provider logging/retention require a separate operational review. Business
+notifications, authorised audit records and customer-facing delivery errors are separate
+data surfaces and are not covered by the diagnostic filtering described here.
+
 ## Erasure repair and remaining product-wide work
 
 Migration `20261001140000_erasure_auxiliary_data.sql` repairs drafts, custom values and
@@ -112,7 +137,7 @@ guards cover these three surfaces; they are not a product-wide ban on every poss
 write to an erased ticket.
 
 Still to assess/remediate: remaining export completeness and document review/delivery; legacy
-AI content and other copied records; logs and notification payloads; staff-data rights;
+AI content and other copied records; historical/infrastructure logs and business notification payloads; staff-data rights;
 retention by data category; backup restore erasure replay; downstream recipient deletion;
 processor contracts, locations/transfers, AI handling, privacy notices and DPIA needs.
 Customer erasure is not a substitute for a staff-data rights process.

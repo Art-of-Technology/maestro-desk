@@ -1,3 +1,4 @@
+import { safeError } from '../lib/diagnostics.js';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -87,7 +88,7 @@ agents.post('/invite', async (c) => {
       // Race: a concurrent invite may have created the row. Re-read and continue.
       const [raced] = await sql<{ id: string }[]>`select id from users where email = ${email}`;
       if (!raced) {
-        console.error('[agents/invite] signUpEmail failed:', err instanceof Error ? err.message : err);
+        console.error('[agents/invite] signUpEmail failed:', safeError(err));
         return c.json({ error: 'Could not create the invited user' }, 502);
       }
       authUserId = raced.id;
@@ -119,7 +120,7 @@ agents.post('/invite', async (c) => {
     await auth.api.requestPasswordReset({ body: { email } });
   } catch (err) {
     emailSent = false;
-    console.error('[agents/invite] requestPasswordReset failed:', err instanceof Error ? err.message : err);
+    console.error('[agents/invite] requestPasswordReset failed:', safeError(err));
   }
 
   await writeAudit({
@@ -215,7 +216,7 @@ agents.post('/:userId/reset-password', async (c) => {
     await auth.api.requestPasswordReset({ body: { email: member.email } });
   } catch (err) {
     emailSent = false;
-    console.error('[agents/reset-password] requestPasswordReset failed:', err instanceof Error ? err.message : err);
+    console.error('[agents/reset-password] requestPasswordReset failed:', safeError(err));
   }
 
   await writeAudit({

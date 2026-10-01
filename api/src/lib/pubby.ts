@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 import { PubbyServer } from '@getpubby/sdk/server';
 import { env } from './env.js';
 
@@ -53,7 +54,7 @@ export async function publishTicketChanged(workspaceId: string, ticketId: string
   try {
     await server.trigger(ticketsChannel(workspaceId), 'ticket.changed', { id: ticketId });
   } catch (err) {
-    console.warn('[pubby] publishTicketChanged failed:', err instanceof Error ? err.message : err);
+    console.warn('[pubby] publishTicketChanged failed:', safeError(err));
   }
 }
 

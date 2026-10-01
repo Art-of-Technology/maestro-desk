@@ -1,3 +1,4 @@
+import { safeError } from './diagnostics.js';
 // Player-context enrichment for the headless AI-draft pipeline (capability B).
 //
 // When the triage worker drafts a reply, it can pull the customer's live player
@@ -52,7 +53,7 @@ export async function buildPlayerContext(lookup: PlayerLookup): Promise<string |
     member = memberNotFound(res) ? null : res;
   } catch (err) {
     if (err instanceof MaestroError && err.status !== 404) {
-      console.warn('[player-context] member lookup failed:', err.status, err.message);
+      console.warn('[player-context] member lookup failed:', safeError(err));
     }
     return null;
   }

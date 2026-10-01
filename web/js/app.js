@@ -383,6 +383,6 @@ initUrlRouting();
     // Reveal "Continue with Maestro" on the login screen when configured.
     initMaestroButton();
   } catch (err) {
-    console.warn('[startup] auto-resume failed:', err);
+    console.warn('[startup] auto-resume failed:');
   }
 })();
