@@ -34,8 +34,16 @@ function device(server = new Map(), storage = new Map()) {
       get length(){return storage.size;},key:i=>[...storage.keys()][i] },
   };
   const draft = runInNewContext(source + '\n({saveDraft,loadDraft,saveDraftRecipients,loadDraftRecipients,saveDraftReview,loadDraftReview,clearDraft,flushPersonalDraft,refreshPersonalDraft,draftHasConflict,resolvePersonalDraft,prepareDraftSend,finishDraftSend,draftSyncStatus})',context);
-  return {...draft,control,storage,server};
+  return {...draft,control,storage,server,tickets:context.TICKETS};
 }
+test('background refresh absorbs save failures and sending releases a removed ticket',async()=>{
+  const a=device();a.control.offline=true;a.saveDraft('TK-1','Offline','reply');
+  const failing=a.flushPersonalDraft('TK-1','reply').catch(()=>{});
+  await expect(a.refreshPersonalDraft('TK-1','reply')).resolves.toBeUndefined();await failing;
+  a.control.offline=false;const sent=await a.prepareDraftSend('TK-1','reply');
+  const ticket=a.tickets.pop();a.finishDraftSend('TK-1','reply',sent);a.tickets.push(ticket);
+  await expect(a.flushPersonalDraft('TK-1','reply')).resolves.toBeNumber();
+});
 test('another device restores formatted reply, recipients and AI context; notes remain separate',async()=>{
   const a=device(),b=device(a.server);
   a.saveDraft('TK-1','<p><strong>Hello</strong></p>','reply');

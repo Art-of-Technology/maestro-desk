@@ -252,7 +252,7 @@ async function readRemote(s) {
 export async function refreshPersonalDraft(id, tab = COMPOSE_TAB) {
   const s = personalState(id, tab);
   if (!s || s.sending) return;
-  if (s.saving) return s.saving;
+  if (s.saving) return s.saving.catch(() => {});
   if (s.loading) return s.loading;
   s.loading = readRemote(s).catch(() => status(s, 'Saved locally; sync unavailable')).finally(() => { s.loading = null; });
   await s.loading;
@@ -320,10 +320,10 @@ export async function prepareDraftSend(id, tab = COMPOSE_TAB) {
   return { version, snapshot: draftSnapshot(id, tab), scope: s };
 }
 export function finishDraftSend(id, tab, sent, version) {
-  const s = personalState(id, tab);
+  const s = sent.scope || personalState(id, tab);
   if (!s) return !sent.scope;
-  if (s !== sent.scope || !current(s)) return false;
   s.sending = false;
+  if (s !== sent.scope || !current(s)) return false;
   if (version === undefined) { queuePersonalDraft(id, tab); return false; }
   const unchanged = sameDraft(sent.snapshot, draftSnapshot(id, tab));
   if (tab === 'reply') cancelSharedSave(id);
