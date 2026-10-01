@@ -26,6 +26,7 @@ export const GUIDE_STEPS = [
       'Use search and filters to narrow the list by agent, priority or category. Under More filters, use Inbox to choose a mailbox or find tickets with no inbox assigned. Remove the Inbox chip to show all inboxes again. Saved searches remember the inbox selection. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
       'Check priority and SLA indicators before choosing a ticket. SLA shows response or resolution timing; follow your team’s order of work when something is overdue.',
       'Select a ticket to open its conversation. Check the assigned agent and any indicators that someone else is composing before starting a second reply.',
+      'Choose Edit subject beside the ticket heading to rename it. To delete a ticket started by mistake, choose More → Delete ticket and confirm. This option appears when the ticket has no messages or notes, or your role allows deletion.',
       'Inbox below the subject shows where the ticket sits. Open the Inbox dropdown to see its email address or choose Move to inbox. Choose the appropriate inbox and select Move; the confirmation offers Undo. Future replies default to the new inbox when its sender is verified. Received via on earlier messages keeps the original receiving address.',
     ],
   },
@@ -80,7 +81,7 @@ export const GUIDE_STEPS = [
       'Automatic customer language detection uses the subject and latest customer message. Substantive body text takes precedence if they differ; you can choose a language manually.',
       'In the email composer, choose Reply for the sender or Reply all to include the other recipients. Choose From to send through a verified inbox, then check To and edit CC before sending. Your own inboxes and duplicate addresses are excluded.',
       'Open Change beside the reply language to check the customer language and the “Send replies in customer language” setting. If translation is enabled, the outgoing reply may differ from the wording in your editor.',
-      'Drafts are saved in this browser separately for Reply and Internal note. A restored draft has not been sent. Do not assume an ordinary draft is available on another device.',
+      'Choose Save draft and exit below the editor to return to Tickets without sending. Drafts are saved in this browser separately for Reply and Internal note. Reopen the ticket and choose Reply or Internal note to continue. Do not assume an ordinary draft is available on another device.',
     ],
   },
   {
