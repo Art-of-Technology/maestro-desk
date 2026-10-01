@@ -23,6 +23,7 @@
 
 import { createHmac } from 'node:crypto';
 import { waitUntil } from '@vercel/functions';
+import type { TransactionSql } from 'postgres';
 import { getDb } from './db.js';
 import { assertSafeWebhookUrl, safeLookup } from './ssrf.js';
 
@@ -215,6 +216,7 @@ export async function dispatchTicketEvent(args: {
 
 interface DeliveryRow {
   id:           string;
+  workspace_id: string;
   webhook_id:   string;
   attempts:     number;
   payload:      any;
@@ -247,7 +249,7 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       set next_attempt_at = now() + interval '30 seconds'
       from claimed
       where d.id = claimed.id
-      returning d.id, d.webhook_id, d.attempts, d.payload
+      returning d.id, d.workspace_id, d.webhook_id, d.attempts, d.payload
     `];
   } catch (err) {
     console.error('[webhook-worker] poll failed:', err instanceof Error ? err.message : err);
@@ -270,14 +272,25 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       await markExhausted(d.id, 0, 'webhook deleted or inactive');
       return;
     }
-    await attemptDelivery(d, wh);
+    await sql.begin(async tx => {
+      // A claimed payload may have been erased while waiting in this batch.
+      // Lock customer before delivery (the erasure lock order) and hold through
+      // the bounded HTTP attempt, so erasure cannot finish before an old send.
+      const customers = await tx`select c.erased_at from customers c where c.workspace_id=${d.workspace_id} and (
+        c.id::text=${d.payload?.customer?.id ?? null} or exists(select 1 from tickets t
+          where t.id::text=${d.payload?.ticket?.id ?? null} and t.workspace_id=c.workspace_id and t.customer_id=c.id)
+      ) order by c.id for share of c`;
+      if (customers.some(c => c.erased_at)) return;
+      const [current] = await tx<DeliveryRow[]>`select id,workspace_id,webhook_id,attempts,payload
+        from webhook_deliveries where id=${d.id} and workspace_id=${d.workspace_id} and state='pending' for update`;
+      if (current) await attemptDelivery(current, wh, tx);
+    });
   }));
 
   return { processed: deliveries.length };
 }
 
-async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; secret: string }) {
-  const sql = getDb();
+async function attemptDelivery(d: DeliveryRow, wh: { id: string; url: string; secret: string }, sql: TransactionSql) {
   const attempts = d.attempts + 1;
   const body = JSON.stringify(d.payload);
   const timestamp = Math.floor(Date.now() / 1000).toString();

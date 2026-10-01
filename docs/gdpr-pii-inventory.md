@@ -4,7 +4,7 @@
 > **shared spec** for erasure, data-subject export, and retention — enumerate every
 > column that holds personal data of a *player/customer* (the data subject) once, so
 > each of those features covers the same surfaces and none is missed.
-> Grounded in `db/migrations/` as of 2026-06-22; last updated 2026-09-08 (legacy KYC retirement). Update when a new PII column lands.
+> Last reviewed 2026-10-01 for drafts, custom values and webhook erasure. This is an implementation inventory, not a declaration of GDPR compliance. Update when a new personal-data surface lands.
 
 A "data subject" here is a **customer** (player). Agent/operator accounts are users and
 out of scope for customer erasure. The design intent (`20260520121300_gdpr.sql`): keep the
@@ -23,6 +23,9 @@ redact the personal data** and stamp `customers.erased_at`.
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason`, `last_inbound_email` | `subject → '[erased]'`; other listed fields → null | Row kept; status/category/timestamps retained for analytics. The last inbound sender is included in the data-subject export and cleared on erasure. |
 | `ticket_messages` | `body` (NOT NULL), `body_html`, `author_label`, `email_metadata` | `body → '[erased]'`; `body_html` and `email_metadata → null`; `author_label → '[erased]'` only where `role = 'customer'` | Row kept (thread structure / audit). Email envelopes are included in ticket exports. Erasure also clears envelopes on other tickets containing the subject's email addresses, including CC and copied merge messages. Envelope addresses never establish customer identity. Agent/AI author labels are staff, not the data subject. |
 | `inbox_messages` | `from_name`, `from_email`, `subject`, `body`, `body_html`, `raw` | **null** all | Matched by `converted_ticket_id ∈ customer's tickets` OR `from_email = customer.email`. |
+| `message_drafts` | `body`, `recipients`, `review`, attachment references | **delete all agents' drafts** on the subject's tickets | Database guards reject stale content writes after erasure; browser copies and export coverage remain follow-ups. |
+| `custom_field_values` | `value` | **delete** customer values and values on their tickets | Scoped by workspace and entity type/id. Database guards prevent stale writes; export coverage remains a follow-up. |
+| `webhook_deliveries` | Customer details and ticket subject in `payload` | **delete** matching customer or ticket snapshots, including pending retries | Scoped by workspace and payload identifiers. A delivery already in flight finishes before erasure can complete. Copies already delivered to recipients require a separate downstream process. |
 | `gdpr_erasures` | — | **insert** the erasure record | `requested_by_user_id`, `completed_at`, `fields_erased[]`, `reason`. |
 
 ## Intentionally retained (by design)
@@ -38,14 +41,14 @@ redact the personal data** and stamp `customers.erased_at`.
   and data categories persisted, never the values or the player ids themselves). Profile
   edits from the details card (`customer.updated` — `PATCH /customers/:id`) follow the same
   rule: before/after values only for the non-identifying columns (`brand`, `vip_tier`, `since`,
-  `consent`); the PII columns that changed are listed by field name alone. Still
-  pending: append-only / tamper-evident hardening of `audit_events` (a follow-up).
+  `consent`); the PII columns that changed are listed by field name alone.
+  Audit chains are tamper-evident and checked by the retention job. Retained
+  identifiers/attributes can still be personal data when linkable; their retention
+  needs a documented purpose, rather than an assumption of anonymity.
 
 ## Attachments — `ticket_attachments` + the R2 objects
 
-Inbound attachments are currently discarded (`lib/postmark.ts`) and uploads aren't wired,
-so no attachment PII is stored today. The handling is nonetheless implemented so it's
-correct the day upload ships:
+Inbound and uploaded attachments are live product features and can contain personal data.
 
 - **Erasure** — `gdpr-erasure.ts` deletes the `ticket_attachments` rows for the customer's
   tickets (in-transaction), writes their `storage_key`s to the `pending_object_deletions`
@@ -64,11 +67,23 @@ correct the day upload ships:
 - **Storage** — attachments live in a separate PRIVATE bucket (`R2_ATTACHMENTS_BUCKET`)
   and are served only via short-lived presigned URLs minted inside authenticated ticket
   responses. Never the public brand-assets bucket.
-- **DSAR export** — `gdpr-export.ts` does **not** yet include attachments. ⚠️ follow-up:
-  add the attachment list/contents so Art.15/20 export matches what erasure removes.
+- **DSAR export** — `gdpr-export.ts` includes attachment metadata, but not document
+  contents. Complete the access-request workflow with review/redaction and secure
+  delivery of relevant documents.
 
-The DSAR follow-up is gated on attachment upload actually shipping (no data exists until
-then), but are tracked here so they aren't missed.
+## Erasure repair and remaining product-wide work
+
+Migration `20261001140000_erasure_auxiliary_data.sql` repairs drafts, custom values and
+webhook snapshots for customers already marked erased. The same cleanup runs atomically
+when `erased_at` is set. It leaves other customers and workspaces unchanged. These
+guards cover these three surfaces; they are not a product-wide ban on every possible
+write to an erased ticket.
+
+Still to assess/remediate: export completeness; browser draft retention/logout; legacy
+AI content and other copied records; logs and notification payloads; staff-data rights;
+retention by data category; backup restore erasure replay; downstream recipient deletion;
+processor contracts, locations/transfers, AI handling, privacy notices and DPIA needs.
+Customer erasure is not a substitute for a staff-data rights process.
 
 ## Consumers of this inventory
 
