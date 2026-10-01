@@ -75,6 +75,7 @@ runDbTests('ticket create (DB-backed)', () => {
 
   afterAll(async () => {
     globalThis.fetch = realFetch;
+    if (ctx.otherWs) await sql`delete from workspaces where id=${ctx.otherWs}`;
     await sql`delete from workspaces where id = ${ctx.ws}`;
     await sql`delete from users where id in (${admin.userId}, ${agent.userId}, ${outsider.userId})`;
   }, 15000);
@@ -116,6 +117,111 @@ runDbTests('ticket create (DB-backed)', () => {
     finally { await sql`delete from users where id = ${other.id}`; }
     const [row] = await sql`select subject from tickets where id = ${ticket.id}`;
     expect(row.subject).toBe('Account question');
+  });
+
+  it('syncs private drafts with version conflicts, validation, and atomic clearing on send', async () => {
+    const created = await create({ subject: 'Draft sync', customer_id: ctx.custId });
+    const { ticket } = await created.json() as any;
+    const path = `/api/v1/tickets/${ticket.id}`;
+    const draftPath = path + '/drafts/reply';
+    const put = (body: Record<string, unknown>, token = admin.token, ws = ctx.ws) => as(token, ws, draftPath, {
+      method: 'PUT', body: JSON.stringify(body),
+    });
+    const payload = { version: 0, body: '<p>Hello <strong>there</strong><script>alert(1)</script></p>',
+      recipients: { mode: 'reply', to: ['customer@example.test'], cc: 'cc@example.test' }, review: null };
+    const first = await put(payload);
+    expect(first.status).toBe(200);
+    const { draft } = await first.json() as any;
+    expect(draft.version).toBe(1);
+    expect(draft.body).toContain('<strong>there</strong>');
+    expect(draft.body).not.toContain('<script');
+    expect(draft.recipients.cc).toBe('cc@example.test');
+    expect(((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft.body).toBe(draft.body);
+    expect(((await (await as(agent.token,ctx.ws,draftPath)).json()) as any).draft.body).toBe('');
+    expect((await put(payload)).status).toBe(409);
+    expect((await put({ ...payload, version: 1, body: 'x'.repeat(2000001) })).status).toBe(400);
+    expect((await put({ ...payload, version: 1 }, admin.token, '00000000-0000-0000-0000-000000000001')).status).not.toBe(200);
+    const otherTicket = await create({ subject: 'Other', customer_id: ctx.custId });
+    const { ticket: other } = await otherTicket.json() as any;
+    const notePath = path + '/drafts/note';
+    expect((await as(admin.token,ctx.ws,notePath,{ method:'PUT', body:JSON.stringify({version:0,body:'Private note',recipients:null,review:null}) })).status).toBe(200);
+    const send = (version: number, attachment_ids?: string[]) => as(admin.token,ctx.ws,path+'/messages',{
+      method:'POST',body:JSON.stringify({role:'agent',body:'Hello there',draft_version:version,attachment_ids}),
+    });
+    expect((await send(0)).status).toBe(409);
+    expect((await send(1, [other.id])).status).toBe(409);
+    expect(((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft.version).toBe(1);
+    const sent = await send(1);
+    expect(sent.status).toBe(201);
+    expect(((await sent.json()) as any).draft_version).toBe(2);
+    const cleared = ((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft;
+    expect(cleared.body).toBe(''); expect(cleared.recipients).toBeNull();
+    expect((await put({ ...payload, version:1 })).status).toBe(409);
+    expect((await send(1)).status).toBe(409);
+    const [{ count }] = await sql`select count(*)::int as count from ticket_messages where ticket_id=${ticket.id}`;
+    expect(count).toBe(1);
+    expect(((await (await as(admin.token,ctx.ws,notePath)).json()) as any).draft.body).toBe('Private note');
+    expect((await put({version:2,body:'',recipients:null,review:null})).status).toBe(200);
+    expect((await put({ ...payload, version:2 })).status).toBe(409);
+  });
+
+  it('retains draft files, scopes previews and claims, and releases removed files for cleanup', async () => {
+    const {ticket} = await (await create({subject:'Files',customer_id:ctx.custId})).json() as any;
+    const path=`/api/v1/tickets/${ticket.id}`, file=crypto.randomUUID(), otherFile=crypto.randomUUID();
+    await sql`insert into ticket_attachments(id,workspace_id,ticket_id,filename,size_bytes,storage_key,mime_type,uploaded_by_user_id,created_at)
+      values(${file},${ctx.ws},${ticket.id},'receipt.pdf',16,${'draft-test/'+file},'application/pdf',${admin.userId},now()-interval '2 days'),
+      (${otherFile},${ctx.ws},${ticket.id},'other.pdf',16,${'draft-test/'+otherFile},'application/pdf',${agent.userId},now())`;
+    const put=(version:number,ids:string[])=>as(admin.token,ctx.ws,path+'/drafts/reply',{method:'PUT',body:JSON.stringify({version,body:'Hello',recipients:null,review:null,attachment_ids:ids})});
+    expect((await put(0,[otherFile])).status).toBe(400);
+    expect((await put(0,[file,file])).status).toBe(400);
+    expect((await put(0,[file])).status).toBe(200);
+    const oldClient=await as(admin.token,ctx.ws,path+'/drafts/reply',{method:'PUT',body:JSON.stringify({version:1,body:'Edited in an older tab',recipients:null,review:null})});
+    expect(oldClient.status).toBe(200);
+    expect((await oldClient.json() as any).draft.attachments[0].id).toBe(file);
+    const draft=(await (await as(admin.token,ctx.ws,path+'/drafts/reply')).json() as any).draft;
+    expect(draft.attachments[0].filename).toBe('receipt.pdf');expect(draft.attachments[0].storage_key).toBeUndefined();
+    expect((await as(admin.token,ctx.ws,path+'/attachments/'+file,{method:'DELETE'})).status).toBe(404);
+    expect((await as(agent.token,ctx.ws,path+'/attachments/'+file+'/content')).status).toBe(404);
+    const [{provision_brand:otherWs}]=await sql`select provision_brand(${'tc-files-'+RUN},${'tc-files-'+RUN})`;
+    ctx.otherWs=otherWs;
+    const [otherRole]=await sql`select id from roles where workspace_id=${otherWs} and is_admin=true limit 1`;
+    await sql`insert into workspace_members(workspace_id,user_id,role_id,active) values(${otherWs},${admin.userId},${otherRole.id},true)`;
+    expect((await as(admin.token,otherWs,path+'/attachments/'+file+'/content')).status).toBe(404);
+    expect((await as(admin.token,otherWs,path+'/drafts/reply')).status).toBe(404);
+    expect((await as(admin.token,ctx.ws,path+'/messages',{method:'POST',body:JSON.stringify({role:'note',body:'Cannot steal a file',attachment_ids:[otherFile]})})).status).toBe(400);
+    const {sweepUnclaimedAttachments}=await import('./lib/message-attachments.js');
+    const store={deleteKeys:async()=>{}} as any;
+    await sweepUnclaimedAttachments(24,{store});
+    expect((await sql`select id from ticket_attachments where id=${file}`).length).toBe(1);
+    const {env}=await import('./lib/env.js');
+    const saved={R2_ACCOUNT_ID:env.R2_ACCOUNT_ID,R2_ACCESS_KEY_ID:env.R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY:env.R2_SECRET_ACCESS_KEY,R2_ATTACHMENTS_BUCKET:env.R2_ATTACHMENTS_BUCKET};
+    Object.assign(env,{R2_ACCOUNT_ID:'test',R2_ACCESS_KEY_ID:'test',R2_SECRET_ACCESS_KEY:'test',R2_ATTACHMENTS_BUCKET:'test'});
+    try {
+      globalThis.fetch=(async()=>new Response('%PDF-1.7 sample')) as unknown as typeof fetch;
+      const preview=await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content');
+      expect(preview.status).toBe(200);expect(preview.headers.get('content-type')).toBe('application/pdf');
+      expect(preview.headers.get('cache-control')).toBe('no-store');expect(preview.headers.get('x-content-type-options')).toBe('nosniff');
+      expect(await preview.text()).toBe('%PDF-1.7 sample');
+      globalThis.fetch=(async()=>new Response('<script>bad()</script>',{headers:{'Content-Type':'application/pdf'}})) as unknown as typeof fetch;
+      const spoof=await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content');
+      expect(spoof.headers.get('content-type')).toBe('application/octet-stream');
+      globalThis.fetch=(async()=>new Response('missing',{status:404})) as unknown as typeof fetch;
+      expect((await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content')).status).toBe(502);
+      globalThis.fetch=(async()=>new Response('%PDF-1.7 sample')) as unknown as typeof fetch;
+      const savedFile=await as(agent.token,ctx.ws,path+'/drafts/reply',{method:'PUT',body:JSON.stringify({version:0,body:'Reply with file',recipients:null,review:null,attachment_ids:[otherFile]})});
+      expect(savedFile.status).toBe(200);
+      const sent=await as(agent.token,ctx.ws,path+'/messages',{method:'POST',body:JSON.stringify({role:'agent',body:'Reply with file',draft_version:1,attachment_ids:[otherFile]})});
+      expect(sent.status).toBe(201);
+      expect((await sent.json() as any).message.attachments[0].id).toBe(otherFile);
+      expect((await (await as(agent.token,ctx.ws,path+'/drafts/reply')).json() as any).draft.attachments).toEqual([]);
+      expect((await as(admin.token,ctx.ws,path+'/attachments/'+otherFile+'/content')).status).toBe(200);
+    } finally {Object.assign(env,saved);}
+    expect((await put(2,[])).status).toBe(200);
+    expect((await put(2,[file])).status).toBe(409);
+    await sweepUnclaimedAttachments(24,{store});
+    expect((await sql`select id from ticket_attachments where id=${file}`).length).toBe(0);
+    expect((await as(admin.token,ctx.ws,path+'/attachments/'+file+'/content')).status).toBe(404);
+    expect((await put(2,[file])).status).toBe(409);
   });
 
   it('honors an explicit assignee and does NOT run assignment rules over it', async () => {

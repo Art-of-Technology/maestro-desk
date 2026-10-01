@@ -55,18 +55,21 @@ test('save and exit stores reply HTML and notes separately, restores both, and s
     saveDraft: (id, text) => saveDraft(id, text, tab), queueSharedAiDraftSave() {},
     hideMentionDropdown() {}, updateMentionDropdown() {}, setComposing() {}, isComposerEmpty: () => false,
     renderPage: () => { exits++; }, showToast() {},
+    getWorkspaceId: () => 'workspace', getJwt: () => 'session', CURRENT_TICKET: 'TK-116',
+    flushPersonalDraft: async () => {}, draftSyncStatus: () => 'Synced', attachmentsUploading:()=>false,
   };
-  runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
+  await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
   tab = 'note'; context.COMPOSE_TAB = tab;
-  runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
+  await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
   expect(loadDraft('TK-116', 'reply')).toBe('<p>Unsent reply</p>');
   expect(loadDraft('TK-116', 'note')).toBe('Private note');
   expect(exits).toBe(2);
   failed = true;
-  runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
+  editor.value = 'Updated note';
+  await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
   expect(exits).toBe(2);
   failed = false; editor.dataset.rich = '1'; editor.querySelector = () => null;
-  runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
+  await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
   expect(exits).toBe(2);
   expect(loadDraft('TK-116', 'note')).toBe('Private note');
 });

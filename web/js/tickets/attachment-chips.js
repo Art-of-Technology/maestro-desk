@@ -1,5 +1,5 @@
 // ─── Attachment chips under a message ────────────────────────────────────────
-// One row of "open in a new tab" links per message. The href is the presigned
+// Preview controls for message attachments. The fallback href is the presigned
 // URL minted by the API (api/src/lib/message-attachments.ts) — the SPA's Bearer
 // token can't ride on a plain <a>/<img>, so the signed URL IS the credential.
 // It expires; re-opening the ticket mints a fresh one.
@@ -10,6 +10,8 @@
 // cross-origin hop anyway.
 //
 // External reaches (interim, via window): escAttr, escHtml — still in app.js.
+
+import './attachment-preview.js';
 
 export function fmtBytes(n) {
   if (n == null) return '';
@@ -26,7 +28,7 @@ const PAPERCLIP = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" a
  * way to open or save them.
  * @param {Array} attachments PublicAttachment[] from the API
  */
-export function renderAttachmentChips(attachments) {
+export function renderAttachmentChips(attachments, ticketUuid) {
   const list = attachments || [];
   if (!list.length) return '';
   const ordered = [...list].sort((a, b) => Number(a.is_inline) - Number(b.is_inline));
@@ -34,6 +36,8 @@ export function renderAttachmentChips(attachments) {
     const size = fmtBytes(a.size_bytes);
     const label = `${window.escHtml(a.filename)}${size ? ` <span class="att-size">${size}</span>` : ''}`;
     const inline = a.is_inline ? ' · shown above' : '';
+    if (ticketUuid) return `<button type="button" class="att-chip" data-action="att.preview" data-ticket-uuid="${window.escAttr(ticketUuid)}"
+      data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}" title="Preview ${window.escAttr(a.filename)}">${PAPERCLIP}${label}</button>`;
     if (!a.url) {
       return `<span class="att-chip att-chip-dead" title="File storage is not configured">${PAPERCLIP}${label}</span>`;
     }

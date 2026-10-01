@@ -81,7 +81,7 @@ export const GUIDE_STEPS = [
       'Automatic customer language detection uses the subject and latest customer message. Substantive body text takes precedence if they differ; you can choose a language manually.',
       'In the email composer, choose Reply for the sender or Reply all to include the other recipients. Choose From to send through a verified inbox, then check To and edit CC before sending. Your own inboxes and duplicate addresses are excluded.',
       'Open Change beside the reply language to check the customer language and the “Send replies in customer language” setting. If translation is enabled, the outgoing reply may differ from the wording in your editor.',
-      'Choose Save draft and exit below the editor to return to Tickets without sending. Drafts are saved in this browser separately for Reply and Internal note. Reopen the ticket and choose Reply or Internal note to continue. Do not assume an ordinary draft is available on another device.',
+      'Choose Save draft and exit below the editor to sync your draft and return to Tickets without sending. Reply and Internal note drafts are private to your account and workspace. Wait for Synced before continuing on another device. Saved locally means the draft is only in this browser until sync succeeds. If two devices have different edits, choose Review draft copies before continuing. Uploaded files sync with your reply draft. Wait for uploads and draft sync to finish before leaving. Select an attachment to preview images and PDFs here; other file types can be downloaded.',
     ],
   },
   {

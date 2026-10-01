@@ -50,12 +50,13 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
       latestCustomerText: () => ({ text: 'Hello' }), confirmIfOthersComposing: async () => true,
       setAiThinking() {}, prepareCustomerReply: async () => ({ translation: text }),
       replyWarnings: () => [], loadMessageReview: () => null, confirmedReplySuggestion: () => null,
-      pendingAttachmentIds: () => [], clearPendingAttachments() {}, parseMentions: () => [],
+      pendingAttachmentIds: () => [], renderPendingAttachments() {}, attachmentsUploading:()=>false, parseMentions: () => [],
       apiPost: async () => {
         if (scenario === 'failed') throw new Error('Offline');
         return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text } };
       },
       clearComposer() { text = ''; }, clearDraft() {}, onComposeInput() {},
+      prepareDraftSend: async () => ({ version: 1 }), finishDraftSend: () => true, refreshPersonalDraft: async () => {},
       openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, alert() {},
       changeTicketStatus: async (_id, value) => { status = value; },
     };

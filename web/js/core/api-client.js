@@ -76,7 +76,7 @@ export function setBrandId(id) {
  *   { workspace: false } — skip the X-Workspace-Id header (for /whoami + god routes)
  *   { brand: true }      — add the X-Brand-Id header (for Maestro player lookups)
  */
-export async function apiCall(path, { method = 'GET', body, auth = true, workspace = true, brand = false, form } = {}) {
+export async function apiCall(path, { method = 'GET', body, auth = true, workspace = true, brand = false, form, blob = false, signal } = {}) {
   // NOTE: `workspace: true` means "attach the X-Workspace-Id header IF one is
   // active", not "this endpoint requires a workspace" — plenty of default-
   // options callers (god panel, push settings, whoami-class endpoints) are
@@ -102,6 +102,7 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
+      signal,
       headers,
       body: form ?? (body == null ? undefined : JSON.stringify(body)),
     });
@@ -117,6 +118,7 @@ export async function apiCall(path, { method = 'GET', body, auth = true, workspa
       null,
     );
   }
+  if (res.ok && blob) return res.blob();
   const text = await res.text();
   let parsed;
   try { parsed = text ? JSON.parse(text) : null; }

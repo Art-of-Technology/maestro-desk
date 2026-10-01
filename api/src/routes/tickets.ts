@@ -1,4 +1,5 @@
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
+import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
@@ -30,7 +31,8 @@ import {
 } from '../lib/attachment-policy.js';
 import { extractDataImages, sanitizeEmailHtml } from '../lib/email-html.js';
 import { htmlToText } from '../lib/html-text.js';
-import { isAttachmentsStorageConfigured } from '../lib/r2.js';
+import { attachmentsStore, contentDispositionFor, isAttachmentsStorageConfigured } from '../lib/r2.js';
+import { sniffImageMime } from '../lib/image-sniff.js';
 import { drainObjectDeletions, enqueueObjectDeletions } from '../lib/object-outbox.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 
@@ -62,11 +64,13 @@ tickets.use('*', async (c, next) => {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
   if (c.res.status >= 300) return;
   // Draft autosaves are working-state churn, not ticket activity.
-  if (c.req.path.endsWith('/ai-draft')) return;
+  if (c.req.path.endsWith('/ai-draft') || /\/drafts\/(reply|note)$/.test(c.req.path)) return;
   const id = c.req.param('id');
   const workspaceId = c.get('workspaceId');
   if (id && workspaceId) void publishTicketChanged(workspaceId, id);
 });
+
+tickets.route('/', messageDrafts);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -653,6 +657,24 @@ tickets.post('/:id/attachments', async (c) => {
   return c.json({ attachment: stored.row }, 201);
 });
 
+// Authenticated content for in-ticket previews and downloads, including the owner's unsent files.
+tickets.get('/:id/attachments/:attId/content', async c => {
+  if (![c.req.param('id'),c.req.param('attId')].every(id=>z.string().uuid().safeParse(id).success)) return c.json({error:'Attachment not found'},404);
+  const [row] = await getDb()`select a.storage_key,a.filename,a.size_bytes from ticket_attachments a
+    join tickets t on t.id=a.ticket_id and t.workspace_id=a.workspace_id
+    where a.id=${c.req.param('attId')} and a.ticket_id=${c.req.param('id')} and a.workspace_id=${c.get('workspaceId')}
+      and t.deleted_at is null and (a.message_id is not null or a.uploaded_by_user_id=${c.get('userId')})`;
+  if (!row) return c.json({error:'Attachment not found'},404);
+  if (!isAttachmentsStorageConfigured()) return c.json({error:'Attachment storage is unavailable'},503);
+  if (Number(row.size_bytes)>20*1024*1024) return c.json({error:'This file is too large to preview'},413);
+  try {
+    const {bytes} = await attachmentsStore().getObject(row.storage_key);
+    const mime = sniffImageMime(bytes) || (new TextDecoder().decode(bytes.subarray(0,5))==='%PDF-' ? 'application/pdf' : 'application/octet-stream');
+    return new Response(bytes, {headers:{'Content-Type':mime,'Content-Disposition':contentDispositionFor('attachment',row.filename),
+      'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+  } catch { return c.json({error:'Could not load the file. Try again.'},502); }
+});
+
 // ─── DELETE /:id/attachments/:attId — drop an unsent upload ──────────────
 tickets.delete('/:id/attachments/:attId', async (c) => {
   const sql = getDb();
@@ -663,15 +685,19 @@ tickets.delete('/:id/attachments/:attId', async (c) => {
 
   // Only an UNSENT upload, only on this ticket, only the agent who uploaded it
   // — a file already attached to a message is part of the conversation record.
-  const [row] = await sql<{ storage_key: string }[]>`
-    delete from ticket_attachments
+  const row = await sql.begin(async tx => {
+    await tx`select id from tickets where id=${ticketId} and workspace_id=${workspaceId} for update`;
+    const [removed] = await tx<{ storage_key: string }[]>`delete from ticket_attachments
     where id = ${attId} and workspace_id = ${workspaceId} and ticket_id = ${ticketId}
       and message_id is null and uploaded_by_user_id = ${userId}
+      and not exists (select 1 from message_drafts d where d.attachment_ids @> array[ticket_attachments.id])
     returning storage_key
-  `;
+    `;
+    if(removed)await enqueueObjectDeletions(tx,[removed.storage_key],'orphan');
+    return removed;
+  });
   if (!row) return c.json({ error: 'Attachment not found' }, 404);
   try {
-    await enqueueObjectDeletions(sql, [row.storage_key], 'orphan');
     await drainObjectDeletions([row.storage_key]);
   } catch (err) {
     // The row is gone and the key is parked; the cron finishes the job.
@@ -741,6 +767,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
+  draft_version: z.number().int().min(0).max(2147483646).optional(),
   role:     z.enum(['agent', 'note']),
   email_recipients: EmailRecipients.optional(),
   // Plain-text body. Optional only when body_html is supplied (the text part
@@ -852,15 +879,21 @@ tickets.post('/:id/messages', async (c) => {
 
   // The message and the binding of its files are one unit: a bad attachment id
   // must not leave a reply quoting files it does not have.
-  let message;
+  let message, draftVersion: number | undefined;
   try {
     message = await sql.begin(async (tx) => {
+      if (input.draft_version !== undefined) {
+        const [active] = await tx`select id from tickets where id=${ticketId} and workspace_id=${workspaceId}
+          and deleted_at is null for update`;
+        if (!active) throw new DraftConflict('This ticket is no longer available.');
+        draftVersion = await consumeDraft(tx, workspaceId, userId, ticketId, input.role === 'note' ? 'note' : 'reply', input.draft_version, input.attachment_ids || []);
+      }
       const [row] = await tx<{ id: string; body_html: string | null; [key: string]: unknown }[]>`
         insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions, email_metadata)
         values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []}, ${input.role === 'agent' ? tx.json({ status: 'saved', from: '', to: [], cc: [] }) : null})
         returning id, role, author_user_id, author_label, body, body_html, mentions, created_at
       `;
-      await claimAttachments(tx, { workspaceId, ticketId, messageId: row.id, ids: claimIds });
+      await claimAttachments(tx, { workspaceId, ticketId, messageId: row.id, ids: claimIds, userId });
       if (input.internal_review) {
         await tx`insert into reply_internal_reviews(message_id, workspace_id, review)
           values (${row.id}, ${workspaceId}, ${tx.json(input.internal_review)})`;
@@ -868,6 +901,7 @@ tickets.post('/:id/messages', async (c) => {
       return { ...row, internal_review: input.internal_review || null };
     });
   } catch (err) {
+    if (err instanceof DraftConflict) return c.json({ error: err.message }, 409);
     if (err instanceof AttachmentClaimError) return c.json({ error: err.message }, 400);
     throw err;
   }
@@ -930,7 +964,7 @@ tickets.post('/:id/messages', async (c) => {
   const decorated = claimIds.length
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
-  return c.json({ message: decorated, delivery }, 201);
+  return c.json({ message: decorated, delivery, draft_version: draftVersion }, 201);
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
