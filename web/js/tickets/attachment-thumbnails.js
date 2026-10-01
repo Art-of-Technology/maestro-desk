@@ -30,8 +30,7 @@ async function loadThumbnail(target) {
   if (!file) {
     file = { controller: new AbortController(), url: null };
     files.set(id, file);
-    // ponytail: originals are fetched once per open ticket; add server resizing if large-image traffic warrants it.
-    file.ready = apiGet(`/api/v1/tickets/${encodeURIComponent(captured.ticket)}/attachments/${encodeURIComponent(id)}/content`,
+    file.ready = apiGet(`/api/v1/tickets/${encodeURIComponent(captured.ticket)}/attachments/${encodeURIComponent(id)}/content?thumbnail=1`,
       { blob: true, signal: file.controller.signal }).then(blob => {
       if (!scopeIsCurrent(captured) || !imageTypes.has(blob.type)) return null;
       file.url = URL.createObjectURL(blob);

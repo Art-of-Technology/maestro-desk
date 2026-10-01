@@ -62,7 +62,7 @@ test('thumbnails are lazy, share requests, reuse rendered files, and release the
     URL:{createObjectURL:()=>`blob:${++created}`,revokeObjectURL:url=>revoked.push(url)},
     document:{createElement:()=>({addEventListener(){}})},
     IntersectionObserver:class{constructor(fn){this.callback=fn;observer=this;}observe(){}unobserve(){}disconnect(){}},
-    apiGet:async(_path,options)=>{requests++;controllers.push(options.signal);if(release!==null)await new Promise(resolve=>{release=resolve;});return {type:'image/png'};},
+    apiGet:async(path,options)=>{expect(path).toEndWith('/content?thumbnail=1');requests++;controllers.push(options.signal);if(release!==null)await new Promise(resolve=>{release=resolve;});return {type:'image/webp'};},
   };
   const thumbnails=runInNewContext(thumbnailSource+'\n({mountAttachmentThumbnails,resetAttachmentThumbnails,attachmentBadge})',context);
   const settle=()=>new Promise(resolve=>setImmediate(resolve));
