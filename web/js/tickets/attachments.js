@@ -5,6 +5,7 @@ import { registerActions } from '../core/event-delegation.js';
 import { apiUpload, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
 import { fmtBytes } from './attachment-chips.js';
+import { attachmentBadge, mountAttachmentThumbnails } from './attachment-thumbnails.js';
 import { loadDraftAttachments, saveDraftAttachments, flushPersonalDraft, draftSending } from './drafts.js';
 
 const uploads = new Map();
@@ -20,8 +21,9 @@ export function renderPendingAttachments(id) {
   const hint=document.querySelector?.(`#ticket-page-${id} .composer-launch-hint`);
   if(hint)hint.textContent=attachmentsUploading(id)?'Uploading files…':list.length?`${list.length} ${list.length===1?'attachment':'attachments'} ready`:'';
   host.innerHTML=list.map(a=>`<span class="att-chip att-chip-pending">
-    <button type="button" class="att-preview-button" data-action="att.preview" data-ticket-uuid="${window.escAttr(uuid||'')}" data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}">${window.escHtml(a.filename)} <span class="att-size">${fmtBytes(a.size_bytes)}</span></button>
+    <button type="button" class="att-preview-button" data-action="att.preview" data-ticket-uuid="${window.escAttr(uuid||'')}" data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}">${attachmentBadge(a,uuid)}<span class="att-file-label">${window.escHtml(a.filename)} <span class="att-size">${fmtBytes(a.size_bytes)}</span></span></button>
     <button type="button" class="att-chip-x" title="Remove attachment" aria-label="Remove ${window.escAttr(a.filename)}" data-action="att.remove" data-id="${window.escAttr(id)}" data-att-id="${window.escAttr(a.id)}">×</button></span>`).join('');
+  mountAttachmentThumbnails(document.getElementById('ticket-page-'+id),uuid);
 }
 
 export async function uploadFiles(id,files) {

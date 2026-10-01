@@ -49,3 +49,51 @@ test('preview renders only supported content, revokes object URLs, and ignores l
   hold=new Promise(resolve=>{release=resolve;});const pending=preview({ticketUuid:'ticket',attId:'late'});
   const closed=dialog;closed.close();release();await pending;expect(closed.parts.a.hidden).toBe(true);
 });
+
+const thumbnailSource=readFileSync(new URL('../web/js/tickets/attachment-thumbnails.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/\bexport /g,'');
+test('thumbnails are lazy, share requests, reuse rendered files, and release them on scope changes',async()=>{
+  let observer,workspace='first',requests=0,created=0,release;
+  const revoked=[],events={},controllers=[];
+  const target=id=>({dataset:{imageThumb:id},isConnected:true,textContent:'IMG',replaceChildren(img){this.img=img;}});
+  const a=target('image'),b=target('image');let nodes=[a,b];
+  const root={querySelectorAll:()=>nodes};
+  const context={getWorkspaceId:()=>workspace,getJwt:()=>'session',AbortController,encodeURIComponent,
+    window:{escAttr:v=>v,escHtml:v=>v,addEventListener:(name,fn)=>{events[name]=fn;}},
+    URL:{createObjectURL:()=>`blob:${++created}`,revokeObjectURL:url=>revoked.push(url)},
+    document:{createElement:()=>({addEventListener(){}})},
+    IntersectionObserver:class{constructor(fn){this.callback=fn;observer=this;}observe(){}unobserve(){}disconnect(){}},
+    apiGet:async(_path,options)=>{requests++;controllers.push(options.signal);if(release!==null)await new Promise(resolve=>{release=resolve;});return {type:'image/png'};},
+  };
+  const thumbnails=runInNewContext(thumbnailSource+'\n({mountAttachmentThumbnails,resetAttachmentThumbnails,attachmentBadge})',context);
+  const settle=()=>new Promise(resolve=>setImmediate(resolve));
+  thumbnails.mountAttachmentThumbnails(root,'ticket');expect(requests).toBe(0);
+  observer.callback([{target:a,isIntersecting:false}]);expect(requests).toBe(0);
+  observer.callback([{target:a,isIntersecting:true},{target:b,isIntersecting:true}]);expect(requests).toBe(1);
+  release();await settle();expect(a.img.src).toBe('blob:1');expect(b.img.src).toBe('blob:1');
+  const redraw=target('image');nodes=[redraw];thumbnails.mountAttachmentThumbnails(root,'ticket');
+  observer.callback([{target:redraw,isIntersecting:true}]);await settle();expect(requests).toBe(1);expect(redraw.img.src).toBe('blob:1');
+  workspace='second';events['respovia:auth-scope-changed']();expect(revoked).toEqual(['blob:1']);expect(redraw.textContent).toBe('IMG');
+  thumbnails.mountAttachmentThumbnails(root,'ticket');observer.callback([{target:redraw,isIntersecting:true}]);
+  thumbnails.resetAttachmentThumbnails();expect(controllers.at(-1).aborted).toBe(true);release();await settle();expect(created).toBe(1);
+  expect(thumbnails.attachmentBadge({filename:'receipt.pdf',mime_type:'application/pdf'},'ticket')).toContain('>PDF</span>');
+});
+
+test('missing files and unsafe content retain a readable badge without breaking previews',async()=>{
+  let observer,fail=true;
+  const node={dataset:{imageThumb:'file'},isConnected:true,textContent:'IMG',replaceChildren(){throw Error('Unsafe image rendered');}};
+  const context={getWorkspaceId:()=>'workspace',getJwt:()=>'session',AbortController,encodeURIComponent,
+    window:{addEventListener(){},escAttr:v=>String(v).replaceAll('"','&quot;'),escHtml:v=>v},
+    URL:{createObjectURL(){throw Error('Unsafe blob URL');},revokeObjectURL(){}},document:{},
+    IntersectionObserver:class{constructor(fn){observer=fn;}observe(){}unobserve(){}disconnect(){}},
+    apiGet:async()=>{if(fail)throw Error('Not found');return {type:'text/html'};},
+  };
+  const thumbnails=runInNewContext(thumbnailSource+'\n({mountAttachmentThumbnails,resetAttachmentThumbnails,attachmentBadge})',context);
+  for (const ticket of ['first','second']) {
+    thumbnails.mountAttachmentThumbnails({querySelectorAll:()=>[node]},ticket);
+    observer([{target:node,isIntersecting:true}]);await new Promise(resolve=>setImmediate(resolve));
+    expect(node.textContent).toBe('IMG');expect(node.title).toContain('unavailable');fail=false;
+  }
+  expect(thumbnails.attachmentBadge({id:'" onclick="bad()',filename:'unsafe.svg',mime_type:'image/svg+xml'},'ticket')).not.toContain('data-image-thumb');
+  expect(thumbnails.attachmentBadge({id:'" onclick="bad()',filename:'image.png',mime_type:'image/png'},'ticket')).toContain('&quot;');
+  thumbnails.resetAttachmentThumbnails();
+});

@@ -277,7 +277,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .pending-att{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 6px}
 .pending-att:empty{display:none}
 .att-chip-pending{background:var(--off2);border-style:dashed}
-.att-chip-x{border:0;background:none;cursor:pointer;color:var(--ink3);font-size:14px;line-height:1;padding:0 0 0 2px}
+.att-chip-x{border:0;background:none;cursor:pointer;color:var(--ink3);font-size:14px;line-height:1;padding:0 0 0 2px;min-width:24px;min-height:24px;flex-shrink:0}
 .att-chip-x:hover{color:var(--ink)}
 .att-size{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)}
 .ai-mark{font-size:8px;padding:0 6px;border:1px solid var(--green);color:var(--green);border-radius:var(--r-pill);background:var(--green-lt)}
@@ -806,3 +806,8 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .att-preview-button{border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;overflow-wrap:anywhere}
 .att-preview-button:focus-visible,.attachment-preview .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(max-width:768px){.att-preview-button,.att-chip-pending .att-chip-x{min-height:44px}.att-chip-pending .att-chip-x{min-width:44px}}
+.att-file-badge{display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;overflow:hidden;border:1px solid var(--rule);border-radius:var(--r);background:var(--off);color:var(--ink2);font-size:10px;font-weight:600;letter-spacing:.3px}
+.att-file-badge img{display:block;width:40px;height:40px;object-fit:cover}
+.att-chip:has(.att-file-badge){gap:8px;padding:4px 8px;border-radius:var(--r)}
+.att-file-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-preview-button:has(.att-file-badge){display:inline-flex;align-items:center;gap:8px;min-width:0}
