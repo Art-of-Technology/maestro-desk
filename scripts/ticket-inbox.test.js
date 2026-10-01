@@ -6,6 +6,7 @@ const tickets = [], storage = new Map();
 globalThis.localStorage = { getItem: k => storage.get(k) || null, setItem: (k,v) => storage.set(k,v), removeItem: k => storage.delete(k) };
 const escape = s => String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 globalThis.window = { escHtml: escape, escAttr: escape };
+globalThis.document = { dispatchEvent() {} };
 mock.module('../web/js/core/data.js', () => ({ CHANNELS: channels, TICKETS: tickets }));
 mock.module('../web/js/core/state.js', () => ({ CURRENT_TICKET: 'TK-1', COMPOSE_TAB: 'reply', SESSION: {userId:'agent'} }));
 mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace, getJwt: () => 'session',

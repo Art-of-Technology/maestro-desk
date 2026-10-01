@@ -56,6 +56,7 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
         return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text } };
       },
       clearComposer() { text = ''; }, clearDraft() {}, onComposeInput() {},
+      prepareDraftSend: async () => ({ version: 1 }), finishDraftSend: () => true, refreshPersonalDraft: async () => {},
       openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, alert() {},
       changeTicketStatus: async (_id, value) => { status = value; },
     };

@@ -118,6 +118,52 @@ runDbTests('ticket create (DB-backed)', () => {
     expect(row.subject).toBe('Account question');
   });
 
+  it('syncs private drafts with version conflicts, validation, and atomic clearing on send', async () => {
+    const created = await create({ subject: 'Draft sync', customer_id: ctx.custId });
+    const { ticket } = await created.json() as any;
+    const path = `/api/v1/tickets/${ticket.id}`;
+    const draftPath = path + '/drafts/reply';
+    const put = (body: Record<string, unknown>, token = admin.token, ws = ctx.ws) => as(token, ws, draftPath, {
+      method: 'PUT', body: JSON.stringify(body),
+    });
+    const payload = { version: 0, body: '<p>Hello <strong>there</strong><script>alert(1)</script></p>',
+      recipients: { mode: 'reply', to: ['customer@example.test'], cc: 'cc@example.test' }, review: null };
+    const first = await put(payload);
+    expect(first.status).toBe(200);
+    const { draft } = await first.json() as any;
+    expect(draft.version).toBe(1);
+    expect(draft.body).toContain('<strong>there</strong>');
+    expect(draft.body).not.toContain('<script');
+    expect(draft.recipients.cc).toBe('cc@example.test');
+    expect(((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft.body).toBe(draft.body);
+    expect(((await (await as(agent.token,ctx.ws,draftPath)).json()) as any).draft.body).toBe('');
+    expect((await put(payload)).status).toBe(409);
+    expect((await put({ ...payload, version: 1, body: 'x'.repeat(2000001) })).status).toBe(400);
+    expect((await put({ ...payload, version: 1 }, admin.token, '00000000-0000-0000-0000-000000000001')).status).not.toBe(200);
+    const otherTicket = await create({ subject: 'Other', customer_id: ctx.custId });
+    const { ticket: other } = await otherTicket.json() as any;
+    const notePath = path + '/drafts/note';
+    expect((await as(admin.token,ctx.ws,notePath,{ method:'PUT', body:JSON.stringify({version:0,body:'Private note',recipients:null,review:null}) })).status).toBe(200);
+    const send = (version: number, attachment_ids?: string[]) => as(admin.token,ctx.ws,path+'/messages',{
+      method:'POST',body:JSON.stringify({role:'agent',body:'Hello there',draft_version:version,attachment_ids}),
+    });
+    expect((await send(0)).status).toBe(409);
+    expect((await send(1, [other.id])).status).toBe(400);
+    expect(((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft.version).toBe(1);
+    const sent = await send(1);
+    expect(sent.status).toBe(201);
+    expect(((await sent.json()) as any).draft_version).toBe(2);
+    const cleared = ((await (await as(admin.token,ctx.ws,draftPath)).json()) as any).draft;
+    expect(cleared.body).toBe(''); expect(cleared.recipients).toBeNull();
+    expect((await put({ ...payload, version:1 })).status).toBe(409);
+    expect((await send(1)).status).toBe(409);
+    const [{ count }] = await sql`select count(*)::int as count from ticket_messages where ticket_id=${ticket.id}`;
+    expect(count).toBe(1);
+    expect(((await (await as(admin.token,ctx.ws,notePath)).json()) as any).draft.body).toBe('Private note');
+    expect((await put({version:2,body:'',recipients:null,review:null})).status).toBe(200);
+    expect((await put({ ...payload, version:2 })).status).toBe(409);
+  });
+
   it('honors an explicit assignee and does NOT run assignment rules over it', async () => {
     // A rule that would grab everything for the admin — the explicit pick
     // must still win because the engine is skipped.

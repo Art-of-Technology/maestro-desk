@@ -406,6 +406,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .composer-actions{flex-wrap:wrap}
 .composer-insert .ticket-popover-panel{top:auto;bottom:calc(100% + 6px);right:auto;left:0}
 .ticket-page .comp-meta{flex-shrink:0}
+.ticket-page .comp-meta [hidden]{display:none}
 .ticket-page[data-compose-mode="expanded"] .composer{height:72%;max-height:72%}
 .ticket-page[data-compose-mode="expanded"] .composer-body{flex:1}
 .ticket-page[data-compose-mode="expanded"] .compose-area{height:auto;max-height:none;flex:1}

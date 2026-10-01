@@ -58,7 +58,9 @@ import {
 import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
 import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
-  hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave } from './drafts.js';
+  hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave,
+  refreshPersonalDraft, flushPersonalDraft, draftSyncStatus, draftHasConflict, personalDraftReady,
+  conflictingDraft, resolvePersonalDraft, prepareDraftSend, finishDraftSend, draftSnapshot, retryPersonalDrafts } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
 import { showMacroPanel, showApplyMacroModal } from './macros.js';
@@ -153,6 +155,7 @@ export function refreshTicketCustomer(cust) {
 }
 
 export function openTicket(id) {
+  const entering = CURRENT_TICKET !== id;
   const focusedLanguageAction = document.activeElement?.closest?.('.ticket-language-toggle')
     ? document.activeElement.dataset.action : null;
   const layout = captureTicketLayout(id);
@@ -177,7 +180,7 @@ export function openTicket(id) {
       if (CURRENT_TICKET === id) openTicket(id);
     }).catch(err => console.warn('[ticket-detail] load failed:', err));
   }
-  if(COMPOSE_TAB==='reply'&&t.aiDraft)hydrateSharedAiDraft(id,t.aiDraft);
+  if(COMPOSE_TAB==='reply'&&t.aiDraft&&personalDraftReady(id,'reply'))hydrateSharedAiDraft(id,t.aiDraft);
   // Real-time presence — heartbeat starts on first open and re-paints
   // chips on every re-render. No-ops for demo personas (no _uuid) so
   // the localStorage-only flow stays untouched.
@@ -615,12 +618,14 @@ export function openTicket(id) {
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
               <div id="reply-review-${id}" class="reply-review-panel" role="status" aria-live="polite">${renderReplyReview(id)}</div>
               <div class="comp-meta">
-                <span id="draft-status-${id}">${loadDraft(id) ? 'Draft restored' : ''}</span>
+                <span id="draft-status-${id}" role="status">${window.escHtml(draftSyncStatus(id))}</span>
+                <button type="button" class="btn btn-sm" id="draft-conflict-${id}" data-action="td.resolveDraft" data-ticket-id="${window.escAttr(id)}" ${draftHasConflict(id) ? '' : 'hidden'}>Review draft copies</button>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
               </div>
             </div>
               <div class="composer-foot">
-                <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}" title="Keeps your unsent message in this browser">Save draft and exit</button>
+                <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
+                <span style="font-size:11px;color:var(--ink3)">Attached files stay on this device.</span>
                 <div class="composer-actions">
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <details class="ticket-popover composer-insert">
@@ -734,6 +739,11 @@ export function openTicket(id) {
     </div>`;
   syncTicketLayout(id);
   syncRoute('tickets', id);
+  if (entering) {
+    Promise.all(['reply','note'].map(tab => refreshPersonalDraft(id, tab))).then(() => {
+      if (CURRENT_TICKET === id) openTicket(id);
+    });
+  }
 
   // Show the most recent reply on open: scroll to the bottom, unless we're
   // restoring a scrolled-up reader's position from an in-place re-render.
@@ -1079,15 +1089,37 @@ function editTicketSubject(id) {
   document.getElementById('edit-ticket-subject')?.focus();
 }
 
-function saveDraftAndExit(id) {
+async function saveDraftAndExit(id) {
   const editor = document.getElementById('compose-' + id);
   if (!editor || (editor.dataset.rich === '1' && !editor.querySelector('.ql-editor'))) {
     showToast('The editor is still loading. Try again in a moment.', 'warn');
     return;
   }
-  try { onComposeInput(id); }
-  catch { showToast('Could not save your draft. Keep this ticket open and try again.', 'error'); return; }
-  renderPage('tickets');
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  try {
+    onComposeInput(id);
+    await Promise.all(['reply','note'].map(tab => flushPersonalDraft(id, tab)));
+  } catch { showToast('Your draft has not synced. Keep this ticket open and check the draft status.', 'error'); return; }
+  if (workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id) renderPage('tickets');
+}
+
+function showDraftConflict(id) {
+  const tab = COMPOSE_TAB, remote = conflictingDraft(id, tab);
+  if (!remote) return;
+  const text = value => window.escHtml(tab === 'reply' ? new DOMParser().parseFromString(value, 'text/html').body.textContent : value);
+  const recipients = value => value ? `<p>To: ${window.escHtml(value.to.join(', '))}<br>CC: ${window.escHtml(value.cc || 'None')}<br>From: ${window.escHtml(value.sending_address || 'Workspace default')}</p>` : '';
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  showModal('Choose a draft', `<p>This ticket has different drafts on two devices. Compare both copies before choosing.</p>
+    <label class="form-label" for="draft-copy-local">This device</label><textarea id="draft-copy-local" class="form-input" readonly>${text(loadDraft(id,tab))}</textarea>
+    ${recipients(draftSnapshot(id,tab).recipients)}
+    <label class="form-label" for="draft-copy-remote">Synced copy</label><textarea id="draft-copy-remote" class="form-input" readonly>${text(remote.body)}</textarea>
+    ${remote.body ? '' : '<p>The synced copy is empty. It may have been sent or cleared on another device.</p>'}
+    ${recipients(remote.recipients)}
+    <button type="button" class="btn" data-action="td.useSyncedDraft" data-ticket-id="${window.escAttr(id)}" data-tab="${tab}" data-workspace="${window.escAttr(workspace)}" data-user="${window.escAttr(SESSION.userId)}">Use synced copy</button>`, async () => {
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      try { await resolvePersonalDraft(id, tab, true); closeModal(); }
+      catch (error) { showToast(error.message, 'error'); }
+    }, 'Keep this device’s copy');
 }
 
 function editTicketNote(ds) {
@@ -1127,7 +1159,7 @@ export function onComposeInput(id) {
   const cc = document.getElementById('char-count-' + id);
   if (cc) cc.textContent = `${text.length} chars`;
   const ds = document.getElementById('draft-status-' + id);
-  if (ds) ds.textContent = text.length ? 'Draft saved' : '';
+  if (ds) ds.textContent = draftSyncStatus(id);
   if (COMPOSE_TAB === 'note') updateMentionDropdown(id, el);
   else hideMentionDropdown();
   // Broadcast composing presence: empty box = not composing, anything
@@ -1269,6 +1301,7 @@ async function sendComposeOnce(id) {
     if (!stillCurrent()) return false;
   }
   const mentions = isNote ? parseMentions(outgoing) : null;
+  let clearSentDraft = true;
 
   // API-backed path. The server stamps the canonical author_label + ts;
   // we use its response so the row in t.msgs matches what /tickets/:id
@@ -1276,11 +1309,15 @@ async function sendComposeOnce(id) {
   // translatedTo) is purely client-side display state — not persisted
   // server-side yet, so it lives only on the local entry.
   if (t._uuid) {
-    let message, delivery;
+    let message, delivery, sentDraft;
     const html = isNote ? null : outgoingHtml;
     const attachmentIds = isNote ? [] : pendingAttachmentIds(id);
     try {
+      onComposeInput(id);
+      sentDraft = await prepareDraftSend(id, tab);
+      if (!stillCurrent()) { finishDraftSend(id, tab, sentDraft); return false; }
       const res = await apiPost(`/api/v1/tickets/${t._uuid}/messages`, {
+        draft_version: sentDraft.version,
         role: isNote ? 'note' : 'agent',
         email_recipients: recipients,
         body: outgoing,
@@ -1292,7 +1329,15 @@ async function sendComposeOnce(id) {
       });
       message = res.message;
       delivery = res.delivery;
+      try { clearSentDraft = finishDraftSend(id, tab, sentDraft, res.draft_version); }
+      catch {
+        clearSentDraft = false;
+        showToast('Message saved. The local draft cache could not be updated. Reopen the ticket before continuing.', 'error');
+      }
+      if (scope !== getWorkspaceId() || jwt !== getJwt()) return true;
     } catch (err) {
+      if (sentDraft) { try { finishDraftSend(id, tab, sentDraft); } catch { /* Preserve the original send error. */ } }
+      void refreshPersonalDraft(id, tab);
       alert(`Couldn't send: ${err?.message || err}`);
       return false;
     }
@@ -1329,12 +1374,13 @@ async function sendComposeOnce(id) {
       ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
     });
   }
-  clearComposer(id);
-  clearDraft(id);
-  onComposeInput(id);
+  if (clearSentDraft) {
+    if (!t._uuid) clearDraft(id, tab);
+    if (CURRENT_TICKET === id && COMPOSE_TAB === tab) clearComposer(id);
+  }
   if (CURRENT_TICKET === id) {
     openTicket(id);
-    if (!isNote) setComposerMode(id, 'read', true);
+    if (!isNote && clearSentDraft) setComposerMode(id, 'read', true);
   }
   return true;
 }
@@ -1419,6 +1465,12 @@ registerActions({
   'td.openTicketsList':() => renderPage('tickets'),
   'td.editSubject': (ds) => editTicketSubject(ds.ticketId),
   'td.saveDraftAndExit': (ds) => saveDraftAndExit(ds.ticketId),
+  'td.resolveDraft': (ds) => showDraftConflict(ds.ticketId),
+  'td.useSyncedDraft': async (ds) => {
+    if (ds.workspace !== getWorkspaceId() || ds.user !== SESSION.userId) return;
+    try { await resolvePersonalDraft(ds.ticketId, ds.tab, false); closeModal(); }
+    catch (error) { showToast(error.message, 'error'); }
+  },
   'td.prev':           () => prevNextTicket(-1),
   'td.next':           () => prevNextTicket(1),
   'td.macroModal':     (ds) => showApplyMacroModal(ds.ticketId),
@@ -1522,4 +1574,19 @@ document.addEventListener('focusout', e => {
     // hides. Matches the original inline `onblur="setTimeout(hide, 150)"`.
     setTimeout(hideMentionDropdown, 150);
   }
+});
+
+document.addEventListener('draft:status', ({ detail }) => {
+  if (CURRENT_TICKET !== detail.id || COMPOSE_TAB !== detail.tab) return;
+  const label = document.getElementById('draft-status-' + detail.id);
+  if (label) label.textContent = draftSyncStatus(detail.id, detail.tab);
+  const button = document.getElementById('draft-conflict-' + detail.id);
+  if (button) button.hidden = !draftHasConflict(detail.id, detail.tab);
+});
+document.addEventListener('draft:restored', ({ detail }) => {
+  if (CURRENT_TICKET === detail.id) openTicket(detail.id);
+});
+for (const event of ['online', 'focus']) window.addEventListener(event, () => {
+  retryPersonalDrafts();
+  if (CURRENT_TICKET) for (const tab of ['reply','note']) void refreshPersonalDraft(CURRENT_TICKET, tab);
 });

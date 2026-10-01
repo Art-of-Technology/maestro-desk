@@ -1,4 +1,5 @@
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
+import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
@@ -62,11 +63,13 @@ tickets.use('*', async (c, next) => {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
   if (c.res.status >= 300) return;
   // Draft autosaves are working-state churn, not ticket activity.
-  if (c.req.path.endsWith('/ai-draft')) return;
+  if (c.req.path.endsWith('/ai-draft') || /\/drafts\/(reply|note)$/.test(c.req.path)) return;
   const id = c.req.param('id');
   const workspaceId = c.get('workspaceId');
   if (id && workspaceId) void publishTicketChanged(workspaceId, id);
 });
+
+tickets.route('/', messageDrafts);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -741,6 +744,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
+  draft_version: z.number().int().min(0).max(2147483646).optional(),
   role:     z.enum(['agent', 'note']),
   email_recipients: EmailRecipients.optional(),
   // Plain-text body. Optional only when body_html is supplied (the text part
@@ -852,9 +856,15 @@ tickets.post('/:id/messages', async (c) => {
 
   // The message and the binding of its files are one unit: a bad attachment id
   // must not leave a reply quoting files it does not have.
-  let message;
+  let message, draftVersion: number | undefined;
   try {
     message = await sql.begin(async (tx) => {
+      if (input.draft_version !== undefined) {
+        const [active] = await tx`select id from tickets where id=${ticketId} and workspace_id=${workspaceId}
+          and deleted_at is null for update`;
+        if (!active) throw new DraftConflict('This ticket is no longer available.');
+        draftVersion = await consumeDraft(tx, workspaceId, userId, ticketId, input.role === 'note' ? 'note' : 'reply', input.draft_version);
+      }
       const [row] = await tx<{ id: string; body_html: string | null; [key: string]: unknown }[]>`
         insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions, email_metadata)
         values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []}, ${input.role === 'agent' ? tx.json({ status: 'saved', from: '', to: [], cc: [] }) : null})
@@ -868,6 +878,7 @@ tickets.post('/:id/messages', async (c) => {
       return { ...row, internal_review: input.internal_review || null };
     });
   } catch (err) {
+    if (err instanceof DraftConflict) return c.json({ error: err.message }, 409);
     if (err instanceof AttachmentClaimError) return c.json({ error: err.message }, 400);
     throw err;
   }
@@ -930,7 +941,7 @@ tickets.post('/:id/messages', async (c) => {
   const decorated = claimIds.length
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
-  return c.json({ message: decorated, delivery }, 201);
+  return c.json({ message: decorated, delivery, draft_version: draftVersion }, 201);
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
