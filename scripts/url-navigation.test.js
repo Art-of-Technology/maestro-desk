@@ -186,11 +186,13 @@ describe('URL navigation', () => {
     state.setSession({ role: 'Admin', userId: 'another-user' });
     expect(drafts.loadDraft('TK-55', 'reply')).toBe('');
     state.setSession({ role: 'Admin', userId: 'test' });
-    expect(drafts.loadDraft('TK-55', 'reply')).toBe('Workspace A reply');
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe(''); // Not restored before ticket access is verified.
+    expect(localStorage.getItem(`draft:v2:${ws}:test:TK-55:reply`)).toBe('Workspace A reply');
     drafts.clearAllDrafts('TK-55');
     expect(drafts.loadDraft('TK-55', 'note')).toBe('');
     workspaceId = otherWs;
-    expect(drafts.loadDraft('TK-55', 'reply')).toBe('Workspace B reply');
+    expect(drafts.loadDraft('TK-55', 'reply')).toBe('');
+    expect(localStorage.getItem(`draft:v2:${otherWs}:test:TK-55:reply`)).toBe('Workspace B reply');
   });
 
   it('does not guess the ownership of legacy unscoped drafts', () => {

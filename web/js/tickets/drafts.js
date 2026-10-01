@@ -21,50 +21,72 @@ function getDraftPrefix(id) {
   return `draft:v2:${getWorkspaceId() || 'demo'}:${SESSION?.userId || 'demo'}:${id}:`;
 }
 function getDraftKey(id, tab = COMPOSE_TAB) { return getDraftPrefix(id) + tab; }
+const unavailable = new Set();
+let revokedJwt;
+let closed = false;
+const deviceId = Math.random().toString(36).slice(2);
+let revision = 0;
+function cacheAllowed(id) {
+  const jwt=api.getJwt?.();
+  return (!closed || (SESSION?.userId && jwt && jwt!==revokedJwt)) &&
+    !unavailable.has(getDraftPrefix(id)) && (!SESSION?.userId || (jwt && jwt !== revokedJwt));
+}
+function visible(s, field) { return s.loaded || s.edited?.[field]; }
 
-export function loadDraft(id, tab) { return personalState(id,tab)?.local.body ?? (localStorage.getItem(getDraftKey(id,tab)) || ''); }
+export function loadDraft(id, tab) {
+  if (!cacheAllowed(id)) return '';
+  const s=personalState(id,tab);
+  return s ? (visible(s,'body') ? s.local.body : '') : SESSION?.userId ? '' : (localStorage.getItem(getDraftKey(id,tab)) || '');
+}
 
 export function saveDraft(id, value, tab) {
+  if (!cacheAllowed(id)) return;
   const key = getDraftKey(id, tab);
   const s = personalState(id,tab);
   if (loadDraft(id,tab) === (value || '')) return;
   if (value && value.length) localStorage.setItem(key, value);
   else localStorage.removeItem(key);
-  if (s) s.local.body = value || '';
+  if (s) { s.local.body = value || ''; (s.edited||={}).body=true; }
   queuePersonalDraft(id, tab);
 }
 
 export function clearDraft(id, tab) {
+  if (!cacheAllowed(id)) return;
   const s = personalState(id,tab);
   if ((tab || COMPOSE_TAB) === 'reply') cancelSharedSave(id);
   localStorage.removeItem(getDraftKey(id, tab));
   localStorage.removeItem(getDraftKey(id, tab) + ':ai-review');
   localStorage.removeItem(getDraftKey(id, tab) + ':email-recipients');
   localStorage.removeItem(getDraftKey(id, tab) + ':attachments');
-  if (s) s.local = {body:'',recipients:null,review:null,attachments:[]};
+  if (s) {s.local = {body:'',recipients:null,review:null,attachments:[]};s.edited={body:true,recipients:true,review:true,attachments:true};}
   queuePersonalDraft(id, tab);
 }
 
 export function loadDraftRecipients(id) {
+  if (!cacheAllowed(id)) return null;
   const s = personalState(id,'reply');
-  if (s) return s.local.recipients;
+  if (s) return visible(s,'recipients') ? s.local.recipients : null;
+  if (SESSION?.userId) return null;
   try {
     const value = JSON.parse(localStorage.getItem(getDraftKey(id, 'reply') + ':email-recipients') || 'null');
     return value && ['reply', 'reply_all'].includes(value.mode) && Array.isArray(value.to) && typeof value.cc === 'string' ? value : null;
   } catch { return null; }
 }
 export function saveDraftRecipients(id, value) {
+  if (!cacheAllowed(id)) return;
   const s = personalState(id,'reply');
   const key = getDraftKey(id, 'reply') + ':email-recipients', json = JSON.stringify(value);
   if (JSON.stringify(loadDraftRecipients(id)) === json) return;
   localStorage.setItem(key, json);
-  if (s) s.local.recipients = value;
+  if (s) { s.local.recipients = value; (s.edited||={}).recipients=true; }
   queuePersonalDraft(id, 'reply');
 }
 
 export function loadDraftReview(id, tab) {
+  if (!cacheAllowed(id)) return null;
   const s = personalState(id,tab);
-  if (s) return s.local.review;
+  if (s) return visible(s,'review') ? s.local.review : null;
+  if (SESSION?.userId) return null;
   try {
     const value = JSON.parse(localStorage.getItem(getDraftKey(id, tab) + ':ai-review') || 'null');
     return value && Array.isArray(value.references) && Array.isArray(value.notes) ? value : null;
@@ -72,12 +94,13 @@ export function loadDraftReview(id, tab) {
 }
 
 export function saveDraftReview(id, value, tab) {
+  if (!cacheAllowed(id)) return;
   try {
     const s = personalState(id,tab);
     const key = getDraftKey(id, tab) + ':ai-review', json = JSON.stringify(value);
     if (JSON.stringify(loadDraftReview(id,tab)) === json) return;
     localStorage.setItem(key, json);
-    if (s) s.local.review = value;
+    if (s) { s.local.review = value; (s.edited||={}).review=true; }
     queuePersonalDraft(id, tab);
   } catch { /* The panel still shows for this render. */ }
 }
@@ -132,26 +155,30 @@ function cancelSharedSave(id) {
 }
 
 export function loadDraftAttachments(id) {
+  if (!cacheAllowed(id)) return [];
   const s = personalState(id,'reply');
-  if (s) return s.local.attachments;
+  if (s) return visible(s,'attachments') ? s.local.attachments : [];
+  if (SESSION?.userId) return [];
   try { const files=JSON.parse(localStorage.getItem(getDraftKey(id,'reply')+':attachments')); return Array.isArray(files)?files:[]; }
   catch { return []; }
 }
 export function saveDraftAttachments(id, files) {
+  if (!cacheAllowed(id)) return;
   const s=personalState(id,'reply');
   if (s?.sending) throw Error('Wait for the reply to finish sending before changing attachments.');
   if (sameDraft(loadDraftAttachments(id),files)) return;
   localStorage.setItem(getDraftKey(id,'reply')+':attachments',JSON.stringify(files));
-  if(s)s.local.attachments=files;
+  if(s){s.local.attachments=files;(s.edited||={}).attachments=true;}
   queuePersonalDraft(id,'reply');
 }
 export function draftSending(id) { return !!personalState(id,'reply')?.sending; }
 export function queueSharedAiDraftSave(id,ticketUuid,body,bodyHtml) {
+  if (!cacheAllowed(id)) return;
   const review=loadDraftReview(id,'reply');
   if(!ticketUuid||!review?.suggestionId||review.rejected||review.sharedAvailable)return;
   const key=getDraftKey(id,'reply');
   if(sharedSaves.get(key)?.jwt!==api.getJwt?.())cancelSharedSave(id);
-  const state=sharedSaves.get(key)||{key,jwt:api.getJwt?.()};
+  const state=sharedSaves.get(key)||{id,key,jwt:api.getJwt?.()};
   state.latest={body,body_html:bodyHtml,version:review.sharedVersion||0,suggestion_id:review.suggestionId};
   clearTimeout(state.timer);state.timer=setTimeout(()=>flushSharedAiDraft(id,ticketUuid,state),700);sharedSaves.set(key,state);
 }
@@ -197,23 +224,40 @@ function syncMeta(id, tab) {
   try { return JSON.parse(localStorage.getItem(getDraftKey(id, tab) + ':sync')) || { version: 0, dirty: false }; }
   catch { return { version: 0, dirty: true }; }
 }
-function setSyncMeta(s, value) { localStorage.setItem(s.key + ':sync', JSON.stringify(value)); s.meta = value; s.legacy = false; }
+function setSyncMeta(s, value) {
+  if (!current(s)) return;
+  const cachedRevision=localStorage.getItem(s.key+':revision');
+  if(!cachedRevision||cachedRevision===s.revision)localStorage.setItem(s.key + ':sync', JSON.stringify(value));
+  // Separate dirty markers keep another tab's successful save from hiding our unsaved edits.
+  if (value.dirty) localStorage.setItem(s.key + ':dirty:' + deviceId,s.revision);
+  else {
+    // A reloaded tab can finish saving the exact cached revision left by its predecessor.
+    for(let i=localStorage.length-1;i>=0;i--){
+      const key=localStorage.key(i);
+      if(key?.startsWith(s.key+':dirty:')&&localStorage.getItem(key)===s.revision)localStorage.removeItem(key);
+    }
+  }
+  s.meta = value; s.legacy = false;
+}
 export function draftSnapshot(id, tab = COMPOSE_TAB) {
+  const s=personalState(id,tab);
+  if (s) return {...s.local};
   return { body: loadDraft(id, tab), recipients: tab === 'reply' ? loadDraftRecipients(id) : null,
     review: tab === 'reply' ? loadDraftReview(id, tab) : null, attachments: tab === 'reply' ? loadDraftAttachments(id) : [] };
 }
 const sameDraft = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function personalState(id, tab = COMPOSE_TAB) {
+  if (!cacheAllowed(id)) return null;
   const ticket = TICKETS.find(t => t.id === id);
   if (!ticket?._uuid || !SESSION?.userId || !api.getJwt?.()) return null;
   const key = getDraftKey(id, tab), jwt = api.getJwt();
   let s = personalSaves.get(key);
-  if (!s || s.jwt !== jwt) {
+  if (!s || s.cancelled || s.jwt !== jwt) {
     if (s) { clearTimeout(s.timer); s.cancelled = true; }
     const json = suffix => { try { return JSON.parse(localStorage.getItem(key+suffix)); } catch { return null; } };
     const recipients = json(':email-recipients'), review = json(':ai-review');
     // Each open tab keeps its own copy/version; another tab's cache writes cannot rebase an edit silently.
-    s = { id, tab, key, jwt, uuid: ticket._uuid, workspace: getWorkspaceId(), status: '', loaded: false,
+    s = { id, tab, key, jwt, revision:localStorage.getItem(key+':revision')||deviceId+':'+(++revision), uuid: ticket._uuid, workspace: getWorkspaceId(), status: '', loaded: false,
       local: {body:localStorage.getItem(key)||'',
         recipients:tab==='reply' && recipients && ['reply','reply_all'].includes(recipients.mode) && Array.isArray(recipients.to) && typeof recipients.cc==='string' ? recipients : null,
         review:tab==='reply' && review && Array.isArray(review.references) && Array.isArray(review.notes) ? review : null,
@@ -223,18 +267,23 @@ function personalState(id, tab = COMPOSE_TAB) {
   }
   return s;
 }
-function current(s) { return !s.cancelled && s.key === getDraftKey(s.id, s.tab) && s.jwt === api.getJwt() && s.workspace === getWorkspaceId(); }
+function current(s) { return cacheAllowed(s.id) && !s.cancelled && s.key === getDraftKey(s.id, s.tab) && s.jwt === api.getJwt() && s.workspace === getWorkspaceId(); }
 function status(s, text) {
   if (!current(s)) return;
   s.status = text;
   document.dispatchEvent(new CustomEvent('draft:status', { detail: { id: s.id, tab: s.tab } }));
 }
 export function draftSyncStatus(id, tab = COMPOSE_TAB) {
+  if(!cacheAllowed(id))return 'Draft unavailable. This ticket may have been erased or your access changed.';
   const s = personalState(id, tab);
   return s?.status || (s ? (syncMeta(id, tab).dirty ? 'Saved locally; sync pending' : 'Checking saved draft…') : (loadDraft(id, tab) ? 'Saved locally' : ''));
 }
 export function draftHasConflict(id, tab = COMPOSE_TAB) { return !!personalState(id, tab)?.conflict; }
-export function personalDraftReady(id, tab = COMPOSE_TAB) { const s = personalState(id, tab); return !s || s.loaded; }
+export function personalDraftEditable(id, tab = COMPOSE_TAB) {
+  const s=personalState(id,tab);
+  return cacheAllowed(id)&&(!s||s.loaded||s.offlineEditable);
+}
+export function personalDraftReady(id, tab = COMPOSE_TAB) { const s = personalState(id, tab); return cacheAllowed(id) && (!s || s.loaded); }
 function applyRemote(s, remote) {
   const before = draftSnapshot(s.id, s.tab);
   if (s.tab === 'reply') cancelSharedSave(s.id);
@@ -245,13 +294,30 @@ function applyRemote(s, remote) {
   }
   s.local = {body:remote.body,recipients:remote.recipients,review:remote.review,attachments:remote.attachments||[]};
   s.legacy = false;
+  localStorage.setItem(s.key+':revision',s.revision);
   setSyncMeta(s, { version: remote.version, dirty: false });
   s.conflict = null;
   return !sameDraft(before, draftSnapshot(s.id, s.tab));
 }
 async function readRemote(s) {
-  const { draft } = await api.apiGet(`/api/v1/tickets/${s.uuid}/drafts/${s.tab}`);
+  let draft;
+  try { ({draft}=await api.apiGet(`/api/v1/tickets/${s.uuid}/drafts/${s.tab}`)); }
+  catch(error) {
+    if (current(s)) {
+      if ([401,403,404,410].includes(error?.status)) invalidateDraftTicket(s.id);
+      else if (!s.loaded && !s.offlineEditable) {
+        // Allow a new offline draft, but never invite overwriting hidden cached work.
+        const local=s.local;
+        if(!local.body&&!local.recipients&&!local.review&&!local.attachments.length){
+          s.offlineEditable=true;
+          document.dispatchEvent(new CustomEvent('draft:restored',{detail:{id:s.id,tab:s.tab}}));
+        }
+      }
+    }
+    throw error;
+  }
   if (!current(s)) throw Error('Workspace changed');
+  const wasLoaded=s.loaded;let changed=false;
   const meta = syncMeta(s.id, s.tab), local = draftSnapshot(s.id, s.tab);
   // Adopt old browser-only drafts only when no server version has ever existed.
   const legacy = s.legacy && !!(local.body || local.recipients || local.review || local.attachments.length);
@@ -261,11 +327,11 @@ async function readRemote(s) {
   } else if (meta.dirty || legacy) {
     setSyncMeta(s, { version: draft.version, dirty: true });
   } else {
-    const changed = applyRemote(s, draft);
+    changed=applyRemote(s, draft);
     status(s, 'Synced');
-    if (changed) document.dispatchEvent(new CustomEvent('draft:restored', { detail: { id: s.id, tab: s.tab } }));
   }
   s.loaded = true;
+  if(!wasLoaded||changed)document.dispatchEvent(new CustomEvent('draft:restored', {detail:{id:s.id,tab:s.tab}}));
 }
 export async function refreshPersonalDraft(id, tab = COMPOSE_TAB) {
   const s = personalState(id, tab);
@@ -279,6 +345,8 @@ export async function refreshPersonalDraft(id, tab = COMPOSE_TAB) {
 function queuePersonalDraft(id, tab = COMPOSE_TAB) {
   const s = personalState(id, tab);
   if (!s) return;
+  s.revision=deviceId+':'+(++revision);
+  localStorage.setItem(s.key+':revision',s.revision);
   setSyncMeta(s, { ...syncMeta(id, tab), dirty: true });
   status(s, s.conflict ? 'Draft changed on another device. Review both copies.' : 'Saved locally; sync pending');
   clearTimeout(s.timer);
@@ -310,6 +378,7 @@ export async function flushPersonalDraft(id, tab = COMPOSE_TAB) {
       }
       throw Error('Workspace changed');
     } catch (error) {
+      if (current(s) && [403,404,410].includes(error?.status)) invalidateDraftTicket(s.id);
       if (current(s) && error?.status === 409) await readRemote(s);
       status(s, s.conflict ? 'Draft changed on another device. Review both copies.' : 'Saved locally; sync unavailable');
       throw error;
@@ -357,3 +426,66 @@ export function finishDraftSend(id, tab, sent, version) {
 export function retryPersonalDrafts() {
   for (const s of personalSaves.values()) if (current(s) && syncMeta(s.id,s.tab).dirty) void refreshPersonalDraft(s.id,s.tab);
 }
+
+function removeCachedDrafts(matches) {
+  for (const states of [personalSaves,sharedSaves]) for (const [key,s] of states) if (matches(key)) {
+    clearTimeout(s.timer);s.cancelled=true;s.local=null;s.latest=null;s.conflict=null;states.delete(key);
+  }
+  for(let i=localStorage.length-1;i>=0;i--){const key=localStorage.key(i);if(key&&matches(key))localStorage.removeItem(key);}
+}
+export function clearBrowserDrafts(userId, broadcast=true) {
+  if (!userId) return;
+  if (SESSION?.userId===userId) {revokedJwt=api.getJwt?.();closed=true;}
+  removeCachedDrafts(key => key.startsWith('draft:') && (!key.startsWith('draft:v2:') || key.split(':')[3]===userId));
+  document.dispatchEvent(new CustomEvent('draft:cleared',{detail:{userId}}));
+  if (broadcast) localStorage.setItem('respovia:draft-signout:'+userId,Date.now()+':'+deviceId);
+}
+export function invalidateDraftTicket(id, broadcast=true, workspace=getWorkspaceId(), userId=SESSION?.userId) {
+  const matches=key=>key.startsWith('draft:v2:'+workspace+':')&&key.split(':')[4]===id&&(!userId||key.split(':')[3]===userId);
+  removeCachedDrafts(matches);
+  if (workspace===getWorkspaceId()&&(!userId||userId===SESSION?.userId)) {
+    unavailable.add(getDraftPrefix(id));
+    document.dispatchEvent(new CustomEvent('draft:cleared',{detail:{id}}));
+  }
+  if(broadcast)localStorage.setItem('respovia:draft-erased',JSON.stringify({workspace,id,userId,nonce:Date.now()+':'+deviceId}));
+}
+export async function flushBrowserDrafts() {
+  // Materialise cached drafts in this workspace, including tickets not opened this visit.
+  for(const ticket of TICKETS) for(const tab of ['reply','note']) {
+    const key=getDraftKey(ticket.id,tab);
+    if(['',':sync',':attachments',':email-recipients',':ai-review'].some(suffix=>localStorage.getItem(key+suffix)))personalState(ticket.id,tab);
+  }
+  for(const s of [...personalSaves.values()]) if(current(s)) {
+    if(s.sending)throw Error('A reply is still being sent.');
+    if(s.meta.dirty||s.legacy||s.saving)await flushPersonalDraft(s.id,s.tab);
+  }
+  // Other tabs have independent versions. Their dirty markers survive our successful saves.
+  for(let i=0;i<localStorage.length;i++) {
+    const key=localStorage.key(i);
+    if(key?.startsWith('draft:')&&!key.startsWith('draft:v2:'))throw Error('An older browser draft has not been saved.');
+    if(!key?.startsWith('draft:v2:')||key.split(':')[3]!==SESSION?.userId)continue;
+    if(key.includes(':dirty:'))throw Error('Another tab has unsaved drafts.');
+    if(key.endsWith(':sync')&&JSON.parse(localStorage.getItem(key)||'{}').dirty)throw Error('Another tab or workspace has unsaved drafts.');
+    const base=key.split(':').slice(0,6).join(':');
+    if(/:(reply|note)(:(attachments|email-recipients|ai-review))?$/.test(key)&&localStorage.getItem(key)&&!localStorage.getItem(base+':sync'))throw Error('A browser draft has not been saved.');
+  }
+}
+window.addEventListener?.('respovia:clear-drafts',event=>clearBrowserDrafts(event.detail?.userId,event.detail?.broadcast!==false));
+window.addEventListener?.('storage',event=>{
+  if(event.key?.startsWith('respovia:draft-signout:')) {
+    const userId=event.key.slice('respovia:draft-signout:'.length);
+    clearBrowserDrafts(userId,false);
+    if(SESSION?.userId===userId)window.dispatchEvent(new CustomEvent('respovia:session-expired',{detail:{remote:true}}));
+  }
+  if(event.key==='respovia:draft-erased'&&event.newValue) {
+    try{const {id,workspace,userId}=JSON.parse(event.newValue);if(typeof id==='string'&&typeof workspace==='string')invalidateDraftTicket(id,false,workspace,userId);}catch{}
+  }
+});
+window.addEventListener?.('respovia:auth-scope-changed',()=>{
+  unavailable.clear();
+  for(const s of personalSaves.values())if(!current(s)){clearTimeout(s.timer);s.cancelled=true;}
+  for(const s of sharedSaves.values())if(s.key!==getDraftKey(s.id,'reply')||s.jwt!==api.getJwt?.()){clearTimeout(s.timer);s.cancelled=true;}
+});
+window.addEventListener?.('respovia:customer-erased',event=>{
+  for(const ticket of TICKETS)if(ticket.customerId===event.detail?.id)invalidateDraftTicket(ticket.id,true,getWorkspaceId(),null);
+});

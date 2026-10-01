@@ -44,6 +44,8 @@ import { initWorkspaceSwitcher } from './workspace-switcher/index.js';
 import { initTaglineSdk, resetTaglineSdk } from './tagline-sdk/index.js';
 import { hydrateLayouts } from './layouts/index.js';
 import { closeGuides, initGuides } from './guides/index.js';
+import { flushBrowserDrafts } from './tickets/drafts.js';
+import { closeModal } from './core/modal.js';
 
 // Demo personas call login(role, name, initials); real-auth boot paths pass
 // the identity/capability extras in `opts` (an options object rather than a
@@ -147,7 +149,22 @@ function resetWorkspaceBrand() {
   document.documentElement.style.removeProperty('--accent');
 }
 
-function logout() {
+let logoutPending=false;
+async function logout({force=false,broadcast=true}={}) {
+  const startingSession=SESSION;
+  if(!force&&startingSession?.userId) {
+    if(logoutPending)return;
+    logoutPending=true;
+    let timeout;
+    try {
+      await Promise.race([flushBrowserDrafts(),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('Saving timed out.')),10000);})]);
+    } catch {
+      if(SESSION!==startingSession)return;
+      if(!window.confirm('Some drafts have not been saved, possibly in another tab or workspace. Sign out and discard unsaved changes in this browser? Choose Cancel to stay signed in.'))return;
+    } finally {clearTimeout(timeout);logoutPending=false;}
+    if(SESSION!==startingSession)return;
+  }
+  closeModal();
   closeGuides(false);
   const signedOutUserId = SESSION?.userId;
   suspendUrlRouting();
@@ -163,26 +180,26 @@ function logout() {
   // Stop identifying the signed-out user to Tagline (What's-New announcements)
   // for the rest of this page load.
   resetTaglineSdk();
+  // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
+  // demo personas (which never stored anything) and load-bearing for real-
+  // auth users (so the next page-load doesn't auto-resume).
+  const clearedTranslations = authSignOut(signedOutUserId,broadcast);
   setSession(null);
   resetWorkspaceBrand();
   // Drop the workspace's hydrated field layouts back to code defaults and
   // block persistence — a demo persona (or the next login, before its own
   // hydrate) must not inherit this workspace's layout.
   hydrateLayouts(null);
-  // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
-  // demo personas (which never stored anything) and load-bearing for real-
-  // auth users (so the next page-load doesn't auto-resume).
-  const clearedTranslations = authSignOut(signedOutUserId);
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   return clearedTranslations;
 }
 
 window.addEventListener('respovia:session-warning', event => {
-  showToast(`Your session expires in ${event.detail.minutes} minutes. Finish your work before signing in again.`, 'warn', 60000);
+  showToast(`Your session expires in ${event.detail.minutes} minutes. Wait for drafts to show Synced. Unsaved browser copies are cleared when the session ends.`, 'warn', 60000);
 });
-window.addEventListener('respovia:session-expired', () => {
-  logout();
+window.addEventListener('respovia:session-expired', event => {
+  void logout({force:true,broadcast:!event.detail?.remote});
   showAuthPanel('login');
   document.getElementById('login-form').style.display = 'block';
   document.getElementById('login-picker').style.display = 'none';

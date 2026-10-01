@@ -133,7 +133,8 @@ export async function rehydrateUser() {
   }
 }
 
-export function signOut(userId = getCurrentUser()?.id) {
+export function signOut(userId = getCurrentUser()?.id, broadcast = true) {
+  window.dispatchEvent(new CustomEvent('respovia:clear-drafts',{detail:{userId,broadcast}}));
   stopSessionLifetime();
   sessionStorage.removeItem('respovia_session_warning');
   const clearedTranslations = clearTranslationCache(userId);

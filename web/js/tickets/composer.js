@@ -89,6 +89,7 @@ export async function mountComposer(id, opts = {}) {
     theme: 'snow',
     formats: FORMATS,
     placeholder: opts.placeholder || 'Write a reply…',
+    readOnly: Boolean(opts.readOnly),
     modules: { toolbar: TOOLBAR },
   });
   if (opts.initialHtml) {
@@ -100,6 +101,9 @@ export async function mountComposer(id, opts = {}) {
 }
 
 export function disposeComposer(id) { EDITORS.delete(id); }
+export function clearCachedComposers(id) {
+  for(const [key,editor] of EDITORS)if(!id||key===id){editor.setContents([], 'silent');EDITORS.delete(key);}
+}
 
 function quillFor(id) {
   const q = EDITORS.get(id);

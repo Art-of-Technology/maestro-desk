@@ -59,7 +59,7 @@ import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, cha
 import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
   hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave,
-  refreshPersonalDraft, flushPersonalDraft, draftSyncStatus, draftHasConflict, personalDraftReady,
+  refreshPersonalDraft, flushPersonalDraft, draftSyncStatus, draftHasConflict, personalDraftReady, personalDraftEditable,
   conflictingDraft, resolvePersonalDraft, prepareDraftSend, finishDraftSend, draftSnapshot, retryPersonalDrafts } from './drafts.js';
 import { renderReplyReview } from '../ai/reply-review.js';
 import { logTicketEvent, getTicketEvents } from '../core/activity-log.js';
@@ -68,7 +68,7 @@ import { showAttachPanel } from './attachments.js';
 import { renderAttachmentChips } from './attachment-chips.js';
 import { mountAttachmentThumbnails } from './attachment-thumbnails.js';
 import {
-  clear as clearComposer, getHtml, getPlainText, insertAtCursor,
+  clear as clearComposer, clearCachedComposers, getHtml, getPlainText, insertAtCursor,
   isEmpty as isComposerEmpty, mountComposer,
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
@@ -615,7 +615,7 @@ export function openTicket(id) {
                 // Rich editor host. Quill mounts into it after render
                 // (mountComposer below); the draft is restored as HTML there.
                 ? `<div class="compose-area compose-rich" id="compose-${id}" data-rich="1" data-ticket-id="${window.escAttr(id)}"></div>`
-                : `<textarea class="compose-area" id="compose-${id}" data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
+                : `<textarea class="compose-area" id="compose-${id}" ${personalDraftEditable(id) ? '' : 'disabled'} data-ticket-id="${window.escAttr(id)}" data-input-action="td.composeInput" placeholder="Add an internal note… type @ to mention an agent">${window.escHtml(loadDraft(id))}</textarea>`}
               ${COMPOSE_TAB === 'reply' ? `<div class="pending-att" id="pending-att-${id}"></div>` : ''}
               <div id="reply-review-${id}" class="reply-review-panel" role="status" aria-live="polite">${renderReplyReview(id)}</div>
               <div class="comp-meta">
@@ -760,6 +760,7 @@ export function openTicket(id) {
   if (COMPOSE_TAB === 'reply') {
     mountComposer(id, {
       initialHtml: loadDraft(id),
+      readOnly: !personalDraftEditable(id),
       placeholder: 'Write a reply or use AI…',
       onChange: () => onComposeInput(id),
     }).then(() => syncTicketLayout(id)).catch((err) => console.warn('[composer] mount failed:', err));
@@ -1593,6 +1594,14 @@ document.addEventListener('draft:status', ({ detail }) => {
 });
 document.addEventListener('draft:restored', ({ detail }) => {
   if (CURRENT_TICKET === detail.id) openTicket(detail.id);
+});
+document.addEventListener('draft:cleared', ({detail}) => {
+  if (detail.userId && detail.userId!==SESSION?.userId) return;
+  clearCachedComposers(detail.id);
+  if (!CURRENT_TICKET || (detail.id && detail.id!==CURRENT_TICKET)) return;
+  clearComposer(CURRENT_TICKET);
+  closeModal();
+  openTicket(CURRENT_TICKET);
 });
 for (const event of ['online', 'focus']) window.addEventListener(event, () => {
   retryPersonalDrafts();

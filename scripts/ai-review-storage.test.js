@@ -1,13 +1,17 @@
-import { test, expect, mock } from 'bun:test';
+import { test, expect, mock, afterAll } from 'bun:test';
 let workspace = 'one';
 const session = { userId: 'agent-one' };
 const storage = new Map();
 globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: k => storage.delete(k), key: i => [...storage.keys()][i], get length() { return storage.size; } };
 globalThis.window = { escHtml: s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'), escAttr: String };
+const ticketIds=['error-ticket','T1','T2','T3'];
+globalThis.document={dispatchEvent(){}};
+mock.module('../web/js/core/data.js',()=>({TICKETS:ticketIds.map(id=>({id,_uuid:id}))}));
 mock.module('../web/js/core/state.js', () => ({ COMPOSE_TAB: 'reply', SESSION: session }));
 mock.module('../web/js/core/api-client.js', () => ({ getWorkspaceId: () => workspace, getJwt: () => 'test', apiPost() {}, apiPatch() {} }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {}, registerChangeActions() {}, registerInputActions() {} }));
-const { loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion, hydrateSharedAiDraft, activateSharedAiDraft, textHtml } = await import('../web/js/tickets/drafts.js');
+const { clearAllDrafts, loadDraft, saveDraft, loadDraftReview, saveDraftReview, clearDraft, loadMessageReview, confirmedReplySuggestion, hydrateSharedAiDraft, activateSharedAiDraft, textHtml } = await import('../web/js/tickets/drafts.js');
+afterAll(()=>{workspace='one';session.userId='agent-one';for(const id of ticketIds)clearAllDrafts(id);});
 const { renderReplyReview } = await import('../web/js/ai/reply-review.js');
 
 test('AI errors are visible without a suggestion and cannot enter the customer draft', () => {
@@ -61,7 +65,7 @@ test('internal metadata is separate, scoped, escaped and cleared after sending',
 test('shared AI drafts restore safely and never overwrite a newer local edit',()=>{
   expect(textHtml('a < b & c')).toBe('<p>a &lt; b &amp; c</p>');
   const suggestionId='a0000000-0000-4000-8000-000000000009';
-  clearDraft('T2','reply');
+  clearAllDrafts('T2');
   hydrateSharedAiDraft('T2',{suggestionId,body:'Shared reply',isHtml:false,review:{references:[],notes:['Check']},version:2,updatedBy:'Alex'});
   expect(loadDraft('T2','reply')).toContain('Shared reply');
   expect(confirmedReplySuggestion('T2','reply')).toBe(suggestionId);
