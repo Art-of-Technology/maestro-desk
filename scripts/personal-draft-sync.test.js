@@ -38,7 +38,7 @@ function device(server = new Map(), storage = new Map()) {
       get length(){return storage.size;},key:i=>[...storage.keys()][i] },
   };
   server.files ||= new Map();
-  const draft = runInNewContext(source + '\n({saveDraft,loadDraft,saveDraftRecipients,loadDraftRecipients,saveDraftReview,loadDraftReview,saveDraftAttachments,loadDraftAttachments,clearDraft,flushPersonalDraft,refreshPersonalDraft,draftHasConflict,resolvePersonalDraft,prepareDraftSend,finishDraftSend,draftSyncStatus,clearBrowserDrafts,flushBrowserDrafts,invalidateDraftTicket,personalDraftReady})',context);
+  const draft = runInNewContext(source + '\n({saveDraft,loadDraft,saveDraftRecipients,loadDraftRecipients,saveDraftReview,loadDraftReview,saveDraftAttachments,loadDraftAttachments,clearDraft,flushPersonalDraft,refreshPersonalDraft,draftHasConflict,resolvePersonalDraft,prepareDraftSend,finishDraftSend,draftSyncStatus,clearBrowserDrafts,flushBrowserDrafts,invalidateDraftTicket,personalDraftReady,personalDraftEditable})',context);
   return {...draft,control,storage,server,tickets:context.TICKETS,session:context.SESSION,emit};
 }
 test('draft files restore, conflict on removal, and clear after send even when new text is typed',async()=>{
@@ -253,4 +253,21 @@ test('editing one field before verification cannot reveal other cached fields',a
   expect(a.loadDraftRecipients('TK-1').to).toEqual(['new@example.test']);
   a.control.denied=403;await a.refreshPersonalDraft('TK-1');
   expect(a.loadDraftRecipients('TK-1')).toBeNull();
+});
+
+
+test('transient failures allow new offline drafts without exposing or replacing cached work',async()=>{
+  const a=device();a.control.offline=true;
+  expect(a.personalDraftEditable('TK-1')).toBeFalsy();
+  await a.refreshPersonalDraft('TK-1');expect(a.personalDraftEditable('TK-1')).toBe(true);
+  expect(a.personalDraftReady('TK-1')).toBe(false);
+  a.saveDraft('TK-1','New offline text');await a.refreshPersonalDraft('TK-1');
+  expect(a.personalDraftEditable('TK-1')).toBe(true);expect(a.loadDraft('TK-1')).toBe('New offline text');
+  await a.flushPersonalDraft('TK-1').catch(()=>{});
+  a.control.offline=false;await a.flushPersonalDraft('TK-1');expect(a.personalDraftReady('TK-1')).toBe(true);
+  const cached=device();cached.storage.set('draft:v2:workspace:agent:TK-1:reply','Existing private draft');
+  cached.control.offline=true;await cached.refreshPersonalDraft('TK-1');
+  expect(cached.personalDraftEditable('TK-1')).toBeFalsy();expect(cached.loadDraft('TK-1')).toBe('');
+  expect(cached.storage.get('draft:v2:workspace:agent:TK-1:reply')).toBe('Existing private draft');
+  a.control.denied=403;await a.refreshPersonalDraft('TK-1');expect(a.personalDraftEditable('TK-1')).toBe(false);
 });

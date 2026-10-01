@@ -279,6 +279,10 @@ export function draftSyncStatus(id, tab = COMPOSE_TAB) {
   return s?.status || (s ? (syncMeta(id, tab).dirty ? 'Saved locally; sync pending' : 'Checking saved draft…') : (loadDraft(id, tab) ? 'Saved locally' : ''));
 }
 export function draftHasConflict(id, tab = COMPOSE_TAB) { return !!personalState(id, tab)?.conflict; }
+export function personalDraftEditable(id, tab = COMPOSE_TAB) {
+  const s=personalState(id,tab);
+  return cacheAllowed(id)&&(!s||s.loaded||s.offlineEditable);
+}
 export function personalDraftReady(id, tab = COMPOSE_TAB) { const s = personalState(id, tab); return cacheAllowed(id) && (!s || s.loaded); }
 function applyRemote(s, remote) {
   const before = draftSnapshot(s.id, s.tab);
@@ -299,7 +303,17 @@ async function readRemote(s) {
   let draft;
   try { ({draft}=await api.apiGet(`/api/v1/tickets/${s.uuid}/drafts/${s.tab}`)); }
   catch(error) {
-    if (current(s) && [403,404,410].includes(error?.status)) invalidateDraftTicket(s.id);
+    if (current(s)) {
+      if ([401,403,404,410].includes(error?.status)) invalidateDraftTicket(s.id);
+      else if (!s.loaded && !s.offlineEditable) {
+        // Allow a new offline draft, but never invite overwriting hidden cached work.
+        const local=s.local;
+        if(!local.body&&!local.recipients&&!local.review&&!local.attachments.length){
+          s.offlineEditable=true;
+          document.dispatchEvent(new CustomEvent('draft:restored',{detail:{id:s.id,tab:s.tab}}));
+        }
+      }
+    }
     throw error;
   }
   if (!current(s)) throw Error('Workspace changed');

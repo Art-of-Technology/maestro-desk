@@ -180,6 +180,9 @@ async function logout({force=false,broadcast=true}={}) {
   // Stop identifying the signed-out user to Tagline (What's-New announcements)
   // for the rest of this page load.
   resetTaglineSdk();
+  // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
+  // demo personas (which never stored anything) and load-bearing for real-
+  // auth users (so the next page-load doesn't auto-resume).
   const clearedTranslations = authSignOut(signedOutUserId,broadcast);
   setSession(null);
   resetWorkspaceBrand();
@@ -187,9 +190,6 @@ async function logout({force=false,broadcast=true}={}) {
   // block persistence — a demo persona (or the next login, before its own
   // hydrate) must not inherit this workspace's layout.
   hydrateLayouts(null);
-  // Clears JWT + workspace_id + cached user from sessionStorage. Safe for
-  // demo personas (which never stored anything) and load-bearing for real-
-  // auth users (so the next page-load doesn't auto-resume).
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   return clearedTranslations;
