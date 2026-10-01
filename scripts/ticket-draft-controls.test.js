@@ -35,7 +35,6 @@ test('subject edits save server values without rebuilding the composer; errors a
 });
 
 test('save and exit stores reply HTML and notes separately, restores both, and stays put on storage failure or loading', async () => {
-  const { saveDraft, loadDraft } = await import('../web/js/tickets/drafts.js');
   const storage = new Map();
   let failed = false;
   globalThis.localStorage = {
@@ -44,6 +43,8 @@ test('save and exit stores reply HTML and notes separately, restores both, and s
     removeItem: k => storage.delete(k),
   };
   globalThis.window ||= {};
+  globalThis.sessionStorage = { getItem: () => null };
+  const { saveDraft, loadDraft } = await import('../web/js/tickets/drafts.js');
   let exits = 0, tab = 'reply';
   const editor = { dataset: {}, value: 'Private note' };
   const composeInput = source.slice(source.indexOf('export function onComposeInput('), source.indexOf('function insertVar(')).replace('export ', '');
