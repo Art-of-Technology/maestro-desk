@@ -36,13 +36,9 @@ const sql = postgres(DATABASE_URL, {
   ssl: DATABASE_URL.includes('sslmode=disable') ? false : 'require',
   max: 1,
   prepare: false,
-  // This runs on every container boot; without this, `create table if not
-  // exists schema_migrations` dumps a NOTICE object into the deploy log each
-  // time. Other notices (e.g. from the migration files themselves) stay
-  // visible — they can carry real signal. Errors are unaffected either way.
-  onnotice: (n) => {
-    if (!/already exists, skipping/.test(n.message ?? '')) console.log('Migration notice:', safeError(n));
-  },
+  // Notices can interpolate database values. Keep migration filenames/progress
+  // and filtered failures below, but suppress routine server notice text.
+  onnotice: () => {},
 });
 
 // App-wide advisory lock so two concurrently booting containers (e.g. a
