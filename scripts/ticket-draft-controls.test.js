@@ -56,7 +56,7 @@ test('save and exit stores reply HTML and notes separately, restores both, and s
     hideMentionDropdown() {}, updateMentionDropdown() {}, setComposing() {}, isComposerEmpty: () => false,
     renderPage: () => { exits++; }, showToast() {},
     getWorkspaceId: () => 'workspace', getJwt: () => 'session', CURRENT_TICKET: 'TK-116',
-    flushPersonalDraft: async () => {}, draftSyncStatus: () => 'Synced',
+    flushPersonalDraft: async () => {}, draftSyncStatus: () => 'Synced', attachmentsUploading:()=>false,
   };
   await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);
   tab = 'note'; context.COMPOSE_TAB = tab;

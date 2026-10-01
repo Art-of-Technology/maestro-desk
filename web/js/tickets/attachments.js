@@ -1,100 +1,64 @@
-// ─── Ticket attachments ──────────────────────────────────────────────────────
-// Real uploads. "Attach" opens a file picker, each file is uploaded straight
-// away to POST /tickets/:uuid/attachments and held as a PENDING attachment
-// until the reply is sent — at which point its id rides along in the request
-// and the server binds it to the message. Anything an agent uploads and never
-// sends is swept server-side after a day.
-//
-// Pending state is per ticket and lives only in this module: a draft's files
-// are deliberately not restored across a reload (the ids would be swept), so
-// the chips reflect exactly what the next send will carry.
-//
-// Demo personas (no `_uuid`) have no backend; the picker reports that instead
-// of pretending, which is what the old mock list did.
-//
-// External reaches (interim, via window): escAttr, escHtml — still in app.js.
-
+// Pending uploads are part of the agent's versioned reply draft.
 import { TICKETS } from '../core/data.js';
+import { COMPOSE_TAB } from '../core/state.js';
 import { registerActions } from '../core/event-delegation.js';
-import { apiDelete, apiUpload } from '../core/api-client.js';
+import { apiUpload, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
 import { fmtBytes } from './attachment-chips.js';
+import { loadDraftAttachments, saveDraftAttachments, flushPersonalDraft, draftSending } from './drafts.js';
 
-// ticketId → [{ id, filename, size_bytes, mime_type, is_inline }]
-const PENDING = new Map();
+const uploads = new Map();
+const scopeKey = id => `${getWorkspaceId()}:${getJwt()}:${id}`;
+export const pendingAttachments = id => loadDraftAttachments(id);
+export const pendingAttachmentIds = id => pendingAttachments(id).map(a=>a.id);
+export const attachmentsUploading = id => (uploads.get(scopeKey(id)) || 0)>0;
 
-export function pendingAttachments(ticketId) { return PENDING.get(ticketId) || []; }
-export function pendingAttachmentIds(ticketId) { return pendingAttachments(ticketId).map((a) => a.id); }
-export function clearPendingAttachments(ticketId) { PENDING.delete(ticketId); renderPendingAttachments(ticketId); }
-
-/** Repaint the chip row above the composer foot. */
-export function renderPendingAttachments(ticketId) {
-  const host = document.getElementById('pending-att-' + ticketId);
-  if (!host || typeof host.innerHTML !== 'string') return;
-  const list = pendingAttachments(ticketId);
-  const hint = document.querySelector?.(`#ticket-page-${ticketId} .composer-launch-hint`);
-  if (hint) hint.textContent = list.length ? `${list.length} ${list.length === 1 ? 'attachment' : 'attachments'} ready` : '';
-  if (!list.length) { host.innerHTML = ''; return; }
-  host.innerHTML = list.map((a) => `
-    <span class="att-chip att-chip-pending">
-      ${window.escHtml(a.filename)}<span class="att-size">${fmtBytes(a.size_bytes)}</span>
-      <button class="att-chip-x" title="Remove" data-action="att.remove" data-id="${window.escAttr(ticketId)}" data-att-id="${window.escAttr(a.id)}">×</button>
-    </span>`).join('');
+export function renderPendingAttachments(id) {
+  const host=document.getElementById('pending-att-'+id);
+  if (!host || typeof host.innerHTML!=='string') return;
+  const list=pendingAttachments(id), uuid=TICKETS.find(t=>t.id===id)?._uuid;
+  const hint=document.querySelector?.(`#ticket-page-${id} .composer-launch-hint`);
+  if(hint)hint.textContent=attachmentsUploading(id)?'Uploading files…':list.length?`${list.length} ${list.length===1?'attachment':'attachments'} ready`:'';
+  host.innerHTML=list.map(a=>`<span class="att-chip att-chip-pending">
+    <button type="button" class="att-preview-button" data-action="att.preview" data-ticket-uuid="${window.escAttr(uuid||'')}" data-att-id="${window.escAttr(a.id)}" data-filename="${window.escAttr(a.filename)}">${window.escHtml(a.filename)} <span class="att-size">${fmtBytes(a.size_bytes)}</span></button>
+    <button type="button" class="att-chip-x" title="Remove attachment" aria-label="Remove ${window.escAttr(a.filename)}" data-action="att.remove" data-id="${window.escAttr(id)}" data-att-id="${window.escAttr(a.id)}">×</button></span>`).join('');
 }
 
-function ticketUuid(ticketId) {
-  const t = TICKETS.find((x) => x.id === ticketId);
-  return t && t._uuid ? t._uuid : null;
-}
-
-async function uploadFiles(ticketId, files) {
-  const uuid = ticketUuid(ticketId);
-  if (!uuid) { showToast('Attachments need a real ticket — demo tickets are local only.', 'warn', 5000); return; }
-  const list = PENDING.get(ticketId) || [];
-  PENDING.set(ticketId, list);
-  for (const file of files) {
-    const form = new FormData();
-    form.append('file', file, file.name);
-    try {
-      const res = await apiUpload(`/api/v1/tickets/${uuid}/attachments`, form);
-      list.push(res.attachment);
-      renderPendingAttachments(ticketId);
-    } catch (err) {
-      showToast(`Couldn't attach ${file.name}: ${err?.message || err}`, 'error', 6000);
+export async function uploadFiles(id,files) {
+  const uuid=TICKETS.find(t=>t.id===id)?._uuid;
+  if(!uuid){showToast('Attachments need a saved ticket.','warn');return;}
+  if(draftSending(id)){showToast('Wait for the reply to finish sending.','warn');return;}
+  const scope=scopeKey(id);
+  uploads.set(scope,(uploads.get(scope)||0)+1);renderPendingAttachments(id);
+  try {
+    for(const file of files){
+      if(scope!==scopeKey(id))return;
+      if(pendingAttachments(id).length>=20){showToast('A reply can have up to 20 attached files.','warn');break;}
+      const form=new FormData();form.append('file',file,file.name);
+      try {
+        const res=await apiUpload(`/api/v1/tickets/${uuid}/attachments`,form);
+        if(scope!==scopeKey(id))return;
+        saveDraftAttachments(id,[...pendingAttachments(id),res.attachment]);renderPendingAttachments(id);
+        try {await flushPersonalDraft(id,'reply');}
+        catch {showToast('File uploaded. The draft has not synced yet; check its status before leaving.','warn');}
+      } catch(error){if(scope===scopeKey(id))showToast(`Could not attach ${file.name}: ${error.message}`,'error');}
     }
+  } finally {
+    const remaining=(uploads.get(scope)||1)-1;
+    if(remaining)uploads.set(scope,remaining);else uploads.delete(scope);
+    if(scope===scopeKey(id))renderPendingAttachments(id);
   }
 }
 
-/** Open the OS file picker and upload whatever is chosen. */
-export function showAttachPanel(ticketId) {
-  if (typeof document.createElement !== 'function') return;
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.multiple = true;
-  input.style.display = 'none';
-  input.addEventListener('change', async () => {
-    const files = [...(input.files || [])];
-    input.remove();
-    if (files.length) await uploadFiles(ticketId, files);
-  });
-  document.body.appendChild(input);
-  input.click();
+export function showAttachPanel(id) {
+  if(COMPOSE_TAB!=='reply'){showToast('Attach files to a reply.','warn');return;}
+  if(typeof document.createElement!=='function')return;
+  const scope=scopeKey(id),input=document.createElement('input');input.type='file';input.multiple=true;input.style.display='none';
+  input.addEventListener('change',()=>{const files=[...(input.files||[])];input.remove();if(files.length&&scope===scopeKey(id))void uploadFiles(id,files);});
+  input.addEventListener('cancel',()=>input.remove());document.body.appendChild(input);input.click();
 }
 
-async function removePending(ticketId, attId) {
-  const list = PENDING.get(ticketId) || [];
-  const idx = list.findIndex((a) => a.id === attId);
-  if (idx < 0) return;
-  const [removed] = list.splice(idx, 1);
-  renderPendingAttachments(ticketId);
-  const uuid = ticketUuid(ticketId);
-  if (!uuid) return;
-  // Best-effort: if the delete fails the file is simply left for the
-  // server-side sweep — it was never bound to a message.
-  try { await apiDelete(`/api/v1/tickets/${uuid}/attachments/${removed.id}`); }
-  catch (err) { console.warn('[attachments] remove failed:', err?.message || err); }
-}
-
-registerActions({
-  'att.remove': (ds) => removePending(ds.id, ds.attId),
-});
+registerActions({'att.remove':ds=>{
+  try {saveDraftAttachments(ds.id,pendingAttachments(ds.id).filter(a=>a.id!==ds.attId));renderPendingAttachments(ds.id);}
+  catch(error){showToast(error.message,'error');}
+}});

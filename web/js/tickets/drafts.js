@@ -40,7 +40,8 @@ export function clearDraft(id, tab) {
   localStorage.removeItem(getDraftKey(id, tab));
   localStorage.removeItem(getDraftKey(id, tab) + ':ai-review');
   localStorage.removeItem(getDraftKey(id, tab) + ':email-recipients');
-  if (s) s.local = {body:'',recipients:null,review:null};
+  localStorage.removeItem(getDraftKey(id, tab) + ':attachments');
+  if (s) s.local = {body:'',recipients:null,review:null,attachments:[]};
   queuePersonalDraft(id, tab);
 }
 
@@ -129,6 +130,22 @@ function cancelSharedSave(id) {
   const key=getDraftKey(id,'reply'),state=sharedSaves.get(key);
   if(state){clearTimeout(state.timer);state.cancelled=true;sharedSaves.delete(key);}
 }
+
+export function loadDraftAttachments(id) {
+  const s = personalState(id,'reply');
+  if (s) return s.local.attachments;
+  try { const files=JSON.parse(localStorage.getItem(getDraftKey(id,'reply')+':attachments')); return Array.isArray(files)?files:[]; }
+  catch { return []; }
+}
+export function saveDraftAttachments(id, files) {
+  const s=personalState(id,'reply');
+  if (s?.sending) throw Error('Wait for the reply to finish sending before changing attachments.');
+  if (sameDraft(loadDraftAttachments(id),files)) return;
+  localStorage.setItem(getDraftKey(id,'reply')+':attachments',JSON.stringify(files));
+  if(s)s.local.attachments=files;
+  queuePersonalDraft(id,'reply');
+}
+export function draftSending(id) { return !!personalState(id,'reply')?.sending; }
 export function queueSharedAiDraftSave(id,ticketUuid,body,bodyHtml) {
   const review=loadDraftReview(id,'reply');
   if(!ticketUuid||!review?.suggestionId||review.rejected||review.sharedAvailable)return;
@@ -183,7 +200,7 @@ function syncMeta(id, tab) {
 function setSyncMeta(s, value) { localStorage.setItem(s.key + ':sync', JSON.stringify(value)); s.meta = value; s.legacy = false; }
 export function draftSnapshot(id, tab = COMPOSE_TAB) {
   return { body: loadDraft(id, tab), recipients: tab === 'reply' ? loadDraftRecipients(id) : null,
-    review: tab === 'reply' ? loadDraftReview(id, tab) : null };
+    review: tab === 'reply' ? loadDraftReview(id, tab) : null, attachments: tab === 'reply' ? loadDraftAttachments(id) : [] };
 }
 const sameDraft = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function personalState(id, tab = COMPOSE_TAB) {
@@ -199,7 +216,8 @@ function personalState(id, tab = COMPOSE_TAB) {
     s = { id, tab, key, jwt, uuid: ticket._uuid, workspace: getWorkspaceId(), status: '', loaded: false,
       local: {body:localStorage.getItem(key)||'',
         recipients:tab==='reply' && recipients && ['reply','reply_all'].includes(recipients.mode) && Array.isArray(recipients.to) && typeof recipients.cc==='string' ? recipients : null,
-        review:tab==='reply' && review && Array.isArray(review.references) && Array.isArray(review.notes) ? review : null},
+        review:tab==='reply' && review && Array.isArray(review.references) && Array.isArray(review.notes) ? review : null,
+        attachments:tab==='reply' && Array.isArray(json(':attachments')) ? json(':attachments') : []},
       meta:json(':sync')||{version:0,dirty:false}, legacy:!localStorage.getItem(key+':sync') };
     personalSaves.set(key, s);
   }
@@ -221,11 +239,11 @@ function applyRemote(s, remote) {
   const before = draftSnapshot(s.id, s.tab);
   if (s.tab === 'reply') cancelSharedSave(s.id);
   localStorage.setItem(s.key, remote.body);
-  for (const [suffix, value] of [[':email-recipients', remote.recipients], [':ai-review', remote.review]]) {
+  for (const [suffix, value] of [[':email-recipients', remote.recipients], [':ai-review', remote.review], [':attachments',remote.attachments||[]]]) {
     if (value) localStorage.setItem(s.key + suffix, JSON.stringify(value));
     else localStorage.removeItem(s.key + suffix);
   }
-  s.local = {body:remote.body,recipients:remote.recipients,review:remote.review};
+  s.local = {body:remote.body,recipients:remote.recipients,review:remote.review,attachments:remote.attachments||[]};
   s.legacy = false;
   setSyncMeta(s, { version: remote.version, dirty: false });
   s.conflict = null;
@@ -236,7 +254,7 @@ async function readRemote(s) {
   if (!current(s)) throw Error('Workspace changed');
   const meta = syncMeta(s.id, s.tab), local = draftSnapshot(s.id, s.tab);
   // Adopt old browser-only drafts only when no server version has ever existed.
-  const legacy = s.legacy && !!(local.body || local.recipients || local.review);
+  const legacy = s.legacy && !!(local.body || local.recipients || local.review || local.attachments.length);
   if ((meta.dirty || legacy) && (meta.version !== draft.version || (draft.version === 0 && !!draft.body))) {
     s.conflict = draft;
     status(s, 'Draft changed on another device. Review both copies.');
@@ -284,7 +302,8 @@ export async function flushPersonalDraft(id, tab = COMPOSE_TAB) {
         if (!meta.dirty && meta.version > 0) return meta.version;
         const sent = draftSnapshot(id, tab);
         status(s, 'Syncing…');
-        const { draft } = await api.apiPut(`/api/v1/tickets/${s.uuid}/drafts/${tab}`, { ...sent, version: meta.version });
+        const {attachments,...payload}=sent;
+        const { draft } = await api.apiPut(`/api/v1/tickets/${s.uuid}/drafts/${tab}`, { ...payload, attachment_ids:attachments.map(a=>a.id), version: meta.version });
         if (!current(s)) throw Error('Workspace changed');
         setSyncMeta(s, { version: draft.version, dirty: !sameDraft(sent, draftSnapshot(id, tab)) });
         status(s, 'Synced');
@@ -327,6 +346,8 @@ export function finishDraftSend(id, tab, sent, version) {
   if (version === undefined) { queuePersonalDraft(id, tab); return false; }
   const unchanged = sameDraft(sent.snapshot, draftSnapshot(id, tab));
   if (tab === 'reply') cancelSharedSave(id);
+  // These files now belong to the sent message, even if new text was typed during sending.
+  if (tab === 'reply') { s.local.attachments=[]; localStorage.removeItem(s.key+':attachments'); }
   if (unchanged) applyRemote(s, { body: '', recipients: null, review: null, version });
   else { setSyncMeta(s, { version, dirty: true }); queuePersonalDraft(id, tab); }
   status(s, unchanged ? 'Synced' : 'Saved locally; sync pending');

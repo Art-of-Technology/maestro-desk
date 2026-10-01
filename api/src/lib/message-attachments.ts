@@ -290,7 +290,7 @@ export interface UploadedAttachment {
 /**
  * Store one agent-uploaded file as an UNCLAIMED attachment (message_id null).
  * It is bound to a message when the reply is posted; anything left unclaimed
- * is swept after a day (sweepUnclaimedAttachments).
+ * is swept after a day unless retained by a saved draft (sweepUnclaimedAttachments).
  */
 export async function storeUpload(
   sql: Sql | TransactionSql,
@@ -347,7 +347,7 @@ export async function storeUpload(
  */
 export async function claimAttachments(
   sql: Sql | TransactionSql,
-  args: { workspaceId: string; ticketId: string; messageId: string; ids: string[] },
+  args: { workspaceId: string; ticketId: string; messageId: string; ids: string[]; userId?: string },
 ): Promise<AttachmentRow[]> {
   if (args.ids.length === 0) return [];
   const rows = await sql<AttachmentRow[]>`
@@ -356,6 +356,7 @@ export async function claimAttachments(
       and workspace_id = ${args.workspaceId}
       and ticket_id = ${args.ticketId}
       and message_id is null
+      and (${args.userId ?? null}::text is null or uploaded_by_user_id=${args.userId ?? null})
     returning id, message_id, filename, size_bytes, mime_type, is_inline, content_id, disposition, storage_key
   `;
   if (rows.length !== args.ids.length) {
@@ -407,23 +408,27 @@ export async function loadOutboundFiles(rows: AttachmentRow[], deps: StoreDeps =
 }
 
 /**
- * Delete uploads nobody attached to a message. Runs from the retention cron.
+ * Delete uploads nobody retained in a draft or attached to a message. Runs from the retention cron.
  * Objects go through the outbox so a storage failure is retried rather than
  * leaving a file with no row.
  */
 export async function sweepUnclaimedAttachments(olderThanHours = 24, deps: StoreDeps = {}): Promise<{ removed: number }> {
   const sql = getDb();
-  const rows = await sql<{ id: string; storage_key: string }[]>`
-    select id, storage_key from ticket_attachments
-    where message_id is null and created_at < now() - make_interval(hours => ${Math.max(1, olderThanHours)})
-    limit 500
-  `;
-  if (rows.length === 0) return { removed: 0 };
-  const keys = rows.map((r) => r.storage_key);
-  await sql.begin(async (tx) => {
+  const keys = await sql.begin(async (tx) => {
+    const rows = await tx<{ id: string; storage_key: string }[]>`
+      select a.id,a.storage_key from ticket_attachments a
+      where a.message_id is null and a.created_at < now() - make_interval(hours => ${Math.max(1, olderThanHours)})
+        and not exists (select 1 from message_drafts d where d.attachment_ids @> array[a.id])
+      limit 500 for update of a skip locked`;
+    if (!rows.length) return [];
+    // Recheck after locking: a concurrent draft save may have just retained a file.
+    const removed = await tx<{ storage_key: string }[]>`delete from ticket_attachments a where id in ${tx(rows.map(r=>r.id))}
+      and message_id is null and not exists (select 1 from message_drafts d where d.attachment_ids @> array[a.id]) returning storage_key`;
+    const keys = removed.map(r=>r.storage_key);
     await enqueueObjectDeletions(tx, keys, 'orphan');
-    await tx`delete from ticket_attachments where id in ${tx(rows.map((r) => r.id))}`;
+    return keys;
   });
+  if (!keys.length) return { removed: 0 };
   await drainObjectDeletions(keys, deps.store ? (k) => deps.store!.deleteKeys(k) : undefined);
-  return { removed: rows.length };
+  return { removed: keys.length };
 }

@@ -15,14 +15,16 @@ const Input = z.object({
     ticket_channel_id: z.string().uuid().nullable().optional(),
   }).strict().nullable(),
   review: metadata,
+  attachment_ids: z.array(z.string().uuid()).max(20).refine(ids => new Set(ids).size === ids.length).optional(),
 }).strict();
 
 export class DraftConflict extends Error {}
 
 // Called in the message transaction: either the message and clear both commit or neither does.
-export async function consumeDraft(sql: TransactionSql, workspace: string, user: string, ticket: string, tab: string, version: number) {
-  const [saved] = await sql`update message_drafts set body='', recipients=null, review=null, version=version+1
+export async function consumeDraft(sql: TransactionSql, workspace: string, user: string, ticket: string, tab: string, version: number, attachments: string[] = []) {
+  const [saved] = await sql`update message_drafts set body='', recipients=null, review=null, attachment_ids='{}', version=version+1
     where workspace_id=${workspace} and user_id=${user} and ticket_id=${ticket} and compose_tab=${tab} and version=${version}
+      and attachment_ids @> ${attachments}::uuid[] and attachment_ids <@ ${attachments}::uuid[]
     returning version`;
   if (!saved) throw new DraftConflict('Your draft changed on another device. Reopen it before sending.');
   return saved.version as number;
@@ -41,33 +43,48 @@ messageDrafts.use('/:id/drafts/:tab', async (c, next) => {
   await next();
 });
 messageDrafts.get('/:id/drafts/:tab', async c => {
-  const [draft] = await getDb()`select body, recipients, review, version from message_drafts
-    where workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')}
-      and ticket_id=${c.req.param('id')} and compose_tab=${c.req.param('tab')}`;
-  return c.json({ draft: draft || { body: '', recipients: null, review: null, version: 0 } });
+  const [draft] = await getDb()`select d.body, d.recipients, d.review, d.version,
+    coalesce((select jsonb_agg(jsonb_build_object('id',a.id,'filename',a.filename,'size_bytes',a.size_bytes,
+      'mime_type',a.mime_type,'is_inline',a.is_inline,'disposition',a.disposition) order by array_position(d.attachment_ids,a.id))
+      from ticket_attachments a where a.id=any(d.attachment_ids) and a.workspace_id=d.workspace_id
+        and a.ticket_id=d.ticket_id and a.uploaded_by_user_id=d.user_id and a.message_id is null), '[]'::jsonb) as attachments
+    from message_drafts d where d.workspace_id=${c.get('workspaceId')} and d.user_id=${c.get('userId')}
+      and d.ticket_id=${c.req.param('id')} and d.compose_tab=${c.req.param('tab')}`;
+  return c.json({ draft: draft || { body: '', recipients: null, review: null, attachments: [], version: 0 } });
 });
 messageDrafts.put('/:id/drafts/:tab', async c => {
   const parsed = Input.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid draft' }, 400);
   const input = parsed.data, tab = c.req.param('tab');
-  if (tab === 'note' && (input.recipients || input.review)) return c.json({ error: 'Notes cannot have reply details.' }, 400);
+  if (tab === 'note' && (input.recipients || input.review || input.attachment_ids?.length)) return c.json({ error: 'Notes cannot have reply details.' }, 400);
   const body = tab === 'reply' ? sanitizeEmailHtml(input.body, { allowDataImages: true }).html : input.body;
   const result = await getDb().begin(async sql => {
     // Also recheck the ticket inside the write transaction against concurrent deletion.
     const [ticket] = await sql`select id from tickets where id=${c.req.param('id')}
       and workspace_id=${c.get('workspaceId')} and deleted_at is null for update`;
     if (!ticket) return null;
+    const [existing] = await sql`select version,attachment_ids from message_drafts where workspace_id=${c.get('workspaceId')}
+      and user_id=${c.get('userId')} and ticket_id=${ticket.id} and compose_tab=${tab}`;
+    if ((existing?.version ?? 0) !== input.version) return false;
+    // Older open clients omit this field; editing text must not silently drop saved files.
+    const ids: string[] = input.attachment_ids ?? existing?.attachment_ids ?? [];
+    const attachments = ids.length ? await sql`select id,filename,size_bytes,mime_type,is_inline,disposition
+      from ticket_attachments where id in ${sql(ids)} and workspace_id=${c.get('workspaceId')}
+        and ticket_id=${ticket.id} and uploaded_by_user_id=${c.get('userId')} and message_id is null and is_inline=false
+      order by array_position(${ids}::uuid[],id) for update` : [];
+    if (attachments.length !== ids.length) return 'invalid-attachments';
     await sql`insert into message_drafts(workspace_id,user_id,ticket_id,compose_tab,body)
       values (${c.get('workspaceId')},${c.get('userId')},${ticket.id},${tab},'')
       on conflict (user_id,ticket_id,compose_tab) do nothing`;
     const [saved] = await sql`update message_drafts set body=${body}, recipients=${input.recipients ? sql.json(input.recipients) : null},
-      review=${input.review ? sql.json(input.review as JSONValue) : null}, version=version+1
+      review=${input.review ? sql.json(input.review as JSONValue) : null}, attachment_ids=${ids}::uuid[], version=version+1
       where workspace_id=${c.get('workspaceId')} and user_id=${c.get('userId')} and ticket_id=${ticket.id}
         and compose_tab=${tab} and version=${input.version}
       returning body,recipients,review,version`;
-    return saved || false;
+    return saved ? {...saved,attachments} : false;
   });
   if (result === null) return c.json({ error: 'Ticket not found' }, 404);
+  if (result === 'invalid-attachments') return c.json({ error: 'An attachment is unavailable. Remove it from the draft and attach it again.' }, 400);
   if (!result) return c.json({ error: 'Draft changed on another device. Choose which copy to keep.' }, 409);
   return c.json({ draft: result });
 });

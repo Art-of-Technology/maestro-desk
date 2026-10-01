@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 
 const source = readFileSync(new URL('../web/js/tickets/drafts.js', import.meta.url),'utf8')
   .replace(/^import .*;\r?\n/gm,'').replace(/\bexport /g,'');
-const empty = () => ({ body:'',recipients:null,review:null,version:0 });
+const empty = () => ({ body:'',recipients:null,review:null,attachments:[],version:0 });
 function device(server = new Map(), storage = new Map()) {
   const control = { workspace:'workspace',jwt:'session',offline:false,hold:null };
   const api = {
@@ -19,7 +19,7 @@ function device(server = new Map(), storage = new Map()) {
       if (control.offline) throw Error('Offline');
       const existing = server.get(path) || empty();
       if (existing.version !== body.version) throw Object.assign(Error('Conflict'),{status:409});
-      const saved = {...structuredClone(body),version:existing.version+1};
+      const saved = {...structuredClone(body),attachments:(body.attachment_ids||[]).map(id=>server.files.get(id)),version:existing.version+1};
       server.set(path,saved);
       if (control.hold) await control.hold;
       return {draft:structuredClone(saved)};
@@ -33,9 +33,26 @@ function device(server = new Map(), storage = new Map()) {
     localStorage:{ getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k),
       get length(){return storage.size;},key:i=>[...storage.keys()][i] },
   };
-  const draft = runInNewContext(source + '\n({saveDraft,loadDraft,saveDraftRecipients,loadDraftRecipients,saveDraftReview,loadDraftReview,clearDraft,flushPersonalDraft,refreshPersonalDraft,draftHasConflict,resolvePersonalDraft,prepareDraftSend,finishDraftSend,draftSyncStatus})',context);
+  server.files ||= new Map();
+  const draft = runInNewContext(source + '\n({saveDraft,loadDraft,saveDraftRecipients,loadDraftRecipients,saveDraftReview,loadDraftReview,saveDraftAttachments,loadDraftAttachments,clearDraft,flushPersonalDraft,refreshPersonalDraft,draftHasConflict,resolvePersonalDraft,prepareDraftSend,finishDraftSend,draftSyncStatus})',context);
   return {...draft,control,storage,server,tickets:context.TICKETS};
 }
+test('draft files restore, conflict on removal, and clear after send even when new text is typed',async()=>{
+  const a=device(),b=device(a.server),file={id:'file',filename:'receipt.pdf',size_bytes:123,mime_type:'application/pdf',is_inline:false,disposition:'attachment'};
+  a.server.files.set(file.id,file);
+  a.saveDraftAttachments('TK-1',[file]);await a.flushPersonalDraft('TK-1','reply');
+  await b.refreshPersonalDraft('TK-1','reply');expect(b.loadDraftAttachments('TK-1')).toEqual([file]);
+  const reload=device(a.server,b.storage);expect(reload.loadDraftAttachments('TK-1')).toEqual([file]);
+  b.saveDraftAttachments('TK-1',[]);a.saveDraft('TK-1','A new message','reply');await a.flushPersonalDraft('TK-1','reply');
+  await expect(b.flushPersonalDraft('TK-1','reply')).rejects.toThrow();
+  await b.resolvePersonalDraft('TK-1','reply',false);expect(b.loadDraftAttachments('TK-1')).toEqual([file]);
+  const sent=await b.prepareDraftSend('TK-1','reply');
+  expect(()=>b.saveDraftAttachments('TK-1',[])).toThrow('sending');
+  b.saveDraft('TK-1','Next message','reply');
+  a.server.set('/api/v1/tickets/ticket/drafts/reply',{...empty(),version:sent.version+1});
+  b.finishDraftSend('TK-1','reply',sent,sent.version+1);await b.flushPersonalDraft('TK-1','reply');
+  expect(b.loadDraftAttachments('TK-1')).toEqual([]);expect(b.loadDraft('TK-1','reply')).toBe('Next message');
+});
 test('background refresh absorbs save failures and sending releases a removed ticket',async()=>{
   const a=device();a.control.offline=true;a.saveDraft('TK-1','Offline','reply');
   const failing=a.flushPersonalDraft('TK-1','reply').catch(()=>{});

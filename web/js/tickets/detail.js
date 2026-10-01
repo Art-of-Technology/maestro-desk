@@ -70,7 +70,7 @@ import {
   clear as clearComposer, getHtml, getPlainText, insertAtCursor,
   isEmpty as isComposerEmpty, mountComposer,
 } from './composer.js';
-import { pendingAttachmentIds, renderPendingAttachments, clearPendingAttachments } from './attachments.js';
+import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
 import { enableRemoteImages, renderMessageBody, sizeMessageFrames } from './message-html.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
@@ -459,7 +459,7 @@ export function openTicket(id) {
     const bodyHtml = translatedRich
       ? renderMessageBody({ ...m, html: m.translationHtml }, id, i, plainBody)
       : showRich ? renderMessageBody(m, id, i, plainBody) : plainBody;
-    const attachHtml = renderAttachmentChips(m.attachments);
+    const attachHtml = renderAttachmentChips(m.attachments,t._uuid);
     const sentimentBadge = m.r === 'customer' ? renderSentimentBadge(m.sentiment) : '';
     return `
     <div class="msg msg-${m.r}">
@@ -625,7 +625,7 @@ export function openTicket(id) {
             </div>
               <div class="composer-foot">
                 <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
-                <span style="font-size:11px;color:var(--ink3)">Attached files stay on this device.</span>
+                <span style="font-size:11px;color:var(--ink3)">Uploaded files sync with your draft.</span>
                 <div class="composer-actions">
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <details class="ticket-popover composer-insert">
@@ -1090,6 +1090,7 @@ function editTicketSubject(id) {
 }
 
 async function saveDraftAndExit(id) {
+  if (attachmentsUploading(id)) { showToast('Files are still uploading. Wait before saving and exiting.', 'warn'); return; }
   const editor = document.getElementById('compose-' + id);
   if (!editor || (editor.dataset.rich === '1' && !editor.querySelector('.ql-editor'))) {
     showToast('The editor is still loading. Try again in a moment.', 'warn');
@@ -1108,13 +1109,16 @@ function showDraftConflict(id) {
   if (!remote) return;
   const text = value => window.escHtml(tab === 'reply' ? new DOMParser().parseFromString(value, 'text/html').body.textContent : value);
   const recipients = value => value ? `<p>To: ${window.escHtml(value.to.join(', '))}<br>CC: ${window.escHtml(value.cc || 'None')}<br>From: ${window.escHtml(value.sending_address || 'Workspace default')}</p>` : '';
+  const files = value => `<p>Files: ${window.escHtml((value||[]).map(a=>a.filename).join(', ')||'None')}</p>`;
   const workspace = getWorkspaceId(), jwt = getJwt();
   showModal('Choose a draft', `<p>This ticket has different drafts on two devices. Compare both copies before choosing.</p>
     <label class="form-label" for="draft-copy-local">This device</label><textarea id="draft-copy-local" class="form-input" readonly>${text(loadDraft(id,tab))}</textarea>
     ${recipients(draftSnapshot(id,tab).recipients)}
+    ${files(draftSnapshot(id,tab).attachments)}
     <label class="form-label" for="draft-copy-remote">Synced copy</label><textarea id="draft-copy-remote" class="form-input" readonly>${text(remote.body)}</textarea>
-    ${remote.body ? '' : '<p>The synced copy is empty. It may have been sent or cleared on another device.</p>'}
+    ${remote.body || remote.attachments?.length ? '' : '<p>The synced copy is empty. It may have been sent or cleared on another device.</p>'}
     ${recipients(remote.recipients)}
+    ${files(remote.attachments)}
     <button type="button" class="btn" data-action="td.useSyncedDraft" data-ticket-id="${window.escAttr(id)}" data-tab="${tab}" data-workspace="${window.escAttr(workspace)}" data-user="${window.escAttr(SESSION.userId)}">Use synced copy</button>`, async () => {
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
       try { await resolvePersonalDraft(id, tab, true); closeModal(); }
@@ -1240,6 +1244,8 @@ async function sendComposeOnce(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return false;
   const scope = getWorkspaceId(), jwt = getJwt(), tab = COMPOSE_TAB;
+  if (attachmentsUploading(id)) { showToast('Files are still uploading. Wait before sending.', 'warn'); return false; }
+  const attachmentIds = tab === 'reply' ? [...pendingAttachmentIds(id)] : [];
   if (tab === 'reply' && t._uuid && !t.replyRecipients) {
     showToast('Email details are still loading. Try again in a moment.', 'error');
     return false;
@@ -1250,6 +1256,7 @@ async function sendComposeOnce(id) {
   const draftHtml = getHtml(id);
   const customerText = latestCustomerText(t).text;
   const stillCurrent = () => scope === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id
+    && !attachmentsUploading(id) && JSON.stringify(attachmentIds) === JSON.stringify(tab === 'reply' ? pendingAttachmentIds(id) : [])
     && tab === COMPOSE_TAB && getPlainText(id).trim() === txt && getHtml(id) === draftHtml
     && customerText === latestCustomerText(t).text
     && JSON.stringify(recipients) === JSON.stringify(tab === 'reply' ? replyRecipientPayload(t) : undefined);
@@ -1311,7 +1318,6 @@ async function sendComposeOnce(id) {
   if (t._uuid) {
     let message, delivery, sentDraft;
     const html = isNote ? null : outgoingHtml;
-    const attachmentIds = isNote ? [] : pendingAttachmentIds(id);
     try {
       onComposeInput(id);
       sentDraft = await prepareDraftSend(id, tab);
@@ -1361,7 +1367,7 @@ async function sendComposeOnce(id) {
       mentions,
       ts: new Date(message.created_at).toTimeString().slice(0, 5),
     });
-    if (!isNote) clearPendingAttachments(id);
+    if (!isNote) renderPendingAttachments(id);
   } else {
     // Demo persona — no API, synthesise locally as before.
     t.msgs.push({
