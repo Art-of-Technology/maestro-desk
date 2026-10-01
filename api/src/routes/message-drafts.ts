@@ -37,7 +37,9 @@ messageDrafts.use('/:id/drafts/:tab', async (c, next) => {
     return c.json({ error: 'Draft not found' }, 404);
   }
   const [ticket] = await getDb()`select id from tickets where id=${c.req.param('id')}
-    and workspace_id=${c.get('workspaceId')} and deleted_at is null`;
+    and workspace_id=${c.get('workspaceId')} and deleted_at is null
+    and not exists(select 1 from customers c where c.id=tickets.customer_id
+      and c.workspace_id=tickets.workspace_id and c.erased_at is not null)`;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
   c.header('Cache-Control', 'no-store');
   await next();
@@ -59,6 +61,11 @@ messageDrafts.put('/:id/drafts/:tab', async c => {
   if (tab === 'note' && (input.recipients || input.review || input.attachment_ids?.length)) return c.json({ error: 'Notes cannot have reply details.' }, 400);
   const body = tab === 'reply' ? sanitizeEmailHtml(input.body, { allowDataImages: true }).html : input.body;
   const result = await getDb().begin(async sql => {
+    // Customer before ticket: same lock order as erasure, avoiding save/erase deadlocks.
+    const [customer] = await sql`select c.erased_at from customers c join tickets t
+      on t.customer_id=c.id and t.workspace_id=c.workspace_id
+      where t.id=${c.req.param('id')} and c.workspace_id=${c.get('workspaceId')} for share of c`;
+    if (customer?.erased_at) return null;
     // Also recheck the ticket inside the write transaction against concurrent deletion.
     const [ticket] = await sql`select id from tickets where id=${c.req.param('id')}
       and workspace_id=${c.get('workspaceId')} and deleted_at is null for update`;

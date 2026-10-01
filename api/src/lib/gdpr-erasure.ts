@@ -41,7 +41,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'message_drafts', 'custom_field_values', 'webhook_deliveries'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -222,6 +222,8 @@ export async function eraseCustomer(args: {
         erased_at = now()
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
+    // The erased_at trigger also deletes drafts, custom values and webhook payloads.
+    // Database guards serialize their writes with this customer lock.
 
     // Every historical merge can retain copied source PII after unmerge.
     // Keep non-personal backfills and the journal itself as merge history.

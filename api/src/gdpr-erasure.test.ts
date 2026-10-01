@@ -296,4 +296,14 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     const era = await sql<any[]>`select count(*)::int as n from gdpr_erasures where customer_id = ${ctx.customerId}`;
     expect(era[0].n).toBe(1);
   });
+
+  it('refuses draft reads/saves and custom-field writes for an erased customer', async () => {
+    const path = `/api/v1/tickets/${ctx.ticketId}/drafts/reply`;
+    expect((await as(admin.token,path)).status).toBe(404);
+    expect((await as(admin.token,path,{method:'PUT',body:JSON.stringify({version:0,body:'Stale private draft',recipients:null,review:null})})).status).toBe(404);
+    await sql`insert into custom_fields(workspace_id,entity_type,key,label,field_type)
+      values(${ctx.wsId},'customer','erasure-test','Test','text')`;
+    expect((await as(admin.token,`/api/v1/custom-values/customers/${ctx.customerId}/erasure-test`,
+      {method:'PUT',body:JSON.stringify({value:'Stale private value'})})).status).toBe(404);
+  });
 });
