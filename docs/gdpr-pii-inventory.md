@@ -23,7 +23,7 @@ redact the personal data** and stamp `customers.erased_at`.
 | `tickets` | `subject` (NOT NULL), `csat_comment`, `snooze_reason`, `last_inbound_email` | `subject → '[erased]'`; other listed fields → null | Row kept; status/category/timestamps retained for analytics. The last inbound sender is included in the data-subject export and cleared on erasure. |
 | `ticket_messages` | `body` (NOT NULL), `body_html`, `author_label`, `email_metadata` | `body → '[erased]'`; `body_html` and `email_metadata → null`; `author_label → '[erased]'` only where `role = 'customer'` | Row kept (thread structure / audit). Email envelopes are included in ticket exports. Erasure also clears envelopes on other tickets containing the subject's email addresses, including CC and copied merge messages. Envelope addresses never establish customer identity. Agent/AI author labels are staff, not the data subject. |
 | `inbox_messages` | `from_name`, `from_email`, `subject`, `body`, `body_html`, `raw` | **null** all | Matched by `converted_ticket_id ∈ customer's tickets` OR `from_email = customer.email`. |
-| `message_drafts` | `body`, `recipients`, `review`, attachment references | **delete all agents' drafts** on the subject's tickets | Database guards reject stale content writes after erasure; browser copies and export coverage remain follow-ups. |
+| `message_drafts` | `body`, `recipients`, `review`, attachment references | **delete all agents' drafts** on the subject's tickets | Database guards reject stale content writes after erasure; Browser cleanup is described below; export coverage remains a follow-up. |
 | `custom_field_values` | `value` | **delete** customer values and values on their tickets | Scoped by workspace and entity type/id. Database guards prevent stale writes; export coverage remains a follow-up. |
 | `webhook_deliveries` | Customer details and ticket subject in `payload` | **delete** matching customer or ticket snapshots, including pending retries | Scoped by workspace and payload identifiers. A delivery already in flight finishes before erasure can complete. Copies already delivered to recipients require a separate downstream process. |
 | `gdpr_erasures` | — | **insert** the erasure record | `requested_by_user_id`, `completed_at`, `fields_erased[]`, `reason`. |
@@ -71,6 +71,22 @@ Inbound and uploaded attachments are live product features and can contain perso
   contents. Complete the access-request workflow with review/redaction and secure
   delivery of relevant documents.
 
+## Browser drafts
+
+Manual logout saves pending drafts in the active workspace before clearing this agent's
+browser copies across workspaces and notifying other open tabs. Failed saves, conflicts,
+and unsaved copies from other tabs/workspaces require staying signed in or explicitly
+discarding unsaved browser work. Session expiry clears copies immediately; synced server
+drafts can be restored after authenticated access succeeds. Late responses cannot rewrite
+cleared caches. Confirmed customer erasure clears cached drafts for known tickets across
+agents and tabs; denied draft reads/writes clear that agent's affected ticket cache.
+
+A closed or offline browser cannot receive an erasure notification. It clears affected
+copies when the app learns of erasure or access denial; cached text is hidden until access
+is checked. This is not remote deletion from every device or browser backup. Legacy
+unscoped browser drafts are cleared at logout/expiry. A stale unsaved-tab marker can
+conservatively require explicit discard if its contents were overwritten in shared storage.
+
 ## Erasure repair and remaining product-wide work
 
 Migration `20261001140000_erasure_auxiliary_data.sql` repairs drafts, custom values and
@@ -79,7 +95,7 @@ when `erased_at` is set. It leaves other customers and workspaces unchanged. The
 guards cover these three surfaces; they are not a product-wide ban on every possible
 write to an erased ticket.
 
-Still to assess/remediate: export completeness; browser draft retention/logout; legacy
+Still to assess/remediate: export completeness and wiring the customer GDPR dialog actions (currently placeholders); legacy
 AI content and other copied records; logs and notification payloads; staff-data rights;
 retention by data category; backup restore erasure replay; downstream recipient deletion;
 processor contracts, locations/transfers, AI handling, privacy notices and DPIA needs.

@@ -221,6 +221,7 @@ export function applyCustomerRow(target, c) {
   target.since        = isoDate(c.since);   // `date` column → YYYY-MM-DD whatever the wire form
   target.bo           = c.backoffice_url || '';
   target.erased       = Boolean(c.erased_at);
+  if(target.erased&&CUSTOMERS.includes(target))window.dispatchEvent(new CustomEvent('respovia:customer-erased',{detail:{id:target.id}}));
   target.isSpam       = Boolean(c.is_spam);
   target.emailBounceState = c.email_bounce_state || 'none';
   target.emailBounceCount = c.email_bounce_count || 0;
@@ -394,6 +395,7 @@ export async function loadWorkspaceData() {
     }
   }
   replaceInPlace(TICKETS, mappedTickets);
+  for(const customer of CUSTOMERS)if(customer.erased)window.dispatchEvent(new CustomEvent('respovia:customer-erased',{detail:{id:customer.id}}));
   // Seed the tickets pagination cursor + total. loadMoreTickets uses
   // these to fetch subsequent pages on demand.
   _ticketsOffset = mappedTickets.length;
