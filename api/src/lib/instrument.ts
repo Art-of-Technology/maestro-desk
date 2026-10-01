@@ -3,6 +3,7 @@ import { env } from './env.js';
 import { diagnosticType, safeError } from './diagnostics.js';
 
 export const sentryEnabled = Boolean(env.SENTRY_DSN);
+const sentryEnvironment = env.SENTRY_ENVIRONMENT || process.env.VERCEL_ENV || 'development';
 const REPORT_KINDS = ['api-error', 'maestro-signin', 'audit-tamper'] as const;
 
 // Rebuild instead of deleting known sensitive fields: breadcrumbs, contexts,
@@ -15,6 +16,7 @@ export function scrubEvent(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
     ...(typeof event.event_id === 'string' && /^[a-f0-9]{32}$/.test(event.event_id) ? { event_id: event.event_id } : {}),
     ...(typeof event.timestamp === 'number' && Number.isFinite(event.timestamp) ? { timestamp: event.timestamp } : {}),
     platform: 'node',
+    environment: sentryEnvironment,
     level: 'error',
     exception: { values: (event.exception?.values ?? []).map(value => ({
       type: diagnosticType(value.type), value: 'Error details omitted for privacy',
@@ -26,7 +28,7 @@ export function scrubEvent(event: Sentry.ErrorEvent): Sentry.ErrorEvent {
 if (sentryEnabled) {
   Sentry.init({
     dsn: env.SENTRY_DSN,
-    environment: env.SENTRY_ENVIRONMENT || 'development',
+    environment: sentryEnvironment,
     tracesSampleRate: 0,
     sendDefaultPii: false,
     // Only explicit application reports; automatic integrations can collect
