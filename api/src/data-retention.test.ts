@@ -2,7 +2,7 @@
 // Verifies the purge deletes only expired resolved tickets (cascading their
 // children), respects a NULL window, and that the window is admin-configurable.
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 
 const runDbTests = process.env.RUN_DB_TESTS ? describe : describe.skip;
 
@@ -10,6 +10,17 @@ runDbTests('data retention (DB-backed)', () => {
   let app: { request: (path: string, init?: RequestInit) => Promise<Response> };
   let sql: ReturnType<typeof import('./lib/db.js').getDb>;
   let purgeExpiredTickets: typeof import('./lib/retention.js').purgeExpiredTickets;
+
+  it('does not copy PostgreSQL notice messages or detail into diagnostics', async () => {
+    const logs: unknown[][] = [];
+    const spy = spyOn(console, 'warn').mockImplementation((...args) => { logs.push(args); });
+    try {
+      await sql`do $$ begin raise notice 'private-person@example.test' using detail = 'secret-token'; end $$`;
+      expect(logs).toHaveLength(1);
+      expect(JSON.stringify(logs)).not.toContain('private-person@example.test');
+      expect(JSON.stringify(logs)).not.toContain('secret-token');
+    } finally { spy.mockRestore(); }
+  });
 
   const RUN = Date.now();
   const slug = `ret-${RUN}`;
