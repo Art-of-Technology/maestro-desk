@@ -15,6 +15,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { registerActions } from '../core/event-delegation.js';
+import { senderSummary } from './sender-summary.js';
 
 // ─── Module state ────────────────────────────────────────────────────────
 let EB_TEMPLATES = [];
@@ -52,6 +53,7 @@ export function settingsEmailBranding() {
   const defaultTpl = EB_TEMPLATES.find((t) => t.is_default) || null;
 
   return `
+    ${senderSummary()}
     <div class="settings-section">
       <div class="settings-h">Email branding</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">
