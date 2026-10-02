@@ -73,7 +73,7 @@ export async function summarize(sources, key, fetchImpl = fetch) {
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const code = ['insufficient_quota', 'invalid_api_key', 'rate_limit_exceeded', 'model_not_found', 'permission_denied'].includes(body?.error?.code) ? body.error.code : 'unknown';
+    const code = ['credit_balance_exhausted', 'organization_spend_limit_exceeded', 'project_spend_limit_exceeded', 'organization_usage_limit_exceeded', 'insufficient_quota', 'invalid_api_key', 'rate_limit_exceeded', 'model_not_found', 'permission_denied'].includes(body?.error?.code) ? body.error.code : 'unknown';
     throw new Error(`AI generation failed (${response.status}; ${code})`);
   }
   const result = await response.json();
@@ -158,7 +158,7 @@ export async function runReport(env, now = new Date(), fetchImpl = fetch) {
 
 export function safeDiagnostic(error) {
   const message = typeof error?.message === 'string' ? error.message : '';
-  return /^(?:AI generation failed \([1-5]\d{2}; (?:insufficient_quota|invalid_api_key|rate_limit_exceeded|model_not_found|permission_denied|unknown)\)|GitHub request failed \([1-5]\d{2}\)|AI output is incomplete|AI declined the summary|Dedicated OpenAI key is missing)$/.test(message)
+  return /^(?:AI generation failed \([1-5]\d{2}; (?:credit_balance_exhausted|organization_spend_limit_exceeded|project_spend_limit_exceeded|organization_usage_limit_exceeded|insufficient_quota|invalid_api_key|rate_limit_exceeded|model_not_found|permission_denied|unknown)\)|GitHub request failed \([1-5]\d{2}\)|AI output is incomplete|AI declined the summary|Dedicated OpenAI key is missing)$/.test(message)
     ? message : 'Unclassified failure; see the last completed stage';
 }
 

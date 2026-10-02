@@ -11,7 +11,7 @@ const summary = () => ({ features: [{ title: 'Editable notes', detail: 'Admins c
 const env = { GITHUB_REPOSITORY: 'Art-of-Technology/maestro-desk', GITHUB_REF: 'refs/heads/main', GITHUB_TOKEN: 'fake', GITHUB_RUN_ID: '789' };
 
 test('diagnostics expose only fixed API codes and status, never response text or unknown errors', async () => {
-  for (const code of ['insufficient_quota', 'invalid_api_key', 'permission_denied', 'secret-key-value']) {
+  for (const code of ['credit_balance_exhausted', 'organization_spend_limit_exceeded', 'project_spend_limit_exceeded', 'organization_usage_limit_exceeded', 'insufficient_quota', 'invalid_api_key', 'permission_denied', 'secret-key-value']) {
     try {
       await summarize([source], 'test-key', async () => Response.json({ error: { code, message: 'secret-key-value' } }, { status: 429 }));
       assert.fail('must reject');
