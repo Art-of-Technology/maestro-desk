@@ -38,10 +38,14 @@ jobs:
           MONITOR_MODE: ${{ inputs.mode || 'check' }}
           SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
       - name: Remember confirmed warning delivery
-        if: steps.check.outputs.artifact != ''
-        uses: actions/upload-artifact@v4
+        if: steps.check.outputs.cache-key != ''
+        uses: actions/cache/save@v4
         with:
-          name: ${{ steps.check.outputs.artifact }}
+          key: ${{ steps.check.outputs.cache-key }}
           path: wrap-up-alert.json
-          retention-days: 90
-          if-no-files-found: error
+      - name: Verify warning record survived storage
+        if: steps.check.outputs.cache-key != ''
+        run: node scripts/wrap-up-monitor.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERIFY_ALERT_KEY: ${{ steps.check.outputs.cache-key }}
