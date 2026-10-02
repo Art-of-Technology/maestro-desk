@@ -1253,6 +1253,10 @@ async function sendComposeOnce(id) {
     return false;
   }
   const recipients = tab === 'reply' ? replyRecipientPayload(t) : undefined;
+  if (recipients && !recipients.to.length) {
+    showToast('No email was sent because this ticket has no usable To address. Your draft has been kept. Check the customer email and workspace email settings.', 'error', 8000);
+    return false;
+  }
   const ccInput = document.getElementById(`reply-cc-${id}`);
   if (tab === 'reply' && ccInput && !ccInput.reportValidity()) return false;
   const draftHtml = getHtml(id);

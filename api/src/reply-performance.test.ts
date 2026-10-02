@@ -22,7 +22,8 @@ it('rejects invalid, reversed and excessive reporting periods',()=>{
   const report=(extra:Record<string,string>={},person=admin,workspace=ws)=>request('reports/reply-performance?'+new URLSearchParams({...filters,...extra}),person,undefined,workspace);
   async function ticket(workspace=ws){
     const id=crypto.randomUUID();
-    const [c]=await sql`insert into customers(workspace_id,display_id,first_name) values (${workspace},${id},'Synthetic') returning id`;
+    const [c]=await sql`insert into customers(workspace_id,display_id,first_name,email,email_bounce_state)
+      values (${workspace},${id},'Synthetic',${`performance-${id}@t.test`},'hard') returning id`;
     const [t]=await sql`insert into tickets(workspace_id,display_id,subject,customer_id,status_key,priority_key)
       values (${workspace},${id},'Synthetic question',${c.id},'open','normal') returning id`;
     return t.id as string;

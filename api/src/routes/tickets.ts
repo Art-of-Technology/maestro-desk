@@ -827,9 +827,12 @@ tickets.post('/:id/messages', async (c) => {
   `;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
-  if (input.email_recipients) {
-    if (input.role !== 'agent') return c.json({ error: 'Internal notes cannot have email recipients.' }, 400);
-    await ticketReplyRecipients(workspaceId, ticketId, input.email_recipients);
+  if (input.email_recipients && input.role !== 'agent') {
+    return c.json({ error: 'Internal notes cannot have email recipients.' }, 400);
+  }
+  if (input.role === 'agent') {
+    const recipients = await ticketReplyRecipients(workspaceId, ticketId, input.email_recipients);
+    if (!recipients.can_send) return c.json({ error: 'No email was sent because this ticket has no usable To address. Your draft has been kept. Check the customer email and workspace email settings.' }, 422);
   }
 
   // Resolve author display name from public.users so the row carries the

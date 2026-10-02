@@ -1,8 +1,8 @@
 // Agent-reply email delivery — DB-backed (RUN_DB_TESTS). Posts agent replies
 // and internal notes through POST /tickets/:id/messages with Postmark mocked,
 // asserting: a public reply emails the customer and stamps the threading
-// Message-Id; an internal note never emails; no-email and hard-bounced
-// customers are saved-only with the right reason.
+// Message-Id; an internal note never emails; no-email customers are blocked
+// before saving; hard-bounced addresses are not emailed.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
@@ -288,7 +288,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   });
 
   it('preserves reference snapshots on merge and removes only the copied snapshot on unmerge', async () => {
-    const source = await seedTicket(`AR-${RUN}-review-source`, { email: null });
+    const source = await seedTicket(`AR-${RUN}-review-source`, { email: `review-source-${RUN}@acme.test` });
     const target = await seedTicket(`AR-${RUN}-review-target`, { email: null });
     const internal_review = { references: [{ id: 'KB-1', title: 'Original source title' }], notes: ['Agent evidence'] };
     const sent = await as(`/api/v1/tickets/${source}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Answer', internal_review }) });
@@ -827,7 +827,12 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(erased?.fieldsErased).toContain('tickets.last_inbound_email');
     const [row] = await sql`select last_inbound_email from tickets where id = ${tid}`;
     expect(row.last_inbound_email).toBeNull();
-    expect((await reply(tid)).delivery.emailed).toBe(false);
+    const calls = postmarkCalls;
+    const blocked = await as(`/api/v1/tickets/${tid}/messages`, {
+      method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Address test' }),
+    });
+    expect(blocked.status).toBe(422);
+    expect(postmarkCalls).toBe(calls);
   });
 
   it('sends a plain-text-only reply with no HTML part when the workspace has nothing to brand', async () => {
@@ -930,13 +935,49 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(postmarkCalls).toBe(0);
   });
 
-  it('saves but does not email when the customer has no address', async () => {
+  it('rejects a missing address even when an older client omits recipients', async () => {
     const tid = await seedTicket(`AR-${RUN}-3`, { email: null });
     const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'hi' }) });
-    const { delivery } = await res.json() as any;
-    expect(delivery.emailed).toBe(false);
-    expect(delivery.reason).toBe('no_customer_email');
+    expect(res.status).toBe(422);
+    expect((await res.json() as any).error).toContain('no usable To address');
     expect(postmarkCalls).toBe(0);
+    expect(await sql`select id from ticket_messages where ticket_id=${tid}`).toHaveLength(0);
+  });
+
+  it('keeps the synced draft and files when To is empty, including excluded sender addresses', async () => {
+    for (const email of [null, 'support@maestro.test']) {
+      const tid = await seedTicket(`AR-${RUN}-empty-to-${email ? 'sender' : 'missing'}`, { email });
+      const path = `/api/v1/tickets/${tid}`;
+      const detail = await (await as(path)).json() as any;
+      expect(detail.ticket.reply_recipients.to).toEqual([]);
+      expect(detail.ticket.reply_recipients.can_send).toBe(false);
+      const file = crypto.randomUUID();
+      await sql`insert into ticket_attachments(id,workspace_id,ticket_id,filename,size_bytes,storage_key,mime_type,uploaded_by_user_id)
+        values(${file},${ctx.wsId},${tid},'receipt.pdf',16,${'draft-test/'+file},'application/pdf',${admin.userId})`;
+      const recipients = { source_message_id: null, to: [], cc: '', mode: 'reply' };
+      const saved = await as(path+'/drafts/reply', { method: 'PUT', body: JSON.stringify({
+        version: 0, body: '<p>Keep <strong>this reply</strong></p>', recipients, review: null, attachment_ids: [file],
+      }) });
+      expect(saved.status).toBe(200);
+      const before = (await saved.json() as any).draft;
+      const res = await as(path+'/messages', { method: 'POST', body: JSON.stringify({
+        role: 'agent', body_html: before.body, draft_version: before.version,
+        attachment_ids: [file], email_recipients: { ...recipients, cc: [] },
+      }) });
+      expect(res.status).toBe(422);
+      expect((await res.json() as any).error).toContain('Your draft has been kept');
+      const after = (await (await as(path+'/drafts/reply')).json() as any).draft;
+      expect(after.body).toBe(before.body);
+      expect(after.version).toBe(before.version);
+      expect(after.recipients).toEqual(before.recipients);
+      expect(after.attachments.map((a: any) => a.id)).toEqual([file]);
+      expect(await sql`select id from ticket_messages where ticket_id=${tid}`).toHaveLength(0);
+      const [attachment] = await sql`select message_id from ticket_attachments where id=${file}`;
+      expect(attachment.message_id).toBeNull();
+      expect(postmarkCalls).toBe(0);
+      const note = await as(path+'/messages', { method: 'POST', body: JSON.stringify({ role: 'note', body: 'Internal note' }) });
+      expect(note.status).toBe(201);
+    }
   });
 
   it('skips hard-bounced / spam-flagged addresses', async () => {

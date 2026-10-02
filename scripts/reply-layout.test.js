@@ -46,7 +46,7 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
       window: { confirm: () => true }, CURRENT_TICKET: 'test', COMPOSE_TAB: scenario === 'note' ? 'note' : 'reply',
       TICKETS: [ticket], CUSTOMERS: [], setComposerMode,
       getPlainText: () => text, getHtml: () => null, isComposerEmpty: () => !text,
-      getWorkspaceId: () => 'workspace', getJwt: () => 'session', replyRecipientPayload: () => ({}),
+      getWorkspaceId: () => 'workspace', getJwt: () => 'session', replyRecipientPayload: () => ({ to: ['customer@example.test'], cc: [] }),
       latestCustomerText: () => ({ text: 'Hello' }), confirmIfOthersComposing: async () => true,
       setAiThinking() {}, prepareCustomerReply: async () => ({ translation: text }),
       replyWarnings: () => [], loadMessageReview: () => null, confirmedReplySuggestion: () => null,
