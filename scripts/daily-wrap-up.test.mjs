@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectSources, summarize, renderSummary, deliverReport, runReport } from './daily-wrap-up.mjs';
+import { collectSources, summarize, renderSummary, deliverReport, runReport, safeDiagnostic } from './daily-wrap-up.mjs';
 import { validReceipt, github, readState, saveState, initializeState } from './wrap-up-state.mjs';
 
 const start = '2026-10-01T16:30:00.000Z', cutoff = '2026-10-02T16:30:00.000Z';
@@ -9,6 +9,21 @@ const makeState = () => ({ sha: 'a'.repeat(40), value: { version: 1, receipt: { 
 const source = { id: 'PR7', title: 'Edit notes', body: 'Admins can correct notes.', url: 'https://github.com/Art-of-Technology/maestro-desk/pull/7' };
 const summary = () => ({ features: [{ title: 'Editable notes', detail: 'Admins can correct notes.', sourceIds: ['PR7'] }], fixes: [], omitted: [] });
 const env = { GITHUB_REPOSITORY: 'Art-of-Technology/maestro-desk', GITHUB_REF: 'refs/heads/main', GITHUB_TOKEN: 'fake', GITHUB_RUN_ID: '789' };
+
+test('diagnostics expose only fixed API codes and status, never response text or unknown errors', async () => {
+  for (const code of ['credit_balance_exhausted', 'organization_spend_limit_exceeded', 'project_spend_limit_exceeded', 'organization_usage_limit_exceeded', 'insufficient_quota', 'invalid_api_key', 'permission_denied', 'secret-key-value']) {
+    try {
+      await summarize([source], 'test-key', async () => Response.json({ error: { code, message: 'secret-key-value' } }, { status: 429 }));
+      assert.fail('must reject');
+    } catch (error) {
+      assert.equal(safeDiagnostic(error), `AI generation failed (429; ${code === 'secret-key-value' ? 'unknown' : code})`);
+      assert.ok(!safeDiagnostic(error).includes('secret-key-value'));
+    }
+  }
+  for (const error of [new Error('secret-key-value'), new Error('AI output is incomplete\nsecret-key-value'), null]) {
+    assert.equal(safeDiagnostic(error), 'Unclassified failure; see the last completed stage');
+  }
+});
 
 test('sources include merged PRs and direct commits, deduplicate PR commits and exclude post-cutoff merges', async () => {
   const routes = [];
