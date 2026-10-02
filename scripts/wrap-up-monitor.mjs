@@ -31,15 +31,14 @@ export function missingReport(receipt, now, since) {
 
 export async function alreadyAlerted(name, token, fetchImpl = fetch) {
   if (!token) throw new Error('Missing GitHub token');
-  const response = await fetchImpl(`https://api.github.com/repos/${repository}/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`, {
+  const response = await fetchImpl(`https://api.github.com/repos/${repository}/actions/caches?key=${encodeURIComponent(name)}&ref=refs%2Fheads%2Fmain&per_page=100`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
     signal: AbortSignal.timeout(15_000), redirect: 'error',
   });
   if (!response.ok) throw new Error('Alert history unavailable');
   const body = await response.json();
-  if (!Array.isArray(body.artifacts) || !Number.isInteger(body.total_count) || body.total_count !== body.artifacts.length) throw new Error('Incomplete alert history');
-  return body.artifacts.some(a => a.name === name && a.expired === false && a.workflow_run?.head_branch === 'main' &&
-    a.workflow_run.repository_id === a.workflow_run.head_repository_id);
+  if (!Array.isArray(body.actions_caches) || !Number.isInteger(body.total_count) || body.total_count !== body.actions_caches.length) throw new Error('Incomplete alert history');
+  return body.actions_caches.some(a => a.key === name && a.ref === 'refs/heads/main');
 }
 
 export async function monitor(env, now = new Date(), fetchImpl = fetch) {
@@ -61,11 +60,16 @@ export async function monitor(env, now = new Date(), fetchImpl = fetch) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
+    if (process.env.VERIFY_ALERT_KEY) {
+      if (!await alreadyAlerted(process.env.VERIFY_ALERT_KEY, process.env.GITHUB_TOKEN)) throw new Error('Delivery record was not saved');
+      console.log('Warning delivery record verified.');
+      process.exit(0);
+    }
     const result = await monitor(process.env);
     if (result.status === 'sent') {
-      // ponytail: Slack and artifact storage are not transactional; reconcile Slack before rerunning an ambiguous failure.
+      // ponytail: Slack and cache storage are not transactional; reconcile Slack before rerunning an ambiguous failure.
       writeFileSync('wrap-up-alert.json', JSON.stringify(result));
-      appendFileSync(process.env.GITHUB_OUTPUT, `artifact=${result.name}\n`);
+      appendFileSync(process.env.GITHUB_OUTPUT, `cache-key=${result.name}\n`);
     }
     console.log(`Wrap-up monitor: ${result.status}`);
   } catch {
