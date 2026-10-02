@@ -1,26 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectSources, summarize, renderSummary, deliverReport, runReport, safeDiagnostic } from './daily-wrap-up.mjs';
+import { collectSources, renderSummary, deliverReport, runReport, safeDiagnostic } from './daily-wrap-up.mjs';
 import { validReceipt, github, readState, saveState, initializeState } from './wrap-up-state.mjs';
 
 const start = '2026-10-01T16:30:00.000Z', cutoff = '2026-10-02T16:30:00.000Z';
 const receipt = { coverageThrough: start, verifiedAt: start, channelId: 'C0C0W6B9PU6', messageTs: '123.456' };
 const makeState = () => ({ sha: 'a'.repeat(40), value: { version: 1, receipt: { ...receipt }, pending: null, lastDate: '2026-10-01', lastTestRun: null } });
 const source = { id: 'PR7', title: 'Edit notes', body: 'Admins can correct notes.', url: 'https://github.com/Art-of-Technology/maestro-desk/pull/7' };
-const summary = () => ({ features: [{ title: 'Editable notes', detail: 'Admins can correct notes.', sourceIds: ['PR7'] }], fixes: [], omitted: [] });
 const env = { GITHUB_REPOSITORY: 'Art-of-Technology/maestro-desk', GITHUB_REF: 'refs/heads/main', GITHUB_TOKEN: 'fake', GITHUB_RUN_ID: '789' };
 
-test('diagnostics expose only fixed API codes and status, never response text or unknown errors', async () => {
-  for (const code of ['credit_balance_exhausted', 'organization_spend_limit_exceeded', 'project_spend_limit_exceeded', 'organization_usage_limit_exceeded', 'insufficient_quota', 'invalid_api_key', 'permission_denied', 'secret-key-value']) {
-    try {
-      await summarize([source], 'test-key', async () => Response.json({ error: { code, message: 'secret-key-value' } }, { status: 429 }));
-      assert.fail('must reject');
-    } catch (error) {
-      assert.equal(safeDiagnostic(error), `AI generation failed (429; ${code === 'secret-key-value' ? 'unknown' : code})`);
-      assert.ok(!safeDiagnostic(error).includes('secret-key-value'));
-    }
-  }
-  for (const error of [new Error('secret-key-value'), new Error('AI output is incomplete\nsecret-key-value'), null]) {
+test('diagnostics exclude unknown and multiline error text', () => {
+  assert.equal(safeDiagnostic(new Error('GitHub request failed (403)')), 'GitHub request failed (403)');
+  for (const error of [new Error('secret-value'), new Error('GitHub request failed (403)\nsecret-value'), null]) {
     assert.equal(safeDiagnostic(error), 'Unclassified failure; see the last completed stage');
   }
 });
@@ -58,37 +49,34 @@ test('pagination reads the full backlog and refuses its explicit ceiling', async
   await assert.rejects(collectSources(async () => Array.from({ length: 100 }, (_, n) => ({ number: n + 1, base: { ref: 'main' }, updated_at: cutoff })), start, cutoff), /safe limit/);
 });
 
-test('AI request has no tools and validates refusal, incomplete output and HTTP failures', async () => {
-  const result = await summarize([source], 'test-key', async (url, options) => {
-    assert.equal(url, 'https://api.openai.com/v1/responses');
-    const body = JSON.parse(options.body);
-    assert.equal(body.store, false);
-    assert.equal(body.tools, undefined);
-    assert.equal(body.text.format.strict, true);
-    assert.equal(options.redirect, 'error');
-    return Response.json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(summary()) }] }] });
-  });
-  assert.deepEqual(result, summary());
-  for (const body of [{ status: 'incomplete' }, { status: 'completed', output: [{ type: 'message', content: [{ type: 'refusal' }] }] }]) {
-    await assert.rejects(summarize([source], 'test', async () => Response.json(body)));
-  }
-  await assert.rejects(summarize([source], 'test', async () => new Response('secret', { status: 401 })), /401/);
-  assert.deepEqual(await summarize([], null), { features: [], fixes: [], omitted: [] });
+test('report preserves every change, classifies explicit prefixes, escapes mentions and pins links', () => {
+  const text = renderSummary([
+    { ...source, title: 'feat(notes): Edit notes' },
+    { id: 'PR8', title: 'fix!: Restore drafts' },
+    { id: 'a'.repeat(40), title: 'Maintenance <!channel>', url: 'https://evil.invalid' },
+  ], start, cutoff);
+  assert.match(text, /New features/); assert.match(text, /Fixes/); assert.match(text, /Other changes/);
+  assert.match(text, /3 changes merged to main/);
+  assert.ok(text.includes(source.url)); assert.ok(text.includes('commit/' + 'a'.repeat(40)));
+  assert.ok(text.includes('&lt;!channel&gt;')); assert.ok(!text.includes('evil.invalid'));
+  assert.ok(text.includes('Coverage through: ' + cutoff));
+  assert.throws(() => renderSummary([source, source], start, cutoff), /Invalid report source/);
+  assert.throws(() => renderSummary([{ id: '../bad', title: 'bad' }], start, cutoff), /Invalid report source/);
+  assert.match(renderSummary([], start, cutoff), /No new changes merged to main/);
+  assert.match(renderSummary([{ ...source, title: 'x'.repeat(300) }], start, cutoff), /…/);
+  assert.throws(() => renderSummary(Array.from({length: 100}, (_, n) => ({ id: 'PR' + (n + 1), title: 'x'.repeat(180) })), start, cutoff), /Slack length limit/);
 });
 
-test('rendering accounts for every source, pins links, escapes mentions and refuses missing or duplicate IDs', () => {
-  const text = renderSummary(summary(), [source], start, cutoff);
-  assert.match(text, /1 features · 0 fixes/);
-  assert.ok(text.includes(source.url));
-  assert.ok(text.includes(`Coverage through: ${cutoff}`));
-  assert.throws(() => renderSummary(summary(), [source, { ...source, id: 'PR8' }], start, cutoff), /unaccounted/);
-  const repeated = summary(); repeated.features[0].sourceIds.push('PR7');
-  assert.throws(() => renderSummary(repeated, [source], start, cutoff), /repeated/);
-  const mention = summary(); mention.features[0].title = '<!channel>';
-  assert.ok(renderSummary(mention, [source], start, cutoff).includes('&lt;!channel&gt;'));
-  const fabricated = summary(); fabricated.features[0].sourceIds = ['PR999'];
-  assert.throws(() => renderSummary(fabricated, [source], start, cutoff), /Unknown/);
-  assert.match(renderSummary({ features: [], fixes: [], omitted: [{ sourceId: 'PR7', reason: 'maintenance' }] }, [source], start, cutoff), /No new features/);
+test('preview needs only GitHub and no AI key, including when there are merged changes', async () => {
+  const result = await runReport({ ...env, REPORT_MODE: 'preview' }, new Date(cutoff), async (url, options) => {
+    assert.ok(url.startsWith('https://api.github.com/repos/Art-of-Technology/maestro-desk/'));
+    assert.equal(options.method, 'GET');
+    if (url.includes('/contents/')) return Response.json({ encoding: 'base64', sha: 'a'.repeat(40), content: Buffer.from(JSON.stringify(makeState().value)).toString('base64') });
+    if (url.includes('/pulls?')) return Response.json([{ number: 7, base: { ref: 'main' }, merged_at: cutoff, updated_at: cutoff, title: 'feat: Edit notes' }]);
+    if (url.includes('/commits?')) return Response.json([]);
+    assert.fail('Unexpected request');
+  });
+  assert.equal(result.status, 'preview'); assert.match(result.text, /Edit notes/);
 });
 
 test('confirmed delivery advances coverage once; test deliveries leave coverage alone', async () => {
