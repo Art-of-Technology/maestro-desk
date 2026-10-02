@@ -71,7 +71,11 @@ export async function summarize(sources, key, fetchImpl = fetch) {
       text: { format: { type: 'json_schema', name: 'daily_wrap_up', strict: true, schema } },
     }),
   });
-  if (!response.ok) throw new Error(`AI generation failed (${response.status})`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    const code = ['insufficient_quota', 'invalid_api_key', 'rate_limit_exceeded', 'model_not_found', 'permission_denied'].includes(body?.error?.code) ? body.error.code : 'unknown';
+    throw new Error(`AI generation failed (${response.status}; ${code})`);
+  }
   const result = await response.json();
   if (result.status !== 'completed') throw new Error('AI output is incomplete');
   const content = (result.output || []).filter(o => o.type === 'message').flatMap(o => o.content || []);
@@ -138,15 +142,24 @@ export async function runReport(env, now = new Date(), fetchImpl = fetch) {
     return { status: 'initialized' };
   }
   const state = await readState(api, now.getTime());
+  console.log('Daily wrap-up stage: state loaded');
   if (state.value.pending) throw new Error('Previous delivery is uncertain; reconcile Slack before retrying');
   if (mode === 'send' && state.value.lastDate === dateKey(p)) return { status: 'already-posted' };
   if (mode === 'test' && state.value.lastTestRun === env.GITHUB_RUN_ID) return { status: 'already-posted' };
   const cutoff = now.toISOString(), start = state.value.receipt.coverageThrough;
   const sources = await collectSources(api, start, cutoff);
+  console.log('Daily wrap-up stage: sources collected');
   const text = renderSummary(await summarize(sources, env.OPENAI_API_KEY, fetchImpl), sources, start, cutoff);
+  console.log('Daily wrap-up stage: summary validated');
   if (mode === 'preview') return { status: 'preview', text };
   const status = await deliverReport(state, text, cutoff, mode, env.GITHUB_RUN_ID, s => saveState(api, s), t => sendAlert(t, env.SLACK_DEPLOY_WEBHOOK_URL, fetchImpl));
   return { status };
+}
+
+export function safeDiagnostic(error) {
+  const message = typeof error?.message === 'string' ? error.message : '';
+  return /^(?:AI generation failed \([1-5]\d{2}; (?:insufficient_quota|invalid_api_key|rate_limit_exceeded|model_not_found|permission_denied|unknown)\)|GitHub request failed \([1-5]\d{2}\)|AI output is incomplete|AI declined the summary|Dedicated OpenAI key is missing)$/.test(message)
+    ? message : 'Unclassified failure; see the last completed stage';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -154,7 +167,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const result = await runReport(process.env);
     if (result.text) writeFileSync('wrap-up-preview.txt', result.text);
     console.log(`Daily wrap-up: ${result.status}`);
-  } catch {
+  } catch (error) {
+    console.error(`Daily wrap-up diagnostic: ${safeDiagnostic(error)}`);
     console.error('Daily wrap-up failed. Check AI access, GitHub state/history and Slack delivery. Reconcile any pending delivery before retrying; coverage was not intentionally advanced.');
     process.exitCode = 1;
   }
