@@ -1,0 +1,47 @@
+name: Daily wrap-up monitor
+on:
+  schedule:
+    - cron: '35 18,20 * * 1-5'
+      timezone: Europe/London
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Check actual report coverage or send a labelled delivery test
+        type: choice
+        options: [check, test]
+        default: check
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: daily-wrap-up-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check confirmed report coverage
+        id: check
+        run: node scripts/wrap-up-monitor.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WRAP_UP_RECEIPT: ${{ vars.CODEX_WRAP_UP_RECEIPT }}
+          MONITOR_SINCE: ${{ vars.CODEX_WRAP_UP_MONITOR_SINCE }}
+          MONITOR_MODE: ${{ inputs.mode || 'check' }}
+          SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
+      - name: Remember confirmed warning delivery
+        if: steps.check.outputs.artifact != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.check.outputs.artifact }}
+          path: wrap-up-alert.json
+          retention-days: 90
+          if-no-files-found: error
