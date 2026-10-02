@@ -63,6 +63,7 @@ export async function resolveBrandWorkspace(
   let ws = await findByBrand(brand.id);
   if (!ws) ws = await provisionForBrand(brand);
   if (ws.deleted_at) throw new HTTPException(403, { message: 'This brand is archived.' });
+  if (ws.suspended_at) throw new HTTPException(403, { message: 'This workspace is unavailable.' });
 
   // Ensure membership. A brand-new member is created active; an EXISTING member
   // is left untouched (`do nothing`) — role AND active are preserved. This is
@@ -131,6 +132,7 @@ export async function agentBrandWorkspaceId(userId: string, brandId: string): Pr
     join workspace_members wm on wm.workspace_id = w.id
     where w.maestro_brand_id = ${brandId}
       and w.deleted_at is null
+      and w.suspended_at is null
       and wm.user_id = ${userId}
       and wm.active = true
     limit 1
@@ -148,7 +150,7 @@ export async function agentBrandWorkspaceId(userId: string, brandId: string): Pr
 export async function maestroBrandIdForWorkspace(workspaceId: string): Promise<string | null> {
   const sql = getDb();
   const [row] = await sql<{ maestro_brand_id: string | null }[]>`
-    select maestro_brand_id from workspaces where id = ${workspaceId} and deleted_at is null
+    select maestro_brand_id from workspaces where id = ${workspaceId} and deleted_at is null and suspended_at is null
   `;
   return row?.maestro_brand_id ?? null;
 }

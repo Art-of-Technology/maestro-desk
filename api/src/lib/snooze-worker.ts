@@ -14,7 +14,7 @@ export async function processExpiredSnoozes(signal?: AbortSignal) {
   const scan = (cursor: SweepCursor | null) => sql`select id, workspace_id,
       to_char(snoozed_until at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as due_at
     from tickets where snoozed_until <= now() and deleted_at is null and merged_into_id is null
-      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
+      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null and w.suspended_at is null)
       and status_key in ('open', 'pending', 'escalated', 'gdpr')
       ${cursor ? sql`and (snoozed_until, id) > (${cursor.at}::text::timestamptz, ${cursor.id}::uuid)` : sql``}
     order by snoozed_until, id limit 100`;
@@ -30,6 +30,9 @@ export async function processExpiredSnoozes(signal?: AbortSignal) {
     try {
       const result = await sql.begin(async tx => {
         await tx`set local statement_timeout = '5s'`;
+        const [workspace] = await tx`select id from workspaces where id=${row.workspace_id}
+          and deleted_at is null and suspended_at is null for share`;
+        if (!workspace) return null;
         return clearTicketSnooze(tx, { workspaceId: row.workspace_id, ticketId: row.id,
           automatic: true, actorId: null, skipLocked: true });
       });
