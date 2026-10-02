@@ -18,6 +18,7 @@
 // unchanged, so callers keep their existing failure handling.
 
 import { env } from './env.js';
+import { sendWhileWorkspaceAvailable, workspaceAccessGeneration } from './workspace-access.js';
 import { HTTPException } from 'hono/http-exception';
 import { getOutboundFrom, requireSendingInbox } from './outbound-from.js';
 import { sendOpsAlert } from './alert.js';
@@ -31,6 +32,7 @@ import {
 } from './postmark-outbound.js';
 
 export interface SendBrandedEmailArgs extends Omit<SendEmailArgs, 'fromEmail' | 'fromName'> {
+  accessGeneration?: string;
   workspaceId: string;
   sendingChannelId?: string | null;
   expectedSendingAddress?: string | null;
@@ -54,7 +56,8 @@ export function isSenderSignatureError(err: unknown): err is PostmarkSendError {
 }
 
 export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<SendBrandedEmailResult> {
-  const { workspaceId, fallbackFromName, sendingChannelId, expectedSendingAddress, ...mail } = args;
+  const { workspaceId, fallbackFromName, sendingChannelId, expectedSendingAddress, accessGeneration, ...mail } = args;
+  const generation = accessGeneration ?? await workspaceAccessGeneration(workspaceId);
 
   const workspaceFrom = await getOutboundFrom(workspaceId);
   const platformFrom = env.POSTMARK_OUTBOUND_FROM;
@@ -71,7 +74,7 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
   if (!fromEmail) throw new PostmarkNotConfiguredError();
 
   try {
-    const result = await sendEmail({ ...mail, fromEmail, fromName });
+    const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail, fromName }), generation);
     return { ...result, fromEmail, usedFallbackFrom: false };
   } catch (err) {
     if (!isSenderSignatureError(err)) throw err;
@@ -109,7 +112,7 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
     });
 
     try {
-      const result = await sendEmail({ ...mail, fromEmail: platformFrom, fromName });
+      const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail: platformFrom, fromName }), generation);
       return { ...result, fromEmail: platformFrom, usedFallbackFrom: true };
     } catch (retryErr) {
       // The fallback resend can hit the same wall: the PLATFORM signature is

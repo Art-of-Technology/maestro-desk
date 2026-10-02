@@ -3,6 +3,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import { getDb } from './db.js';
+import { workspaceAccessGeneration, requireAvailableWorkspace } from './workspace-access.js';
 import { suggestedKnowledgeArticles } from './knowledge-context.js';
 
 // Migration to Neon — Step 3 (portal batch). DB via getDb().
@@ -59,6 +60,7 @@ export async function suggestKbForQuestion(args: {
   question:    string;
 }): Promise<KbSuggestResult> {
   const { workspaceId, question } = args;
+  const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const sql = getDb();
 
   const articles = await suggestedKnowledgeArticles(workspaceId, question);
@@ -98,6 +100,7 @@ Always use the suggest_kb_articles tool. Refer to articles by their display id (
   ];
 
   const started = Date.now();
+  await requireAvailableWorkspace(workspaceId, accessGeneration);
   const response = await anthropic.messages.create({
     model:       MODEL,
     max_tokens:  600,
@@ -148,5 +151,6 @@ Always use the suggest_kb_articles tool. Refer to articles by their display id (
     console.warn('[kb-suggest] usage log / deduct failed:', safeError(err));
   }
 
+  await requireAvailableWorkspace(workspaceId, accessGeneration);
   return { suggestions, cost_micro: costMicro };
 }

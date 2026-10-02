@@ -1,6 +1,7 @@
 import { safeError } from './diagnostics.js';
 import { inboundEmailMetadata } from './email-recipients.js';
 import { getDb } from './db.js';
+import { workspaceAvailable } from './workspace-access.js';
 import { reopenOnCustomerReply } from './reopen-customer-reply.js';
 import { applyAssignmentRules } from './assign-rules-engine.js';
 import { nextDisplayId } from './display-id.js';
@@ -198,6 +199,7 @@ export async function resolveInboundWorkspace(args: {
 // ─── Entry point ─────────────────────────────────────────────────────────
 
 export interface InboundResult {
+  quarantined_workspace_id?: string;
   ticket_id: string;
   ticket_display_id: string;
   customer_id: string;
@@ -293,7 +295,7 @@ export async function processInboundEmail(args: {
       order by tm.created_at desc
       limit 1
     `;
-    if (t) {
+    if (t && await workspaceAvailable(t.workspace_id)) {
       const attached = await attachReplyToTicket({
         workspaceId: t.workspace_id, ticketId: t.id, ticketDisplayId: t.display_id,
         customerId: t.customer_id, body, name, email,
@@ -302,7 +304,21 @@ export async function processInboundEmail(args: {
       if (attached) return attached;
       workspaceId = t.workspace_id;
     }
+    else if (t) workspaceId = t.workspace_id;
   }
+
+  // Preserve suspended-brand mail in the operator-only inbox. Do not append
+  // to the brand's ticket or start any AI, assignment, or customer notification.
+  let quarantinedWorkspaceId: string | undefined;
+  if (!await workspaceAvailable(workspaceId)) {
+    quarantinedWorkspaceId = workspaceId;
+    const [bucket] = await sql`select id from workspaces where is_unrouted_bucket=true
+      and deleted_at is null and suspended_at is null`;
+    if (!bucket) throw new Error('Inbound quarantine is unavailable');
+    workspaceId = bucket.id;
+  }
+  const [destination] = await sql`select is_unrouted_bucket from workspaces where id=${workspaceId}`;
+  const quarantine = Boolean(destination?.is_unrouted_bucket);
 
   // 1. Match-or-create the customer.
   let customerId: string;
@@ -394,17 +410,27 @@ export async function processInboundEmail(args: {
   `;
   if (!newMessage) throw new Error('Message create failed');
   const spam = newTicket.closure_reason === 'spam';
-  if (!spam) void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
+  if (!spam && !quarantine) void scoreInboundMessage({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body });
 
   // 3'. Files + formatted body. Awaited (not fire-and-forget) so the ticket the
   //     agent opens moments later already has them; failures degrade to text.
   await persistRichBody({ workspaceId, ticketId: newTicket.id, messageId: newMessage.id, body, payload, deps });
 
-  if (spam) {
+  if (spam || quarantine) {
     await recordInboundInInbox({ workspaceId, payload, ticketId: newTicket.id, channelId: channel?.id ?? null, body });
+    if (quarantinedWorkspaceId) {
+      await sql`insert into audit_events(workspace_id,action,target_type,target_id,metadata)
+        values (${workspaceId},'inbound.quarantined','ticket',${newTicket.id},
+          ${sql.json({ intended_workspace_id: quarantinedWorkspaceId, reason: 'workspace_unavailable' })})`;
+      const [intended] = await sql`select name from workspaces where id=${quarantinedWorkspaceId}`;
+      await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body)
+        values (${workspaceId},${newTicket.id},'note','System',
+          ${`Held for ${intended?.name || 'unavailable brand'} (${quarantinedWorkspaceId}). Review this email after the brand is reactivated. No automatic reply was sent.`})`;
+    }
     void publishTicketChanged(workspaceId, newTicket.id);
     return { ticket_id: newTicket.id, ticket_display_id: newTicket.display_id, customer_id: customerId,
-      is_new_customer: isNewCustomer, auto_triage_queued: false, deduped: false, threaded: false };
+      is_new_customer: isNewCustomer, auto_triage_queued: false, deduped: false, threaded: false,
+      ...(quarantinedWorkspaceId ? { quarantined_workspace_id: quarantinedWorkspaceId } : {}) };
   }
 
   // Route new customer tickets before publishing them. A rule failure must
@@ -629,7 +655,7 @@ async function pushOfflineAssignee(workspaceId: string, ticketId: string): Promi
     body: `${t.display_id} — ${t.subject}`.slice(0, 140),
     url,
     tag: `ticket-${ticketId}`,
-  });
+  }, workspaceId);
   if (res.sent > 0) {
     await sql`update tickets set last_reply_notified_at = now() where id = ${ticketId} and workspace_id = ${workspaceId}`;
   }

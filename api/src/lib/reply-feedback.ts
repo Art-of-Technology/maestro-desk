@@ -9,9 +9,13 @@ type StoredReplyReview = z.infer<typeof ReplyReview>;
 // Lock eligible target/source customers and tickets while creating the snapshot.
 // Concurrent erasure waits, then the deletion triggers purge the new snapshot.
 export async function recordReplySuggestion(workspaceId: string, userId: string, ticketId: string,
-  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview }): Promise<string | null> {
+  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview; accessGeneration?: string }): Promise<string | null> {
   const sql = getDb();
   return sql.begin(async tx => {
+    const [workspace] = await tx`select id from workspaces where id=${workspaceId}
+      and deleted_at is null and suspended_at is null
+      and (${tracking?.accessGeneration ?? null}::bigint is null or suspension_generation=${tracking?.accessGeneration ?? null}::bigint) for share`;
+    if (!workspace) return null;
     const replyIds = examples.map(e => e.replyId);
     const tickets = await tx`select t.id,t.category_key from tickets t
       join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id

@@ -21,7 +21,11 @@ dbTests('eight-hour agent sessions', () => {
     const headers = new Headers({ Authorization: `Bearer ${token}` });
     const first = await auth.api.getSession({ headers });
     expect(first).not.toBeNull();
-    expect(first!.session.expiresAt.getTime() - first!.session.createdAt.getTime()).toBe(8 * 3600000);
+    const lifetime = first!.session.expiresAt.getTime() - first!.session.createdAt.getTime();
+    // Better Auth reads its expiry and creation clocks separately; the session
+    // may be a few milliseconds shorter, but must never exceed eight hours.
+    expect(lifetime).toBeLessThanOrEqual(8 * 3600000);
+    expect(lifetime).toBeGreaterThan(8 * 3600000 - 1000);
     expect(auth.options.session?.disableSessionRefresh).toBe(true);
 
     // Simulate a legacy session older than updateAge. Activity must not renew it.

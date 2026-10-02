@@ -453,7 +453,8 @@ db('knowledge source lifecycle and isolation', () => {
       const download = (await (await request('/' + sourceId + '/download')).json()) as {
         url: string;
       };
-      expect(download.url).toContain(replaced.storage_key);
+      expect(new URL(download.url).pathname).toBe(`/api/v1/files/knowledge/${sourceId}`);
+      expect(download.url).not.toContain(replaced.storage_key);
       expect(
         (
           await request('/' + sourceId + '/publish', 'POST', {

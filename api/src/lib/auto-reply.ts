@@ -120,6 +120,7 @@ export function evaluateAutoReply(
 // ─── Posting ─────────────────────────────────────────────────────────────
 
 export interface PostAutoReplyArgs {
+  accessGeneration?: string;
   workspaceId: string;
   ticketId: string;
   draftReply: string;
@@ -160,7 +161,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   const { workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
   const sql = getDb();
 
-  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
+  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null and suspended_at is null`;
   if (!workspace) return { posted: false, reason: 'workspace_unavailable' };
 
   const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
@@ -203,6 +204,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   let rfcMessageId: string;
   try {
     const result = await sendBrandedEmail({
+      accessGeneration: args.accessGeneration,
       workspaceId,
       fallbackFromName: workspaceName,
       to: sendContext.customerEmail,

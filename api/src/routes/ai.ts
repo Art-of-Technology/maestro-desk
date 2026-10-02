@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
+import { workspaceAccessGeneration, requireAvailableWorkspace } from '../lib/workspace-access.js';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
@@ -125,6 +127,7 @@ ai.post('/messages', async (c) => {
     return c.json({ error: 'Invalid AI request. Shorten the text or start a new chat.' }, 400);
   const input = parsed.data;
   const workspaceId = c.get('workspaceId');
+  const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const userId = c.get('userId');
   const sql = getDb();
   const query = input.messages.filter((m) => m.role === 'user').at(-1)?.content || '';
@@ -194,6 +197,7 @@ ai.post('/messages', async (c) => {
   const [reservation] = await sql`
     update workspaces set ai_credits_micro = ai_credits_micro - ${reserved}, ai_reserved_micro = ai_reserved_micro + ${reserved}
     where id = ${workspaceId} and ai_credits_micro >= ${reserved}
+      and suspended_at is null and deleted_at is null and suspension_generation=${accessGeneration}::bigint
     returning ai_credits_micro
   `;
   if (!reservation) {
@@ -215,6 +219,7 @@ ai.post('/messages', async (c) => {
   let response;
   const started = Date.now();
   try {
+    await requireAvailableWorkspace(workspaceId, accessGeneration);
     response = await anthropic.messages.create(
       {
         model: input.model,
@@ -225,7 +230,7 @@ ai.post('/messages', async (c) => {
       },
       { timeout: 45000, maxRetries: 0 },
     );
-  } catch {
+  } catch (err) {
     await sql.begin(async tx => {
       await tx`update workspaces set ai_credits_micro = ai_credits_micro + ${reserved}, ai_reserved_micro = ai_reserved_micro - ${reserved} where id = ${workspaceId}`;
       if (input.action === 'detect_language') {
@@ -236,6 +241,7 @@ ai.post('/messages', async (c) => {
         `;
       }
     });
+    if (err instanceof HTTPException) throw err;
     return c.json(
       {
         error:
@@ -274,6 +280,7 @@ ai.post('/messages', async (c) => {
     `;
     return Number(row.ai_credits_micro);
   });
+  await requireAvailableWorkspace(workspaceId, accessGeneration);
   if (replyFormat) {
     const tool = response.content.find(b => b.type === 'tool_use' && b.name === CUSTOMER_REPLY_TOOL.name);
     try {
@@ -283,7 +290,7 @@ ai.post('/messages', async (c) => {
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
       const suggestionId = !generic && input.ticketId && result.text.trim()
         ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : [],
-          { context: input.replyContext, costMicro: cost + (search?.costMicro || 0), language: input.replyLanguage, review: result.internal }).catch(() => null) : null;
+          { context: input.replyContext, costMicro: cost + (search?.costMicro || 0), language: input.replyLanguage, review: result.internal, accessGeneration }).catch(() => null) : null;
       return c.json({ ...result, ...(suggestionId ? { suggestionId } : {}), ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
