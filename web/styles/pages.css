@@ -1,10 +1,12 @@
 /* ── Settings ── */
 .settings-shell{display:grid;grid-template-columns:200px 1fr;gap:24px;max-width:880px}
 .settings-side{display:flex;flex-direction:column;gap:2px;border-right:1px solid var(--rule);padding-right:16px}
+.settings-nav-heading{font-size:11px;font-weight:600;color:var(--ink3);margin:18px 16px 6px}
 .settings-tab{padding:9px 16px;font-size:13px;color:var(--ink2);cursor:pointer;border-radius:var(--r-pill);transition:all .1s}
 .settings-tab:hover{background:var(--purple-lt);color:var(--ink)}
 .settings-tab.active{background:var(--purple-lt);color:var(--purple);font-weight:500}
 .settings-panel{min-width:0}
+#brand-logo-file{min-width:0;width:100%}
 .settings-section + .settings-section{border-top:1px solid var(--rule);margin-top:24px;padding-top:24px}
 .settings-h{font-family:var(--font-sans);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:14px}
 .settings-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--rule)}
@@ -18,9 +20,9 @@
 .ai-settings{overflow-wrap:anywhere}
 .ai-settings .settings-row>div{min-width:0}
 @media(max-width:900px){
-  .ai-settings-shell{grid-template-columns:minmax(0,1fr)}
-  .ai-settings-shell .settings-side{flex-direction:row;overflow-x:auto;border-right:0;padding-right:0}
-  .ai-settings-shell .settings-tab{flex-shrink:0}
+  .settings-shell{grid-template-columns:minmax(0,1fr)}
+  .settings-side{flex-direction:row;flex-wrap:wrap;border-right:0;padding-right:0}
+  .settings-nav-heading{flex-basis:100%;margin:12px 16px 4px}
 }
 .settings-row:last-of-type{border-bottom:none}
 /* ── Customer detail extras ── */
@@ -99,6 +101,7 @@ button.comp-menu-item{display:block;width:100%;text-align:left;border:none;backg
 .confighub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
 .confighub-card{display:flex;align-items:center;gap:12px;padding:15px 18px;border:none;border-radius:var(--r-card);background:var(--off);cursor:pointer;transition:all .15s}
 .confighub-card:hover{background:var(--off2)}
+button.confighub-card{font:inherit;text-align:left;width:100%}
 .confighub-icon{width:18px;height:18px;flex-shrink:0;color:var(--ink2)}
 .confighub-card:hover .confighub-icon{color:var(--purple)}
 .confighub-body{flex:1;min-width:0}

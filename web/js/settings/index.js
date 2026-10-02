@@ -1,6 +1,6 @@
 // ─── Settings ────────────────────────────────────────────────────────────────
-// Six-tab settings page: Profile, Appearance, Notifications, AI Assistant,
-// Knowledge Base, Language. The "Knowledge Base" tab configures the
+// Settings groups personal preferences, brand settings and workspace tools.
+// The "Knowledge Base" tab configures the
 // KB_INTEGRATION object that lives in app.js — the rest of the KB
 // integration code (fetchKbArticles, KB_TICKET_CACHE, refresh path) stays
 // in app.js because the composer and ticket sidebar also depend on it.
@@ -66,18 +66,17 @@ let KB_TEST_STATE = null;
 export function renderSettings() {
   const tabs = [
     {k:'profile',       l:'Profile'},
-    {k:'appearance',    l:'Appearance'},
     {k:'notifications', l:'Notifications'},
-    {k:'ai',            l:'AI Assistant'},
-    {k:'knowledge-base', l:'Knowledge Base'},
     {k:'language',      l:'Language'},
+    {k:'appearance',    l:'Brand & portal', heading:'Brand settings'},
+    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}] : []),
+    {k:'ai',            l:'AI Assistant', heading:'Workspace'},
+    {k:'knowledge-base', l:'Knowledge Base'},
     {k:'integrations',  l:'Integrations'},
-    // Email branding + Sender domain + Categories are workspace config — admins only.
-    ...(window.isAdmin() ? [{k:'reply-feedback', l:'Reply feedback'}, {k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}, {k:'categories', l:'Categories'}] : []),
+    ...(window.isAdmin() ? [{k:'reply-feedback', l:'Reply feedback'}, {k:'categories', l:'Categories'}] : []),
   ];
   const tabbar = tabs.map(t => {
-    const tag = t.k === 'reply-feedback' ? 'button' : 'div';
-    return `<${tag} ${tag === 'button' ? 'type="button"' : ''} class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</${tag}>`;
+    return `${t.heading ? `<h2 class="settings-nav-heading">${t.heading}</h2>` : ''}<button type="button" class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" ${SETTINGS_TAB===t.k?'aria-current="page"':''} data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</button>`;
   }).join('');
   let panel = '';
   if      (SETTINGS_TAB === 'profile')       panel = settingsProfile();
