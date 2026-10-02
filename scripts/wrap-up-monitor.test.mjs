@@ -65,3 +65,23 @@ test('labelled live-test path uses a separate deduplication record', async () =>
   });
   assert.equal(result.name, 'wrap-up-monitor-test-123');
 });
+
+test('hosted monitor reads durable state instead of a stale laptop receipt', async () => {
+  const hosted = { coverageThrough: '2026-10-02T16:30:00Z', verifiedAt: '2026-10-02T16:32:00Z', channelId: 'C0C0W6B9PU6', transport: 'slack-webhook', runId: '789' };
+  const result = await monitor({ ...env, HOSTED_WRAP_UP_ENABLED: 'true' }, now, async url => {
+    assert.match(url, /contents\/wrap-up-state.json\?ref=codex-wrap-up-state/);
+    return Response.json({ encoding: 'base64', sha: 'a'.repeat(40), content: Buffer.from(JSON.stringify({ version: 1, receipt: hosted, pending: null, lastDate: '2026-10-02', lastTestRun: null })).toString('base64') });
+  });
+  assert.equal(result.status, 'healthy');
+});
+
+test('unreadable hosted state still warns instead of trusting the stale laptop receipt', async () => {
+  let sent = 0;
+  const result = await monitor({ ...env, HOSTED_WRAP_UP_ENABLED: 'true', WRAP_UP_RECEIPT: JSON.stringify(receipt('2026-10-02T16:30:00Z')) }, now, async url => {
+    if (url.includes('/contents/')) return new Response('missing', { status: 404 });
+    if (url.includes('/actions/caches')) return Response.json({ total_count: 0, actions_caches: [] });
+    sent++; return new Response('ok');
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(sent, 1);
+});

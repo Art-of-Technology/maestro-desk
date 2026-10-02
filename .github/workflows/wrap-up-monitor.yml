@@ -34,6 +34,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           WRAP_UP_RECEIPT: ${{ vars.CODEX_WRAP_UP_RECEIPT }}
+          HOSTED_WRAP_UP_ENABLED: ${{ vars.HOSTED_WRAP_UP_ENABLED }}
           MONITOR_SINCE: ${{ vars.CODEX_WRAP_UP_MONITOR_SINCE }}
           MONITOR_MODE: ${{ inputs.mode || 'check' }}
           SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}

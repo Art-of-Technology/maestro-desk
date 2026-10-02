@@ -96,6 +96,7 @@ jobs:
         run: |
           node --test scripts/scheduled-job-monitor.test.mjs
           node --test scripts/wrap-up-monitor.test.mjs
+          node --test scripts/daily-wrap-up.test.mjs
           bash scripts/cron-job-response.test.sh
 
       - name: Unassigned notification tests
