@@ -6,7 +6,12 @@
     "messageTs": "1790930379.314539",
     "channelId": "C0C0W6B9PU6"
   },
-  "pending": null,
+  "pending": {
+    "cutoff": "2026-10-02T16:42:25.632Z",
+    "date": "2026-10-02",
+    "mode": "send",
+    "runId": "37035723868"
+  },
   "lastDate": null,
   "lastTestRun": "36992282000"
 }
