@@ -8,16 +8,9 @@
 //
 // Cross-cutting concern (used by every page), so it lives under js/core/.
 //
-// CURRENT_PAGE + SETTINGS_TAB are imported from core/state.js.
-//
-// COLLAPSED_SECTIONS is exported because Settings → Appearance reads its
-// .size for the "N section(s) collapsed" counter + the "Show all" button's
-// disabled state. ES module bindings are live so the imported reference
-// in app.js sees mutations made here.
-import { CURRENT_PAGE, SETTINGS_TAB } from './state.js';
-import { renderPage } from './router.js';
+import { CURRENT_PAGE } from './state.js';
 
-export let COLLAPSED_SECTIONS = new Set(JSON.parse(localStorage.getItem('collapsed_sections') || '[]'));
+const COLLAPSED_SECTIONS = new Set(JSON.parse(localStorage.getItem('collapsed_sections') || '[]'));
 const SEC_LABELS = {
   'kpi-bar':    'KPIs',
   'filter-bar': 'Filters',
@@ -30,9 +23,8 @@ function persistCollapsedSections() {
 
 // ─── Retired section ids ────────────────────────────────────────────────────
 // Because ids are positional, removing a bar from a page doesn't just orphan
-// its stored id — nothing ever prunes it, and the counter in Settings →
-// Appearance would keep counting a section the user can no longer see or
-// restore. Any change that deletes a bar adds its id here.
+// its stored id — that id can later refer to a different section.
+// Any change that deletes a bar adds its id here.
 //
 // Each entry is one migration: the ids it retires. Append, never edit — the
 // stored marker is the count of migrations already applied, so rewriting
@@ -103,9 +95,6 @@ function toggleSection(id, event) {
   persistCollapsedSections();
   // Mutate the live element so input focus / scroll / bulk-selection survive.
   syncCollapsedSectionDom(document.querySelector(`[data-sec-id="${CSS.escape(id)}"]`), id);
-  // Settings → Appearance shows a counter of hidden sections; re-render so
-  // the count and the "Show all" button's disabled state stay current.
-  if (CURRENT_PAGE === 'settings' && SETTINGS_TAB === 'appearance') renderPage('settings');
 }
 
 export function applyCollapsibleHeaders() {
@@ -139,10 +128,4 @@ export function applyCollapsibleHeaders() {
       syncCollapsedSectionDom(el, id);
     });
   });
-}
-
-export function resetAllCollapsedSections() {
-  COLLAPSED_SECTIONS.clear();
-  persistCollapsedSections();
-  renderPage(CURRENT_PAGE || 'dashboard');
 }

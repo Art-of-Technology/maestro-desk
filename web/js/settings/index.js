@@ -8,7 +8,7 @@
 // External reaches (interim, via window): isAdmin, escAttr, escHtml,
 // logout — all still in app.js. navTo is a direct ES import.
 // refreshNotifBadge, setAIModel, setAgentPreferredLang,
-// showModal/closeModal, resetAllCollapsedSections, COLLAPSED_SECTIONS,
+// showModal/closeModal,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
 // direct ES imports.
 //
@@ -29,7 +29,6 @@ import {
 import { refreshNotifBadge } from '../notifications/index.js';
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { COLLAPSED_SECTIONS, resetAllCollapsedSections } from '../core/collapsible.js';
 import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
 import { settingsEmailBranding, settingsMySignature } from '../email-branding/index.js';
 import { settingsSenderDomain } from '../email-domain/index.js';
@@ -155,21 +154,7 @@ function updateProfileInitials(v) {
 }
 
 function settingsAppearance() {
-  const collapsedN = COLLAPSED_SECTIONS.size;
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Page chrome</div>
-      <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Click the small caret in the top-right of any KPI bar, filter bar, or tab bar to collapse it. Collapsed sections shrink to a one-line "▸ Show …" pill — click anywhere on the pill to expand again. Choices stick across reloads.</div>
-      <div class="settings-row">
-        <div>
-          <div style="font-size:13px;font-weight:500;color:var(--ink)">Hidden sections</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">${collapsedN} section${collapsedN===1?'':'s'} collapsed across pages</div>
-        </div>
-        <button class="btn btn-sm" ${collapsedN===0?'disabled':''} data-action="settings.resetCollapsed">Show all</button>
-      </div>
-    </div>
-
-    ${settingsWorkspaceBranding()}`;
+  return settingsWorkspaceBranding();
 }
 
 function settingsWorkspaceBranding() {
@@ -1355,7 +1340,6 @@ registerActions({
   'settings.checkAi':           () => testAIConnection(),
   'settings.setTab':             (ds) => setSettingsTab(ds.tab),
   'settings.logout':            () => window.logout(),
-  'settings.resetCollapsed':    () => resetAllCollapsedSections(),
   // workspace branding / portal
   'settings.uploadLogo':        () => uploadWorkspaceLogo(),
   'settings.saveBranding':      () => saveWorkspaceBranding(),
