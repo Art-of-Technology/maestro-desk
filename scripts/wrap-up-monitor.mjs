@@ -2,6 +2,7 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { sendAlert } from './deployment-alert.mjs';
+import { github, readState, validReceipt } from './wrap-up-state.mjs';
 
 const repository = 'Art-of-Technology/maestro-desk';
 const workflow = `https://github.com/${repository}/actions/workflows/wrap-up-monitor.yml`;
@@ -21,9 +22,7 @@ export function missingReport(receipt, now, since) {
   const date = expected.toISOString().slice(0, 10);
   if (date < since) return null;
   const coverage = Date.parse(receipt?.coverageThrough);
-  const verified = Date.parse(receipt?.verifiedAt);
-  const confirmed = Number.isFinite(coverage) && Number.isFinite(verified) && coverage <= verified && verified <= now.getTime() &&
-    receipt?.channelId === 'C0C0W6B9PU6' && /^\d+\.\d+$/.test(receipt?.messageTs);
+  const confirmed = validReceipt(receipt, now.getTime());
   const covered = confirmed ? parts(new Date(coverage)) : null;
   if (covered && (dateKey(covered) > date || (dateKey(covered) === date && minutes(covered) >= 1050))) return null;
   return date;
@@ -46,6 +45,10 @@ export async function monitor(env, now = new Date(), fetchImpl = fetch) {
   let receipt = null;
   try { receipt = JSON.parse(env.WRAP_UP_RECEIPT || 'null'); } catch { /* Invalid receipts cannot prove delivery. */ }
   const test = env.MONITOR_MODE === 'test';
+  if (!test && env.HOSTED_WRAP_UP_ENABLED === 'true') {
+    try { receipt = (await readState(github(env.GITHUB_TOKEN, fetchImpl), now.getTime())).value.receipt; }
+    catch { receipt = null; } // Unreadable state is not evidence of delivery; warn using the usual daily deduplication.
+  }
   if (test && !/^\d+$/.test(env.GITHUB_RUN_ID || '')) throw new Error('Invalid test run ID');
   const date = test ? null : missingReport(receipt, now, env.MONITOR_SINCE);
   if (!test && !date) return { status: 'healthy' };
@@ -53,7 +56,7 @@ export async function monitor(env, now = new Date(), fetchImpl = fetch) {
   if (await alreadyAlerted(name, env.GITHUB_TOKEN, fetchImpl)) return { status: 'already-alerted' };
   const text = test
     ? `TEST — Hosted daily wrap-up monitor\nGitHub can send this warning while the laptop is off. No report failure is being claimed.\n${workflow}`
-    : `CODEX — DAILY WRAP-UP MISSING\nNo confirmed delivery receipt for the ${date} 17:30 UK features and fixes report after the 18:30 deadline.\nThe laptop may be off, the report may have failed, or its delivery receipt could not sync. Missed changes remain queued for the next successful report.\n${workflow}`;
+    : `CODEX — DAILY WRAP-UP MISSING\nNo confirmed delivery receipt for the ${date} 17:30 UK features and fixes report after the 18:30 deadline.\nThe report may have failed or its delivery receipt could not be saved. Missed changes remain queued for the next successful report.\n${workflow}`;
   await sendAlert(text, env.SLACK_DEPLOY_WEBHOOK_URL, fetchImpl);
   return { status: 'sent', name, date, verifiedAt: now.toISOString() };
 }

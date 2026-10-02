@@ -1,0 +1,47 @@
+name: Daily features and fixes
+on:
+  schedule:
+    - cron: '30 17 * * 1-5'
+      timezone: Europe/London
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Initialize state, preview AI text, send a labelled test, or send the due report
+        type: choice
+        options: [preview, init, test, send]
+        default: preview
+permissions:
+  contents: write
+  pull-requests: read
+concurrency:
+  group: daily-features-and-fixes
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate and deliver report
+        run: node scripts/daily-wrap-up.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.WRAP_UP_OPENAI_API_KEY }}
+          SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
+          WRAP_UP_RECEIPT: ${{ vars.CODEX_WRAP_UP_RECEIPT }}
+          HOSTED_WRAP_UP_ENABLED: ${{ vars.HOSTED_WRAP_UP_ENABLED }}
+          REPORT_MODE: ${{ inputs.mode || 'send' }}
+      - name: Save preview for review
+        if: inputs.mode == 'preview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wrap-up-preview
+          path: wrap-up-preview.txt
+          retention-days: 7
+          if-no-files-found: error
