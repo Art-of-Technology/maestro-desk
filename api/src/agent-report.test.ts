@@ -29,7 +29,8 @@ test('agent report rejects invalid ranges and agent IDs', () => {
     const [o] = await sql`select provision_brand('Other stats', ${'stats-other-'+suffix}) id`; other = o.id;
     const [role] = await sql`select id from roles where workspace_id = ${ws} and is_admin limit 1`;
     await sql`insert into workspace_members(workspace_id,user_id,role_id) values (${ws},${user},${role.id}),(${ws},${teammate},${role.id})`;
-    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name) values (${ws},'C1','Stats') returning id`;
+    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name,email,email_bounce_state)
+      values (${ws},'C1','Stats',${`stats-customer-${suffix}@t.test`},'hard') returning id`;
     await sql`insert into tickets(workspace_id,display_id,customer_id,subject,status_key,priority_key,assigned_user_id)
       select ${ws}::uuid,'STAT-'||n,${customer.id}::uuid,'Stats fixture','pending','normal',${teammate}::uuid from generate_series(1,205) n`;
     await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_user_id,author_label,body,created_at)

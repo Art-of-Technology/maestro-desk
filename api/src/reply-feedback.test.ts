@@ -12,7 +12,8 @@ import { recordReplySuggestion } from './lib/reply-feedback.js';
   });
   async function ticket(workspace = ws) {
     const id = crypto.randomUUID();
-    const [c] = await sql`insert into customers(workspace_id,display_id,first_name) values (${workspace},${id},'Test') returning id`;
+    const [c] = await sql`insert into customers(workspace_id,display_id,first_name,email,email_bounce_state)
+      values (${workspace},${id},'Test',${`feedback-${id}@t.test`},'hard') returning id`;
     const [t] = await sql`insert into tickets(workspace_id,display_id,subject,customer_id,status_key,priority_key)
       values (${workspace},${id},'Test question',${c.id},'open','normal') returning id`;
     const [m] = await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body)

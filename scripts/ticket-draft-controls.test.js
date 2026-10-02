@@ -5,6 +5,35 @@ import { runInNewContext } from 'node:vm';
 const source = readFileSync(new URL('../web/js/tickets/detail.js', import.meta.url), 'utf8');
 const controls = source.slice(source.indexOf('function editTicketSubject('), source.indexOf('function editTicketNote('));
 
+test('empty To blocks Send and Send and resolve before consuming the draft or running AI', async () => {
+  const send = source.slice(source.indexOf('async function sendComposeAnd('), source.indexOf('// Map the server'));
+  const ticket = { id: 'TK-5', _uuid: 'uuid', replyRecipients: { to: [] }, msgs: [], status: 'open' };
+  const editor = { innerHTML: '<p>Keep this reply</p>' }, attachments = ['receipt'];
+  const notices = [];
+  const context = {
+    document: { getElementById: id => id === 'compose-TK-5' ? editor : null },
+    TICKETS: [ticket], CURRENT_TICKET: ticket.id, COMPOSE_TAB: 'reply',
+    getPlainText: () => 'Keep this reply', isComposerEmpty: () => false,
+    getWorkspaceId: () => 'workspace', getJwt: () => 'session',
+    attachmentsUploading: () => false, pendingAttachmentIds: () => attachments,
+    replyRecipientPayload: () => ({ to: [], cc: [] }),
+    showToast: message => notices.push(message),
+    hideSendMenu() {},
+    changeTicketStatus: () => { throw Error('Must not resolve the ticket'); },
+    prepareCustomerReply: () => { throw Error('Must not run AI'); },
+    prepareDraftSend: () => { throw Error('Must not consume the draft'); },
+    apiPost: () => { throw Error('Must not post a message'); },
+  };
+  expect(await runInNewContext(send + "sendCompose('TK-5');", context)).toBe(false);
+  await runInNewContext(send + "sendComposeAnd('TK-5', 'resolved');", { ...context });
+  expect(notices).toHaveLength(2);
+  expect(notices[0]).toContain('Your draft has been kept');
+  expect(editor.innerHTML).toBe('<p>Keep this reply</p>');
+  expect(attachments).toEqual(['receipt']);
+  expect(ticket.msgs).toEqual([]);
+  expect(ticket.status).toBe('open');
+});
+
 test('subject edits save server values without rebuilding the composer; errors and stale sessions keep local state', async () => {
   for (const scenario of ['saved', 'failed', 'switched', 'invalid']) {
     const ticket = { id: 'TK-116', _uuid: 'uuid', subject: 'Original' };
