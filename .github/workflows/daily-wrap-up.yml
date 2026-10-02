@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Initialize state, preview AI text, send a labelled test, or send the due report
+        description: Initialize state, preview report text, send a labelled test, or send the due report
         type: choice
         options: [preview, init, test, send]
         default: preview
@@ -32,7 +32,6 @@ jobs:
         run: node scripts/daily-wrap-up.mjs
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          OPENAI_API_KEY: ${{ secrets.WRAP_UP_OPENAI_API_KEY }}
           SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
           WRAP_UP_RECEIPT: ${{ vars.CODEX_WRAP_UP_RECEIPT }}
           HOSTED_WRAP_UP_ENABLED: ${{ vars.HOSTED_WRAP_UP_ENABLED }}
