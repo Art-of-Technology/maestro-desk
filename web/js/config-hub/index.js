@@ -64,7 +64,7 @@ const GROUPS = [
   {
     title: 'Workspace',
     items: [
-      { page:'settings', tab:'appearance', label:'Brand settings', summary:'Logo, colours, customer portal, email branding and sender domain.',
+      { page:'settings', tab:'appearance', label:'Brand settings', summary:'Workspace branding and customer portal settings.',
         icon:'<circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 1.5v10M1.5 6.5h10" stroke="currentColor" stroke-width="1.2"/>' },
       { page:'roles',            label:'Roles & Permissions', summary:'Control what each agent role can see and do.', adminOnly:true,
         icon:'<rect x="1" y="1" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M4 4h5M4 6.5h3M4 9h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>' },
