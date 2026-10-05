@@ -120,7 +120,7 @@ test('as-written replies detect the branding language and keep the draft on dete
   let res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
   expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBe('Spanish');
   tx.setCustomerLanguage('T1','Spanish'); failure=true;
-  await expect(tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).rejects.toThrow('Choose a reply language');
+  await expect(tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).rejects.toThrow('Could not detect the reply language');
   expect(calls).toBe(2);
 });
 

@@ -281,7 +281,7 @@ export async function prepareCustomerReply(t, text, html, request = callClaude) 
   if (!t.autoTranslateReplies) {
     // Detection returns null on provider failure unless throwErrors is explicitly enabled.
     const replyLanguage = await detectLanguage(text, request, false, t._uuid);
-    if (!replyLanguage) throw new Error('Choose a reply language before sending. Your draft has been kept.');
+    if (!replyLanguage) throw new Error('Could not detect the reply language. Your draft has been kept. Check AI credit and try again.');
     return { translation: text, translationHtml: html, translatedTo: null, replyLanguage };
   }
   const language = await ensureCustomerLanguage(t);

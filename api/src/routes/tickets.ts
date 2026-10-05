@@ -899,7 +899,8 @@ tickets.post('/:id/messages', async (c) => {
     try {
       composed = await composeEmail({ workspaceId, authorUserId: userId, bodyText, bodyHtml,
         subject: originalSubject, translate: emailTranslator(workspaceId, userId, input.reply_language) });
-    } catch {
+    } catch (error) {
+      console.warn('[agent-reply] email translation failed:', safeError(error));
       return c.json({ error: 'Could not translate the email subject, header or footer. Your draft has been kept. Check AI credit and try again.' }, 502);
     }
   }
