@@ -77,6 +77,26 @@ run('audit minimisation and erasable activity',()=>{
     expect((await failure(()=>sql`delete from audit_events where id=${before.id}`)).code).toBe('23514');
     expect((await sql`select ok from audit_events_verify(${ws})`)[0].ok).toBe(true);
   });
+  it('preserves existing player audit references through repeated erasure without retaining the player lookup key',async()=>{
+    const s=await seed(),foreign=await seed(other),player=crypto.randomUUID();
+    await sql`update customers set maestro_user_id=${player} where id in (${s.customer},${foreign.customer})`;
+    const rows=await sql`insert into audit_events(workspace_id,action,target_type,target_id,metadata)
+      values(${ws},'player.viewed','player',${player},'{"accessed":["contact"]}'),
+        (${other},'player.viewed','player',${player},'{"accessed":["balance"]}')
+      returning id,workspace_id,encode(row_hash,'hex') hash`;
+    const own=rows.find(r=>r.workspace_id===ws);
+    if(!own)throw Error('Synthetic player audit was not inserted');
+    const {exportCustomer}=await import('./lib/gdpr-export.js');
+    expect((await exportCustomer({workspaceId:ws,customerId:s.customer}))?.audit_history.map(r=>r.id)).toEqual([own.id]);
+    for(let i=0;i<2;i++) {
+      expect((await erase(s.customer))?.retainedAuditRecords).toBe(1);
+      expect((await exportCustomer({workspaceId:ws,customerId:s.customer}))?.audit_history.map(r=>r.id)).toEqual([own.id]);
+    }
+    expect((await sql`select maestro_user_id from customers where id=${s.customer}`)[0].maestro_user_id).toBeNull();
+    expect((await sql`select retained_player_audit_ids from gdpr_erasures where customer_id=${s.customer}`)[0].retained_player_audit_ids).toEqual([own.id]);
+    expect((await sql`select encode(row_hash,'hex') hash from audit_events where id=${own.id}`)[0].hash).toBe(own.hash);
+    expect((await sql`select ok from audit_events_verify(${ws})`)[0].ok).toBe(true);
+  });
   it('keeps auto-reply markers on erasure, removes activity on ticket retention, and preserves audit attribution',async()=>{
     const s=await seed();await activity(s.ticket);
     await sql`insert into events(workspace_id,entity_type,entity_id,kind,author_label,details)

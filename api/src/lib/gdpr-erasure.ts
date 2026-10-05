@@ -102,7 +102,8 @@ export async function eraseCustomer(args: {
       for update
     `;
     if (!cust) return null;
-    const retainedAuditRecords = (await customerAuditHistory(sql,workspaceId,customerId)).length;
+    const [auditCount] = await customerAuditHistory(sql,workspaceId,customerId,true);
+    const retainedAuditRecords = Number(auditCount.count);
     // Live merged sources are unmerged by the route first. Soft-deleted
     // sources cannot take that path. Do not certify a partial erase or guess
     // which newer survivor correspondence belongs to the original subject.
@@ -253,6 +254,17 @@ export async function eraseCustomer(args: {
       await repairCustomerContacts(sql, workspaceId, holderId);
     }
 
+    // Capture existing player audit references before removing the lookup key.
+    // This journal write and erasure commit together; repeat erasure preserves it.
+    if (!cust.erased_at) await sql`
+      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason, retained_player_audit_ids)
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null}, array(
+        select a.id from audit_events a join customers c
+          on c.workspace_id=a.workspace_id and c.maestro_user_id=a.target_id::text
+        where c.id=${customerId} and c.workspace_id=${workspaceId} and a.target_type='player'
+      ))
+    `;
+
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
@@ -272,11 +284,6 @@ export async function eraseCustomer(args: {
       update customer_merges set backfilled_fields = backfilled_fields - ${[...CUSTOMER_PII_FIELDS]}::text[]
       where workspace_id = ${workspaceId} and source_customer_id = ${customerId}
         and backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
-    `;
-
-    if (!cust.erased_at) await sql`
-      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null})
     `;
 
     return {

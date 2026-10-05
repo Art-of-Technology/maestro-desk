@@ -28,6 +28,13 @@ separate. The UI selects a controlled reason rather than collecting new free tex
 Older clients sending a narrative reason receive a validation error; direct legacy
 database writers have unsupported reasons mapped to `other`.
 
+The erasure journal stores references to existing player audit rows before the
+customer's Maestro lookup key is removed. Post-erasure exports follow those
+references within the same workspace; repeated erasure preserves them. No extra
+player identifier, narrative or audit hash is copied or rewritten. These retained
+references need the same retention review as the audit history. They do not recover
+links removed by earlier erasures or identify later, unlinked player lookups.
+
 ## Evidence collected on 5 October 2026
 
 A read-only production transaction (15-second statement timeout, ending in
