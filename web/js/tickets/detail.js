@@ -1333,6 +1333,7 @@ async function sendComposeOnce(id) {
         role: isNote ? 'note' : 'agent',
         email_recipients: recipients,
         body: outgoing,
+        reply_language: replyLanguage || undefined,
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         mentions: isNote ? (mentions || []).map((m) => m.userId).filter(Boolean) : undefined,
@@ -1341,6 +1342,7 @@ async function sendComposeOnce(id) {
       });
       message = res.message;
       delivery = res.delivery;
+      if (res.subject) t.subject = res.subject;
       try { clearSentDraft = finishDraftSend(id, tab, sentDraft, res.draft_version); }
       catch {
         clearSentDraft = false;

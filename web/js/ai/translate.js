@@ -276,7 +276,8 @@ export async function prepareCustomerReply(t, text, html, request = callClaude) 
   if (!text.trim()) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: null };
   if (!t.autoTranslateReplies) {
     // Detection returns null on provider failure unless throwErrors is explicitly enabled.
-    const replyLanguage = t.detectedCustomerLang ? await detectLanguage(text, request, false, t._uuid) : null;
+    const replyLanguage = await detectLanguage(text, request, false, t._uuid);
+    if (!replyLanguage) throw new Error('Choose a reply language before sending. Your draft has been kept.');
     return { translation: text, translationHtml: html, translatedTo: null, replyLanguage };
   }
   const language = await ensureCustomerLanguage(t);
@@ -300,6 +301,8 @@ export function toggleAutoTranslateReplies(ticketId, on) {
 export function setCustomerLanguage(ticketId, lang) {
   const t = TICKETS.find(x => x.id === ticketId);
   if (!t || (lang && !TRANSLATOR_LANGS.includes(lang))) return;
+  const menu = document.getElementById(`ticket-page-${ticketId}`)?.querySelector?.('.ticket-language');
+  if (menu) menu.open = false;
   t.customerLanguageManual = !!lang;
   languageChecks.delete(t);
   t.customerLanguageError = false;
@@ -312,6 +315,7 @@ export function setCustomerLanguage(ticketId, lang) {
   // but if the agent had auto-translate-replies on, the new language becomes the target for
   // outgoing replies, so just re-render so the toolbar reflects the override.
   if (CURRENT_TICKET === ticketId) openTicket(ticketId);
+  document.getElementById(`ticket-page-${ticketId}`)?.querySelector?.('.ticket-language summary')?.focus();
 }
 
 export function setAgentPreferredLang(v) {

@@ -17,6 +17,9 @@ import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../li
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
+import { composeEmail, type ComposedEmail } from '../lib/email-branding.js';
+import { emailTranslator } from '../lib/email-translation.js';
+import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
 import { ReplyReview } from '../lib/reply-review.js';
 import { recordReplyUse } from '../lib/reply-feedback.js';
 import { publishTicketChanged } from '../lib/pubby.js';
@@ -787,6 +790,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
+  reply_language: z.enum(SUPPORTED_LANGUAGES).optional(),
   draft_version: z.number().int().min(0).max(2147483646).optional(),
   role:     z.enum(['agent', 'note']),
   email_recipients: EmailRecipients.optional(),
@@ -884,6 +888,22 @@ tickets.post('/:id/messages', async (c) => {
   // for plain-text mail clients, search and the AI context.
   const bodyText = (input.body?.trim() || (bodyHtml ? htmlToText(bodyHtml) : '')) || '(empty message)';
 
+  // Prepare all customer-facing wording before consuming the draft or saving a message.
+  let composed: ComposedEmail | undefined;
+  let originalSubject: string | undefined;
+  if (input.role === 'agent' && input.reply_language) {
+    const [outbound] = await sql`select subject from tickets t where t.id=${ticketId} and t.workspace_id=${workspaceId}
+      and not exists (select 1 from ticket_messages m where m.ticket_id=t.id and m.workspace_id=${workspaceId}
+        and m.role in ('customer','agent','ai'))`;
+    originalSubject = outbound?.subject;
+    try {
+      composed = await composeEmail({ workspaceId, authorUserId: userId, bodyText, bodyHtml,
+        subject: originalSubject, translate: emailTranslator(workspaceId, userId, input.reply_language) });
+    } catch {
+      return c.json({ error: 'Could not translate the email subject, header or footer. Your draft has been kept. Check AI credit and try again.' }, 502);
+    }
+  }
+
   // Deduped: a client that sends the same id twice means one file, and the
   // claim asserts rows-updated === ids-requested — without this it would fail
   // with a misleading "1 attachment is unknown or already sent".
@@ -905,6 +925,13 @@ tickets.post('/:id/messages', async (c) => {
   let message, draftVersion: number | undefined;
   try {
     message = await sql.begin(async (tx) => {
+      if (composed?.subject && originalSubject !== undefined) {
+        const [updated] = await tx`update tickets set subject=${composed.subject}, updated_at=now()
+          where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null and subject=${originalSubject}
+            and not exists (select 1 from ticket_messages where ticket_id=${ticketId} and workspace_id=${workspaceId}
+              and role in ('customer','agent','ai')) returning id`;
+        if (!updated) throw new DraftConflict('The ticket changed. Review it before sending.');
+      }
       if (input.draft_version !== undefined) {
         const [active] = await tx`select id from tickets where id=${ticketId} and workspace_id=${workspaceId}
           and deleted_at is null for update`;
@@ -970,7 +997,7 @@ tickets.post('/:id/messages', async (c) => {
         : [];
       delivery = await sendAgentReplyEmail({
         workspaceId, ticketId, messageId: message.id, authorUserId: userId,
-        body: bodyText, bodyHtml, attachments: files, recipients: input.email_recipients,
+        body: bodyText, bodyHtml, composed, attachments: files, recipients: input.email_recipients,
       });
     } catch (err) {
       console.error('[agent-reply] send threw:', safeError(err));
@@ -987,7 +1014,7 @@ tickets.post('/:id/messages', async (c) => {
   const decorated = claimIds.length
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
-  return c.json({ message: decorated, delivery, draft_version: draftVersion }, 201);
+  return c.json({ message: decorated, delivery, draft_version: draftVersion, subject: composed?.subject }, 201);
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
