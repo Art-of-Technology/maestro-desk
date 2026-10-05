@@ -176,6 +176,10 @@ app.route('/api/v1/god', god);
 app.route('/api/v1/maestro', maestro);
 
 app.onError(async (err, c) => {
+  const dbError = err as Error & { code?: string; constraint_name?: string };
+  if (dbError.constraint_name === 'customer_erased' || dbError.code === '55P03') {
+    return c.json({ error: 'This record changed or its personal data was erased. Reload before trying again.' }, 409);
+  }
   if (err instanceof HTTPException) {
     // Expected 4xx — not an incident, never reported.
     // - A custom Response always wins untouched: it may carry mandated

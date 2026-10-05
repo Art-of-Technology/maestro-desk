@@ -4,6 +4,7 @@ import type { TransactionSql } from 'postgres';
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { getDb } from './db.js';
+import { ticketPrivacy, lockTicketPrivacy, requireTicketPrivacy } from './ticket-privacy.js';
 import { workspaceAccessGeneration, requireAvailableWorkspace, workspaceAvailable } from './workspace-access.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import {
@@ -255,6 +256,7 @@ export class TriageError extends Error {
 export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   const { ticketId, workspaceId, userId } = input;
   const accessGeneration = await workspaceAccessGeneration(workspaceId);
+  const privacy = await ticketPrivacy(workspaceId, [ticketId]);
 
   // 0. Budget gate — refuse cheaply before doing any work. Log the blocked
   //    attempt so we have telemetry on how often this fires.
@@ -405,6 +407,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
       const [workspace] = await tx`select id from workspaces where id=${workspaceId}
         and deleted_at is null and suspended_at is null and suspension_generation=${accessGeneration}::bigint for share`;
       if (!workspace) throw new TriageError('This workspace is unavailable.', 403);
+      await lockTicketPrivacy(tx, workspaceId, privacy);
       if (!input.tagsOnly) await persistTicketTriage(ticketId, workspaceId, triage, tx);
       await persistAITags(ticketId, workspaceId, triage.tags, tx);
     }),
@@ -445,6 +448,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     try {
       const post = await postAutoReply({
         accessGeneration,
+        privacy,
         workspaceId,
         ticketId,
         draftReply: triage.draft_reply,
@@ -479,6 +483,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     }
   }
 
+  await requireTicketPrivacy(workspaceId, privacy);
   return {
     triage,
     usage: {

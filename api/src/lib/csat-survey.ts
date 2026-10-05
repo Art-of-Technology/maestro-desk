@@ -17,6 +17,7 @@ import { safeError } from './diagnostics.js';
 import { env } from './env.js';
 import { isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
+import { ticketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import { composeEmail } from './email-branding.js';
 import { makeUnsubscribeToken, unsubscribeUrl } from './unsubscribe.js';
 import { getDb } from './db.js';
@@ -40,6 +41,7 @@ export async function sendCsatSurvey(args: {
   portalBase?: string;
 }): Promise<CsatSurveyResult> {
   const { workspaceId, ticketId } = args;
+  const privacy = await ticketPrivacy(workspaceId, [ticketId]);
   if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
   const sql = getDb();
   const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
@@ -57,7 +59,7 @@ export async function sendCsatSurvey(args: {
     return { sent: false, reason: ticket?.status_key === 'resolved' ? 'in_progress' : 'not_resolved' };
   }
   try {
-    return await sendClaimedSurvey(args, claim);
+    return await sendClaimedSurvey(args, claim, privacy);
   } finally {
     try {
       await sql`update tickets set csat_send_claim = null, csat_send_started_at = null
@@ -70,7 +72,7 @@ export async function sendCsatSurvey(args: {
 
 async function sendClaimedSurvey(args: {
   workspaceId: string; ticketId: string; portalBase?: string;
-}, claim: string): Promise<CsatSurveyResult> {
+}, claim: string, privacy: TicketPrivacy): Promise<CsatSurveyResult> {
   const { workspaceId, ticketId } = args;
   const sql = getDb();
 
@@ -150,6 +152,7 @@ async function sendClaimedSurvey(args: {
 
   try {
     await sendBrandedEmail({
+      privacy,
       workspaceId,
       fallbackFromName: workspaceName,
       to: customerEmail,
