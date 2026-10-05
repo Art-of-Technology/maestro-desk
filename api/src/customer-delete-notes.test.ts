@@ -125,7 +125,7 @@ runDbTests('customer delete + notes (DB-backed)', () => {
       where workspace_id = ${ctx.wsA} and action = 'customer_note.deleted' and target_id = ${ctx.noteId}
     `;
     expect(audit).toBeDefined();
-    expect(audit.metadata.text_preview).toContain('VIP');
+    expect(audit.metadata.text_preview).toBeUndefined();
   });
 
   // ─── Customer delete ──────────────────────────────────────────────────────

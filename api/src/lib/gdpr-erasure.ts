@@ -12,6 +12,7 @@ import { safeError } from './diagnostics.js';
 
 import { getDb } from './db.js';
 import { HTTPException } from 'hono/http-exception';
+import { customerAuditHistory } from './customer-history.js';
 import {
   deleteAttachmentObjects,
   drainObjectDeletions,
@@ -54,6 +55,8 @@ export interface EraseResult {
   messagesRedacted: number;
   inboxRedacted: number;
   attachmentsDeleted: number;
+  retainedAuditRecords: number;
+  auditHistoryRequiresReview: true;
 }
 
 // The R2 object deleter — injectable so tests can record the keys without R2
@@ -99,6 +102,7 @@ export async function eraseCustomer(args: {
       for update
     `;
     if (!cust) return null;
+    const retainedAuditRecords = (await customerAuditHistory(sql,workspaceId,customerId)).length;
     // Live merged sources are unmerged by the route first. Soft-deleted
     // sources cannot take that path. Do not certify a partial erase or guess
     // which newer survivor correspondence belongs to the original subject.
@@ -120,7 +124,7 @@ export async function eraseCustomer(args: {
     // This transaction's customer lock also prevents concurrent DROP COLUMN.
     // Keep erasing legacy data until the column is physically retired, while
     // allowing this release to run after that migration (including rollback).
-    const fieldsErased = FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status');
+    const fieldsErased: string[] = [...FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status'), 'events'];
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
@@ -284,6 +288,8 @@ export async function eraseCustomer(args: {
       messagesRedacted,
       inboxRedacted,
       attachmentsDeleted,
+      retainedAuditRecords,
+      auditHistoryRequiresReview: true as const,
     };
   });
 
