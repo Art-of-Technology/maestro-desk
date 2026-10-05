@@ -2,7 +2,7 @@
 // Preview is the default. UUIDs/counts only: never print subject content.
 import { parseArgs } from 'node:util';
 import { getDb } from '../src/lib/db.js';
-import { eraseCustomer } from '../src/lib/gdpr-erasure.js';
+import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../src/lib/gdpr-erasure.js';
 import { safeError } from '../src/lib/diagnostics.js';
 
 const {values}=parseArgs({options:{workspace:{type:'string'},after:{type:'string'},limit:{type:'string',default:'100'},
@@ -24,7 +24,12 @@ try {
           and ticket_id not in (select id from owned)) as merged_copies,
         (select count(*)::int from time_entries where workspace_id=${values.workspace} and ticket_id in (select id from owned) and note is not null) as time_notes,
         (select count(*)::int from ticket_tags where workspace_id=${values.workspace} and ticket_id in (select id from owned)) as tags,
-        (select count(*)::int from ticket_ai_tags where workspace_id=${values.workspace} and ticket_id in (select id from owned)) as ai_tags`;
+        (select count(*)::int from ticket_ai_tags where workspace_id=${values.workspace} and ticket_id in (select id from owned)) as ai_tags,
+        (select count(*)::int from tickets where workspace_id=${values.workspace} and pre_merge_customer_id=${row.id} and customer_id<>${row.id}) as unresolved_transferred_tickets,
+        (select count(*)::int from customers where workspace_id=${values.workspace} and merged_into_customer_id=${row.id}) as unresolved_merged_profiles,
+        (select count(*)::int from customer_merges j join customers c on c.id=j.source_customer_id and c.workspace_id=j.workspace_id
+          where j.workspace_id=${values.workspace} and j.source_customer_id=${row.id} and j.unmerged_at is null
+            and c.merged_into_customer_id is not null and j.backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]) as unresolved_personal_backfills`;
     if(values.apply) await eraseCustomer({workspaceId:values.workspace,customerId:row.id,requestedByUserId:null});
     console.log(JSON.stringify({customer_id:row.id,mode:values.apply?'applied':'preview',observed_before:counts}));
   }

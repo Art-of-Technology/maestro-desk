@@ -11,6 +11,7 @@ import { safeError } from './diagnostics.js';
 // duplicate audit row. Historical bulk repair requires explicit approval.
 
 import { getDb } from './db.js';
+import { HTTPException } from 'hono/http-exception';
 import {
   deleteAttachmentObjects,
   drainObjectDeletions,
@@ -98,6 +99,20 @@ export async function eraseCustomer(args: {
       for update
     `;
     if (!cust) return null;
+    // Live merged sources are unmerged by the route first. Soft-deleted
+    // sources cannot take that path. Do not certify a partial erase or guess
+    // which newer survivor correspondence belongs to the original subject.
+    const [unresolvedMerge] = await sql`select 1 where exists (
+      select 1 from tickets where workspace_id=${workspaceId} and pre_merge_customer_id=${customerId}
+        and customer_id<>${customerId}
+    ) or exists (
+      select 1 from customers where workspace_id=${workspaceId} and merged_into_customer_id=${customerId}
+    ) or exists (
+      select 1 from customer_merges j join customers source on source.id=j.source_customer_id and source.workspace_id=j.workspace_id
+      where j.workspace_id=${workspaceId} and j.source_customer_id=${customerId} and j.unmerged_at is null
+        and source.merged_into_customer_id is not null and j.backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
+    )`;
+    if (unresolvedMerge) throw new HTTPException(409, { message: 'This profile still has merged ticket history or copied personal fields. Resolve the merge before erasing it.' });
     await sql`update workspaces set privacy_generation=privacy_generation+1 where id=${workspaceId}`;
     // The scalar is captured BEFORE nulling — the inbox match below also uses
     // it for a legacy profile with no contact rows.

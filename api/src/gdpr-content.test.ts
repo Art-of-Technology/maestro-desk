@@ -69,6 +69,18 @@ dbTests('customer content erasure and late work', () => {
       ()=>sql`insert into customer_notes(workspace_id,customer_id,author_user_id,text) values(${ws},${s.customer},${user},'LATE')`,
     ]){let error:any;try{await write();}catch(e){error=e;}expect(error?.constraint_name).toBe('customer_erased');}
   });
+  it('exports transferred history but refuses ambiguous erasure of a deleted merged source or its survivor',async()=>{
+    const source=await seed(),survivor=await seed();
+    await sql`update tickets set customer_id=${survivor.customer},pre_merge_customer_id=${source.customer} where id=${source.ticket}`;
+    await sql`update customers set merged_into_customer_id=${survivor.customer},deleted_at=now() where id=${source.customer}`;
+    const {exportCustomer}=await import('./lib/gdpr-export.js');
+    expect((await exportCustomer({workspaceId:ws,customerId:source.customer}))?.tickets).toHaveLength(1);
+    for(const subject of [source,survivor]) {
+      let error:any;try{await erase(subject);}catch(e){error=e;}expect(error?.status).toBe(409);
+      expect((await sql`select erased_at from customers where id=${subject.customer}`)[0].erased_at).toBeNull();
+    }
+    expect((await sql`select ai_summary from tickets where id=${source.ticket}`)[0].ai_summary.text).toBe('PRIVATE_SUMMARY');
+  });
   it('discards real triage completion after erasure and refuses a new generation',async()=>{
     const s=await seed();
     const {anthropic}=await import('./lib/anthropic.js');const original=anthropic.messages.create;

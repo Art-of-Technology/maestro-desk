@@ -13,6 +13,9 @@ begin
   for subject in select c.id,c.erased_at from customers c join (
     select t.customer_id from tickets t where t.workspace_id=ws and t.id=any(ticket_ids)
     union
+    select t.pre_merge_customer_id from tickets t where t.workspace_id=ws and t.id=any(ticket_ids)
+      and t.pre_merge_customer_id is not null
+    union
     select origin.customer_id from ticket_messages m join tickets origin
       on origin.id=m.merged_from_id and origin.workspace_id=m.workspace_id
       where m.workspace_id=ws and m.ticket_id=any(ticket_ids) and m.body <> '[erased]'
@@ -36,10 +39,12 @@ begin
     if new.subject='[erased]' and new.ai_summary is null and new.ai_draft_reply is null
       and new.csat_comment is null and new.snooze_reason is null and new.closure_note is null
       and new.last_inbound_email is null then return new; end if;
-    select erased_at into subject_erased from customers where id=new.customer_id and workspace_id=new.workspace_id for share nowait;
-    if subject_erased is not null then
-      raise exception 'Customer has been erased' using errcode='23514', constraint='customer_erased';
-    end if;
+    for subject_erased in select erased_at from customers where id in (new.customer_id,new.pre_merge_customer_id)
+      and workspace_id=new.workspace_id order by id for share nowait loop
+      if subject_erased is not null then
+        raise exception 'Customer has been erased' using errcode='23514', constraint='customer_erased';
+      end if;
+    end loop;
     if tg_op='UPDATE' then perform assert_ticket_content(new.workspace_id,array[new.id]); end if;
     return new;
   elsif tg_table_name='customer_notes' then
@@ -64,7 +69,7 @@ begin
   return new;
 end $$;
 
-create trigger ticket_personal_content_guard before insert or update of subject,customer_id,ai_summary,ai_draft_reply,
+create trigger ticket_personal_content_guard before insert or update of subject,customer_id,pre_merge_customer_id,ai_summary,ai_draft_reply,
   csat_comment,snooze_reason,last_inbound_email,closure_note on tickets
   for each row execute function guard_ticket_personal_content();
 do $$ declare tab text; begin
@@ -76,7 +81,8 @@ end $$;
 
 create function ticket_privacy_owner_changed() returns trigger language plpgsql as $$
 begin
-  if new.customer_id is distinct from old.customer_id or new.merged_into_id is distinct from old.merged_into_id then
+  if new.customer_id is distinct from old.customer_id or new.merged_into_id is distinct from old.merged_into_id
+    or new.pre_merge_customer_id is distinct from old.pre_merge_customer_id then
     -- Bounded sends hold a customer share lock. Ownership changes must not
     -- overtake them; ordinary ticket status/claim updates remain independent.
     perform id from customers where workspace_id=new.workspace_id and id in (old.customer_id,new.customer_id)
@@ -85,5 +91,5 @@ begin
   end if;
   return new;
 end $$;
-create trigger ticket_privacy_owner_changed before update of customer_id,merged_into_id on tickets
+create trigger ticket_privacy_owner_changed before update of customer_id,merged_into_id,pre_merge_customer_id on tickets
   for each row execute function ticket_privacy_owner_changed();

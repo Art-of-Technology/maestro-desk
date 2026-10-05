@@ -15,6 +15,11 @@ prerequisite before release. No historical repair is run by the migration.
 - Repeating erasure scrubs again without creating a duplicate erasure audit row.
   The original completion date is retained. Object deletion still uses the durable
   outbox; a database success does not prove every storage deletion has finished.
+- A merged profile whose tickets or journalled personal fields still belong to
+  a survivor must be unmerged before erasure. This includes deleted source
+  profiles; they receive a conflict instead of a misleading success. Their
+  transferred history appears in the administrator export. Historical repair
+  stops on such a conflict so an operator can resolve ownership explicitly.
 - Database guards reject new personal content on erased tickets and known merge
   origins, including writes from older application instances. A simultaneous
   privacy/ownership change can return a retryable 409 rather than waiting in a
