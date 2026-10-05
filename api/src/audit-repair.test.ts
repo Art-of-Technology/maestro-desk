@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -378,6 +378,14 @@ run('historical audit repair (operator only)', () => {
     await expect(
       executeRecordedRepair(sql, p, join(directory, 'missing')),
     ).rejects.toThrow();
+    expect(await history(f.request.workspaceId)).toBe(before);
+    writeFileSync(
+      join(directory, f.request.operationId + '.pending.json'),
+      '{"incomplete":',
+    );
+    await expect(executeRecordedRepair(sql, p, directory)).rejects.toThrow(
+      'incomplete or invalid JSON',
+    );
     expect(await history(f.request.workspaceId)).toBe(before);
     writeRepairEvidence(
       join(directory, f.request.operationId + '.committed.json'),

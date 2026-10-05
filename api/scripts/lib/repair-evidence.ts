@@ -33,7 +33,17 @@ export function writeRepairEvidence(path: string, value: unknown) {
   const text = serialise(value);
   let fd: number;
   if (existsSync(path)) {
-    if (serialise(JSON.parse(readFileSync(path, 'utf8'))) !== text)
+    let existing: unknown;
+    try {
+      existing = JSON.parse(readFileSync(path, 'utf8'));
+    } catch (error) {
+      if (error instanceof SyntaxError)
+        throw new RepairRefusal(
+          'Evidence file is incomplete or invalid JSON; preserve it and recover to a new directory',
+        );
+      throw error;
+    }
+    if (serialise(existing) !== text)
       throw new RepairRefusal(
         'Evidence file already exists with different or incomplete contents',
       );
