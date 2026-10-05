@@ -69,6 +69,25 @@ dbTests('customer content erasure and late work', () => {
       ()=>sql`insert into customer_notes(workspace_id,customer_id,author_user_id,text) values(${ws},${s.customer},${user},'LATE')`,
     ]){let error:any;try{await write();}catch(e){error=e;}expect(error?.constraint_name).toBe('customer_erased');}
   });
+  it('returns not-sent results for erased or missing tickets without contacting email providers',async()=>{
+    const s=await seed();await erase(s);
+    const {sendAgentReplyEmail}=await import('./lib/agent-reply.js');
+    const {postAutoReply}=await import('./lib/auto-reply.js');
+    const {sendCsatSurvey}=await import('./lib/csat-survey.js');
+    const {notifyMentionedAgents}=await import('./lib/mention-notify.js');
+    const original=globalThis.fetch;let calls=0;
+    globalThis.fetch=Object.assign(async()=>{calls++;throw new Error('External calls forbidden');},{preconnect:original.preconnect});
+    try {
+      for(const ticketId of [s.ticket,crypto.randomUUID()]) {
+        const common={workspaceId:ws,ticketId};
+        expect(await sendAgentReplyEmail({...common,messageId:crypto.randomUUID(),authorUserId:user,body:'STALE'})).toMatchObject({emailed:false,reason:'send_failed'});
+        expect(await postAutoReply({...common,draftReply:'STALE',confidence:90,model:'synthetic',workspaceName:'Test'})).toMatchObject({posted:false,reason:'send_failed'});
+        expect(await sendCsatSurvey(common)).toMatchObject({sent:false,reason:'send_failed'});
+        expect(await notifyMentionedAgents({...common,authorUserId:null,authorLabel:'Test',mentions:[user],body:'STALE'})).toEqual({sent:0,skipped:1});
+      }
+      expect(calls).toBe(0);
+    } finally {globalThis.fetch=original;}
+  });
   it('exports transferred history but refuses ambiguous erasure of a deleted merged source or its survivor',async()=>{
     const source=await seed(),survivor=await seed();
     await sql`update tickets set customer_id=${survivor.customer},pre_merge_customer_id=${source.customer} where id=${source.ticket}`;

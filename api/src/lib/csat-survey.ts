@@ -17,7 +17,7 @@ import { safeError } from './diagnostics.js';
 import { env } from './env.js';
 import { isPostmarkConfigured, PostmarkSendError } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
-import { ticketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
+import { availableTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import { composeEmail } from './email-branding.js';
 import { makeUnsubscribeToken, unsubscribeUrl } from './unsubscribe.js';
 import { getDb } from './db.js';
@@ -41,11 +41,12 @@ export async function sendCsatSurvey(args: {
   portalBase?: string;
 }): Promise<CsatSurveyResult> {
   const { workspaceId, ticketId } = args;
-  const privacy = await ticketPrivacy(workspaceId, [ticketId]);
   if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
   const sql = getDb();
   const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
   if (!workspace) return { sent: false, reason: 'no_workspace' };
+  const privacy = await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { sent: false, reason: 'send_failed', detail: 'This ticket is no longer available.' };
   const claim = crypto.randomUUID();
   const [claimed] = await sql`
     update tickets set csat_send_claim = ${claim}, csat_send_started_at = now()

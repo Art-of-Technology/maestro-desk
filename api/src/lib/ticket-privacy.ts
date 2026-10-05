@@ -16,6 +16,15 @@ export async function ticketPrivacy(workspaceId: string, ticketIds: string[]): P
   return [...rows];
 }
 
+// Result-pattern senders skip unavailable tickets; unexpected failures still surface.
+export async function availableTicketPrivacy(workspaceId: string, ticketIds: string[]): Promise<TicketPrivacy | null> {
+  try { return await ticketPrivacy(workspaceId, ticketIds); }
+  catch (err) {
+    if (err instanceof HTTPException && err.status === 404) return null;
+    throw err;
+  }
+}
+
 // NOWAIT makes a concurrent privacy/ownership change a retry, rather than a
 // customer -> ticket / ticket -> customer deadlock. Never hold across an AI call.
 export async function lockTicketPrivacy(tx: TransactionSql, workspaceId: string, snapshot: TicketPrivacy): Promise<void> {

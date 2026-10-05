@@ -133,6 +133,7 @@ ai.post('/messages', async (c) => {
   const sql = getDb();
   const privacy = input.ticketId ? await ticketPrivacy(workspaceId, [input.ticketId]) : [];
   const [privacyState] = await sql`select privacy_generation::text as generation from workspaces where id=${workspaceId}`;
+  if (!privacyState) return c.json({ error: 'Workspace not found.' }, 404);
   const query = input.messages.filter((m) => m.role === 'user').at(-1)?.content || '';
   const historical = input.action === 'similar_reply';
   const generic = input.action === 'generic_template';

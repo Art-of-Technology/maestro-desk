@@ -1,7 +1,7 @@
 import { safeError } from './diagnostics.js';
 import type { TriageOutput } from './triage.js';
 import { getDb } from './db.js';
-import { ticketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
+import { availableTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
 
@@ -169,7 +169,8 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
   if (ticket?.status_key === 'closed') return { posted: false, reason: 'ticket_closed' };
 
-  const privacy = args.privacy ?? await ticketPrivacy(workspaceId, [ticketId]);
+  const privacy = args.privacy ?? await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { posted: false, reason: 'send_failed', detail: 'This ticket is no longer available.' };
 
   // 1. Idempotency check — has this ticket already been auto-replied?
   const [existing] = await sql`
