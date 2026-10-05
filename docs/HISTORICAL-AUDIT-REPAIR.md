@@ -18,7 +18,8 @@ receipt alone is not independent custody or a digital signature.
 
 1. Complete `DATABASE-ACCESS-RELEASE.md`, including verification of the actual live
    API login. Keep operator credentials out of the API container. Apply migration
-   `20261005180000_audit_repair_receipts.sql`; review/reapply runtime grants.
+   `20261005180000_audit_repair_receipts.sql` and the subsequent table-aware guard
+   migration through the normal runner; review/reapply runtime grants.
 2. Approve a workspace-specific retention decision and a review confirming **no
    active holds anywhere in that workspace**. An exclusion preserves content but
    may have a recalculated chain link, so exclusions do not satisfy a legal hold.

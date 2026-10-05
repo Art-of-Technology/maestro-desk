@@ -96,7 +96,8 @@ async function snapshot(tx: TransactionSql, r: RepairRequest) {
   const rows =
     await tx`select id,seq::text,encode(row_hash,'hex') hash from public.audit_events
     where workspace_id=${r.workspaceId} order by seq limit 5001`;
-  if (!rows.length || rows.length > 5000)
+  const tail = rows.at(-1);
+  if (!tail || rows.length > 5000)
     throw new RepairRefusal(
       'Repair requires a nonempty chain of at most 5000 rows',
     );
@@ -146,7 +147,6 @@ async function snapshot(tx: TransactionSql, r: RepairRequest) {
     await tx`select encode(sha256(convert_to(pg_get_functiondef('public.audit_metadata_facts(text,jsonb)'::regprocedure),'UTF8')),'hex') hash`;
   const [identity] = await tx`select current_database() name,oid::text,
     inet_server_addr()::text address,inet_server_port() port from pg_database where datname=current_database()`;
-  const tail = rows.at(-1)!;
   return snapshotSchema.parse({
     databaseIdentity: hash(identity),
     policyHash: policy.hash,

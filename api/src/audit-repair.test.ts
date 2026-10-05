@@ -130,7 +130,7 @@ run('historical audit repair (operator only)', () => {
       Promise.resolve(
         sql`update audit_repair_receipts set receipt='{}' where id=${f.request.operationId}`,
       ),
-    ).rejects.toThrow();
+    ).rejects.toThrow('audit_repair_receipts is append-only');
   });
   it('refuses overlapping, wrong-workspace, uncertain and held scopes', async () => {
     const f = await fixture(),
@@ -209,6 +209,12 @@ run('historical audit repair (operator only)', () => {
     const f = await fixture();
     const p = await previewAuditRepair(sql, f.request),
       before = await history(f.request.workspaceId);
+    await sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(727573707)`;
+      await expect(applyAuditRepair(sql, p)).rejects.toThrow(
+        'Migration or another repair',
+      );
+    });
     await sql.begin(async (tx) => {
       await tx`lock table audit_events in row exclusive mode`;
       await expect(applyAuditRepair(sql, p)).rejects.toMatchObject({
