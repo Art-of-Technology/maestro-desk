@@ -63,6 +63,31 @@ async function takeLock(tx: { unsafe: (q: string) => Promise<unknown> }) {
 }
 
 async function main() {
+  const mode = process.env.DATABASE_BOOT_MODE ?? 'migrate';
+  if (!['migrate','check'].includes(mode)) throw Error('DATABASE_BOOT_MODE must be migrate or check');
+  if (mode === 'check') {
+    await sql.begin('read only',async tx => {
+      const applied = new Set((await tx`select filename from schema_migrations`).map(r=>r.filename));
+      const pending = readdirSync(migrationsDir).filter(f=>f.endsWith('.sql') && !applied.has(f));
+      if (pending.length) throw Error('Pending database migrations; run the separate migration job before starting the API');
+      const [role] = await tx`select r.rolsuper,r.rolcreaterole,r.rolcreatedb,r.rolreplication,r.rolbypassrls,
+        exists(select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+          where n.nspname='public' and pg_has_role(current_user,c.relowner,'MEMBER')) as owns_objects,
+        exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+          where n.nspname='public' and pg_has_role(current_user,p.proowner,'MEMBER')) as owns_functions,
+        exists(select 1 from pg_auth_members m where m.member=r.oid) as has_memberships,
+        has_schema_privilege(current_user,'public','CREATE') as can_create,
+        has_database_privilege(current_user,current_database(),'CREATE') as can_create_schema,
+        has_database_privilege(current_user,current_database(),'TEMP') as can_temp,
+        has_parameter_privilege(current_user,'session_replication_role','SET') as can_disable_guards,
+        has_table_privilege(current_user,'audit_events','UPDATE,DELETE,TRUNCATE') as can_rewrite_audit,
+        has_table_privilege(current_user,'audit_verify_checkpoints','INSERT,UPDATE,DELETE,TRUNCATE') as can_forge_checkpoints
+        from pg_roles r where r.rolname=current_user`;
+      if (Object.values(role).some(Boolean)) throw Error('Restricted runtime has excessive database permissions');
+    });
+    console.log('Database schema and restricted runtime permissions verified. No migrations applied.');
+    return;
+  }
   // Bootstrap under the same lock: `if not exists` alone is not fully
   // race-proof — two connections creating the table simultaneously can still
   // collide in the catalog and one of them errors, crashing that boot.
