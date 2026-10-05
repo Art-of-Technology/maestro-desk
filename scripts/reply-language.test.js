@@ -134,6 +134,13 @@ test('manual language choice closes the popover and restores focus', () => {
   expect(t.detectedCustomerLang).toBe('French');
 });
 
+test('attachment-only replies still supply the selected language for email branding', async () => {
+  const t=fixture(); tickets.push(t);tx.setCustomerLanguage('T1','French');
+  const result=await tx.prepareCustomerReply(t,'','<p><img src="cid:attachment"></p>');
+  expect(result.replyLanguage).toBe('French'); expect(result.translationHtml).toContain('cid:attachment');
+  expect(calls).toBe(0);
+});
+
 test('subject-only tickets are detected and changing subject invalidates the result', async () => {
   const t={...fixture(), subject:'Necesito ayuda con mi cuenta',msgs:[]};
   await tx.ensureCustomerLanguage(t);

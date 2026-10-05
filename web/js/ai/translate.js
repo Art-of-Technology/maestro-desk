@@ -273,7 +273,11 @@ export function retryCustomerLanguage(ticketId) {
 
 export async function prepareCustomerReply(t, text, html, request = callClaude) {
   initialiseReplyLanguage(t);
-  if (!text.trim()) return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: null };
+  if (!text.trim()) {
+    const language = await ensureCustomerLanguage(t);
+    if (!language) throw new Error('Choose a reply language before sending. Your draft has been kept.');
+    return { translation: text, translationHtml: html, translatedTo: null, replyLanguage: language };
+  }
   if (!t.autoTranslateReplies) {
     // Detection returns null on provider failure unless throwErrors is explicitly enabled.
     const replyLanguage = await detectLanguage(text, request, false, t._uuid);

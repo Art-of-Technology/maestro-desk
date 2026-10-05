@@ -28,6 +28,6 @@ test('rejects incomplete output and escapes model markup', async () => {
   const result=await translateEmailParts(['<b>Hello</b>'], 'Spanish', async () => ['<script>bad</script>']);
   expect(result[0]).toBe('<b>&lt;script&gt;bad&lt;/script&gt;</b>');
   let calls=0;
-  await translateEmailParts(['<img src="https://brand.test/logo.png">',''], 'Spanish', async () => { calls++; return []; });
+  await translateEmailParts(['<img src="https://brand.test/logo.png">','<p>&nbsp;</p>',''], 'Spanish', async () => { calls++; return []; });
   expect(calls).toBe(0);
 });

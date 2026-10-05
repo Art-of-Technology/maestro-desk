@@ -13,7 +13,7 @@ export async function translateEmailParts(parts: string[], language: string, req
   const options = { allowedTags: false as const, allowedAttributes: false as const, allowVulnerableTags: true };
   const clean = parts.map(part => sanitizeEmailHtml(part).html);
   for (const part of clean) sanitizeHtml(part, { ...options, textFilter: text => {
-    if (text.trim()) texts.push(htmlToText(text));
+    if (htmlToText(text).trim()) texts.push(htmlToText(text));
     return text;
   } });
   const translated: string[] = [];
@@ -33,7 +33,7 @@ export async function translateEmailParts(parts: string[], language: string, req
   }
   await flush();
   let index = 0;
-  return clean.map(part => sanitizeHtml(part, { ...options, textFilter: text => text.trim()
+  return clean.map(part => sanitizeHtml(part, { ...options, textFilter: text => htmlToText(text).trim()
     ? text.match(/^\s*/)![0] + escapeHtml(translated[index++].trim()) + text.match(/\s*$/)![0] : text }));
 }
 
