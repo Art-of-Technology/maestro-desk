@@ -23,6 +23,7 @@ Private attachment and knowledge-download links now pass through the API and rec
 - Verify the system inbox exists, is available, and can be read only by platform operators. Rehearse domain-routed and reply-thread quarantine with synthetic mail and files.
 - Rehearse suspension during a queued webhook, a send and an AI response. Verify reactivation does not release old replies or exhausted webhooks.
 - Test private file links in the actual agent browser, including inline email images, expired links and knowledge downloads. Refresh the ticket to obtain fresh links. Measure API memory/egress under representative file traffic because downloads now pass through the API.
+- Load-test database connection headroom while several bounded sends overlap with suspension and normal agent traffic. Also check the file-request limits against shared office IP addresses. These capacity checks have not been performed against production.
 - Drain old application instances and allow previously issued direct storage links to expire. No production storage credentials are rotated by this change.
 - Verify Maestro selection/player lookups, public portal access, ordinary workspace APIs, and operator recovery against a suspended synthetic brand.
 - Existing sessions can retain rendered data in their browser; suspension stops new access, not copies already received. Record that limit in operator guidance.

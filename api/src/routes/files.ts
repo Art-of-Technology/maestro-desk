@@ -12,6 +12,8 @@ files.get('/:kind/:id', async c => {
   const { kind, id } = c.req.param();
   if (!['attachment', 'knowledge'].includes(kind) || !z.string().uuid().safeParse(id).success)
     return c.json({ error: 'File not found' }, 404);
+  const lookupLimited = await enforceRateLimit(c, { name: 'private-file-lookup', max: 600, windowSeconds: 60, failClosed: true });
+  if (lookupLimited) return lookupLimited;
   const sql = getDb();
   const lookup = () => kind === 'attachment'
     ? sql`select a.workspace_id,a.storage_key,a.filename from ticket_attachments a

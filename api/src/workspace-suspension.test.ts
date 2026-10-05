@@ -132,6 +132,7 @@ dbTests('workspace suspension', () => {
       expect(saved.workspace_id).not.toBe(ws);
       expect((await processInboundEmail({ workspaceId: ws, payload })).ticket_id).toBe(first.ticket_id);
       expect(await sql`select id from audit_events where target_id=${first.ticket_id} and action='inbound.quarantined'`).toHaveLength(1);
+      expect((await sql`select ok from audit_events_verify(${saved.workspace_id})`)[0].ok).toBe(true);
     } finally {
       await sql`delete from tickets where id=${first.ticket_id}`;
       await sql`delete from customers where id=${first.customer_id}`;
