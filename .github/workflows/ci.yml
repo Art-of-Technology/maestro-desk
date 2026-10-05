@@ -237,6 +237,9 @@ jobs:
       - name: Thumbnail WebAssembly fallback and decoder failure isolation
         run: node scripts/check-thumbnail-runtime.mjs
 
+      - name: Maestro identity validation (Node production runtime, synthetic provider)
+        run: node --import tsx --test scripts/maestro-oidc.node.ts
+
       # Fresh apply under Node+tsx — the exact command the production container
       # runs at boot (api/Dockerfile CMD). Keeps the prod migration path
       # exercised in CI, not just the Bun path.
