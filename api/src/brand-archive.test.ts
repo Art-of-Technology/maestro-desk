@@ -106,7 +106,7 @@ const targets = [
     await (await import('./lib/outgoing-webhooks.js')).processPendingDeliveries();
     const [pending] = await sql`select attempts,state from webhook_deliveries where id=${delivery.id}`;
     expect(pending.attempts).toBe(0); expect(pending.state).toBe('pending');
-    await expect((await import('./lib/budget.js')).assertHasBudget(ws)).rejects.toThrow('not found');
+    await expect((await import('./lib/budget.js')).assertHasBudget(ws)).rejects.toMatchObject({ status: 403 });
   });
 
   it('does not wake archived tickets or send customer surveys', async () => {
