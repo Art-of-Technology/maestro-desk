@@ -115,13 +115,30 @@ test('late detection cannot cross workspaces', async () => {
   const task=tx.ensureCustomerLanguage(t); await Promise.resolve(); scope='other'; release(); await task;
   expect(t.detectedCustomerLang).toBeNull();
 });
-test('untranslated replies skip detection without a comparison language and tolerate provider failure', async () => {
+test('as-written replies detect the branding language and keep the draft on detection failure', async () => {
   const t=fixture(); tickets.push(t); tx.initialiseReplyLanguage(t); tx.toggleAutoTranslateReplies('T1',false);
   let res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
-  expect(calls).toBe(0); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+  expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBe('Spanish');
   tx.setCustomerLanguage('T1','Spanish'); failure=true;
-  res=await tx.prepareCustomerReply(t,'Hello','<p>Hello</p>');
-  expect(calls).toBe(1); expect(res.translation).toBe('Hello'); expect(res.replyLanguage).toBeNull();
+  await expect(tx.prepareCustomerReply(t,'Hello','<p>Hello</p>')).rejects.toThrow('Could not detect the reply language');
+  expect(calls).toBe(2);
+});
+
+test('manual language choice closes the popover and restores focus', () => {
+  const t=fixture(); tickets.push(t);
+  let focused=false;
+  const menu={open:true};
+  labels.set('ticket-page-T1',{querySelector: selector => selector.endsWith('summary') ? {focus(){focused=true;}} : menu});
+  tx.setCustomerLanguage('T1','French');
+  expect(menu.open).toBe(false); expect(focused).toBe(true);
+  expect(t.detectedCustomerLang).toBe('French');
+});
+
+test('attachment-only replies still supply the selected language for email branding', async () => {
+  const t=fixture(); tickets.push(t);tx.setCustomerLanguage('T1','French');
+  const result=await tx.prepareCustomerReply(t,'','<p><img src="cid:attachment"></p>');
+  expect(result.replyLanguage).toBe('French'); expect(result.translationHtml).toContain('cid:attachment');
+  expect(calls).toBe(0);
 });
 
 test('subject-only tickets are detected and changing subject invalidates the result', async () => {

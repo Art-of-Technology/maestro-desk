@@ -107,6 +107,63 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(row.external_message_id).toMatch(/^<.+@.+>$/);
   });
 
+  it('translates a new outbound subject and branding even when the body is already Spanish', async () => {
+    const { anthropic } = await import('./lib/anthropic.js');
+    const spy = spyOn(anthropic.messages, 'create');
+    const words: Record<string,string> = { 'Need help':'Necesito ayuda', 'Welcome':'Bienvenido', 'Contact us':'Contáctenos', 'Regards, Jodi':'Saludos, Jodi' };
+    const inputs: string[][] = [];
+    spy.mockImplementation((async (args: any) => {
+      const texts = JSON.parse(args.messages[0].content); inputs.push(texts);
+      expect(args.system).toContain('Spanish');
+      return { id:'email-translation-test', stop_reason:'end_turn', usage:{input_tokens:100,output_tokens:100},
+        content:[{type:'text',text:JSON.stringify(texts.map((s:string)=>words[s] || s))}] };
+    }) as any);
+    await sql`update workspaces set ai_credits_micro=1000000, logo_url='https://brand.test/logo.png' where id=${ctx.wsId}`;
+    const [template]=await sql`insert into email_brand_templates(workspace_id,name,header_text,footer_text,show_logo,is_default)
+      values (${ctx.wsId},'Language test','Welcome','Contact us',true,true) returning id`;
+    const [signature]=await sql`insert into email_signatures(workspace_id,user_id,name,body_text,is_default)
+      values (${ctx.wsId},${admin.userId},'Language test','Regards, Jodi',true) returning id`;
+    try {
+      const tid=await seedTicket(`AR-${RUN}-language`,{email:`language-${RUN}@acme.test`});
+      const res=await as(`/api/v1/tickets/${tid}/messages`,{method:'POST',body:JSON.stringify({role:'agent',body:'Su cuenta está lista.',reply_language:'Spanish'})});
+      expect(res.status).toBe(201);
+      expect((await res.json() as any).subject).toBe('Necesito ayuda');
+      expect(lastBody.Subject).toBe('Re: Necesito ayuda');
+      for (const text of ['Bienvenido','Su cuenta está lista.','Saludos, Jodi','Contáctenos']) {
+        expect(lastBody.TextBody).toContain(text); expect(lastBody.HtmlBody).toContain(text);
+      }
+      expect(lastBody.HtmlBody).toContain('src="https://brand.test/logo.png"');
+      expect(inputs).toEqual([['Need help','Welcome','Regards, Jodi','Contact us']]);
+      const [row]=await sql`select subject from tickets where id=${tid}`;
+      expect(row.subject).toBe('Necesito ayuda');
+      // Existing inbound subject stays intact for threading; branding still translates.
+      const inbound=await seedTicket(`AR-${RUN}-inbound-language`,{email:`inbound-language-${RUN}@acme.test`});
+      await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body) values (${ctx.wsId},${inbound},'customer','Customer','Hola')`;
+      const reply=await as(`/api/v1/tickets/${inbound}/messages`,{method:'POST',body:JSON.stringify({role:'agent',body:'Hola',reply_language:'Spanish'})});
+      expect(reply.status).toBe(201); expect(lastBody.Subject).toBe('Re: Need help');
+      expect(inputs[1]).toEqual(['Welcome','Regards, Jodi','Contact us']);
+    } finally {
+      spy.mockRestore();
+      await sql`delete from email_brand_templates where id=${template.id}`;
+      await sql`delete from email_signatures where id=${signature.id}`;
+    }
+  });
+
+  it('translation failure leaves the outbound ticket unsent and unchanged', async () => {
+    const { anthropic }=await import('./lib/anthropic.js');
+    const spy=spyOn(anthropic.messages,'create').mockRejectedValue(new Error('Provider unavailable'));
+    await sql`update workspaces set ai_credits_micro=1000000 where id=${ctx.wsId}`;
+    try {
+      const tid=await seedTicket(`AR-${RUN}-language-failure`,{email:`language-fail-${RUN}@acme.test`});
+      const res=await as(`/api/v1/tickets/${tid}/messages`,{method:'POST',body:JSON.stringify({role:'agent',body:'Hola',reply_language:'Spanish'})});
+      expect(res.status).toBe(502); expect((await res.json() as any).error).toContain('draft has been kept');
+      expect(postmarkCalls).toBe(0);
+      expect((await sql`select id from ticket_messages where ticket_id=${tid}`).length).toBe(0);
+      expect((await sql`select subject from tickets where id=${tid}`)[0].subject).toBe('Need help');
+      expect(Number((await sql`select ai_credits_micro from workspaces where id=${ctx.wsId}`)[0].ai_credits_micro)).toBe(1000000);
+    } finally { spy.mockRestore(); }
+  });
+
   it('selects a verified receiving inbox, validates its workspace and current address, and records sender fallback', async () => {
     const email=`sender-choice-${RUN}@customer.test`, domain=`inboxes-${RUN}.test`, address=`vip@${domain}`;
     const tid=await seedTicket(`AR-${RUN}-sender-choice`,{email});

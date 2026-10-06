@@ -40,6 +40,8 @@ export interface EmailSignature {
 
 export interface ComposeArgs {
   workspaceId: string;
+  subject?: string;
+  translate?: (parts: string[]) => Promise<string[]>;
   // When set, the author's default signature (if any) is appended above the
   // footer. Leave null for system/brand emails (CSAT, magic-link, auto-reply).
   authorUserId?: string | null;
@@ -61,6 +63,7 @@ export interface ComposeArgs {
 
 export interface ComposedEmail {
   text: string;
+  subject?: string;
   // null when there's nothing to brand (no default template, no logo, no
   // signature) — the caller then sends plain text exactly as before.
   html: string | null;
@@ -108,12 +111,23 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
 
   // No workspace row (deleted mid-send, bad id) → nothing to brand; fall back
   // to the plain-text path exactly as an unconfigured workspace would.
-  if (!ws) return { text: bodyText, html: richHtml };
+  if (!ws) return { text: bodyText, html: richHtml, subject: args.subject };
 
   const logoUrl = template?.show_logo ? (ws.logo_url ?? null) : null;
   const headerText = template?.header_text?.trim() || null;
   const footerText = template?.footer_text?.trim() || null;
   const sigText    = signature?.body_text?.trim() || null;
+
+  let subject = args.subject;
+  let headerHtml = template?.header_html?.trim() || (headerText ? textToHtml(headerText) : '');
+  let footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText, '#685a7c') : '');
+  let sigHtml = signature?.body_html?.trim() || (sigText ? textToHtml(sigText) : '');
+  if (args.translate) {
+    const parts = await args.translate([subject ? escapeHtml(subject) : '', headerHtml, sigHtml, footerHtml]);
+    subject = subject ? htmlToText(parts[0]).trim() : undefined;
+    if (args.subject && (!subject || subject.length > 500 || /[\r\n]/.test(subject))) throw new Error('Invalid translated subject');
+    [, headerHtml, sigHtml, footerHtml] = parts;
+  }
 
   // Nothing to add → keep the plain-text path identical to pre-branding sends.
   // A CTA is the one exception: the button only exists in HTML, so a
@@ -122,31 +136,28 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
   // there is nothing to brand around it.
   if (!cta && !richHtml && !logoUrl && !headerText && !footerText && !sigText
       && !template?.header_html && !template?.footer_html && !signature?.body_html) {
-    return { text: bodyText, html: null };
+    return { text: bodyText, html: null, subject };
   }
 
   // ── Plain-text assembly ──
   const textParts: string[] = [];
   if (headerText || (template?.header_html && !headerText)) {
-    const ht = headerText ?? htmlToText(template!.header_html!);
+    const ht = args.translate ? htmlToText(headerHtml) : headerText ?? htmlToText(template!.header_html!);
     if (ht) textParts.push(ht);
   }
   textParts.push(bodyText);
   if (sigText || (signature?.body_html && !sigText)) {
-    const st = sigText ?? htmlToText(signature!.body_html!);
+    const st = args.translate ? htmlToText(sigHtml) : sigText ?? htmlToText(signature!.body_html!);
     if (st) textParts.push(st);
   }
   if (footerText || (template?.footer_html && !footerText)) {
-    const ft = footerText ?? htmlToText(template!.footer_html!);
+    const ft = args.translate ? htmlToText(footerHtml) : footerText ?? htmlToText(template!.footer_html!);
     if (ft) textParts.push(ft);
   }
   const text = textParts.join('\n\n');
 
   // ── HTML assembly ──
   // White & Violet, with solid colours and inline styles for mail clients.
-  const headerHtml = template?.header_html?.trim() || (headerText ? textToHtml(headerText) : '');
-  const footerHtml = template?.footer_html?.trim() || (footerText ? textToHtml(footerText, '#685a7c') : '');
-  const sigHtml    = signature?.body_html?.trim()  || (sigText ? textToHtml(sigText) : '');
   // An agent's rich reply is already HTML (and already sanitised) — escaping it
   // again would show the customer their own markup as text.
   let bodyHtml     = richHtml ?? textToHtml(bodyText);
@@ -202,7 +213,7 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
 </body>
 </html>`;
 
-  return { text, html };
+  return { text, html, subject };
 }
 
 // ─── Text/HTML helpers ───────────────────────────────────────────────────────
