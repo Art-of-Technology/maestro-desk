@@ -59,6 +59,31 @@ dbTests('customer content erasure and late work', () => {
     expect(await sql`select id from customer_notes where workspace_id=${ws} and merged_from_customer_id=${s.customer}`).toHaveLength(0);
     let rejected=false;try{await requireTicketPrivacy(ws,snapshot);}catch{rejected=true;}expect(rejected).toBe(true); 
   });
+  it('clears a third-party email envelope on legacy erased-subject copies without allowing content changes',async()=>{
+    const origin=await seed(),target=await seed(),subject=await seed();
+    const email=crypto.randomUUID()+'@example.test';
+    await sql`update customers set email=${email} where id=${subject.customer}`;
+    await erase(origin);
+    // Reproduce a copied message left by a pre-guard erasure, only in this test transaction.
+    const [copy]=await sql.begin(async tx=>{
+      await tx`set local session_replication_role='replica'`;
+      return tx`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,body_html,merged_from_id,email_metadata)
+        values(${ws},${target.ticket},'customer','Legacy author','LEGACY_COPY','<p>LEGACY_COPY</p>',${origin.ticket},${tx.json({cc:email})}) returning id`;
+    });
+    await erase(subject);
+    const [retained]=await sql`select body,body_html,author_label,email_metadata,ticket_id,merged_from_id from ticket_messages where id=${copy.id}`;
+    expect(retained).toMatchObject({body:'LEGACY_COPY',body_html:'<p>LEGACY_COPY</p>',author_label:'Legacy author',email_metadata:null,ticket_id:target.ticket,merged_from_id:origin.ticket});
+    expect((await sql`select erased_at from customers where id=${subject.customer}`)[0].erased_at).not.toBeNull();
+    for(const write of [
+      ()=>sql`update ticket_messages set email_metadata=null,body='RESTORED' where id=${copy.id}`,
+      ()=>sql`update ticket_messages set email_metadata=null,body_html='<p>RESTORED</p>' where id=${copy.id}`,
+      ()=>sql`update ticket_messages set email_metadata=null,author_label='RESTORED' where id=${copy.id}`,
+      ()=>sql`update ticket_messages set email_metadata=null,ticket_id=${origin.ticket} where id=${copy.id}`,
+      ()=>sql`update ticket_messages set email_metadata=${sql.json({cc:email})} where id=${copy.id}`,
+      ()=>sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,merged_from_id)
+        values(${ws},${target.ticket},'customer','New copy','RESTORED',${origin.ticket})`,
+    ]) { let error:any;try{await write();}catch(e){error=e;}expect(error?.constraint_name).toBe('customer_erased'); }
+  });
   it('rejects stale SQL writes across affected surfaces',async()=>{
     const s=await seed();await erase(s);
     for(const write of [
