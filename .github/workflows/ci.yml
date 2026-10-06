@@ -52,6 +52,9 @@ jobs:
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 
+      - name: Statistic formats and saved preferences
+        run: bun test scripts/stat-view.test.js
+
       - name: Guided tour integrity
         run: bun test scripts/guides.test.js scripts/guides-behavior.test.js
 

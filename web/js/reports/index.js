@@ -21,7 +21,7 @@ import { downloadCSV } from '../core/csv.js';
 import { renderReplyPerformance } from './reply-performance.js';
 import { renderLanguageDetectionFailures } from './language-detection.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
-import { renderCategoricalChart } from '../core/chart.js';
+import { renderStatView } from '../core/stat-view.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
@@ -80,77 +80,30 @@ export function computeReportStats(tickets) {
   return { total, byStatus, byPriority, byCategory, byAgent, bySentiment, sentimentScored, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
 }
 
-export function rBarRow(label, count, max, color) {
-  const pct = max ? (count/max)*100 : 0;
-  return `<div class="r-bar-row"><div class="r-bar-lbl">${window.escHtml(label)}</div><div class="r-bar-track"><div class="r-bar-fill" style="background:${color||'var(--purple)'};width:${pct}%"></div></div><div class="r-bar-val">${count}</div></div>`;
-}
-
 function reportStatus(s) {
-  const items = Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]);
-  const chart = REPORT_LAYOUT.charts['r-status'] || 'bar';
-  return `<div class="card"><div class="card-title">Status distribution</div>${renderCategoricalChart(items, k => STATUS_COLORS[k] || 'var(--ink3)', chart)}</div>`;
+  return '<div class="card"><div class="card-title">Status distribution</div>' + renderStatView('r-status', 'Status distribution', ['Category', 'Tickets'], Object.entries(s.byStatus).sort((a,b) => b[1] - a[1]), { choices: ['bar', 'donut', 'table'], colorFor: k => (STATUS_COLORS)[k] || 'var(--cyan)' }) + '</div>';
 }
 
 function reportPriority(s) {
-  const items = ['urgent','high','normal','low'].filter(p => s.byPriority[p]).map(p => [p, s.byPriority[p]]);
-  const chart = REPORT_LAYOUT.charts['r-priority'] || 'bar';
-  return `<div class="card"><div class="card-title">Priority breakdown</div>${renderCategoricalChart(items, k => PRIORITY_COLORS[k] || 'var(--ink3)', chart)}</div>`;
+  return '<div class="card"><div class="card-title">Priority breakdown</div>' + renderStatView('r-priority', 'Priority breakdown', ['Category', 'Tickets'], ['urgent','high','normal','low'].filter(p => s.byPriority[p]).map(p => [p, s.byPriority[p]]), { choices: ['bar', 'donut', 'table'], colorFor: k => (PRIORITY_COLORS)[k] || 'var(--cyan)' }) + '</div>';
 }
 
 function reportCategory(s) {
-  const items = Object.entries(s.byCategory).sort((a,b) => b[1] - a[1]);
-  const chart = REPORT_LAYOUT.charts['r-category'] || 'bar';
-  return `<div class="card"><div class="card-title">Category volume</div>${renderCategoricalChart(items, () => 'var(--cyan)', chart)}</div>`;
+  return '<div class="card"><div class="card-title">Category volume</div>' + renderStatView('r-category', 'Category volume', ['Category', 'Tickets'], Object.entries(s.byCategory).sort((a,b) => b[1] - a[1]), { choices: ['bar', 'donut', 'table'] }) + '</div>';
 }
 
 function reportAgents(s) {
-  const items = Object.entries(s.byAgent).sort((a,b) => b[1] - a[1]);
-  const max = Math.max(...items.map(i => i[1]), 1);
-  const rows = items.map(([name, count]) => rBarRow(name, count, max, 'var(--purple)')).join('');
-  return `<div class="card"><div class="card-title">Tickets per agent</div>${rows || '<div style="color:var(--ink3);font-size:12px">No tickets in range</div>'}</div>`;
+  return '<div class="card"><div class="card-title">Tickets per agent</div>' + renderStatView('r-agents', 'Tickets per agent', ['Agent', 'Tickets'], Object.entries(s.byAgent).sort((a,b) => b[1] - a[1])) + '</div>';
 }
 
 function reportCSAT(s) {
-  const buckets = [1,2,3,4,5].map(n => s.csatScores.filter(x => x === n).length);
-  const max = Math.max(...buckets, 1);
-  const rows = buckets.map((c, i) => {
-    const stars = '★'.repeat(i+1) + '☆'.repeat(4-i);
-    const pct = (c/max)*100;
-    return `<div class="r-bar-row"><div style="font-size:11px;color:var(--amber);width:60px;flex-shrink:0;letter-spacing:1px">${stars}</div><div class="r-bar-track"><div class="r-bar-fill" style="background:var(--amber);width:${pct}%"></div></div><div class="r-bar-val">${c}</div></div>`;
-  }).reverse().join('');
-  return `
-    <div class="card">
-      <div class="card-title">CSAT</div>
-      <div style="display:flex;align-items:flex-end;gap:14px;margin:6px 0 14px">
-        <div style="font-size:30px;font-weight:700;line-height:1;color:var(--amber);font-family:'Inter',sans-serif;letter-spacing:-.02em">${s.avgCSAT?s.avgCSAT.toFixed(1):'—'}</div>
-        <div style="font-size:11px;color:var(--ink3);padding-bottom:4px">${s.csatCount} of ${s.total} tickets rated</div>
-      </div>
-      ${rows}
-    </div>`;
+  const rows = [5,4,3,2,1].map(n => [n + ' stars', s.csatScores.filter(x => x === n).length]);
+  return '<div class="card"><div class="card-title">CSAT</div><p>' + (s.avgCSAT ? s.avgCSAT.toFixed(1) : '—') + ' average · ' + s.csatCount + ' of ' + s.total + ' tickets rated</p>' + renderStatView('r-csat', 'Customer satisfaction ratings', ['Rating', 'Tickets'], rows, { colorFor: () => 'var(--amber)' }) + '</div>';
 }
 
 function reportTime(s) {
-  const items = Object.entries(s.timeByAgent || {}).sort((a, b) => b[1].total - a[1].total);
-  const max = Math.max(...items.map(i => i[1].total), 1);
-  const rows = items.map(([name, vals]) => {
-    const pct = (vals.total / max) * 100;
-    const billPct = vals.total ? (vals.billable / vals.total) * 100 : 0;
-    return `<div class="r-bar-row">
-      <div style="font-size:11px;color:var(--ink2);width:140px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(name || 'Unassigned')}</div>
-      <div class="r-bar-track" title="${window.escHtml(window.fmtMinutes(vals.billable))} billable of ${window.escHtml(window.fmtMinutes(vals.total))}"><div class="r-bar-fill" style="background:var(--purple);width:${pct}%;position:relative"><div style="background:var(--amber);height:100%;width:${billPct}%"></div></div></div>
-      <div class="r-bar-val" style="font-family:'DM Mono',monospace">${window.fmtMinutes(vals.total)}</div>
-    </div>`;
-  }).join('');
-  const billPct = s.timeTotal ? Math.round((s.timeBillable / s.timeTotal) * 100) : 0;
-  return `
-    <div class="card">
-      <div class="card-title">Time logged</div>
-      <div style="display:flex;align-items:flex-end;gap:14px;margin:6px 0 14px">
-        <div style="font-size:30px;font-weight:700;line-height:1;color:var(--purple);font-family:'Inter',sans-serif;letter-spacing:-.02em">${s.timeTotal ? window.fmtMinutes(s.timeTotal) : '—'}</div>
-        <div style="font-size:11px;color:var(--ink3);padding-bottom:4px">${window.fmtMinutes(s.timeBillable)} billable · ${billPct}%</div>
-      </div>
-      ${rows || '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:16px 0">No time logged in this range</div>'}
-    </div>`;
+  const rows = Object.entries(s.timeByAgent || {}).sort((a,b) => b[1].total - a[1].total).map(([name, v]) => [name || 'Unassigned', v.billable, v.total - v.billable]);
+  return '<div class="card"><div class="card-title">Time logged</div><p>' + window.fmtMinutes(s.timeTotal) + ' total · ' + window.fmtMinutes(s.timeBillable) + ' billable</p>' + renderStatView('r-time', 'Time logged by agent', ['Agent', 'Billable', 'Non-billable'], rows, { formatValue: v => Number(v) === 0 ? '0m' : window.fmtMinutes(v) }) + '</div>';
 }
 
 // Bucket tickets into time slots for the sentiment trend widget.
@@ -203,38 +156,9 @@ function buildSentimentTrend(tickets, tf) {
 }
 
 function reportSentimentTrend(s) {
-  const buckets = s.sentimentTrend || [];
-  const ORDER = ['angry', 'frustrated', 'neutral', 'positive'];
-  // Max bucket total drives the bar-height scale. Always at least 1 so
-  // the empty case renders cleanly rather than dividing by zero.
-  const max = Math.max(1, ...buckets.map(b => ORDER.reduce((sum, k) => sum + (b.counts[k] || 0), 0)));
-  const anyData = buckets.some(b => ORDER.some(k => b.counts[k] > 0));
-  const bars = buckets.map(b => {
-    const total = ORDER.reduce((sum, k) => sum + (b.counts[k] || 0), 0);
-    // justify-content:flex-end pushes segments to the bottom; rendered
-    // in [angry..positive] order so angry ends up visually on top.
-    const segments = ORDER.map(k => {
-      const c = b.counts[k] || 0;
-      if (!c) return '';
-      const pct = (c / max) * 100;
-      return `<div style="height:${pct}%;background:${SENTIMENT_COLORS[k]}" title="${k}: ${c}"></div>`;
-    }).join('');
-    return `
-      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
-        <div style="flex:1;width:100%;display:flex;flex-direction:column;justify-content:flex-end;background:var(--off2);border-radius:2px" title="${b.label || ''}: ${total} scored">${segments}</div>
-        <div style="font-size:9px;color:var(--ink3);font-family:'DM Mono',monospace;white-space:nowrap;min-height:11px">${b.label}</div>
-      </div>`;
-  }).join('');
-  const legend = ORDER.map(k => `
-    <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink2)">
-      <span style="width:10px;height:10px;background:${SENTIMENT_COLORS[k]};border-radius:2px"></span>
-      <span style="text-transform:capitalize">${k}</span>
-    </span>`).join('');
-  const body = anyData
-    ? `<div style="display:flex;align-items:stretch;gap:3px;height:160px;padding:8px 0 4px">${bars}</div>
-       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">${legend}</div>`
-    : `<div style="color:var(--ink3);font-size:12px;padding:24px 0;text-align:center">No scored sentiments in this range</div>`;
-  return `<div class="card"><div class="card-title">Sentiment trend</div>${body}</div>`;
+  const order = ['angry', 'frustrated', 'neutral', 'positive'];
+  const rows = (s.sentimentTrend || []).map(b => [b.start.toLocaleDateString('en-CA'), ...order.map(k => b.counts[k] || 0)]);
+  return '<div class="card"><div class="card-title">Sentiment trend</div>' + renderStatView('r-sentiment-trend', 'Sentiment trend', ['Period starting', ...order], rows, { choices: ['line', 'bar', 'table'], colorFor: (_label, i) => SENTIMENT_COLORS[order[i]] }) + '</div>';
 }
 
 function reportSentiment(s) {
@@ -242,37 +166,27 @@ function reportSentiment(s) {
   // matches the urgency story (red on the left, green on the right).
   const ORDER = ['angry', 'frustrated', 'neutral', 'positive'];
   const items = ORDER.filter(k => s.bySentiment[k]).map(k => [k, s.bySentiment[k]]);
-  const chart = REPORT_LAYOUT.charts['r-sentiment'] || 'bar';
   const unscored = s.total - (s.sentimentScored || 0);
   const footer = s.total === 0
     ? ''
     : `<div style="margin-top:10px;font-size:11px;color:var(--ink3)">${s.sentimentScored || 0} of ${s.total} tickets have a scored latest customer message${unscored > 0 ? ` · ${unscored} unscored` : ''}</div>`;
   const body = items.length
-    ? renderCategoricalChart(items, k => SENTIMENT_COLORS[k] || 'var(--ink3)', chart)
+    ? renderStatView('r-sentiment', 'Customer sentiment', ['Sentiment', 'Tickets'], items, { choices: ['bar', 'donut', 'table'], colorFor: k => SENTIMENT_COLORS[k] || 'var(--ink3)' })
     : '<div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No scored sentiments in this range</div>';
   return `<div class="card"><div class="card-title">Customer sentiment</div>${body}${footer}</div>`;
 }
 
 function reportSLA(s) {
-  return `
-    <div class="card">
-      <div class="card-title">SLA</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:6px">
-        <div class="r-tile" style="border-color:var(--green-bd);background:var(--green-lt)"><div class="r-tile-n" style="color:var(--green)">${s.slaOk}</div><div class="r-tile-l" style="color:var(--green)">On track</div></div>
-        <div class="r-tile" style="border-color:var(--amber-bd);background:var(--amber-lt)"><div class="r-tile-n" style="color:var(--amber)">${s.slaWarn}</div><div class="r-tile-l" style="color:var(--amber)">Warning</div></div>
-        <div class="r-tile" style="border-color:var(--red-bd);background:var(--red-lt)"><div class="r-tile-n" style="color:var(--red)">${s.slaBreach}</div><div class="r-tile-l" style="color:var(--red)">Breached</div></div>
-      </div>
-      <div style="margin-top:14px;font-size:12px;color:var(--ink2);line-height:1.5"><strong style="color:var(--ink)">${s.slaCompliance}%</strong> of tickets are within SLA window</div>
-    </div>`;
+  return '<div class="card"><div class="card-title">SLA</div>' + renderStatView('r-sla', 'SLA status', ['Status', 'Tickets'], [['On track', s.slaOk], ['Warning', s.slaWarn], ['Breached', s.slaBreach]], { choices: ['bar', 'donut', 'table'], colorFor: k => ({ 'On track': 'var(--green)', Warning: 'var(--amber)', Breached: 'var(--red)' })[k] }) + '<p>' + s.slaCompliance + '% of tickets are within SLA window</p></div>';
 }
 
 export const REPORT_WIDGETS = [
-  { id:'r-status',    title:'Status breakdown',  render:s => reportStatus(s),    charts:['bar','donut'] },
-  { id:'r-sla',       title:'SLA',               render:s => reportSLA(s),       charts:['tiles','bar'] },
-  { id:'r-sentiment',       title:'Customer sentiment',render:s => reportSentiment(s),      charts:['bar','donut'] },
+  { id:'r-status',    title:'Status breakdown',  render:s => reportStatus(s) },
+  { id:'r-sla',       title:'SLA',               render:s => reportSLA(s) },
+  { id:'r-sentiment',       title:'Customer sentiment',render:s => reportSentiment(s) },
   { id:'r-sentiment-trend', title:'Sentiment trend',   render:s => reportSentimentTrend(s) },
-  { id:'r-priority',  title:'Priority',          render:s => reportPriority(s),  charts:['bar','donut'] },
-  { id:'r-category',  title:'Category',          render:s => reportCategory(s),  charts:['bar','donut'] },
+  { id:'r-priority',  title:'Priority',          render:s => reportPriority(s) },
+  { id:'r-category',  title:'Category',          render:s => reportCategory(s) },
   { id:'r-agents',    title:'Tickets per agent', render:s => reportAgents(s) },
   { id:'r-csat',      title:'CSAT',              render:s => reportCSAT(s) },
   { id:'r-time',      title:'Time logged',       render:s => reportTime(s) },

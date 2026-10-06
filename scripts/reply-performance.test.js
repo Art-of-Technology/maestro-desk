@@ -1,3 +1,4 @@
+mock.module('../web/js/core/state.js', () => ({ SESSION: { userId: 'fixture-user' } }));
 import {test,expect,mock,beforeEach} from 'bun:test';
 let workspace='a0000000-0000-4000-8000-000000000001',jwt='test',release=null,response,fail=false,downloads=[];
 const elements={};
@@ -5,7 +6,7 @@ globalThis.document={getElementById:id=>elements[id]};
 globalThis.window={isAdmin:()=>true,escHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),escAttr:s=>String(s).replaceAll('"','&quot;')};
 globalThis.location={origin:'https://app.example.test'};
 mock.module('../web/js/core/api-client.js',()=>({getWorkspaceId:()=>workspace,getJwt:()=>jwt,apiGet:async()=>{if(release)await new Promise(r=>{release=r;});if(fail)throw Error('offline');return response;}}));
-mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){}}));
+mock.module('../web/js/core/event-delegation.js',()=>({registerActions(){},registerChangeActions(){}}));
 mock.module('../web/js/core/csv.js',()=>({downloadCSV:(...args)=>downloads.push(args)}));
 const {reportFilters,renderPerformanceData,safeReportCell,reportSummaryRows,reportDetailRows,loadPerformance,exportPerformance}=await import('../web/js/reports/reply-performance.js');
 const metrics={generated:4,tracked:3,shown:2,rated:2,helpful:1,not_helpful:1,used:1,changed:1,unchanged:0,cost_known:3,cost_micro:6000,median_seconds:120};

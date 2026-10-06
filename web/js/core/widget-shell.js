@@ -1,9 +1,7 @@
 // ─── Customisable widget shell (dashboard + reports) ───────────────────────
 // Each widget on the dashboard or reports page is wrapped with a chrome that
-// provides a drag handle, a "..." menu (hide + chart-type switcher where
-// available), and an aria-friendly hide button. Layouts (order, hidden set,
-// per-widget chart choice) persist in localStorage so each agent's
-// customisations stick across reloads.
+// provides a drag handle and a hide button. Order and visibility persist
+// per browser. Per-user statistic formats are handled by stat-view.js.
 //
 // Click + change handlers route through core/event-delegation.js. Drag
 // events (dragstart/end/over/leave/drop) are handled by a module-internal
@@ -72,7 +70,7 @@ export function reconcileLayout(layout, widgets) {
   return layout;
 }
 
-function widgetChrome(scope, w, innerHtml, chartType) {
+function widgetChrome(scope, w, innerHtml) {
   // Strip the outer .card wrapper from each widget's existing render so we
   // can put our chrome around it. Widget render functions historically wrap
   // their body in `<div class="card ...">...</div>`; we extract the inner
@@ -92,14 +90,12 @@ function widgetChrome(scope, w, innerHtml, chartType) {
   // quotes to keep the attribute string well-formed.
   const sid = window.escAttr(scope);
   const wid = window.escAttr(w.id);
-  const chartMenu = (w.charts && w.charts.length > 1) ? `<button title="Chart type" data-action="widget.showChartMenu" data-widget-scope="${sid}" data-widget-id="${wid}">📊</button>` : '';
   return `
     <div class="widget card ${window.escAttr(spanClass)}" data-widget-scope="${sid}" data-widget-id="${wid}" draggable="true">
       <div class="widget-head" title="Drag to reorder">
         <span class="widget-handle">⋮⋮</span>
-        <span class="widget-title">${window.escHtml(w.title)}${chartType ? ` · <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink3);font-style:italic">${window.escHtml(chartType)}</span>` : ''}</span>
+        <span class="widget-title">${window.escHtml(w.title)}</span>
         <div class="widget-actions">
-          ${chartMenu}
           <button title="Hide widget" data-action="widget.hide" data-widget-scope="${sid}" data-widget-id="${wid}">×</button>
         </div>
       </div>
@@ -114,7 +110,7 @@ export function renderWidgetGrid(scope, gridClass, widgets, layout, stats) {
     .map(id => byId[id])
     .filter(Boolean);
   const hiddenN = layout.hidden.length;
-  const cards = items.map(w => widgetChrome(scope, w, w.render(stats), layout.charts[w.id])).join('');
+  const cards = items.map(w => widgetChrome(scope, w, w.render(stats))).join('');
   return `
     <div class="${gridClass}" data-widget-scope="${scope}">${cards}</div>
     <div style="margin-top:14px;display:flex;justify-content:flex-end">
@@ -188,14 +184,6 @@ function showWidgetById(scope, id) {
   saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
   renderPage(scope === 'dash' ? 'dashboard' : 'reports');
 }
-function setWidgetChart(scope, id, chartType) {
-  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
-  layout.charts = layout.charts || {};
-  layout.charts[id] = chartType;
-  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  document.querySelectorAll('.widget-menu').forEach(el => el.remove());
-  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
-}
 function resetWidgetLayout(scope) {
   const isDash = scope === 'dash';
   const src = catalogDefaultLayout(scope);
@@ -205,29 +193,6 @@ function resetWidgetLayout(scope) {
   saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
   closeModal();
   renderPage(isDash ? 'dashboard' : 'reports');
-}
-
-function showWidgetMenu(anchor, scope, id, kind) {
-  document.querySelectorAll('.widget-menu').forEach(el => el.remove());
-  const widgets = catalogWidgets(scope);
-  const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
-  const w = widgets.find(x => x.id === id);
-  if (!w || kind !== 'chart' || !w.charts) return;
-  const current = layout.charts[id] || w.charts[0];
-  const menu = document.createElement('div');
-  menu.className = 'widget-menu';
-  menu.innerHTML = `
-    <div class="widget-menu-head">Chart type</div>
-    ${w.charts.map(c => `<div class="widget-menu-item ${c===current?'active':''}" data-action="widget.setChart" data-widget-scope="${window.escAttr(scope)}" data-widget-id="${window.escAttr(id)}" data-chart="${window.escAttr(c)}">${c === current ? '✓' : '·'} ${window.escHtml(c)}</div>`).join('')}`;
-  document.body.appendChild(menu);
-  const r = anchor.getBoundingClientRect();
-  menu.style.top = `${r.bottom + 4}px`;
-  menu.style.left = `${Math.max(8, r.right - 160)}px`;
-  // Dismiss on outside click
-  setTimeout(() => {
-    const close = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('mousedown', close); } };
-    document.addEventListener('mousedown', close);
-  }, 0);
 }
 
 function showManageWidgetsModal(scope) {
@@ -251,16 +216,14 @@ function showManageWidgetsModal(scope) {
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Toggle a widget off to remove it from the layout. Drag the widget headers on the page to rearrange. Order and visibility are saved per browser.</div>
     ${body}
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule);text-align:right">
-      <button class="btn btn-sm btn-danger" data-action="widget.reset" data-widget-scope="${window.escAttr(scope)}">Reset to default</button>
+      <button class="btn btn-sm btn-danger" data-action="widget.reset" data-widget-scope="${window.escAttr(scope)}">Reset layout</button>
     </div>
   `, null, null);
 }
 
 registerActions({
-  'widget.showChartMenu': (ds, el) => showWidgetMenu(el, ds.widgetScope, ds.widgetId, 'chart'),
   'widget.hide':          (ds) => hideWidgetById(ds.widgetScope, ds.widgetId),
   'widget.openManage':    (ds) => showManageWidgetsModal(ds.widgetScope),
-  'widget.setChart':      (ds) => setWidgetChart(ds.widgetScope, ds.widgetId, ds.chart),
   'widget.reset':         (ds) => resetWidgetLayout(ds.widgetScope),
 });
 

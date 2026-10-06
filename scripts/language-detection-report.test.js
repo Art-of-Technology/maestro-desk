@@ -1,3 +1,4 @@
+mock.module('../web/js/core/state.js', () => ({ SESSION: { userId: 'fixture-user' } }));
 import { expect, mock, test } from 'bun:test';
 
 const actions = {};
@@ -25,7 +26,7 @@ mock.module('../web/js/core/api-client.js', () => ({
   },
 }));
 mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
-mock.module('../web/js/core/event-delegation.js', () => ({ registerActions: handlers => Object.assign(actions, handlers) }));
+mock.module('../web/js/core/event-delegation.js', () => ({ registerActions: handlers => Object.assign(actions, handlers), registerChangeActions() {} }));
 
 const { renderLanguageDetectionFailures } = await import('../web/js/reports/language-detection.js');
 
@@ -38,8 +39,10 @@ test('renders a bounded reliability summary, pulse and recurring reasons', async
   expect(html).toContain('5</strong><span>failed or unclear');
   expect(html).toContain('Not enough language evidence');
   expect(html).toContain('AI provider unavailable');
-  expect(html).toContain('detection-pulse-cell ok');
-  expect(html).toContain('detection-pulse-cell fail');
+  expect(html).toContain('data-stat-id="detection-trend"');
+  expect(html).toContain('data-stat-format="table"');
+  expect(html).toContain('Successful');
+  expect(html).toContain('Failed or unclear');
   expect(html).not.toContain('provider request');
   expect(actions['detectionFailures.retry']).toBeFunction();
 });

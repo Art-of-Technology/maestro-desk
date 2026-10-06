@@ -208,6 +208,7 @@ textarea.form-input{resize:vertical;min-height:72px;border-radius:var(--r2)}
 .widget-title{flex:1}
 .widget-actions{display:flex;align-items:center;gap:2px;opacity:0;transition:opacity .12s}
 .widget:hover .widget-actions{opacity:1}
+.widget:focus-within .widget-actions{opacity:1}
 .widget-actions button{background:transparent;border:none;cursor:pointer;color:var(--ink3);font-size:13px;padding:3px 6px;border-radius:3px;line-height:1}
 .widget-actions button:hover{color:var(--purple);background:var(--purple-lt)}
 .widget.dragging{opacity:.45;transform:scale(.985)}
