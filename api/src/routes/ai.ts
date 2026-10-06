@@ -226,7 +226,7 @@ ai.post('/messages', async (c) => {
     await requireAvailableWorkspace(workspaceId, accessGeneration);
     await requireTicketPrivacy(workspaceId, privacy);
     const [stillCurrent] = await sql`select 1 from workspaces where id=${workspaceId} and privacy_generation=${privacyState.generation}::bigint`;
-    if (!stillCurrent) throw new Error('Personal data changed before generation');
+    if (!stillCurrent) throw new HTTPException(409, { message: 'Personal data changed. Refresh and try again.' });
     response = await anthropic.messages.create(
       {
         model: input.model,
