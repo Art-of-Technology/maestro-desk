@@ -17,7 +17,7 @@ import {
   replySubject,
 } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
-import { composeEmail } from './email-branding.js';
+import { composeEmail, type ComposedEmail } from './email-branding.js';
 import { getDb } from './db.js';
 import { ticketReplyRecipients, type RecipientInput } from './email-recipients.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
@@ -42,6 +42,7 @@ export async function sendAgentReplyEmail(args: {
   messageId:    string;   // the just-inserted agent ticket_messages row
   authorUserId: string;
   body:         string;
+  composed?: ComposedEmail;
   // Sanitised HTML body of a rich-text reply (lib/email-html.ts), with inline
   // images referenced as cid:<attachment id>.
   bodyHtml?:    string | null;
@@ -85,7 +86,7 @@ export async function sendAgentReplyEmail(args: {
   `;
 
   // Header/footer + the sending agent's signature (authorUserId).
-  const composed = await composeEmail({ workspaceId, authorUserId, bodyText: body, bodyHtml: args.bodyHtml ?? null });
+  const composed = args.composed ?? await composeEmail({ workspaceId, authorUserId, bodyText: body, bodyHtml: args.bodyHtml ?? null });
 
   try {
     // Branded From (verified domain) with platform fallback + rejection
