@@ -2,7 +2,7 @@ import { KB_ARTICLES } from '../core/data.js';
 import { CURRENT_PAGE, DASH_LAYOUT, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
-import { renderCategoricalChart } from '../core/chart.js';
+import { renderStatView } from '../core/stat-view.js';
 import { navTo } from '../core/keybindings.js';
 import { renderPage } from '../core/router.js';
 import { openTicket } from '../tickets/detail.js';
@@ -48,10 +48,12 @@ function card(title, body, note = '', span = 'span-4') {
 function metric(value, label) { return `<div class="kpi"><div class="kpi-n">${esc(value ?? '—')}</div><div class="kpi-l">${esc(label)}</div></div>`; }
 function chart(title, data, colors, id, note = cohortNote) {
   const entries = Object.entries(data || {});
-  return card(title, entries.length ? renderCategoricalChart(entries, key => colors[key] || 'var(--purple)', DASH_LAYOUT.charts[id] || 'bar') : '<p>No tickets in this period.</p>', note);
+  return card(title, entries.length ? renderStatView('dash-' + id, title, ['Category', 'Tickets'], entries, { choices: ['bar', 'donut', 'table'], colorFor: key => colors[key] || 'var(--purple)' }) : '<p>No tickets in this period.</p>', note);
 }
-function ranked(title, rows, note, action) {
-  return card(title, rows.length ? rows.slice(0, 5).map(row => `<div class="report-rank"><span>${esc(row.name)}</span><strong>${esc(row.n)}</strong>${action && row.id ? `<button class="btn btn-sm" data-action="${action}" data-id="${window.escAttr(row.id)}">View</button>` : ''}</div>`).join('') : '<p>No tickets in this period.</p>', note);
+function ranked(title, rows, note, id, action) {
+  const top = rows.slice(0, 5);
+  const links = action ? '<div class="stat-links">' + top.filter(row => row.id).map(row => '<button class="btn btn-sm" data-action="' + action + '" data-id="' + window.escAttr(row.id) + '">View ' + esc(row.name) + '</button>').join('') + '</div>' : '';
+  return card(title, top.length ? renderStatView('dash-' + id, title, ['Name', 'Tickets'], top.map(row => [row.name, Number(row.n)]), { choices: ['table', 'bar'] }) + links : '<p>No tickets in this period.</p>', note);
 }
 function volumeChart(s) {
   const period = reportingPeriod(selection, customStart, customEnd);
@@ -67,22 +69,22 @@ function volumeChart(s) {
     for (let i = 0; i < bucketDays && day <= to; i++, day.setDate(day.getDate() + 1)) count += counts.get(localDate(day)) || 0;
     buckets.push([label, count]);
   }
-  return card('Tickets created', renderCategoricalChart(buckets, () => 'var(--purple)', 'bar'), bucketDays === 1 ? 'Daily totals, including days with no tickets.' : `Totals in ${bucketDays}-day groups, labelled by start date.`, 'span-12');
+  return card('Tickets created', renderStatView('dash-volume', 'Tickets created', ['Period starting', 'Tickets'], buckets, { choices: ['line', 'bar', 'table'] }), bucketDays === 1 ? 'Daily totals, including days with no tickets.' : `Totals in ${bucketDays}-day groups, labelled by start date.`, 'span-12');
 }
 
 export const DASH_WIDGETS = [
   { id: 'today', title: 'Period activity', span: 'span-12', render: s => card('Period activity', `<div class="kpi-bar report-kpis">${metric(s.created, 'Created')}${metric(s.resolved, 'Resolved')}${metric(s.closed, 'Closed')}${metric(s.replies, 'Replies sent')}</div>`, 'Created and replies use their event dates. Resolved and closed count tickets still in that status by their latest resolution or closure date.', 'span-12') },
   { id: 'recent', title: 'Recent tickets', span: 'span-8', render: s => card('Recent tickets created', s.recent.length ? s.recent.map(t => `<button class="btn report-ticket" data-action="dash.openReportTicket" data-id="${window.escAttr(t.id)}"><span>${esc(t.display_id)} · ${esc(t.subject)}</span><span>${esc(t.status_key)}</span></button>`).join('') : '<p>No tickets created in this period.</p>', cohortNote, 'span-8') },
-  { id: 'status', title: 'Current status', span: 'span-4', charts: ['bar','donut','list'], render: s => chart('Current status', s.byStatus, STATUS_COLORS, 'status') },
-  { id: 'priority', title: 'Priority', span: 'span-4', charts: ['bar','donut','list'], render: s => chart('Priority', s.byPriority, PRIORITY_COLORS, 'priority') },
-  { id: 'sla', title: 'Recorded SLA status', span: 'span-4', charts: ['bar','donut','list'], render: s => chart('Recorded SLA status', s.bySla, {ok:'var(--green)',warn:'var(--amber)',breach:'var(--red)'}, 'sla', 'Latest stored SLA state of unfinished tickets created in this period. Open Tickets for the live urgency queue.') },
+  { id: 'status', title: 'Current status', span: 'span-4', render: s => chart('Current status', s.byStatus, STATUS_COLORS, 'status') },
+  { id: 'priority', title: 'Priority', span: 'span-4', render: s => chart('Priority', s.byPriority, PRIORITY_COLORS, 'priority') },
+  { id: 'sla', title: 'Recorded SLA status', span: 'span-4', render: s => chart('Recorded SLA status', s.bySla, {ok:'var(--green)',warn:'var(--amber)',breach:'var(--red)'}, 'sla', 'Latest stored SLA state of unfinished tickets created in this period. Open Tickets for the live urgency queue.') },
   { id: 'volume', title: 'Volume trend', span: 'span-12', render: volumeChart },
   { id: 'csat', title: 'Customer satisfaction', span: 'span-4', render: s => card('Customer satisfaction', metric(s.avgCSAT == null ? '—' : Number(s.avgCSAT).toFixed(1), 'Average rating'), `${s.csatCount} ratings submitted in the selected period.`) },
-  { id: 'agent-load', title: 'Agent load', span: 'span-8', render: s => ranked('Outstanding by agent', s.agents, cohortNote) },
+  { id: 'agent-load', title: 'Agent load', span: 'span-8', render: s => ranked('Outstanding by agent', s.agents, cohortNote, 'agent-load') },
   { id: 'personal', title: 'My queue', span: 'span-4', render: s => card('Your outstanding tickets', metric(s.mine, 'Outstanding'), 'Assigned to you, created in the selected period, and still unfinished.') },
   { id: 'ai-tags', title: 'AI tag suggestions', span: 'span-4', render: s => card('AI tag suggestions', metric(s.aiTags, 'Awaiting review'), 'Unreviewed suggestions on tickets created in the selected period.') },
   { id: 'kb', title: 'Knowledge base', span: 'span-4', render: () => card('Knowledge base', KB_ARTICLES.slice(0, 4).map(a => `<button class="btn report-ticket" data-action="dash.openKB" data-id="${window.escAttr(a.id)}">${esc(a.title)}</button>`).join('') || '<p>No articles.</p>', 'Current articles; the reporting period does not apply.') },
-  { id: 'top-customers', title: 'Top customers', span: 'span-8', render: s => ranked('Top customers', s.customers, 'Tickets created in the selected period.', 'dash.openCustomer') },
+  { id: 'top-customers', title: 'Top customers', span: 'span-8', render: s => ranked('Top customers', s.customers, 'Tickets created in the selected period.', 'top-customers', 'dash.openCustomer') },
 ];
 export const DEFAULT_DASH_LAYOUT = { order: DASH_WIDGETS.map(w => w.id), hidden: [], charts: {} };
 

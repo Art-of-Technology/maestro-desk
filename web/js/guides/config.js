@@ -10,6 +10,7 @@ export const GUIDE_STEPS = [
       'Sign in with the account your team provided and check that you are in the right workspace. Ask your lead for access if you cannot see the tickets you need.',
       'Your session ends eight hours after login. A warning appears 30 minutes before expiry while you are active in the app. Wait for drafts to show Synced before expiry. When the session ends, browser draft copies are cleared, including unsynced edits. Sign in again to restore server-saved drafts; staying active does not extend the session.',
       'Use the sidebar to move between Tickets, Customers and Knowledge Base. The dashboard gives you an overview of workload and team activity.',
+      'On Dashboard and Insights, use View as on a statistic to choose a table, chart or graph where available. Each choice is saved for your account and workspace in this browser, including after signing out and back in. Other devices have their own choices.',
       'This tour explains the controls without sending replies or changing tickets. Choose Exit to practise, then select Guides in the top bar and choose a topic. You can also open Guided tours from Help & Support.',
       'Ask your lead which queue you own, how to verify a customer, and who handles payment, privacy and safer-gambling escalations. Follow your team’s procedures for those decisions.',
     ],

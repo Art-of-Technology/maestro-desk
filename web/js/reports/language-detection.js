@@ -4,6 +4,7 @@
 
 import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
+import { renderStatView } from '../core/stat-view.js';
 import { registerActions } from '../core/event-delegation.js';
 
 let state = { key: null, data: null, loading: false, error: null };
@@ -45,27 +46,11 @@ function formatBucket(value) {
 }
 
 function pulse(data) {
-  const buckets = data.trend || [];
-  if (!buckets.length) return '';
-  const cells = buckets.map(bucket => {
-    const rate = bucket.attempts ? (bucket.failures / bucket.attempts) * 100 : 0;
-    const tone = bucket.failures === 0 ? 'ok' : rate < 10 ? 'warn' : 'fail';
-    const label = `${formatBucket(bucket.bucket)}: ${bucket.failures} of ${bucket.attempts} failed`;
-    return `<span class="detection-pulse-cell ${tone}" title="${window.escAttr(label)}"></span>`;
-  }).join('');
-  return `<div class="detection-pulse" aria-label="Failure pattern over time">${cells}</div>
-    <div class="detection-pulse-axis"><span>${window.escHtml(formatBucket(buckets[0].bucket))}</span><span>${window.escHtml(formatBucket(buckets.at(-1).bucket))}</span></div>`;
+  return renderStatView('detection-trend', 'Language detection over time', ['Period starting', 'Successful', 'Failed or unclear'], (data.trend || []).map(b => [formatBucket(b.bucket), b.attempts - b.failures, b.failures]), { choices: ['line', 'bar', 'table'], colorFor: (_label, i) => i ? 'var(--red)' : 'var(--green)' });
 }
 
 function reasonRows(data) {
-  const reasons = data.reasons || [];
-  const max = Math.max(1, ...reasons.map(reason => reason.count));
-  if (!reasons.length) return '<p class="detection-empty">No failure reasons in this range.</p>';
-  return reasons.map(reason => `<div class="r-bar-row">
-    <div class="r-bar-lbl" title="${window.escAttr(REASONS[reason.code] || reason.code)}">${window.escHtml(REASONS[reason.code] || reason.code)}</div>
-    <div class="r-bar-track"><div class="r-bar-fill" style="background:var(--red);width:${(reason.count / max) * 100}%"></div></div>
-    <div class="r-bar-val">${reason.count}</div>
-  </div>`).join('');
+  return renderStatView('detection-reasons', 'Language detection failure reasons', ['Reason', 'Failures'], (data.reasons || []).map(r => [REASONS[r.code] || r.code, r.count]), { colorFor: () => 'var(--red)' });
 }
 
 export function renderLanguageDetectionFailures(range) {
