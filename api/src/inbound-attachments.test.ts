@@ -115,19 +115,22 @@ runDbTests('inbound attachments + HTML body (DB-backed)', () => {
     ctx.msgId = msg.id;
   });
 
-  it('serves the ticket with presigned URLs and cid tokens swapped for the inline image URL', async () => {
+  it('serves the ticket with revocable API file links and cid tokens swapped for the inline image URL', async () => {
     const fake = fakeStore();
     const byMsg = await loadAttachmentsForTicket(ctx.ws, ctx.ticket, { store: fake.store });
     const list = byMsg.get(ctx.msgId)!;
     expect(list.map((a) => a.filename).sort()).toEqual(['invoice.pdf', 'logo.png', 'unref.png']);
-    for (const a of list) expect(a.url).toMatch(/^https:\/\/fake-r2\.test\/att\/.*X-Amz-Signature=abc$/);
+    for (const a of list) {
+      expect(new URL(a.url!).pathname).toBe(`/api/v1/files/attachment/${a.id}`);
+      expect(new URL(a.url!).searchParams.has('signature')).toBe(true);
+    }
     // No storage key leaks in the public shape.
     for (const a of list) expect(Object.keys(a)).not.toContain('storage_key');
 
     const [msg] = await sql<{ id: string; body_html: string | null }[]>`select id, body_html from ticket_messages where id = ${ctx.msgId}`;
     const [decorated] = decorateMessages([msg], byMsg);
     const logo = list.find((a) => a.filename === 'logo.png')!;
-    expect(decorated.body_html).toBe(`<p>Hello <b>there</b></p><img src="${logo.url}" />`);
+    expect(decorated.body_html).toBe(`<p>Hello <b>there</b></p><img src="${logo.url!.replaceAll('&', '&amp;')}" />`);
     expect(decorated.attachments).toHaveLength(3);
   });
 

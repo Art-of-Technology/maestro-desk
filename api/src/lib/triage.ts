@@ -1,8 +1,10 @@
 import { safeError } from './diagnostics.js';
 import { z } from 'zod';
+import type { TransactionSql } from 'postgres';
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { getDb } from './db.js';
+import { workspaceAccessGeneration, requireAvailableWorkspace, workspaceAvailable } from './workspace-access.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import {
   detectResponsibleGamblingConcern,
@@ -252,6 +254,7 @@ export class TriageError extends Error {
 
 export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   const { ticketId, workspaceId, userId } = input;
+  const accessGeneration = await workspaceAccessGeneration(workspaceId);
 
   // 0. Budget gate — refuse cheaply before doing any work. Log the blocked
   //    attempt so we have telemetry on how often this fires.
@@ -314,6 +317,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   //    If we want thinking back, switch to tool_choice {type: "auto"} and
   //    handle the (rare) case where the model returns text instead.
   const startedAt = Date.now();
+  await requireAvailableWorkspace(workspaceId, accessGeneration);
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
@@ -334,6 +338,14 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   });
 
   // 4. Extract + validate the tool call.
+  if (!await workspaceAvailable(workspaceId, accessGeneration)) {
+    await Promise.all([
+      logUsage({ workspaceId, ticketId, userId, action: 'triage_discarded_suspension', model: MODEL,
+        usage: response.usage, durationMs, requestId: response.id }),
+      deductBudget(workspaceId, costMicro),
+    ]);
+    throw new TriageError('This workspace is unavailable.', 403);
+  }
   const toolUseBlock = response.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'record_triage',
   );
@@ -388,9 +400,14 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   }
 
   // 6. Persist in parallel: update ticket + replace AI tags + log usage + deduct budget.
-  const [, , , balanceAfterMicro] = await Promise.all([
-    input.tagsOnly ? Promise.resolve() : persistTicketTriage(ticketId, workspaceId, triage),
-    persistAITags(ticketId, workspaceId, triage.tags),
+  const [, , balanceAfterMicro] = await Promise.all([
+    getDb().begin(async tx => {
+      const [workspace] = await tx`select id from workspaces where id=${workspaceId}
+        and deleted_at is null and suspended_at is null and suspension_generation=${accessGeneration}::bigint for share`;
+      if (!workspace) throw new TriageError('This workspace is unavailable.', 403);
+      if (!input.tagsOnly) await persistTicketTriage(ticketId, workspaceId, triage, tx);
+      await persistAITags(ticketId, workspaceId, triage.tags, tx);
+    }),
     logUsage({
       workspaceId, ticketId, userId,
       action: input.tagsOnly ? 'tag_suggestions' : 'triage',
@@ -427,6 +444,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
   if (decision.eligible) {
     try {
       const post = await postAutoReply({
+        accessGeneration,
         workspaceId,
         ticketId,
         draftReply: triage.draft_reply,
@@ -557,8 +575,8 @@ async function persistTicketTriage(
   ticketId: string,
   workspaceId: string,
   triage: TriageOutput,
+  sql: TransactionSql,
 ) {
-  const sql = getDb();
   const now = new Date().toISOString();
   const aiSummary = {
     text: triage.summary,
@@ -580,23 +598,21 @@ async function persistAITags(
   ticketId: string,
   workspaceId: string,
   tags: TriageOutput['tags'],
+  tx: TransactionSql,
 ) {
   // Replace suggestions atomically; an agent's accepted tags survive retriage.
-  const sql = getDb();
-  await sql.begin(async tx => {
-    const [ticket] = await tx`select id from tickets where id = ${ticketId}
-      and workspace_id = ${workspaceId} and deleted_at is null for update`;
-    if (!ticket) throw new TriageError('Ticket not found', 404);
-    await tx`delete from ticket_ai_tags where ticket_id = ${ticketId}
-      and workspace_id = ${workspaceId} and accepted = false`;
-    for (const t of tags) {
-      await tx`insert into ticket_ai_tags (workspace_id, ticket_id, tag, confidence, accepted)
-        select ${workspaceId}, ${ticketId}, ${t.tag}, ${t.confidence}, false
-        where not exists (select 1 from ticket_tags where ticket_id = ${ticketId}
-          and workspace_id = ${workspaceId} and tag = ${t.tag})
-        on conflict (ticket_id, tag) do nothing`;
-    }
-  });
+  const [ticket] = await tx`select id from tickets where id = ${ticketId}
+    and workspace_id = ${workspaceId} and deleted_at is null for update`;
+  if (!ticket) throw new TriageError('Ticket not found', 404);
+  await tx`delete from ticket_ai_tags where ticket_id = ${ticketId}
+    and workspace_id = ${workspaceId} and accepted = false`;
+  for (const t of tags) {
+    await tx`insert into ticket_ai_tags (workspace_id, ticket_id, tag, confidence, accepted)
+      select ${workspaceId}, ${ticketId}, ${t.tag}, ${t.confidence}, false
+      where not exists (select 1 from ticket_tags where ticket_id = ${ticketId}
+        and workspace_id = ${workspaceId} and tag = ${t.tag})
+      on conflict (ticket_id, tag) do nothing`;
+  }
 }
 
 async function logUsage(args: {

@@ -223,11 +223,17 @@ god.patch('/brands/:id', async (c) => {
     return c.json({ error: 'Cannot modify system workspace' }, 403);
   }
 
-  const [brand] = await sql`
-    update workspaces set ${sql(update)}
-    where id = ${id}
-    returning ${sql.unsafe(BRAND_COLS)}
-  `;
+  const brand = await sql.begin(async tx => {
+    const [row] = await tx`update workspaces set ${tx(update)} where id=${id} returning ${tx.unsafe(BRAND_COLS)}`;
+    if (update.suspended_at) {
+      // Keep the delivery record, but never replay stale customer events on
+      // reactivation. An operator can review the exhausted queue explicitly.
+      await tx`update webhook_deliveries set state='exhausted',last_error='workspace suspended',last_attempt_at=now()
+        where workspace_id=${id} and state='pending'`;
+      await tx`update knowledge_sources set lease_until=null where workspace_id=${id} and lease_until is not null`;
+    }
+    return row;
+  });
 
   await writeAudit({
     workspaceId: id,

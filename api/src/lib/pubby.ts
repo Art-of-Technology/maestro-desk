@@ -1,6 +1,7 @@
 import { safeError } from './diagnostics.js';
 import { PubbyServer } from '@getpubby/sdk/server';
 import { env } from './env.js';
+import { workspaceAvailable } from './workspace-access.js';
 
 // Pubby realtime (migration — Step 5). Pusher-compatible push so the SPA gets
 // live ticket/message updates instead of (only) polling. The server triggers a
@@ -52,6 +53,7 @@ export async function publishTicketChanged(workspaceId: string, ticketId: string
   const server = getServer();
   if (!server) return;
   try {
+    if (!await workspaceAvailable(workspaceId)) return;
     await server.trigger(ticketsChannel(workspaceId), 'ticket.changed', { id: ticketId });
   } catch (err) {
     console.warn('[pubby] publishTicketChanged failed:', safeError(err));

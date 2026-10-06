@@ -438,9 +438,10 @@ function confirmSuspend(brandId) {
   _suspendSlug = (brand.slug || '').trim();
   const body = `
     <div style="font-size:13px;color:var(--ink2);line-height:1.6;margin-bottom:14px">
-      Real players on <strong>${escAttr(brand.name)}</strong> lose access
-      immediately — sign-in, tickets, and live updates all stop — until you
-      unsuspend it. No data is deleted.
+      Agents and customers lose access to <strong>${escAttr(brand.name)}</strong>
+      when suspension completes. Sending stops after any send already in progress finishes.
+      Incoming email is held in the operator inbox. Queued integration notifications
+      stay stopped after reactivation until reviewed. No data is deleted by suspension.
     </div>
     <div class="label" style="margin-bottom:6px">
       Type the slug <code>${escAttr(brand.slug)}</code> to confirm:

@@ -63,6 +63,7 @@ publicRoutes.get('/resolve-host', async (c) => {
   const [data] = await sql<{ slug: string }[]>`
     select slug from workspaces
     where portal_custom_domain = ${host} and portal_custom_domain_verified = true and deleted_at is null
+      and suspended_at is null and not is_unrouted_bucket
   `;
   if (!data) return c.json({ slug: null }, 404);
   return c.json({ slug: data.slug });
