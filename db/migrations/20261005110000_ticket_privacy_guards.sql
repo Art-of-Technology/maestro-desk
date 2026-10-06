@@ -60,6 +60,10 @@ begin
       where m.id=new.message_id and m.workspace_id=new.workspace_id;
   else
     if tg_table_name='time_entries' and row_data->>'note' is null then return new; end if;
+    -- Clearing an envelope may remove a third party's data from a legacy copy.
+    -- Permit only that reduction; all other fields must remain unchanged.
+    if tg_table_name='ticket_messages' and tg_op='UPDATE' and row_data->'email_metadata'='null'::jsonb
+      and (row_data-'email_metadata')=(to_jsonb(old)-'email_metadata') then return new; end if;
     if tg_table_name='ticket_messages' and row_data->>'body'='[erased]'
       and row_data->>'body_html' is null and row_data->>'email_metadata' is null
       and (row_data->>'role'<>'customer' or row_data->>'author_label'='[erased]') then return new; end if;
