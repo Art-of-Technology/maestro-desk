@@ -4,7 +4,7 @@
 > **shared spec** for erasure, data-subject export, and retention — enumerate every
 > column that holds personal data of a *player/customer* (the data subject) once, so
 > each of those features covers the same surfaces and none is missed.
-> Last reviewed 2026-10-01 for drafts, custom values and webhook erasure. This is an implementation inventory, not a declaration of GDPR compliance. Update when a new personal-data surface lands.
+> Last reviewed 2026-10-05 for S2 saved content, copied messages and delayed work. This is an implementation inventory, not a declaration of GDPR compliance. Update when a new personal-data surface lands.
 
 A "data subject" here is a **customer** (player). Agent/operator accounts are users and
 out of scope for customer erasure. The design intent (`20260520121300_gdpr.sql`): keep the
@@ -13,9 +13,36 @@ redact the personal data** and stamp `customers.erased_at`.
 
 ## Surfaces
 
+### S2 additions and evidence boundaries
+
+| Surface | Writers / readers | Erasure and export |
+|---|---|---|
+| `tickets.ai_summary`, `ai_draft_reply` | `lib/triage.ts`; ticket detail API and agent UI | Null on erasure, including destinations containing attributable merged copies. Both included in the review export. Ticket privacy versions reject late triage completion. |
+| `ai_reply_suggestions`, shared draft/review fields, feedback and source links | `lib/reply-feedback.ts`, ticket/feedback routes | Existing deletion triggers remove target/source copies and cascading feedback. Export includes own and source-related suggestions for review. Persistence checks the request's privacy version. |
+| `reply_internal_reviews.review` | Reply posting and ticket merge; ticket detail | Delete for owned messages and cascading removal of attributed copies. Included in review exports. |
+| `ticket_messages.merged_from_id` copies | Ticket merge/unmerge; ticket detail | Remove attributable copies on other customers' tickets. Keep unrelated destination messages. Export groups attributed copies under the originating ticket. |
+| Soft-deleted messages | Message/note routes | Still stored, so included with their deletion timestamp in the review export; erasure redacts them too. |
+| `time_entries.note` | Ticket time-entry route; ticket detail/reports | Null the note, retain minutes/billable/timestamps as records subject to retention review. Include entries in the review export. |
+| `ticket_tags`, `ticket_ai_tags` | Manual tagging, triage and acceptance; ticket detail/customer summary | Delete owned associations and affected AI suggestions. Include them in the review export. Shared `tag_library` text is not blindly deleted across other customers; attribution/retention remains open. |
+| Delayed AI responses and outbound mail | Triage, AI messages, agent/auto replies, CSAT and mention email | Recheck privacy before persistence, response and bounded sends. Workspace version covers assistant requests with no ticket ID. An already accepted external send cannot be recalled. |
+
+Database guards also cover personal content in tickets, messages, attachments,
+customer notes, time entries and saved AI suggestions/reviews. They complement
+the existing guards on manual drafts, custom fields and webhook payloads. Object
+uploads rejected at insertion retain the existing orphan-deletion outbox path.
+Customer erasure locks workspace then customer; a conflicting content writer
+fails promptly instead of waiting in the opposite lock order.
+
+The original inventory below describes existing handling, not a universal erasure
+guarantee. In particular, retained customer attributes and identifiers are not
+automatically anonymous, and events/audit metadata can contain personal free text
+(confirmed separately as S3). Staff rights, unlinked mail, shared knowledge,
+notification payloads, logs, supplier copies, backups and downloaded exports have
+not been certified complete by this change. See [the release and repair runbook](ERASURE-RELEASE.md).
+
 | Table | PII column(s) | Handling on erasure | Notes |
 |---|---|---|---|
-| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `jurisdiction`, `maestro_user_id`, `maestro_member_id` | **null**; set `erased_at = now()` (also nulls `player_lookup_at`, the linker's throttle stamp, so nothing re-links an erased profile) | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained as non-identifying / preference. `maestro_user_id` / `maestro_member_id` (20260903100000) are the player's Maestro account identifiers, written by `lib/player-identity.ts` — direct identifiers, so erased and exported like `username`. `kyc_status` was retired by migration `20260908124500`; runtime compatibility still erases it on older schemas. |
+| `customers` | `first_name`, `last_name`, `username`, `email`, `mobile`, `backoffice_url`, `jurisdiction`, `maestro_user_id`, `maestro_member_id` | **null**; set `erased_at = now()` (also nulls `player_lookup_at`, the linker's throttle stamp, so nothing re-links an erased profile) | Row kept (FKs from tickets). `display_id`, `brand`, `vip_tier`, `since`, `consent` retained under the existing model; these can remain personal when linkable and need an approved retention purpose. `maestro_user_id` / `maestro_member_id` (20260903100000) are the player's Maestro account identifiers, written by `lib/player-identity.ts` — direct identifiers, so erased and exported like `username`. `kyc_status` was retired by migration `20260908124500`; runtime compatibility still erases it on older schemas. |
 | `customer_contacts` | `value` (every email / mobile the customer holds, incl. secondaries) | **delete rows** for the customer | Phase 4 contacts model. Hard-deleted (not soft) so no address survives as PII; `customers.email`/`mobile` are a mirror of the primary row and are nulled above. A merged-away source is un-merged first (erase route), so its rows are back on it when this runs. Profile soft-delete (`DELETE /customers/:id`) soft-deletes these rows instead, freeing the address for reuse. |
 | `customer_merges` | Personal-data keys in `backfilled_fields` | **remove keys** from every journal whose source is the erased customer, scoped to its workspace | Unmerge restores copied values before erasure. Other backfills and journal rows remain as history. The KYC retirement migration also repairs journals for previously erased sources. |
 | `customer_notes` | `text` (NOT NULL) | **delete rows** for the customer | Internal agent notes *about* the data subject — removed entirely. |
@@ -137,7 +164,7 @@ guards cover these three surfaces; they are not a product-wide ban on every poss
 write to an erased ticket.
 
 Still to assess/remediate: remaining export completeness and document review/delivery; legacy
-AI content and other copied records; historical/infrastructure logs and business notification payloads; staff-data rights;
+historical S2 repair; remaining unattributed copies, infrastructure logs and business notification payloads; staff-data rights;
 retention by data category; backup restore erasure replay; downstream recipient deletion;
 processor contracts, locations/transfers, AI handling, privacy notices and DPIA needs.
 Customer erasure is not a substitute for a staff-data rights process.

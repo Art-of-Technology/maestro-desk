@@ -18,6 +18,7 @@
 // unchanged, so callers keep their existing failure handling.
 
 import { env } from './env.js';
+import type { TicketPrivacy } from './ticket-privacy.js';
 import { sendWhileWorkspaceAvailable, workspaceAccessGeneration } from './workspace-access.js';
 import { HTTPException } from 'hono/http-exception';
 import { getOutboundFrom, requireSendingInbox } from './outbound-from.js';
@@ -33,6 +34,7 @@ import {
 
 export interface SendBrandedEmailArgs extends Omit<SendEmailArgs, 'fromEmail' | 'fromName'> {
   accessGeneration?: string;
+  privacy?: TicketPrivacy;
   workspaceId: string;
   sendingChannelId?: string | null;
   expectedSendingAddress?: string | null;
@@ -56,7 +58,7 @@ export function isSenderSignatureError(err: unknown): err is PostmarkSendError {
 }
 
 export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<SendBrandedEmailResult> {
-  const { workspaceId, fallbackFromName, sendingChannelId, expectedSendingAddress, accessGeneration, ...mail } = args;
+  const { workspaceId, fallbackFromName, sendingChannelId, expectedSendingAddress, accessGeneration, privacy, ...mail } = args;
   const generation = accessGeneration ?? await workspaceAccessGeneration(workspaceId);
 
   const workspaceFrom = await getOutboundFrom(workspaceId);
@@ -74,7 +76,7 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
   if (!fromEmail) throw new PostmarkNotConfiguredError();
 
   try {
-    const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail, fromName }), generation);
+    const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail, fromName }), generation, privacy);
     return { ...result, fromEmail, usedFallbackFrom: false };
   } catch (err) {
     if (!isSenderSignatureError(err)) throw err;

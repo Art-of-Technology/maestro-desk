@@ -10,9 +10,10 @@ import { getDb } from '../lib/db.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { buildAIContext } from '../lib/ai-context.js';
 import { publishedKnowledgeMaterial } from '../lib/knowledge-context.js';
-import { previousReplyMaterial, genericDetails } from '../lib/previous-replies.js';
+import { previousReplyMaterial, genericDetails, revalidateReplyExamples } from '../lib/previous-replies.js';
 import { meaningfulReplies } from '../lib/meaningful-replies.js';
 import { historicalReferences } from '../lib/reply-evidence.js';
+import { ticketPrivacy, requireTicketPrivacy } from '../lib/ticket-privacy.js';
 import { recordReplySuggestion } from '../lib/reply-feedback.js';
 import { replyFeedback } from './reply-feedback.js';
 import { aiCreditAlerts } from './ai-credit-alerts.js';
@@ -130,6 +131,9 @@ ai.post('/messages', async (c) => {
   const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const userId = c.get('userId');
   const sql = getDb();
+  const privacy = input.ticketId ? await ticketPrivacy(workspaceId, [input.ticketId]) : [];
+  const [privacyState] = await sql`select privacy_generation::text as generation from workspaces where id=${workspaceId}`;
+  if (!privacyState) return c.json({ error: 'Workspace not found.' }, 404);
   const query = input.messages.filter((m) => m.role === 'user').at(-1)?.content || '';
   const historical = input.action === 'similar_reply';
   const generic = input.action === 'generic_template';
@@ -220,6 +224,9 @@ ai.post('/messages', async (c) => {
   const started = Date.now();
   try {
     await requireAvailableWorkspace(workspaceId, accessGeneration);
+    await requireTicketPrivacy(workspaceId, privacy);
+    const [stillCurrent] = await sql`select 1 from workspaces where id=${workspaceId} and privacy_generation=${privacyState.generation}::bigint`;
+    if (!stillCurrent) throw new HTTPException(409, { message: 'Personal data changed. Refresh and try again.' });
     response = await anthropic.messages.create(
       {
         model: input.model,
@@ -281,6 +288,12 @@ ai.post('/messages', async (c) => {
     return Number(row.ai_credits_micro);
   });
   await requireAvailableWorkspace(workspaceId, accessGeneration);
+  const [currentPrivacy] = await sql`select 1 from workspaces where id=${workspaceId}
+    and privacy_generation=${privacyState.generation}::bigint`;
+  if (!currentPrivacy) return c.json({ error: 'Personal data changed during generation. Reload and try again.' }, 409);
+  await requireTicketPrivacy(workspaceId, privacy);
+  if (historical && (await revalidateReplyExamples(workspaceId, previous!.ticket, previous!.examples)).length !== previous!.examples.length)
+    return c.json({ error: 'Source information changed during generation. Reload and try again.' }, 409);
   if (replyFormat) {
     const tool = response.content.find(b => b.type === 'tool_use' && b.name === CUSTOMER_REPLY_TOOL.name);
     try {
@@ -290,7 +303,12 @@ ai.post('/messages', async (c) => {
       if (generic) result.text = genericDetails(result.text, previous!.ticket, previous!.ticket.display_id);
       const suggestionId = !generic && input.ticketId && result.text.trim()
         ? await recordReplySuggestion(workspaceId, userId, input.ticketId, result.text, historical ? previous!.examples : [],
-          { context: input.replyContext, costMicro: cost + (search?.costMicro || 0), language: input.replyLanguage, review: result.internal, accessGeneration }).catch(() => null) : null;
+          { context: input.replyContext, costMicro: cost + (search?.costMicro || 0), language: input.replyLanguage, review: result.internal, accessGeneration, privacy, privacyGeneration: privacyState.generation }).catch(() => null) : null;
+      const [stillCurrent] = await sql`select 1 from workspaces where id=${workspaceId} and privacy_generation=${privacyState.generation}::bigint`;
+      if (!stillCurrent) return c.json({ error: 'Personal data changed during generation. Reload and try again.' }, 409);
+      await requireTicketPrivacy(workspaceId, privacy);
+      if (historical && (await revalidateReplyExamples(workspaceId, previous!.ticket, previous!.examples)).length !== previous!.examples.length)
+        return c.json({ error: 'Source information changed during generation. Reload and try again.' }, 409);
       return c.json({ ...result, ...(suggestionId ? { suggestionId } : {}), ...(historical ? { examples: previous!.examples.map(({ id, title, question, reply }) => ({ id, title, question, reply })) } : {}), model: input.model, cost_micro: cost + (search?.costMicro || 0), balance_micro: balance });
     } catch {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);

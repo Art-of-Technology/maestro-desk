@@ -17,6 +17,7 @@ import {
   replySubject,
 } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
+import { availableTicketPrivacy } from './ticket-privacy.js';
 import { composeEmail, type ComposedEmail } from './email-branding.js';
 import { getDb } from './db.js';
 import { ticketReplyRecipients, type RecipientInput } from './email-recipients.js';
@@ -52,6 +53,8 @@ export async function sendAgentReplyEmail(args: {
 }): Promise<AgentReplyDelivery> {
   const { workspaceId, ticketId, messageId, authorUserId, body } = args;
   const sql = getDb();
+  const privacy = await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { emailed: false, reason: 'send_failed', detail: 'This ticket is no longer available.' };
 
   const [ctx] = await sql<{
     subject: string;
@@ -92,6 +95,7 @@ export async function sendAgentReplyEmail(args: {
     // Branded From (verified domain) with platform fallback + rejection
     // safety net — see send-branded-email.ts.
     const result = await sendBrandedEmail({
+      privacy,
       workspaceId,
       sendingChannelId,
       expectedSendingAddress: args.recipients ? args.recipients.sending_address : selectedInbox?.address,

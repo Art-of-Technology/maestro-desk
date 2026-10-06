@@ -1,4 +1,5 @@
 import { getDb } from './db.js';
+import { lockTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import type { ReplyExample } from './previous-replies.js';
 import { replyChangeRatio } from './reply-change.js';
 import type { z } from 'zod';
@@ -9,13 +10,15 @@ type StoredReplyReview = z.infer<typeof ReplyReview>;
 // Lock eligible target/source customers and tickets while creating the snapshot.
 // Concurrent erasure waits, then the deletion triggers purge the new snapshot.
 export async function recordReplySuggestion(workspaceId: string, userId: string, ticketId: string,
-  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview; accessGeneration?: string }): Promise<string | null> {
+  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview; accessGeneration?: string; privacyGeneration?: string; privacy?: TicketPrivacy }): Promise<string | null> {
   const sql = getDb();
   return sql.begin(async tx => {
     const [workspace] = await tx`select id from workspaces where id=${workspaceId}
       and deleted_at is null and suspended_at is null
-      and (${tracking?.accessGeneration ?? null}::bigint is null or suspension_generation=${tracking?.accessGeneration ?? null}::bigint) for share`;
+      and (${tracking?.accessGeneration ?? null}::bigint is null or suspension_generation=${tracking?.accessGeneration ?? null}::bigint)
+      and (${tracking?.privacyGeneration ?? null}::bigint is null or privacy_generation=${tracking?.privacyGeneration ?? null}::bigint) for share`;
     if (!workspace) return null;
+    if (tracking?.privacy) await lockTicketPrivacy(tx, workspaceId, tracking.privacy);
     const replyIds = examples.map(e => e.replyId);
     const tickets = await tx`select t.id,t.category_key from tickets t
       join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id
