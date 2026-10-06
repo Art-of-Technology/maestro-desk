@@ -157,9 +157,8 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
     expect(audits.length).toBe(1);
     const meta = audits[0].metadata;
     expect(meta.customer_id).toBe(cid);
-    expect(Object.keys(meta.changed).sort()).toEqual(['consent', 'vip_tier']);
-    expect(meta.changed.vip_tier).toEqual({ from: 'Platinum', to: 'Gold' });
-    expect(meta.changed.consent).toEqual({ from: false, to: true });
+    expect(meta.changed_fields.sort()).toEqual(['consent', 'vip_tier']);
+    expect(meta.changed).toBeUndefined();
     expect([...meta.changed_pii].sort()).toEqual(['first_name', 'jurisdiction']);
     const flat = JSON.stringify(meta);
     expect(flat).not.toContain('Ninaqx');
@@ -208,7 +207,7 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
       const flat = JSON.stringify(a.metadata);
       expect(flat).not.toContain('blanky'); expect(flat).not.toContain('new_name'); expect(flat).not.toContain('bo.test');
       expect(a.metadata.changed_pii).toEqual(expect.arrayContaining(['username', 'backoffice_url']));
-      expect(a.metadata.changed.since).toBeDefined();
+      expect(a.metadata.changed_fields).toContain('since');
     }
   });
 

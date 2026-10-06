@@ -105,7 +105,7 @@ runDbTests('customer risk endpoint', () => {
     expect(JSON.stringify(body)).not.toContain('private@example.test');
     const [audit] = await sql`select metadata from audit_events where workspace_id = ${ctx.workspace}
       and action = 'customer.risk_viewed' order by created_at desc limit 1`;
-    expect(audit.metadata).toEqual({ accessed: ['aml'] });
+    expect(audit.metadata).toMatchObject({ accessed: ['aml'] });
   });
 
   it('keeps complaint counts when the provider fails or sends unknown risk or identity', async () => {

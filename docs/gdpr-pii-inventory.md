@@ -4,7 +4,7 @@
 > **shared spec** for erasure, data-subject export, and retention — enumerate every
 > column that holds personal data of a *player/customer* (the data subject) once, so
 > each of those features covers the same surfaces and none is missed.
-> Last reviewed 2026-10-05 for S2 saved content, copied messages and delayed work. This is an implementation inventory, not a declaration of GDPR compliance. Update when a new personal-data surface lands.
+> Last reviewed 2026-10-05 for S2 saved content and S3 activity/audit controls. Historical audit repair remains outstanding. This is an implementation inventory, not a declaration of GDPR compliance.
 
 A "data subject" here is a **customer** (player). Agent/operator accounts are users and
 out of scope for customer erasure. The design intent (`20260520121300_gdpr.sql`): keep the
@@ -12,6 +12,25 @@ customer row + ticket rows so the audit trail and aggregate analytics survive, b
 redact the personal data** and stamp `customers.erased_at`.
 
 ## Surfaces
+
+### S3 activity and audit boundaries
+
+`events.details` and `author_label` are redacted on customer erasure; event identity
+and kind survive for accountability and automatic-reply duplicate prevention.
+Deleting a ticket/customer removes its activity rows. Database guards reject late
+writes to erased or unavailable subjects. Older orphan events require review.
+
+New `audit_events.metadata` is filtered to typed, approved facts before hashing;
+names, addresses, subjects, previews and arbitrary context are dropped. Existing
+audit content and hashes remain unchanged. New customer attribution survives
+ticket/note retention. Historical missing links are not inferred from free text.
+
+Exports include attributable activity, audit and erasure history for administrator
+review, including after a profile has been erased. They explicitly warn about
+retained historical content and unlinked records. New `gdpr_erasures.reason` values
+are controlled codes; older narrative reasons remain reviewable in the export.
+See [the S3 runbook](AUDIT-CONTENT-RELEASE.md) for observed production counts,
+privilege findings, repair prerequisites and remaining release requirements.
 
 ### S2 additions and evidence boundaries
 
@@ -59,19 +78,11 @@ not been certified complete by this change. See [the release and repair runbook]
 
 - **`tickets` / `ticket_messages` rows** — kept (redacted) so the support history and the
   audit trail referencing the now-anonymous customer survive.
-- **`events` / `audit_events`** — the activity/audit log; it references the anonymized
-  customer, not their content. Player-data **reads** are now logged here too (a
-  `player.viewed` audit event on every successful live player lookup — `routes/maestro.ts`
-  + `lib/player-audit.ts`, categories not values), as is every automatic or agent-driven
-  contact ↔ player link or repair of missing account details (`customer.player_linked`
-  / `customer.player_refreshed` — `lib/player-identity.ts`; the brand id
-  and data categories persisted, never the values or the player ids themselves). Profile
-  edits from the details card (`customer.updated` — `PATCH /customers/:id`) follow the same
-  rule: before/after values only for the non-identifying columns (`brand`, `vip_tier`, `since`,
-  `consent`); the PII columns that changed are listed by field name alone.
-  Audit chains are tamper-evident and checked by the retention job. Retained
-  identifiers/attributes can still be personal data when linkable; their retention
-  needs a documented purpose, rather than an assumption of anonymity.
+- **`events` / `audit_events`** — see S3 above. Activity narrative is erasable;
+  immutable audit facts, identifiers and historical personal text remain subject
+  to retention and rights review. Audit chains are tamper-evident, not protection
+  against a database superuser. Player reads retain identifiers and accessed
+  categories; new profile-edit audit records retain field names without values.
 
 ## Attachments — `ticket_attachments` + the R2 objects
 

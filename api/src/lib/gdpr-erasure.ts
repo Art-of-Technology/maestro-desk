@@ -12,6 +12,7 @@ import { safeError } from './diagnostics.js';
 
 import { getDb } from './db.js';
 import { HTTPException } from 'hono/http-exception';
+import { customerAuditHistory } from './customer-history.js';
 import {
   deleteAttachmentObjects,
   drainObjectDeletions,
@@ -54,6 +55,8 @@ export interface EraseResult {
   messagesRedacted: number;
   inboxRedacted: number;
   attachmentsDeleted: number;
+  retainedAuditRecords: number;
+  auditHistoryRequiresReview: true;
 }
 
 // The R2 object deleter — injectable so tests can record the keys without R2
@@ -99,6 +102,8 @@ export async function eraseCustomer(args: {
       for update
     `;
     if (!cust) return null;
+    const [auditCount] = await customerAuditHistory(sql,workspaceId,customerId,true);
+    const retainedAuditRecords = Number(auditCount.count);
     // Live merged sources are unmerged by the route first. Soft-deleted
     // sources cannot take that path. Do not certify a partial erase or guess
     // which newer survivor correspondence belongs to the original subject.
@@ -120,7 +125,7 @@ export async function eraseCustomer(args: {
     // This transaction's customer lock also prevents concurrent DROP COLUMN.
     // Keep erasing legacy data until the column is physically retired, while
     // allowing this release to run after that migration (including rollback).
-    const fieldsErased = FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status');
+    const fieldsErased: string[] = [...FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status'), 'events'];
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
@@ -249,6 +254,17 @@ export async function eraseCustomer(args: {
       await repairCustomerContacts(sql, workspaceId, holderId);
     }
 
+    // Capture existing player audit references before removing the lookup key.
+    // This journal write and erasure commit together; repeat erasure preserves it.
+    if (!cust.erased_at) await sql`
+      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason, retained_player_audit_ids)
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null}, array(
+        select a.id from audit_events a join customers c
+          on c.workspace_id=a.workspace_id and c.maestro_user_id=a.target_id::text
+        where c.id=${customerId} and c.workspace_id=${workspaceId} and a.target_type='player'
+      ))
+    `;
+
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
@@ -270,11 +286,6 @@ export async function eraseCustomer(args: {
         and backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
     `;
 
-    if (!cust.erased_at) await sql`
-      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null})
-    `;
-
     return {
       erased: true,
       alreadyErased: Boolean(cust.erased_at),
@@ -284,6 +295,8 @@ export async function eraseCustomer(args: {
       messagesRedacted,
       inboxRedacted,
       attachmentsDeleted,
+      retainedAuditRecords,
+      auditHistoryRequiresReview: true as const,
     };
   });
 

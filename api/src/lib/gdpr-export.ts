@@ -10,6 +10,7 @@
 
 import { getDb } from './db.js';
 import { inboxFromThisCustomer } from './customer-contacts.js';
+import { customerAuditHistory } from './customer-history.js';
 
 export interface CustomerExport {
   exported_at: string;
@@ -31,6 +32,10 @@ export interface CustomerExport {
   tickets: Array<Record<string, unknown> & { messages: Array<Record<string, unknown>>; attachments: Array<Record<string, unknown>> }>;
   inbox_messages: Array<Record<string, unknown>>;
   related_ai_copies: Array<Record<string, unknown>>;
+  activity_history: Array<Record<string, unknown>>;
+  audit_history: Array<Record<string, unknown>>;
+  erasure_history: Array<Record<string, unknown>>;
+  history_review_notice: string;
 }
 
 export async function exportCustomer(args: {
@@ -96,6 +101,13 @@ export async function exportCustomer(args: {
     order by created_at asc
   `;
   const ticketIds = tickets.map((t) => t.id as string);
+  const activityHistory = await sql`select id,entity_type,entity_id,kind,author_user_id,author_label,details,created_at
+    from events where workspace_id=${workspaceId} and (
+      (entity_type='customer' and entity_id=${customerId}) or
+      (entity_type='ticket' and entity_id=any(${ticketIds}::uuid[]))) order by created_at,id`;
+  const auditHistory = await customerAuditHistory(sql,workspaceId,customerId);
+  const erasureHistory = await sql`select requested_at,completed_at,fields_erased,reason
+    from gdpr_erasures where workspace_id=${workspaceId} and customer_id=${customerId} order by requested_at,id`;
   const customFields = await sql<Record<string, unknown>[]>`
     select v.entity_type, v.entity_id, f.key, f.label, f.field_type, v.value, v.updated_at
     from custom_field_values v join custom_fields f
@@ -212,6 +224,10 @@ export async function exportCustomer(args: {
     custom_fields: fieldsFor('customer',customerId),
     workspace: { name: ws?.name ?? '', slug: ws?.slug ?? '' },
     erased: Boolean(customer.erased_at),
+    activity_history: activityHistory,
+    audit_history: auditHistory,
+    erasure_history: erasureHistory,
+    history_review_notice: 'Audit records are retained and may include historical personal text. Review them before disclosure. Records without a reliable customer link require a separate search; this export does not establish complete erasure.',
     customer: customerOut,
     notes,
     note_revisions: noteRevisions,
