@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
-import { auth } from '../lib/auth.js';
+import { auth, sendInvitationSetup } from '../lib/auth.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { deriveNameFromEmail, initialsFromName, randomPassword } from '../lib/invite.js';
 import { revokeSessionsIfNoAccess } from '../lib/sessions.js';
@@ -117,7 +117,7 @@ agents.post('/invite', async (c) => {
   // transient mail failure shouldn't 500; the admin can re-invite to re-send).
   let emailSent = true;
   try {
-    await auth.api.requestPasswordReset({ body: { email } });
+    emailSent = await sendInvitationSetup(email);
   } catch (err) {
     emailSent = false;
     console.error('[agents/invite] requestPasswordReset failed:', safeError(err));
@@ -213,7 +213,7 @@ agents.post('/:userId/reset-password', async (c) => {
 
   let emailSent = true;
   try {
-    await auth.api.requestPasswordReset({ body: { email: member.email } });
+    emailSent = await sendInvitationSetup(member.email);
   } catch (err) {
     emailSent = false;
     console.error('[agents/reset-password] requestPasswordReset failed:', safeError(err));

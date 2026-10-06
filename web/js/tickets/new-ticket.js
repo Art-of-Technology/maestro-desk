@@ -32,6 +32,7 @@ import { openTicket, notifyReplyDelivery } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
 import { saveDraft } from './drafts.js';
 import { showToast } from '../core/toast.js';
+import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
@@ -48,6 +49,7 @@ const NT = {
   agentName: '',         // display name for the step-2 summary strip
   message: '',
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
+  replyLanguage: '',
 };
 
 function resetNT() {
@@ -62,6 +64,7 @@ function resetNT() {
   NT.agentName = '';
   NT.message = '';
   NT.messageTouched = false;
+  NT.replyLanguage = '';
 }
 
 const visible = key => isFieldVisible('ticket', key);
@@ -355,6 +358,13 @@ function renderStep2() {
       <label class="form-label">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
       <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
     </div>
+    <div class="form-row">
+      <label class="form-label" for="nt2-language">Reply language</label>
+      <select class="form-input" id="nt2-language" data-change-action="nt.replyLanguage">
+        <option value="">As written</option>
+        ${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}
+      </select>
+    </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
       ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
       <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span>` : ''}
@@ -380,6 +390,8 @@ let _confirmLabelBeforeBusy = '';
 
 function setBusy(on, label) {
   NT.busy = on;
+  document.querySelectorAll('#modal-container input, #modal-container textarea, #modal-container select')
+    .forEach(el => { el.disabled = on; });
   const confirm = document.querySelector('#modal-container [data-action="modal.confirm"]');
   if (confirm) {
     if (on) { _confirmLabelBeforeBusy = confirm.textContent; confirm.textContent = label; }
@@ -433,6 +445,7 @@ async function runCreate({ message, send }) {
   // that vanishes on reload — the exact bug this phase exists to kill. Demo
   // personas carry no JWT/workspace, so they still take the in-memory path.
   const isApiBacked = isSessionApiBacked();
+  const workspace = getWorkspaceId(), jwt = getJwt();
   // Snapshot everything the async path needs BEFORE the first await — NT is
   // module state and must not be read across it.
   const snapshot = {
@@ -444,9 +457,18 @@ async function runCreate({ message, send }) {
     priority: NT.priority,
     agentUserId: NT.agentUserId,
     agentName: NT.agentName,
+    replyLanguage: NT.replyLanguage,
   };
   let displayId, keptDraft = false;
   if (isApiBacked) {
+    if (send && message) {
+      const prepared = await prepareCustomerReply({ autoTranslateReplies: !!snapshot.replyLanguage,
+        customerLanguageManual: !!snapshot.replyLanguage, detectedCustomerLang: snapshot.replyLanguage || null }, message, null);
+      if (!prepared.replyLanguage) throw new Error('Choose a reply language before sending. Your draft has been kept.');
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) throw new Error('Your workspace or session changed. Reopen the ticket form before sending.');
+      message = prepared.translation;
+      snapshot.replyLanguage = prepared.replyLanguage;
+    }
     const res = await createOnServer(snapshot, { message, send });
     // retry === true → nothing was created; keep the modal open so the agent
     // can fix and resubmit. Otherwise a ticket MAY exist server-side, so the
@@ -509,6 +531,7 @@ async function createOnServer(snap, { message, send }) {
     ...srv,
   };
   updateOrInsertTicket(row);
+  if (snap.replyLanguage) setCustomerLanguage(row.display_id, snap.replyLanguage);
 
   // Old-API fallback: the explicit assignee wasn't applied on create — the
   // existing membership-checked PATCH still lands it.
@@ -527,7 +550,7 @@ async function createOnServer(snap, { message, send }) {
       // ONLY the network call is in the try — a throw from the toast helper
       // below would otherwise be misreported as a send failure and prompt a
       // duplicate send.
-      mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message });
+      mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message, reply_language: snap.replyLanguage || undefined });
     } catch (err) {
       // The ticket already exists — retrying in the modal would duplicate it.
       // Rescue the text as a composer draft and let the agent send from there.
@@ -536,6 +559,10 @@ async function createOnServer(snap, { message, send }) {
       return { displayId: row.display_id, keptDraft: true };
     }
     if (mres?.delivery) notifyReplyDelivery(mres.delivery);
+    if (mres?.subject) {
+      const ticket = TICKETS.find(t => t._uuid === row.id);
+      if (ticket) ticket.subject = mres.subject;
+    }
   } else if (message) {
     saveDraft(row.display_id, message, 'reply');
     keptDraft = true;
@@ -582,6 +609,7 @@ registerActions({
 });
 
 registerChangeActions({
+  'nt.replyLanguage': (ds, el) => { NT.replyLanguage = el.value; },
   'nt.applyTemplate': (ds, el) => {
     // Keep a message the agent already drafted on step 2 (step 1 has no
     // message field, so clobbering it would be invisible). Priority is only
