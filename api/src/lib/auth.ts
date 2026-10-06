@@ -1,8 +1,10 @@
 import { safeError } from './diagnostics.js';
 import { betterAuth } from 'better-auth';
-import { createAuthMiddleware } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { bearer, genericOAuth } from 'better-auth/plugins';
 import { Pool } from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import type { TransactionSql } from 'postgres';
 import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './env.js';
 import { sendEmail, isPostmarkConfigured } from './postmark-outbound.js';
 import { getDb } from './db.js';
@@ -57,11 +59,22 @@ const g = globalThis as unknown as { __maestroBetterAuthPool?: Pool };
 const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DATABASE_URL }));
 
 const SESSION_SECONDS = 8 * 60 * 60;
+const invitationDelivery = new AsyncLocalStorage<{ sent: boolean }>();
 
-async function activatePendingInvitations(userId: string) {
-  await getDb()`update workspace_members
+// Better Auth deliberately hides reset-mail failures from its public endpoint.
+// Administrator invitations need the actual result, isolated per request.
+export async function sendInvitationSetup(email: string): Promise<boolean> {
+  return invitationDelivery.run({ sent: false }, async () => {
+    await auth.api.requestPasswordReset({ body: { email } });
+    return invitationDelivery.getStore()!.sent;
+  });
+}
+
+async function activatePendingInvitations(userId: string, sql: ReturnType<typeof getDb> | TransactionSql = getDb()) {
+  await sql`update workspace_members
     set active = true, invitation_pending = false
-    where user_id = ${userId} and invitation_pending = true`;
+    where user_id = ${userId} and invitation_pending = true
+      and exists(select 1 from users where id = ${userId} and email_verified = true and deleted_at is null)`;
 }
 
 export const auth = betterAuth({
@@ -74,9 +87,15 @@ export const auth = betterAuth({
   },
   session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
   hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      // Only server-side administrator invitation flows may create local users.
+      if (ctx.path === '/sign-up/email' && ctx.request) {
+        throw new APIError('FORBIDDEN', { message: 'Ask your administrator for an invitation.' });
+      }
+    }),
     after: createAuthMiddleware(async (ctx) => {
-      // Existing agents can join another workspace with their own password.
-      // Invite-created signup sessions and failed logins must not activate them.
+      // Password knowledge alone cannot activate a pre-registered address.
+      // The database check also excludes deleted and unverified accounts.
       if (ctx.path === '/sign-in/email' && ctx.context.newSession) {
         await activatePendingInvitations(ctx.context.newSession.user.id);
       }
@@ -116,11 +135,18 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     onPasswordReset: async ({ user }) => {
-      await activatePendingInvitations(user.id);
+      // A consumed, emailed reset token proves mailbox ownership and replaces
+      // any password chosen before the legitimate owner accepted an invite.
+      // Revoke sessions before making pending access available, atomically.
+      await getDb().begin(async (sql) => {
+        await sql`delete from "session" where "userId" = ${user.id}`;
+        await sql`update users set email_verified = true
+          where id = ${user.id} and email = ${user.email} and deleted_at is null`;
+        await activatePendingInvitations(user.id, sql);
+      });
     },
-    // Require a reasonably strong password for agent/admin accounts (advisory
-    // #23). We do NOT set requireEmailVerification: invited agents are created
-    // email-first and never verify, so requiring it would lock them out.
+    // Preserve existing agents' sign-in while requiring mailbox verification
+    // for new invitation activation and account linking.
     minPasswordLength: 12,
     // Emailed when a user requests (or is sent) a password reset — the only
     // way invited agents/owners set their first password (no password carried
@@ -129,8 +155,7 @@ export const auth = betterAuth({
     // password and POST /api/auth/reset-password itself.
     sendResetPassword: async ({ user, token }) => {
       if (!isPostmarkConfigured()) {
-        console.warn('[auth] sendResetPassword skipped — Postmark outbound not configured');
-        return;
+        throw new APIError('SERVICE_UNAVAILABLE', { message: 'Password email is currently unavailable.' });
       }
       const link = `${env.APP_BASE_URL}/?reset_token=${encodeURIComponent(token)}`;
       await sendEmail({
@@ -139,11 +164,13 @@ export const auth = betterAuth({
         textBody:
           `You've been invited to Respovia.\n\n` +
           `Set your password using the link below (valid for 1 hour):\n${link}\n\n` +
-          `Already have a Respovia password? Sign in to join your invited workspace, or use the link above to change your password.\n\n` +
+          `Use this link to confirm your email address and set your password before joining an invited workspace.\n\n` +
           `If you weren't expecting this, you can ignore this email.`,
         fromEmail: env.POSTMARK_OUTBOUND_FROM,
         fromName: 'Respovia',
       });
+      const delivery = invitationDelivery.getStore();
+      if (delivery) delivery.sent = true;
     },
   },
   plugins: [
@@ -181,32 +208,14 @@ export const auth = betterAuth({
         ]
       : []),
   ],
-  // Let a Maestro sign-in link to an existing Desk user with the same email —
-  // this is how invited agents (created email-first during the cutover) start
-  // signing in with Maestro without a duplicate account.
-  //
-  // SECURITY: listing Maestro in `trustedProviders` bypasses Better Auth's usual
-  // requirement that the provider assert a verified email before auto-linking.
-  // That is safe ONLY because Maestro Connect is the platform's identity source
-  // of truth and verifies email ownership before issuing an identity, so a
-  // Maestro token's email is already proven. If that invariant ever changes, a
-  // token minted for an unverified email would become an account-takeover vector
-  // (attacker claims a victim's email at Maestro → auto-links to the victim's
-  // Desk account) — remove Maestro from `trustedProviders` then.
+  // Linking requires verified email on BOTH identities. Invited local users
+  // first complete the emailed password setup, which also revokes old sessions.
+  // Already-linked accounts continue to use their provider subject identifier.
   account: {
     accountLinking: {
       enabled: true,
-      trustedProviders: [MAESTRO_PROVIDER_ID],
-      // `trustedProviders` only trusts the REMOTE (Maestro) email. Better Auth
-      // independently requires the EXISTING LOCAL user's email to be verified
-      // before it will link (requireLocalEmailVerified defaults to true) — and
-      // invited agents are created email-first during the cutover and never
-      // verify (email_verified = false), so without this they hit
-      // `account_not_linked` on their first Maestro sign-in. We don't gate
-      // linking on local verification: the operator created the account with a
-      // known email and Maestro independently verifies the SAME address, so the
-      // local flag adds no security here.
-      requireLocalEmailVerified: false,
+      trustedProviders: [],
+      requireLocalEmailVerified: true,
     },
   },
   user: {
