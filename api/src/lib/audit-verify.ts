@@ -79,23 +79,11 @@ export async function verifyAuditChains(
   opts: { resetFirst?: boolean } = {},
 ): Promise<{ checked: number; tampered: TamperedChain[] }> {
   const sql = getDb();
-  let rows: VerifyRow[];
-  if (opts.resetFirst) {
-    // Wipe + full re-verify in ONE transaction: if the (unbounded) full scan
-    // fails or the serverless function is killed mid-run, the checkpoint wipe
-    // rolls back with it — so a failed weekly run can't leave checkpoints empty
-    // and degrade every subsequent daily run into a full scan.
-    rows = await sql.begin(async (tx) => {
-      await tx`delete from audit_verify_checkpoints`;
-      return tx<VerifyRow[]>`
-        select workspace_id, ok, first_bad_seq, first_bad_id from audit_events_verify_incremental()
-      `;
-    }) as VerifyRow[];
-  } else {
-    rows = await sql<VerifyRow[]>`
-      select workspace_id, ok, first_bad_seq, first_bad_id from audit_events_verify_incremental()
-    `;
-  }
+  // The database function owns checkpoint writes; the runtime cannot edit them.
+  const rows = await sql<VerifyRow[]>`
+    select workspace_id,ok,first_bad_seq,first_bad_id
+    from audit_events_verify_checked(${opts.resetFirst ?? false})
+  `;
   // Report OUTSIDE the transaction — Sentry + ops-alert do external I/O and their
   // own DB writes; they must not run inside the verify transaction.
   return handleVerifyRows(rows);
