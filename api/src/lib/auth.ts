@@ -1,7 +1,8 @@
 import { safeError } from './diagnostics.js';
 import { betterAuth } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
-import { bearer, genericOAuth } from 'better-auth/plugins';
+import { bearer } from 'better-auth/plugins';
+import { maestroOAuth, MAESTRO_PROVIDER_ID } from './maestro-oidc.js';
 import { Pool } from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { TransactionSql } from 'postgres';
@@ -14,7 +15,7 @@ import { getDb } from './db.js';
 // box that hasn't wired Maestro yet) the provider simply isn't registered and
 // the SPA hides the button. Compliant with the "Better Auth only" guardrail:
 // Maestro is an OIDC *provider* feeding Better Auth, not a separate auth system.
-export const MAESTRO_PROVIDER_ID = 'maestro';
+export { MAESTRO_PROVIDER_ID };
 export const maestroSignInEnabled = Boolean(env.MAESTRO_CLIENT_ID && env.MAESTRO_CLIENT_SECRET);
 
 // The exact scope set the manifest's oauth.scopes declares. DRAFT apps are
@@ -175,35 +176,16 @@ export const auth = betterAuth({
   },
   plugins: [
     bearer(),
-    // Maestro Connect as an OIDC provider. PKCE public-client flow; tokens are
+    // Maestro Connect as an OIDC provider. Authorization code + PKCE; tokens are
     // stored in the `account` table so the API can later call the gateway on
     // the user's behalf (see lib/maestro.ts getUserAccessToken + getAccessToken).
     ...(maestroSignInEnabled
       ? [
-          genericOAuth({
-            config: [
-              {
-                providerId: MAESTRO_PROVIDER_ID,
-                // Discovery lives at the canonical path (verified to return
-                // issuer "https://auth.maestro-connect.com"); `iss` is that full
-                // origin — scheme included, no path — and Better Auth derives it
-                // from the discovery doc rather than from anything we configure.
-                discoveryUrl: `${env.MAESTRO_ISSUER}/.well-known/openid-configuration`,
-                clientId: env.MAESTRO_CLIENT_ID,
-                clientSecret: env.MAESTRO_CLIENT_SECRET,
-                scopes: MAESTRO_SCOPES,
-                pkce: true,
-                // The users table requires a non-null `name`, but a Maestro
-                // profile may have name=null. Fall back to the email local-part
-                // so the insert for a first-time agent never fails.
-                mapProfileToUser: (profile: Record<string, unknown>) => {
-                  const email = typeof profile.email === 'string' ? profile.email : '';
-                  const rawName = typeof profile.name === 'string' ? profile.name.trim() : '';
-                  const name = rawName || (email ? email.split('@')[0] : 'Maestro User');
-                  return { email, name };
-                },
-              },
-            ],
+          maestroOAuth({
+            issuer: env.MAESTRO_ISSUER,
+            clientId: env.MAESTRO_CLIENT_ID,
+            clientSecret: env.MAESTRO_CLIENT_SECRET,
+            scopes: MAESTRO_SCOPES,
           }),
         ]
       : []),
