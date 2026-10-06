@@ -166,6 +166,7 @@ export const GUIDE_STEPS = [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
       'Brand admins receive an in-app notification when AI credit falls below $2. Open it to view AI settings and ask a platform administrator to add credit. Reading or dismissing the alert is remembered until the balance recovers and falls below $2 again.',
       'Open an agent to see their email address. Admins can choose Resend invite for agents marked Invited, check the recipient, then confirm. Agents who have already joined have a Send password reset option instead.',
+      'New invitees must use the emailed setup link to confirm their address and choose a password before joining. Complete this step before using Sign in with Maestro for the first time. If the email fails, an admin can resend the invitation.',
       'Choose Last 7 days, Last 30 days, Last 90 days or All time to compare performance. The dates appear beside the filter. Current workload always shows tickets needing attention now.',
       'Send and resolve credits the agent who resolves the ticket, regardless of its assignee. Each ticket counts once per agent in the selected period. Open an agent for saved replies, tickets handled and the counting explanation.',
       'If a control is missing, ask your lead whether your role or workspace has access. Some AI, template and administration controls depend on configuration or permissions.',

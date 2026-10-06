@@ -727,8 +727,8 @@ function settingsIntegrations() {
         Paste your Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:var(--purple)">incoming-webhook URL</a> — it's the secret, so treat it like a password.
       </div>
       <div class="form-row">
-        <label class="form-label">Webhook URL</label>
-        <input class="form-input" id="slack-url" type="url" value="${window.escAttr(slack?.webhook_url || '')}" placeholder="https://hooks.slack.com/services/..." autocomplete="off"/>
+        <label class="form-label" for="slack-url">Webhook URL</label>
+        <input class="form-input" id="slack-url" type="password" placeholder="${slack?.has_webhook ? 'Leave blank to keep the saved webhook' : 'https://hooks.slack.com/services/...'}" autocomplete="off"/>
       </div>
       <div class="form-row">
         <label class="form-label">Channel override (optional)</label>
@@ -1183,7 +1183,7 @@ async function saveSlackIntegration() {
   const botToken      = document.getElementById('slack-bot-token')?.value.trim() || '';
   const signingSecret = document.getElementById('slack-signing-secret')?.value.trim() || '';
   const msg = document.getElementById('slack-msg');
-  if (!url) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
+  if (!url && !SLACK_INTEGRATION?.has_webhook) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
   if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
   msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
   try {
@@ -1192,14 +1192,15 @@ async function saveSlackIntegration() {
     // alone, which is what we want for "save settings without
     // rotating credentials".
     const body = {
-      webhook_url: url,
       channel:     channel || null,
       active,
       events,
     };
+    if (url)           body.webhook_url    = url;
     if (botToken)      body.bot_token      = botToken;
     if (signingSecret) body.signing_secret = signingSecret;
     await apiPut('/api/v1/integrations/slack', body);
+    document.getElementById('slack-url').value = '';
     const res = await apiGet('/api/v1/integrations/slack');
     SLACK_INTEGRATION = res.integration;
     document.getElementById('slack-bot-token').value = '';
