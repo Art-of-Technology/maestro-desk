@@ -1,28 +1,13 @@
-// ─── Reports ─────────────────────────────────────────────────────────────────
-// Reports page: KPI bar, timeframe selector, CSV export, and the 7 widget
-// tile renderers (status, priority, category, agents, CSAT, time logged,
-// SLA). REPORT_WIDGETS and DEFAULT_REPORT_LAYOUT live here too — they're
-// imported by app.js for the startup layout-hydration block alongside
-// DASH_WIDGETS / DEFAULT_DASH_LAYOUT.
-//
-// Click + change handlers route through core/event-delegation.js. No
-// inline `on*=` references remain. No external module reaches into
-// this module's window-bridged functions — the only external consumer
-// (dashboard/index.js) uses a direct ES import for computeReportStats.
-//
-// External reaches (interim, via window): escHtml, fmtMinutes — still in
-// app.js.
-
-import { TICKETS } from '../core/data.js';
-import { REPORT_LAYOUT } from '../core/state.js';
+// Workspace-wide Reports; chart preferences remain independent of report data.
+import { REPORT_LAYOUT, CURRENT_PAGE } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
 import { downloadCSV } from '../core/csv.js';
-import { renderReplyPerformance } from './reply-performance.js';
+import { renderReplyPerformance, safeReportCell } from './reply-performance.js';
 import { renderLanguageDetectionFailures } from './language-detection.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderStatView } from '../core/stat-view.js';
-import { ticketTotalMinutes, ticketBillableMinutes } from '../tickets/time-tracking.js';
+import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
 import { STATUS_COLORS, PRIORITY_COLORS, SENTIMENT_COLORS } from '../core/colors.js';
@@ -34,50 +19,23 @@ let AI_REPORT = false;
 
 function setReportTF(v) { REPORT_TF = v; renderPage('reports'); }
 
-function getReportTickets() {
-  if (REPORT_TF === 'all') return TICKETS.slice();
-  const days = REPORT_TF === '7d' ? 7 : REPORT_TF === '30d' ? 30 : 90;
-  const dates = TICKETS.map(t => new Date(t.created)).filter(d => !isNaN(d)).sort((a,b) => b - a);
-  const now = dates[0] || new Date();
-  const cutoff = new Date(now); cutoff.setDate(now.getDate() - days);
-  return TICKETS.filter(t => new Date(t.created) >= cutoff);
-}
+let reportState = null;
+const esc = value => window.escHtml(String(value ?? ''));
+const requestKey = () => JSON.stringify([getWorkspaceId(), getJwt(), REPORT_TF, new Date().toISOString().slice(0, 10)]);
+function rerender() { if (CURRENT_PAGE === 'reports' && !AI_REPORT) renderPage('reports'); }
+function resetReport() { reportState = null; }
+window.addEventListener?.('respovia:auth-scope-changed', () => { AI_REPORT = false; resetReport(); });
 
-export function computeReportStats(tickets) {
-  const byStatus = {}, byPriority = {}, byCategory = {}, byAgent = {}, bySentiment = {};
-  const csatScores = [];
-  const timeByAgent = {};
-  let slaOk = 0, slaWarn = 0, slaBreach = 0;
-  let timeTotal = 0, timeBillable = 0;
-  let sentimentScored = 0;
-  for (const t of tickets) {
-    byStatus[t.status]     = (byStatus[t.status]     ||0) + 1;
-    byPriority[t.priority] = (byPriority[t.priority] ||0) + 1;
-    byCategory[t.category] = (byCategory[t.category] ||0) + 1;
-    byAgent[t.agent]       = (byAgent[t.agent]       ||0) + 1;
-    if (t.sentiment) {
-      bySentiment[t.sentiment] = (bySentiment[t.sentiment] || 0) + 1;
-      sentimentScored++;
-    }
-    if (t.csat) csatScores.push(t.csat);
-    if      (t.status !== 'closed' && t.sla === 'ok')     slaOk++;
-    else if (t.status !== 'closed' && t.sla === 'warn')   slaWarn++;
-    else if (t.status !== 'closed' && t.sla === 'breach') slaBreach++;
-    (t.timeEntries || []).forEach(e => {
-      timeTotal += e.minutes || 0;
-      if (e.billable !== false) timeBillable += e.minutes || 0;
-      if (!timeByAgent[e.agent]) timeByAgent[e.agent] = { total: 0, billable: 0 };
-      timeByAgent[e.agent].total += e.minutes || 0;
-      if (e.billable !== false) timeByAgent[e.agent].billable += e.minutes || 0;
-    });
+async function loadReport(key) {
+  const state = reportState = { key, data: null, error: null, exporting: false, exportError: null };
+  try {
+    const data = await apiGet('/api/v1/reports/insights?' + new URLSearchParams({ range: REPORT_TF }));
+    if (reportState === state && requestKey() === key) state.data = data;
+  } catch {
+    if (reportState === state && requestKey() === key) state.error = 'Could not load Reports. Please retry.';
+  } finally {
+    if (reportState === state && requestKey() === key) rerender();
   }
-  const total = tickets.length;
-  const resolved = byStatus.resolved || 0;
-  const eligible = total - (byStatus.closed || 0);
-  const resolutionRate = eligible ? Math.round(resolved/eligible*100) : 0;
-  const avgCSAT = csatScores.length ? csatScores.reduce((a,b)=>a+b,0)/csatScores.length : 0;
-  const slaCompliance = eligible ? Math.round((slaOk + slaWarn)/eligible*100) : 0;
-  return { total, byStatus, byPriority, byCategory, byAgent, bySentiment, sentimentScored, csatScores, csatCount:csatScores.length, avgCSAT, slaOk, slaWarn, slaBreach, slaCompliance, resolved, resolutionRate, timeTotal, timeBillable, timeByAgent };
 }
 
 function reportStatus(s) {
@@ -93,72 +51,24 @@ function reportCategory(s) {
 }
 
 function reportAgents(s) {
-  return '<div class="card"><div class="card-title">Tickets per agent</div>' + renderStatView('r-agents', 'Tickets per agent', ['Agent', 'Tickets'], Object.entries(s.byAgent).sort((a,b) => b[1] - a[1])) + '</div>';
+  return '<div class="card"><div class="card-title">Tickets per agent</div>' + renderStatView('r-agents', 'Tickets per agent', ['Agent', 'Tickets'], s.agents.map(a => [a.name, a.n])) + '</div>';
 }
 
 function reportCSAT(s) {
-  const rows = [5,4,3,2,1].map(n => [n + ' stars', s.csatScores.filter(x => x === n).length]);
+  const rows = [5,4,3,2,1].map(n => [n + ' stars', s.csatBuckets[n - 1]]);
   return '<div class="card"><div class="card-title">CSAT</div><p>' + (s.avgCSAT ? s.avgCSAT.toFixed(1) : '—') + ' average · ' + s.csatCount + ' of ' + s.total + ' tickets rated</p>' + renderStatView('r-csat', 'Customer satisfaction ratings', ['Rating', 'Tickets'], rows, { colorFor: () => 'var(--amber)' }) + '</div>';
 }
 
 function reportTime(s) {
-  const rows = Object.entries(s.timeByAgent || {}).sort((a,b) => b[1].total - a[1].total).map(([name, v]) => [name || 'Unassigned', v.billable, v.total - v.billable]);
+  const rows = s.timeAgents.map(a => [a.name, a.billable, a.total - a.billable]);
   return '<div class="card"><div class="card-title">Time logged</div><p>' + window.fmtMinutes(s.timeTotal) + ' total · ' + window.fmtMinutes(s.timeBillable) + ' billable</p>' + renderStatView('r-time', 'Time logged by agent', ['Agent', 'Billable', 'Non-billable'], rows, { formatValue: v => Number(v) === 0 ? '0m' : window.fmtMinutes(v) }) + '</div>';
-}
-
-// Bucket tickets into time slots for the sentiment trend widget.
-// Granularity ramps with the timeframe so each chart shows ~7–30 bars,
-// readable at the widget's normal grid width without horizontal scroll.
-//
-// Buckets are right-anchored to "now" so the rightmost bar is always
-// the current period. We use t.created for bucketing rather than the
-// latest_customer_message_at — close enough for trend-shape purposes
-// and avoids threading a second timestamp through the SPA. CSV export
-// is the path for precise correlation.
-function buildSentimentTrend(tickets, tf) {
-  const now = new Date();
-  const buckets = [];
-  const pad2 = (n) => String(n).padStart(2, '0');
-  const yyMM = (d) => `${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(2)}`;
-  const mmDD = (d) => `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-  if (tf === '7d' || tf === '30d') {
-    const days = tf === '7d' ? 7 : 30;
-    for (let i = days - 1; i >= 0; i--) {
-      const start = new Date(now); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - i);
-      const end = new Date(start); end.setDate(end.getDate() + 1);
-      const label = (tf === '7d' || i % 5 === 0) ? mmDD(start) : '';
-      buckets.push({ label, start, end });
-    }
-  } else if (tf === '90d') {
-    for (let i = 12; i >= 0; i--) {
-      const end = new Date(now); end.setHours(0, 0, 0, 0); end.setDate(end.getDate() - i * 7 + 1);
-      const start = new Date(end); start.setDate(start.getDate() - 7);
-      buckets.push({ label: mmDD(start), start, end });
-    }
-  } else {
-    // 'all' → monthly, last 12 months
-    for (let i = 11; i >= 0; i--) {
-      const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const end   = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-      buckets.push({ label: yyMM(start), start, end });
-    }
-  }
-  for (const b of buckets) b.counts = { angry: 0, frustrated: 0, neutral: 0, positive: 0 };
-  for (const t of tickets) {
-    if (!t.sentiment) continue;
-    const c = new Date(t.created);
-    if (isNaN(c.getTime())) continue;
-    for (const b of buckets) {
-      if (c >= b.start && c < b.end) { b.counts[t.sentiment]++; break; }
-    }
-  }
-  return buckets;
 }
 
 function reportSentimentTrend(s) {
   const order = ['angry', 'frustrated', 'neutral', 'positive'];
-  const rows = (s.sentimentTrend || []).map(b => [b.start.toLocaleDateString('en-CA'), ...order.map(k => b.counts[k] || 0)]);
-  return '<div class="card"><div class="card-title">Sentiment trend</div>' + renderStatView('r-sentiment-trend', 'Sentiment trend', ['Period starting', ...order], rows, { choices: ['line', 'bar', 'table'], colorFor: (_label, i) => SENTIMENT_COLORS[order[i]] }) + '</div>';
+  const rows = (s.sentimentTrend || []).map(b => [b.start, ...order.map(k => b.counts[k] || 0)]);
+  const days = s.sentimentTrend[0]?.days || 1;
+  return '<div class="card"><div class="card-title">Sentiment trend</div>' + renderStatView('r-sentiment-trend', 'Sentiment trend', ['Period starting', ...order], rows, { choices: ['line', 'bar', 'table'], colorFor: (_label, i) => SENTIMENT_COLORS[order[i]] }) + '<p class="report-note">Latest customer sentiment by ticket creation date. Each point covers ' + days + (days === 1 ? ' UTC day' : ' UTC days') + ', including periods with no tickets.</p></div>';
 }
 
 function reportSentiment(s) {
@@ -177,12 +87,12 @@ function reportSentiment(s) {
 }
 
 function reportSLA(s) {
-  return '<div class="card"><div class="card-title">SLA</div>' + renderStatView('r-sla', 'SLA status', ['Status', 'Tickets'], [['On track', s.slaOk], ['Warning', s.slaWarn], ['Breached', s.slaBreach]], { choices: ['bar', 'donut', 'table'], colorFor: k => ({ 'On track': 'var(--green)', Warning: 'var(--amber)', Breached: 'var(--red)' })[k] }) + '<p>' + s.slaCompliance + '% of tickets are within SLA window</p></div>';
+  return '<div class="card"><div class="card-title">Recorded SLA status</div>' + renderStatView('r-sla', 'SLA status', ['Status', 'Tickets'], [['On track', s.slaOk], ['Warning', s.slaWarn], ['Breached', s.slaBreach]], { choices: ['bar', 'donut', 'table'], colorFor: k => ({ 'On track': 'var(--green)', Warning: 'var(--amber)', Breached: 'var(--red)' })[k] }) + '<p>' + s.slaCompliance + '% within the recorded SLA window, excluding closed tickets. Open Tickets for live urgency.</p></div>';
 }
 
 export const REPORT_WIDGETS = [
   { id:'r-status',    title:'Status breakdown',  render:s => reportStatus(s) },
-  { id:'r-sla',       title:'SLA',               render:s => reportSLA(s) },
+  { id:'r-sla',       title:'Recorded SLA status', render:s => reportSLA(s) },
   { id:'r-sentiment',       title:'Customer sentiment',render:s => reportSentiment(s) },
   { id:'r-sentiment-trend', title:'Sentiment trend',   render:s => reportSentimentTrend(s) },
   { id:'r-priority',  title:'Priority',          render:s => reportPriority(s) },
@@ -195,49 +105,68 @@ export const REPORT_WIDGETS = [
 
 export const DEFAULT_REPORT_LAYOUT = { order: REPORT_WIDGETS.map(w => w.id), hidden: [], charts: {} };
 
-function exportReport() {
-  const tickets = getReportTickets();
-  const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','SLA','CSAT','Sentiment','Time logged','Time billable'];
-  const rows = tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat ?? '', t.sentiment ?? '', window.fmtMinutes(ticketTotalMinutes(t)), window.fmtMinutes(ticketBillableMinutes(t))]);
-  downloadCSV(headers, rows, `tickets-${REPORT_TF}-${new Date().toISOString().slice(0,10)}.csv`);
+async function exportReport() {
+  const state = reportState;
+  if (!getJwt() || !state?.data || state.key !== requestKey() || state.exporting) return;
+  state.exporting = true;
+  state.exportError = null;
+  rerender();
+  try {
+    const { period } = state.data;
+    const data = await apiGet('/api/v1/reports/insights?' + new URLSearchParams({ range: period.range, end: period.end, export: '1' }));
+    if (reportState !== state || state.key !== requestKey()) return;
+    const headers = ['ID','Subject','Status','Priority','Category','Agent','Created','Updated','Recorded SLA','CSAT','Sentiment','Time logged (minutes)','Time billable (minutes)'];
+    const rows = data.tickets.map(t => [t.id, t.subject, t.status, t.priority, t.category, t.agent, t.created, t.updated, t.sla, t.csat, t.sentiment, t.timeTotal, t.timeBillable].map(safeReportCell));
+    downloadCSV(headers, rows, 'tickets-' + period.range + '-' + period.end.slice(0,10) + '.csv');
+  } catch (error) {
+    if (reportState === state && state.key === requestKey()) state.exportError = error.status === 422 ? error.message : 'Could not export Reports. Please retry.';
+  } finally {
+    state.exporting = false;
+    if (reportState === state && state.key === requestKey()) rerender();
+  }
 }
 
 export function renderReports() {
   if (AI_REPORT && window.isAdmin()) return renderReplyPerformance();
   const tf = REPORT_TF;
-  const tickets = getReportTickets();
-  const s = computeReportStats(tickets);
-  // Trend buckets need the raw ticket list + timeframe, so we attach
-  // them here rather than expanding computeReportStats (which is also
-  // called from the dashboard, which doesn't need the trend).
-  s.sentimentTrend = buildSentimentTrend(tickets, tf);
+  const authenticated = !!getJwt();
+  if (authenticated && reportState?.key !== requestKey()) void loadReport(requestKey());
+  const data = authenticated ? reportState?.data : null;
+  const s = data?.report;
+  const message = !authenticated ? 'Sign in to see workspace Reports.' : reportState.error || 'Loading workspace totals…';
   return `
-    <div class="page">
+    <div class="page insights-report-page">
       <div class="topbar">
         ${pageTabs(INSIGHT_TABS,'reports')}
-        <select class="filter-select" data-change-action="reports.setTF">
+        <select class="filter-select" aria-label="Reporting period" data-change-action="reports.setTF">
           <option value="7d"  ${tf==='7d'?'selected':''}>Last 7 days</option>
           <option value="30d" ${tf==='30d'?'selected':''}>Last 30 days</option>
           <option value="90d" ${tf==='90d'?'selected':''}>Last 90 days</option>
           <option value="all" ${tf==='all'?'selected':''}>All time</option>
         </select>
-        <button class="btn btn-sm" data-action="reports.export">Export CSV</button>
+        <button class="btn btn-sm" data-action="reports.refresh">Refresh</button>
+        <button class="btn btn-sm" data-action="reports.export" ${!s || reportState.exporting ? 'disabled' : ''}>${reportState?.exporting ? 'Exporting…' : 'Export CSV'}</button>
         ${window.isAdmin() ? '<button type="button" class="btn btn-sm" data-action="reports.openAi">AI reply performance</button>' : ''}
       </div>
+      ${!s ? `<p class="report-note" role="${reportState?.error ? 'alert' : 'status'}">${esc(message)}</p>` : `
+      ${reportState.exportError ? `<p class="report-note" role="alert">${esc(reportState.exportError)}</p>` : ''}
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${s.total}</div><div class="kpi-l">Total tickets</div></div>
         <div class="kpi"><div class="kpi-n c-green">${s.resolutionRate}%</div><div class="kpi-l">Resolved</div></div>
         <div class="kpi"><div class="kpi-n c-amber">${s.avgCSAT?s.avgCSAT.toFixed(1):'—'}</div><div class="kpi-l">Avg CSAT</div></div>
-        <div class="kpi"><div class="kpi-n c-blue">${s.slaCompliance}%</div><div class="kpi-l">SLA compliance</div></div>
+        <div class="kpi"><div class="kpi-n c-blue">${s.slaCompliance}%</div><div class="kpi-l">Recorded SLA compliance</div></div>
         <div class="kpi"><div class="kpi-n c-purple">${window.fmtMinutes(s.timeTotal)}</div><div class="kpi-l">Time logged</div></div>
       </div>
       <div class="page-scroll">
+        <p class="report-note">Tickets created ${data.period.start ? 'from ' + esc(data.period.start.slice(0, 10)) : 'at any time'} before ${esc(new Date(data.period.end).toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }))} UTC. Ranges include today and use UTC. Deleted and merged tickets are excluded.</p>
+        <p class="report-note">Current status, latest ratings and all logged time on those tickets. Resolved and SLA percentages exclude closed tickets. Export uses the same dates with current values when downloaded.</p>
         ${renderWidgetGrid('report', 'report-grid', REPORT_WIDGETS, REPORT_LAYOUT, s)}
-      </div>
+      </div>`}
     </div>`;
 }
 
 registerActions({
+  'reports.refresh': () => { resetReport(); rerender(); },
   'reports.export': () => exportReport(),
   'reports.openAi': () => { AI_REPORT=true;renderPage('reports'); },
   'reports.closeAi': () => { AI_REPORT=false;renderPage('reports'); },
