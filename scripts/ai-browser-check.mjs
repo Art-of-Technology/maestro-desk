@@ -17,7 +17,7 @@ export default async function checkAI(page, screenshotDir) {
     requests.push({ body, headers: r.request().headers() });
     const text = body.action === 'summarize' ? JSON.stringify({ tldr: 'Summary fixture', issue: 'Issue', done: 'Done', unanswered: [], nextSteps: ['Next'] })
       : body.action === 'detect_language' ? 'French' : body.action === 'translate' ? 'Hello' : 'AI fixture reply';
-    await r.fulfill({ status: fail ? 402 : 200, contentType: 'application/json', body: JSON.stringify(fail ? { error: 'Not enough AI credit.' } : { text }) });
+    await r.fulfill({ status: fail ? 402 : 200, contentType: 'application/json', body: JSON.stringify(fail ? { error: 'Not enough AI credit.' } : { text, ...(body.replyFormat ? { internal: { references: [], notes: [] } } : {}) }) });
   });
   await page.goto('http://localhost:5173');
   await page.waitForFunction(() => typeof window.login === 'function');
@@ -76,6 +76,7 @@ export default async function checkAI(page, screenshotDir) {
   await page.locator('[id^="compose-"] .ql-editor').waitFor();
   await page.evaluate(async () => {
     const { TICKETS } = await import('/js/core/data.js');
+    (await import('/js/ai/translate.js')).setCustomerLanguage(TICKETS[0].id, 'French');
     await (await import('/js/ai/reply.js')).aiAction(TICKETS[0].id, 'draft');
   });
   check((await page.locator('[id^="compose-"] .ql-editor').innerText()).trim() === 'AI fixture reply', 'Draft must fill the composer');
@@ -87,7 +88,7 @@ export default async function checkAI(page, screenshotDir) {
     const { TICKETS } = await import('/js/core/data.js');
     await (await import('/js/ai/reply.js')).aiAction(TICKETS[0].id, 'improve');
   });
-  check(dialogs.includes('Not enough AI credit.'), 'Composer must surface credit errors');
+  check((await page.locator('[id^="reply-review-"]').innerText()).includes('Not enough AI credit.'), 'Composer must surface credit errors');
   check((await page.locator('[id^="compose-"] .ql-editor').innerText()).trim() === 'AI fixture reply', 'Failure must preserve the draft');
   page.off('dialog', onDialog);
   fail = false;
