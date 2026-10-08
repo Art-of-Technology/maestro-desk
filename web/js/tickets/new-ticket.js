@@ -365,7 +365,8 @@ function renderStep2() {
         ${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}
       </select>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+    <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn">Send without AI…</button>
       ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
       <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span>` : ''}
     </div>
@@ -400,6 +401,8 @@ function setBusy(on, label) {
   }
   const draft = document.getElementById('nt2-draft-btn');
   if (draft) draft.disabled = on;
+  const manualSend = document.getElementById('nt2-without-ai-btn');
+  if (manualSend) manualSend.disabled = on;
   document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"]')
     .forEach(el => {
       if (el.tagName === 'BUTTON') el.disabled = on;
@@ -408,12 +411,13 @@ function setBusy(on, label) {
     });
 }
 
-async function confirmSend() {
+async function confirmSend(withoutAI = false) {
   if (NT.busy) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
   if (required('message') && !msg) { alert('First message is required.'); return; }
+  if (withoutAI && msg && !window.confirm('Send without AI?\n\nYour message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.')) return;
   setBusy(true, msg ? 'Sending…' : 'Creating…');
-  await finishCreate({ message: msg, send: !!msg });
+  await finishCreate({ message: msg, send: !!msg, withoutAI });
 }
 
 async function saveAsDraft() {
@@ -438,7 +442,7 @@ async function finishCreate(args) {
   }
 }
 
-async function runCreate({ message, send }) {
+async function runCreate({ message, send, withoutAI = false }) {
   // Which path applies is a property of the SESSION, not of the pick: a real
   // workspace whose layout HIDES the Customer field leaves NT.customer null,
   // and routing that to the demo mint would silently create a ghost ticket
@@ -457,11 +461,11 @@ async function runCreate({ message, send }) {
     priority: NT.priority,
     agentUserId: NT.agentUserId,
     agentName: NT.agentName,
-    replyLanguage: NT.replyLanguage,
+    replyLanguage: withoutAI ? '' : NT.replyLanguage,
   };
   let displayId, keptDraft = false;
   if (isApiBacked) {
-    if (send && message) {
+    if (send && message && !withoutAI) {
       const prepared = await prepareCustomerReply({ autoTranslateReplies: !!snapshot.replyLanguage,
         customerLanguageManual: !!snapshot.replyLanguage, detectedCustomerLang: snapshot.replyLanguage || null }, message, null);
       if (!prepared.replyLanguage) throw new Error('Choose a reply language before sending. Your draft has been kept.');
@@ -598,6 +602,7 @@ function createDemoTicket(snap, { message, send }) {
 
 registerActions({
   'nt.clearCust': () => clearCustomer(),
+  'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
   'nt.back':      () => {
     const ta = document.getElementById('nt2-msg');

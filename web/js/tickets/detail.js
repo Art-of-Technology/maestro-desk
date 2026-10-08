@@ -665,6 +665,7 @@ export function openTicket(id) {
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
                     </div>
                   </div>
                 </div>
@@ -1220,11 +1221,11 @@ function showSentTextModal(ticketId, msgIdx) {
     null, null);
 }
 
-async function sendCompose(id) {
+async function sendCompose(id, withoutAI = false) {
   if (sendingReplies.has(id)) return false;
   sendingReplies.add(id);
   try {
-    const result = await sendComposeOnce(id);
+    const result = await sendComposeOnce(id, withoutAI);
     if (result !== false) invalidateAgentReport();
     return result;
   }
@@ -1232,7 +1233,7 @@ async function sendCompose(id) {
 }
 const sendingReplies = new Set();
 
-async function sendComposeOnce(id) {
+async function sendComposeOnce(id, withoutAI = false) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
@@ -1281,7 +1282,7 @@ async function sendComposeOnce(id) {
   let outgoingHtml = draftHtml;
   let replyLanguage = null;
   const languageChoice = JSON.stringify([t.autoTranslateReplies, t.customerLanguageManual, t.customerLanguageManual ? t.detectedCustomerLang : null]);
-  if (tab !== 'note') {
+  if (tab !== 'note' && !withoutAI) {
     setAiThinking(true);
     try {
       const res = await prepareCustomerReply(t, txt, draftHtml);
@@ -1310,6 +1311,7 @@ async function sendComposeOnce(id) {
     }
     const warnings = replyWarnings({ text: outgoing, customerName: CUSTOMERS.find(c => c.id === t.customerId)?.first,
       replyLanguage, customerLanguage: t.detectedCustomerLang, review: loadMessageReview(id) });
+    if (withoutAI) warnings.unshift('Send without AI: your message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.');
     if (warnings.length && !window.confirm(`Check before sending\n\n${warnings.join('\n\n')}\n\nSend this reply anyway?`)) return false;
     if (!stillCurrent()) return false;
   }
@@ -1512,6 +1514,7 @@ registerActions({
   'td.unmarkSpam':     (ds) => unmarkSpamContact(TICKETS.find(t => t.id === ds.ticketId)?.customerId, () => { if (CURRENT_TICKET === ds.ticketId) openTicket(ds.ticketId); }),
   'td.loadSharedAiDraft': (ds) => { if(activateSharedAiDraft(ds.ticketId))openTicket(ds.ticketId); },
   'td.send':           (ds) => sendCompose(ds.ticketId),
+  'td.sendWithoutAI':  (ds) => { hideSendMenu(ds.ticketId); return sendCompose(ds.ticketId, true); },
   'td.toggleSendMenu': (ds) => toggleSendMenu(ds.ticketId),
   'td.sendAnd':        (ds) => sendComposeAnd(ds.ticketId, ds.status),
 });
