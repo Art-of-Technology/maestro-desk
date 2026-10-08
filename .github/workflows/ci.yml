@@ -58,6 +58,11 @@ jobs:
       - name: Cross-device statistic preferences
         run: bun test scripts/stat-view-sync.test.js
 
+      - name: Cross-device widget layouts
+        run: |
+          bun test scripts/widget-layout-sync.test.js
+          bun test scripts/widget-shell.test.js
+
       - name: Workspace Insights reporting
         run: bun test scripts/insights-report.test.js
 

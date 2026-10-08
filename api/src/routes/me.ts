@@ -10,6 +10,42 @@ export const me = new Hono();
 
 me.use('*', requireAuth);
 
+const widgetIds = {
+  dash: ['today', 'recent', 'status', 'priority', 'sla', 'volume', 'csat', 'agent-load', 'personal', 'ai-tags', 'kb', 'top-customers'],
+  report: ['r-status', 'r-sla', 'r-sentiment', 'r-sentiment-trend', 'r-priority', 'r-category', 'r-agents', 'r-csat', 'r-time', 'r-language-detection'],
+};
+const WidgetScope = z.enum(['dash', 'report']);
+const WidgetIds = z.array(z.string().max(64)).max(50).refine(ids => new Set(ids).size === ids.length);
+export const WidgetLayoutPatch = z.object({
+  scope: WidgetScope,
+  layout: z.object({ order: WidgetIds, hidden: WidgetIds }).strict(),
+}).strict().refine(({ scope, layout }) => [...layout.order, ...layout.hidden].every(id => widgetIds[scope].includes(id)));
+
+me.get('/widget-layouts/:scope', async c => {
+  c.header('Cache-Control', 'no-store');
+  const scope = WidgetScope.safeParse(c.req.param('scope'));
+  if (!scope.success) return c.json({ error: 'Choose Dashboard or Insights.' }, 400);
+  const sql = getDb(), column = scope.data === 'dash' ? 'dashboard_layout' : 'report_layout';
+  const [row] = await sql`select ${sql(column)} as layout from user_preferences
+    where workspace_id = ${c.get('workspaceId')} and user_id = ${c.get('userId')}`;
+  return c.json({ layout: row?.layout ?? null });
+});
+
+me.patch('/widget-layouts', async c => {
+  c.header('Cache-Control', 'no-store');
+  const parsed = WidgetLayoutPatch.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Choose valid widgets for this page.' }, 400);
+  const { scope, layout } = parsed.data;
+  const sql = getDb(), column = scope === 'dash' ? 'dashboard_layout' : 'report_layout';
+  // A page layout is one snapshot. Updating one column preserves the other
+  // page's layout and all other preferences, including concurrent saves.
+  const [row] = await sql`insert into user_preferences(workspace_id, user_id, ${sql(column)})
+    values (${c.get('workspaceId')}, ${c.get('userId')}, ${sql.json(layout)})
+    on conflict (workspace_id, user_id) do update set ${sql(column)} = ${sql.json(layout)}
+    returning ${sql(column)} as layout`;
+  return c.json({ layout: row.layout });
+});
+
 // Keep the finite statistic IDs in sync with Dashboard and Insights selectors.
 const statFormats: Record<string, readonly string[]> = {};
 for (const id of ['dash-status', 'dash-priority', 'dash-sla', 'r-status', 'r-priority', 'r-category', 'r-sentiment', 'r-sla', 'sla-attainment'])

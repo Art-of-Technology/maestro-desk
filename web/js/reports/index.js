@@ -1,5 +1,5 @@
 // Workspace-wide Reports; chart preferences remain independent of report data.
-import { REPORT_LAYOUT, CURRENT_PAGE } from '../core/state.js';
+import { CURRENT_PAGE } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { pageTabs, INSIGHT_TABS } from '../core/page-tabs.js';
 import { downloadCSV } from '../core/csv.js';
@@ -160,7 +160,7 @@ export function renderReports() {
       <div class="page-scroll">
         <p class="report-note">Tickets created ${data.period.start ? 'from ' + esc(data.period.start.slice(0, 10)) : 'at any time'} before ${esc(new Date(data.period.end).toLocaleString('en-GB', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' }))} UTC. Ranges include today and use UTC. Deleted and merged tickets are excluded.</p>
         <p class="report-note">Current status, latest ratings and all logged time on those tickets. Resolved and SLA percentages exclude closed tickets. Export uses the same dates with current values when downloaded.</p>
-        ${renderWidgetGrid('report', 'report-grid', REPORT_WIDGETS, REPORT_LAYOUT, s)}
+        ${renderWidgetGrid('report', 'report-grid', REPORT_WIDGETS, s)}
       </div>`}
     </div>`;
 }
