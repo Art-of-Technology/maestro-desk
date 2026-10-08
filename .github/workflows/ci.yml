@@ -55,6 +55,9 @@ jobs:
       - name: Statistic formats and saved preferences
         run: bun test scripts/stat-view.test.js
 
+      - name: Cross-device statistic preferences
+        run: bun test scripts/stat-view-sync.test.js
+
       - name: Workspace Insights reporting
         run: bun test scripts/insights-report.test.js
 

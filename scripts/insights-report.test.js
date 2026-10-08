@@ -6,9 +6,10 @@ globalThis.window = {
   isAdmin: () => false, fmtMinutes: n => `${n}m`,
   escHtml: v => String(v).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'),
   addEventListener: (name, fn) => { events[name] = fn; },
+  dispatchEvent() {},
 };
 window.escAttr = window.escHtml;
-globalThis.localStorage = { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value) };
+globalThis.localStorage = { getItem: key => stored.get(key), setItem: (key, value) => stored.set(key, value), removeItem: key => stored.delete(key) };
 mock.module('../web/js/core/state.js', () => ({ CURRENT_PAGE: 'reports', REPORT_LAYOUT: {}, SESSION: { userId: 'user-a' } }));
 mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
 mock.module('../web/js/core/page-tabs.js', () => ({ pageTabs: () => '', INSIGHT_TABS: [] }));
@@ -18,7 +19,8 @@ mock.module('../web/js/reports/language-detection.js', () => ({ renderLanguageDe
 mock.module('../web/js/core/csv.js', () => ({ downloadCSV: (...args) => downloads.push(args) }));
 mock.module('../web/js/core/api-client.js', () => ({
   getWorkspaceId: () => workspace, getJwt: () => jwt,
-  apiGet: path => { requests.push(path); return new Promise((resolve, reject) => pending.push({ resolve, reject })); },
+  apiGet: path => { if (path === '/api/v1/me/stat-views') return Promise.resolve({ views: {} }); requests.push(path); return new Promise((resolve, reject) => pending.push({ resolve, reject })); },
+  apiPatch: (_path, body) => Promise.resolve({ format: body.format }),
 }));
 const { renderReports } = await import('../web/js/reports/index.js');
 const { saveStatView } = await import('../web/js/core/stat-view.js');
