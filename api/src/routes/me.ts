@@ -10,6 +10,47 @@ export const me = new Hono();
 
 me.use('*', requireAuth);
 
+// Keep the finite statistic IDs in sync with Dashboard and Insights selectors.
+const statFormats: Record<string, readonly string[]> = {};
+for (const id of ['dash-status', 'dash-priority', 'dash-sla', 'r-status', 'r-priority', 'r-category', 'r-sentiment', 'r-sla', 'sla-attainment'])
+  statFormats[id] = ['table', 'bar', 'donut'];
+for (const id of ['dash-volume', 'r-sentiment-trend', 'sla-days', 'ai-trend', 'detection-trend'])
+  statFormats[id] = ['table', 'bar', 'line'];
+for (const id of ['dash-agent-load', 'dash-top-customers', 'r-agents', 'r-csat', 'r-time', 'sla-target', 'ai-agents', 'ai-languages', 'ai-types', 'ai-problems', 'detection-reasons'])
+  statFormats[id] = ['table', 'bar'];
+
+export const StatViewPatch = z.object({
+  id: z.string().max(64),
+  format: z.enum(['table', 'bar', 'donut', 'line']),
+  only_if_missing: z.boolean().default(false),
+}).strict().refine(v => Object.hasOwn(statFormats, v.id) && statFormats[v.id].includes(v.format));
+
+me.get('/stat-views', async c => {
+  c.header('Cache-Control', 'no-store');
+  const sql = getDb();
+  const [row] = await sql`select stat_views from user_preferences
+    where workspace_id = ${c.get('workspaceId')} and user_id = ${c.get('userId')}`;
+  return c.json({ views: row?.stat_views ?? {} });
+});
+
+me.patch('/stat-views', async c => {
+  c.header('Cache-Control', 'no-store');
+  const parsed = StatViewPatch.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Choose a supported statistic and view format.' }, 400);
+  const { id, format, only_if_missing } = parsed.data;
+  const sql = getDb();
+  // One atomic key update preserves other devices' choices. Importing an old
+  // browser choice must never replace an existing server choice, even in a race.
+  const [row] = await sql`insert into user_preferences(workspace_id, user_id, stat_views)
+    values (${c.get('workspaceId')}, ${c.get('userId')}, ${sql.json({ [id]: format })})
+    on conflict (workspace_id, user_id) do update set stat_views =
+      case when ${only_if_missing} and user_preferences.stat_views ? ${id}
+        then user_preferences.stat_views
+        else user_preferences.stat_views || excluded.stat_views end
+    returning stat_views ->> ${id} as format`;
+  return c.json({ format: row.format });
+});
+
 me.get('/', async (c) => {
   const sql = getDb();
   const userId = c.get('userId');
