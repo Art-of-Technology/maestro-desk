@@ -3,13 +3,13 @@ export default async(page) => {
   const p=await page.context().newPage();
   const customerId='11111111-1111-4111-8111-111111111111';
   const ticketId='22222222-2222-4222-8222-222222222222';
-  let creates=0, sends=[], fail=false, checks=0;
+  let creates=0, sends=[], fail=false, checks=0, aiCalls=0;
   const check=(ok,message)=>{checks++;if(!ok)throw new Error(message);};
   await p.route('**/api/**',async route=>{
     const path=new URL(route.request().url()).pathname;
     const data=route.request().postDataJSON();
     let body={}; let status=200;
-    if(path.endsWith('/ai/messages')) { body=fail?{error:'Provider unavailable'}:{text:data.action==='detect_language'?'Spanish':'Su cuenta está lista.'};status=fail?502:200; }
+    if(path.endsWith('/ai/messages')) { aiCalls++; body=fail?{error:'Provider unavailable'}:{text:data.action==='detect_language'?'Spanish':'Su cuenta está lista.'};status=fail?502:200; }
     else if(path.endsWith('/tickets')&&route.request().method()==='POST') {
       creates++;status=201;body={ticket:{id:ticketId,display_id:'TK-LANG',subject:data.subject,customer_id:customerId,status_key:'open',priority_key:'normal'}};
     } else if(path.endsWith('/messages')&&route.request().method()==='POST') {
@@ -55,5 +55,16 @@ export default async(page) => {
   await p.waitForFunction(()=>!document.querySelector('[data-action="modal.confirm"]').disabled);
   check(await p.locator('#nt2-msg').inputValue()==='Su cuenta está lista.','Failed translation keeps draft');
   check(creates===1&&sends.length===1,'Failure creates and sends nothing');
+  const callsBefore = aiCalls;
+  p.once('dialog', d => d.dismiss());
+  await p.getByRole('button',{name:'Send without AI…',exact:true}).click();
+  check(creates===1&&sends.length===1,'Cancelling manual send sends nothing');
+  check(await p.locator('#nt2-msg').inputValue()==='Su cuenta está lista.','Cancelling keeps the message');
+  p.once('dialog', async d => { check(d.message().includes('header, signature and footer'),'Confirmation explains untranslated branding'); await d.accept(); });
+  await p.getByRole('button',{name:'Send without AI…',exact:true}).click();
+  await p.locator('#nt2-msg').waitFor({state:'detached'});
+  check(creates===2&&sends.length===2,'Manual send creates and sends exactly once');
+  check(!sends[1].reply_language&&sends[1].body==='Su cuenta está lista.','Manual send omits server translation');
+  check(aiCalls===callsBefore,'Manual send does not call AI');
   await p.close();return {checks};
 };

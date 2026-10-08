@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { workspaceAccessGeneration, requireAvailableWorkspace } from '../lib/workspace-access.js';
 import { bodyLimit } from 'hono/body-limit';
@@ -110,7 +110,7 @@ ai.post('/check', async (c) => {
   if (!parsed.success) return c.json({ error: 'Choose a supported AI model.' }, 400);
   try {
     await anthropic.models.retrieve(parsed.data.model, {}, { timeout: 15000, maxRetries: 0 });
-    return c.json({ connected: true, model: parsed.data.model });
+    return c.json({ connected: true, model: parsed.data.model, generation_verified: false });
   } catch {
     return c.json(
       {
@@ -122,11 +122,28 @@ ai.post('/check', async (c) => {
   }
 });
 
+// Only the model is caller-controlled. No ticket, player or workspace content
+// is sent by this check; it shares the normal credit and suspension safeguards.
+ai.post('/check-generation', async (c) => {
+  const parsed = z.object({ model: Model }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Choose a supported AI model.' }, 400);
+  const limited = await enforceRateLimit(c, {
+    name: 'ai-generation-check', by: `${c.get('workspaceId')}:${c.get('userId')}`,
+    max: 3, windowSeconds: 60, failClosed: true,
+  });
+  if (limited) return limited;
+  return generate(c, RequestBody.parse({ model: parsed.data.model, action: 'draft',
+    messages: [{ role: 'user', content: 'Reply with the word OK.' }], maxTokens: 16 }), true);
+});
+
 ai.post('/messages', async (c) => {
   const parsed = RequestBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success)
     return c.json({ error: 'Invalid AI request. Shorten the text or start a new chat.' }, 400);
-  const input = parsed.data;
+  return generate(c, parsed.data);
+});
+
+async function generate(c: Context, input: z.infer<typeof RequestBody>, connectionCheck = false) {
   const workspaceId = c.get('workspaceId');
   const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const userId = c.get('userId');
@@ -213,8 +230,10 @@ ai.post('/messages', async (c) => {
     }
     return c.json(
       {
+        code: 'workspace_credit_insufficient',
         error:
-          'Not enough AI credit for this request. Shorten the text or ask your platform administrator to add credit.',
+          connectionCheck ? 'Not enough workspace AI credit to run this test. Ask your platform administrator to add credit.'
+            : 'Not enough AI credit for this request. Shorten the text or ask your platform administrator to add credit.',
       },
       402,
     );
@@ -251,6 +270,7 @@ ai.post('/messages', async (c) => {
     if (err instanceof HTTPException) throw err;
     return c.json(
       {
+        code: 'ai_provider_failed',
         error:
           'AI could not complete the request. Try again, or ask your platform administrator to check the provider key, billing and model access.',
       },
@@ -281,7 +301,7 @@ ai.post('/messages', async (c) => {
       insert into ai_usage_log (workspace_id, ticket_id, user_id, action, model, input_tokens,
         cache_creation_input_tokens, cache_read_input_tokens, output_tokens,
         cost_usd_micro, duration_ms, request_id, outcome, failure_code)
-      values (${workspaceId}, ${input.ticketId ?? null}, ${userId}, ${input.action}, ${input.model}, ${usage.input_tokens},
+      values (${workspaceId}, ${input.ticketId ?? null}, ${userId}, ${connectionCheck ? 'connection_check' : input.action}, ${input.model}, ${usage.input_tokens},
         ${usage.cache_creation_input_tokens}, ${usage.cache_read_input_tokens}, ${usage.output_tokens},
         ${cost}, ${Date.now() - started}, ${response.id}, ${detection?.outcome ?? null}, ${detection?.failureCode ?? null})
     `;
@@ -314,6 +334,7 @@ ai.post('/messages', async (c) => {
       return c.json({ error: 'The reply could not be separated safely from internal notes. Try generating it again.' }, 502);
     }
   }
-  if (!plainText) return c.json({ error: 'AI returned no text. Please try again.' }, 502);
+  if (!plainText.trim()) return c.json({ error: 'AI returned no text. Please try again.' }, 502);
+  if (connectionCheck) return c.json({ generation_verified: true, model: input.model, cost_micro: cost, balance_micro: balance });
   return c.json({ text: plainText, model: input.model, cost_micro: cost, balance_micro: balance });
-});
+}

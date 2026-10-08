@@ -11,12 +11,13 @@ export default async function checkAI(page, screenshotDir) {
   });
   await page.route('**/api/v1/ai/status', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ configured: true, balance_micro: 5000000, player_enrichment: enrichment }) }));
   await page.route('**/api/v1/ai/check', r => r.fulfill({ status: connected ? 200 : 502, contentType: 'application/json', body: JSON.stringify(connected ? { connected: true } : { error: 'Check the provider key and model access.' }) }));
+  await page.route('**/api/v1/ai/check-generation', r => r.fulfill({ status: connected ? 200 : 502, contentType: 'application/json', body: JSON.stringify(connected ? { generation_verified: true } : { error: 'AI provider unavailable.' }) }));
   await page.route('**/api/v1/ai/messages', async r => {
     const body = r.request().postDataJSON();
     requests.push({ body, headers: r.request().headers() });
-    const text = body.action === 'summarize' ? JSON.stringify({ tldr: 'Summary fixture', issue: 'Issue', done: 'Done', next: 'Next' })
+    const text = body.action === 'summarize' ? JSON.stringify({ tldr: 'Summary fixture', issue: 'Issue', done: 'Done', unanswered: [], nextSteps: ['Next'] })
       : body.action === 'detect_language' ? 'French' : body.action === 'translate' ? 'Hello' : 'AI fixture reply';
-    await r.fulfill({ status: fail ? 402 : 200, contentType: 'application/json', body: JSON.stringify(fail ? { error: 'Not enough AI credit.' } : { text }) });
+    await r.fulfill({ status: fail ? 402 : 200, contentType: 'application/json', body: JSON.stringify(fail ? { error: 'Not enough AI credit.' } : { text, ...(body.replyFormat ? { internal: { references: [], notes: [] } } : {}) }) });
   });
   await page.goto('http://localhost:5173');
   await page.waitForFunction(() => typeof window.login === 'function');
@@ -31,7 +32,10 @@ export default async function checkAI(page, screenshotDir) {
   await page.waitForFunction(() => document.querySelector('#ai-settings-status')?.textContent.includes('$5.0000'));
   check(await page.locator('#set-ai-key').count() === 0, 'Browser key field must be removed');
   await page.locator('[data-action="settings.checkAi"]').click();
-  await page.waitForFunction(() => document.querySelector('#ai-connection-result')?.textContent.startsWith('Connected'));
+  await page.waitForFunction(() => document.querySelector('#ai-connection-result')?.textContent.includes('have not been tested'));
+  page.once('dialog', d => d.accept());
+  await page.locator('[data-action="settings.checkAiGeneration"]').click();
+  await page.waitForFunction(() => document.querySelector('#ai-connection-result')?.textContent.includes('generated a test response successfully'));
   connected = false;
   await page.locator('[data-action="settings.checkAi"]').click();
   await page.waitForFunction(() => document.querySelector('#ai-connection-result')?.textContent.includes('Check the provider'));
@@ -68,9 +72,11 @@ export default async function checkAI(page, screenshotDir) {
     const { TICKETS } = await import('/js/core/data.js');
     await (await import('/js/tickets/detail.js')).openTicket(TICKETS[0].id);
   });
+  await page.locator('[data-compose-launch][data-tab="reply"]').click();
   await page.locator('[id^="compose-"] .ql-editor').waitFor();
   await page.evaluate(async () => {
     const { TICKETS } = await import('/js/core/data.js');
+    (await import('/js/ai/translate.js')).setCustomerLanguage(TICKETS[0].id, 'French');
     await (await import('/js/ai/reply.js')).aiAction(TICKETS[0].id, 'draft');
   });
   check((await page.locator('[id^="compose-"] .ql-editor').innerText()).trim() === 'AI fixture reply', 'Draft must fill the composer');
@@ -82,7 +88,7 @@ export default async function checkAI(page, screenshotDir) {
     const { TICKETS } = await import('/js/core/data.js');
     await (await import('/js/ai/reply.js')).aiAction(TICKETS[0].id, 'improve');
   });
-  check(dialogs.includes('Not enough AI credit.'), 'Composer must surface credit errors');
+  check((await page.locator('[id^="reply-review-"]').innerText()).includes('Not enough AI credit.'), 'Composer must surface credit errors');
   check((await page.locator('[id^="compose-"] .ql-editor').innerText()).trim() === 'AI fixture reply', 'Failure must preserve the draft');
   page.off('dialog', onDialog);
   fail = false;

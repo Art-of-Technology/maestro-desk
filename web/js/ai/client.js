@@ -19,6 +19,7 @@ export function setAIModel(value) {
 
 export const getAIStatus = () => apiGet('/api/v1/ai/status');
 export const checkAIConnection = () => apiPost('/api/v1/ai/check', { model: AI_MODEL });
+export const checkAIGeneration = () => apiPost('/api/v1/ai/check-generation', { model: AI_MODEL });
 
 export async function callClaude({ system, messages, maxTokens = 1024, model, action = 'draft', sources = [], replyFormat = false, replySources = [], ticketId, replyLanguage, replyContext }) {
   const workspace = getWorkspaceId();
