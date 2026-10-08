@@ -698,6 +698,14 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 @media(max-width:600px){.customer-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-risk-heading .btn{min-height:44px}}
 /* Period reporting and the active-work summary use the existing theme tokens. */
 .report-note { margin: 10px 20px; font-size: 12px; color: var(--ink2); line-height: 1.5; }
+.insights-report-page .topbar { height: auto; min-height: 48px; flex-wrap: wrap; padding-block: 8px; }
+.insights-report-page .kpi-bar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.insights-report-page .kpi-l { white-space: normal; }
+.insights-report-page .page-scroll > .report-note { margin-inline: 0; }
+@media (max-width: 768px) {
+  .insights-report-page .kpi-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .insights-report-page .topbar .btn, .insights-report-page .topbar select { min-height: 44px; }
+}
 .report-period { flex-wrap: wrap; gap: 12px; }
 .report-period label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .report-period span { font-size: 12px; color: var(--ink2); }
