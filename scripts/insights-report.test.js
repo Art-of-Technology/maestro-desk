@@ -14,7 +14,7 @@ mock.module('../web/js/core/state.js', () => ({ CURRENT_PAGE: 'reports', REPORT_
 mock.module('../web/js/core/router.js', () => ({ renderPage() {} }));
 mock.module('../web/js/core/page-tabs.js', () => ({ pageTabs: () => '', INSIGHT_TABS: [] }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions: map => Object.assign(actions, map), registerChangeActions: map => Object.assign(changes, map) }));
-mock.module('../web/js/core/widget-shell.js', () => ({ registerWidgetCatalog() {}, renderWidgetGrid: (_scope, _id, widgets, _layout, stats) => widgets.map(w => w.render(stats)).join('') }));
+mock.module('../web/js/core/widget-shell.js', () => ({ registerWidgetCatalog() {}, renderWidgetGrid: (_scope, _id, widgets, stats) => widgets.map(w => w.render(stats)).join('') }));
 mock.module('../web/js/reports/language-detection.js', () => ({ renderLanguageDetectionFailures: () => '' }));
 mock.module('../web/js/core/csv.js', () => ({ downloadCSV: (...args) => downloads.push(args) }));
 mock.module('../web/js/core/api-client.js', () => ({

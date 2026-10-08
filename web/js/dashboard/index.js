@@ -1,5 +1,5 @@
 import { KB_ARTICLES } from '../core/data.js';
-import { CURRENT_PAGE, DASH_LAYOUT, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
+import { CURRENT_PAGE, SESSION, setAgentSelected, setCustomerSelected, setKbSelected } from '../core/state.js';
 import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { renderWidgetGrid, registerWidgetCatalog } from '../core/widget-shell.js';
 import { renderStatView } from '../core/stat-view.js';
@@ -108,7 +108,7 @@ export function renderDashboard() {
     </div>
     ${validation ? `<p role="alert" class="report-note">${esc(validation)}</p>` : !authenticated ? '<p class="report-note">Sign in to see date-based workspace reporting.</p>' : reportState.error ? `<p role="alert" class="report-note">${esc(reportState.error)} <button class="btn" data-action="dash.refresh">Retry</button></p>` : !data ? '<p role="status" class="report-note">Loading totals for this period…</p>' : `
       <div class="kpi-bar report-kpis">${metric(data.created, 'Created')}${metric(data.resolved, 'Resolved')}${metric(data.closed, 'Closed')}${metric(data.replies, 'Replies sent')}</div>
-      <div class="page-scroll"><p class="report-note">Counts use creation, latest resolution, latest closure, or reply dates. Resolved and closed totals include tickets still in that status. Deleted and merged tickets are excluded.</p>${renderWidgetGrid('dash', 'dash-grid-12', DASH_WIDGETS, DASH_LAYOUT, data)}</div>`}
+      <div class="page-scroll"><p class="report-note">Counts use creation, latest resolution, latest closure, or reply dates. Resolved and closed totals include tickets still in that status. Deleted and merged tickets are excluded.</p>${renderWidgetGrid('dash', 'dash-grid-12', DASH_WIDGETS, data)}</div>`}
     </div>`;
 }
 registerWidgetCatalog('dash', DASH_WIDGETS, DEFAULT_DASH_LAYOUT);
