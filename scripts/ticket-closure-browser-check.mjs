@@ -41,12 +41,7 @@ export default async function checkTicketClosure(page, screenshotDir) {
   await page.setViewportSize({ width: 1280, height: 900 });
   check(await page.locator('.closure-note').innerText() === 'Unsolicited <advert>', 'Closure note must render as text');
   if (screenshotDir) await page.screenshot({ path: `${screenshotDir}/respovia-closure-detail.png` });
-  const stats = await page.evaluate(async () => {
-    const { TICKETS } = await import('/js/core/data.js');
-    const { computeReportStats } = await import('/js/reports/index.js');
-    return computeReportStats([TICKETS[0], { status: 'resolved', sla: 'ok' }]);
-  });
-  check(stats.resolved === 1 && stats.resolutionRate === 100 && stats.slaCompliance === 100, 'Administrative closures must not distort resolution or SLA rates');
+  // Report denominators now run on the server; covered by insights-report.test.ts.
   await page.getByRole('button', { name: 'Reopen', exact: true }).click();
   check((await state()).tickets[0].status === 'open', 'Reopen must restore active status');
 
