@@ -6,12 +6,14 @@ const calls = [];
 globalThis.window = globalThis;
 globalThis.window.escHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;');
 globalThis.window.escAttr = globalThis.window.escHtml;
-globalThis.document = { body: { dataset: { currentPage: 'not-reports' } } };
+globalThis.document = { body: { dataset: { currentPage: 'not-reports' } }, querySelectorAll: () => [] };
 
 mock.module('../web/js/core/api-client.js', () => ({
   getJwt: () => 'fixture-token',
   getWorkspaceId: () => 'fixture-workspace',
+  apiPatch: async (_path, body) => ({ format: body.format }),
   apiGet: async path => {
+    if (path === '/api/v1/me/stat-views') return { views: {} };
     calls.push(path);
     return {
       range: '30d',

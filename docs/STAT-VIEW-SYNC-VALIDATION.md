@@ -25,6 +25,9 @@ preferences remain local. No dependencies or realtime infrastructure were added.
   failed-save retry changing to a newer selection.
 - Four existing statistic format tests, five Insights reporting tests and four
   guide tests passed. CI runs the new sync test file separately to isolate mocks.
+- All 58 frontend Bun test command groups from CI passed locally. The first PR
+  CI run exposed missing preference API exports in two report-test mocks; both
+  fixtures now provide the new API contract while preserving report assertions.
 - Frontend build, bridge/import checks, 24 routes and seven ticket details passed.
 - Chrome fixture used the actual native modules and controls with an in-memory
   HTTP API. `localhost` and `127.0.0.1` supplied separate browser storage origins;
