@@ -23,6 +23,14 @@ test('outgoing email keeps its To recipients', () => {
   expect(html).not.toContain('Received via');
 });
 
+test('details collapse and recipient count follow the displayed addresses', () => {
+  const email = { from: 'sender@example.test', to: ['one@example.test', 'two@example.test', 'three@example.test'],
+    cc: ['copy@example.test'], received_via: 'support@example.test' };
+  expect(renderEmailDetails({ email: { ...email, status: 'received' } })).not.toContain('<details>');
+  expect(renderEmailDetails({ email: { ...email, status: 'sent' } })).toContain('Email details · 4 recipients');
+  expect(renderEmailDetails({ email: { ...email, status: 'received', cc: [...email.to, ...email.cc] } })).toContain('Email details · 4 recipients');
+});
+
 test('missing inbox is labelled and incoming values stay escaped', () => {
   const html = renderEmailDetails({ email: { status: 'received', from: '<sender>', to: [] } });
   expect(html).toContain('Inbox not recorded');
