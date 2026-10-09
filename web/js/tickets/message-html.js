@@ -144,14 +144,32 @@ export function renderMessageBody(m, ticketId, idx, fallbackHtml) {
 }
 
 let disposeSizing = () => {};
+const pendingScroll = new WeakMap();
+
+export function captureMessageScroll(root) {
+  if (!root?.children?.length) return null;
+  // Draft/detail refreshes can replace the thread before its frames finish loading.
+  if (pendingScroll.has(root)) return pendingScroll.get(root);
+  if (root.scrollHeight - root.clientHeight - root.scrollTop < 40) return 'bottom';
+  const top = root.getBoundingClientRect().top;
+  const index = [...root.children].findIndex(el => el.getBoundingClientRect().bottom > top);
+  return index < 0 ? null : { index, offset: root.children[index].getBoundingClientRect().top - top };
+}
+
+export function restoreMessageScroll(root, position = null) {
+  if (position === 'bottom') { root.scrollTop = root.scrollHeight; return; }
+  const message = position === null ? root.lastElementChild : root.children[position.index];
+  if (message) root.scrollTop += message.getBoundingClientRect().top - root.getBoundingClientRect().top - (position?.offset || 0);
+}
 
 // The thread owns vertical scrolling. Size frames to their intrinsic content,
 // including late images and width changes, rather than capping long emails.
-export function sizeMessageFrames(root, initialScrollTop = null) {
+export function sizeMessageFrames(root, initialPosition = null) {
   disposeSizing();
   if (!root?.querySelectorAll || !root.isConnected) return;
   const frames = [...root.querySelectorAll('iframe[data-msg-frame]')];
   if (!frames.length) return;
+  pendingScroll.set(root, initialPosition);
   const observers = new Map();
   const loaded = new Set();
   const settled = new Set();
@@ -159,7 +177,7 @@ export function sizeMessageFrames(root, initialScrollTop = null) {
   let disposed = false;
   let scheduled = 0;
 
-  const userReading = () => { restoreInitial = false; };
+  const userReading = () => { restoreInitial = false; pendingScroll.delete(root); };
   const fit = () => {
     scheduled = 0;
     if (disposed || !root.isConnected) return;
@@ -181,8 +199,8 @@ export function sizeMessageFrames(root, initialScrollTop = null) {
       } catch { /* a followed link can make a frame cross-origin */ }
     }
     if (restoreInitial) {
-      root.scrollTop = initialScrollTop === null ? root.scrollHeight : initialScrollTop;
-      if (settled.size === frames.length) restoreInitial = false;
+      restoreMessageScroll(root, initialPosition);
+      if (settled.size === frames.length) userReading();
     } else if (changed) {
       if (pinned) root.scrollTop = root.scrollHeight;
       else if (anchor?.isConnected) root.scrollTop += anchor.getBoundingClientRect().top - anchorTop;
@@ -244,6 +262,7 @@ export function sizeMessageFrames(root, initialScrollTop = null) {
   const removal = new MutationObserver(() => { if (!root.isConnected) cleanup(); });
   const cleanup = () => {
     disposed = true;
+    pendingScroll.delete(root);
     cancelAnimationFrame(scheduled);
     removal.disconnect();
     observers.forEach(observer => observer.disconnect());

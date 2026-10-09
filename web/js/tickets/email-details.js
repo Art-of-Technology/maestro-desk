@@ -18,7 +18,7 @@ export function renderEmailDetails(message) {
   const esc = window.escHtml;
   const row = (label, value) => value ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
   const recipients = [...(e.to || []), ...(e.cc || [])];
-  const fields = row('From', e.from) + row('To', (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
+  const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')
     + row('Sent by sender', e.status === 'received' ? emailDate(e.sent_at) : '');
