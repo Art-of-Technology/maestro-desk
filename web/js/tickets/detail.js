@@ -73,7 +73,7 @@ import {
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
-import { enableRemoteImages, renderMessageBody, sizeMessageFrames } from './message-html.js';
+import { enableRemoteImages, renderMessageBody, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
 import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
@@ -145,6 +145,7 @@ function renderTicketCustomer(cust) {
               <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
             </div>
             <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
+            ${/^https?:\/\//i.test(cust.bo || '') ? `<div class="ts-row"><span class="ts-key">Backoffice</span><span class="ts-val"><a href="${window.escAttr(cust.bo)}" target="_blank" rel="noopener noreferrer">Open in backoffice ↗</a></span></div>` : ''}
             <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${window.escAttr((cust.vip || '').toLowerCase())}">${window.escHtml(cust.vip)}</span></div>
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
 }
@@ -520,16 +521,9 @@ export function openTicket(id) {
     </div>` : '';
 
   const main = document.getElementById('main-area');
-  // Preserve the reader's place across in-place re-renders (openTicket is also
-  // the re-render path for tag/status edits, presence repaints, async loads,
-  // etc.). main.innerHTML below rebuilds a fresh .thread scrolled to the top,
-  // so capture the outgoing thread's position first: keep it only if the same
-  // ticket was already open AND scrolled up from the bottom; otherwise (a fresh
-  // open, or already pinned to the newest message) we jump to the latest reply.
+  // Capture the message and offset, since HTML email heights change while loading.
   const prevThread = document.getElementById('thread-' + id);
-  const keepScroll = prevThread &&
-    (prevThread.scrollHeight - prevThread.scrollTop - prevThread.clientHeight > 40)
-      ? prevThread.scrollTop : null;
+  const keepScroll = captureMessageScroll(prevThread);
   const currentTicketUrl = ticketUrl(t.id);
   main.innerHTML = `
     <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}">
@@ -746,11 +740,10 @@ export function openTicket(id) {
     });
   }
 
-  // Show the most recent reply on open: scroll to the bottom, unless we're
-  // restoring a scrolled-up reader's position from an in-place re-render.
+  // Fresh opens start at the newest message; refreshes retain the reader's place.
   const thread = document.getElementById('thread-' + id);
   if (thread) {
-    thread.scrollTop = keepScroll === null ? thread.scrollHeight : keepScroll;
+    restoreMessageScroll(thread, keepScroll);
     sizeMessageFrames(thread, keepScroll);
   }
 
