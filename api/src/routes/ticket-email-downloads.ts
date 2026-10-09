@@ -49,7 +49,7 @@ ticketEmailDownloads.get('/:id/emails/download', async c => {
     await sql`select assert_ticket_content(${ws}::uuid,${ticketIds}::uuid[])`;
     let selectedId: string | null = null;
     if (messageId) {
-      const [selected] = await sql<ExportEmail[]>`select m.id,m.role,m.author_label,m.body,m.email_metadata,m.merged_from_id
+      const [selected] = await sql<Pick<ExportEmail, 'id' | 'role' | 'author_label' | 'body' | 'email_metadata' | 'merged_from_id'>[]>`select m.id,m.role,m.author_label,m.body,m.email_metadata,m.merged_from_id
         from ticket_messages m where m.workspace_id=${ws} and m.ticket_id=${id.data} and m.id=${messageId} and m.deleted_at is null`;
       if (!selected) throw new HTTPException(404, { message: 'Email not found.' });
       selectedId = selected.id;
