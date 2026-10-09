@@ -107,7 +107,11 @@ async function emailPdf(emails: ExportEmail[], files: ExportAttachment[]): Promi
     if (++pages > 500) throw new HTTPException(413, { message: 'This PDF exceeds 500 pages. Choose Email (.eml) or download individual emails.' });
   });
   const completed = new Promise<Buffer>((resolve, reject) => {
-    doc.on('data', (chunk: Buffer) => { bytes += chunk.length; if (bytes > MAX_EXPORT_BYTES) doc.destroy(new Error('PDF too large')); else chunks.push(chunk); });
+    doc.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_EXPORT_BYTES) doc.destroy(new HTTPException(413, { message: 'This PDF exceeds 50 MB. Choose Email (.eml) or download individual emails.' }));
+      else chunks.push(chunk);
+    });
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', reject);
   });
