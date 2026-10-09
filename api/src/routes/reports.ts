@@ -99,7 +99,7 @@ reports.get('/sla-breaches', async (c) => {
       select min(tm.created_at) as first_agent_reply_at
       from ticket_messages tm
       where tm.ticket_id = t.id
-        and tm.role in ('agent', 'ai')
+        and tm.role in ('agent', 'ai') and cardinality(tm.forwarded_from_ticket_ids)=0
         and tm.deleted_at is null
         and tm.merged_from_id is null
         and tm.created_at >= fc.first_customer_at

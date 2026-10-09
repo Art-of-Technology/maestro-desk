@@ -114,7 +114,7 @@ export async function sendBrandedEmail(args: SendBrandedEmailArgs): Promise<Send
     });
 
     try {
-      const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail: platformFrom, fromName }), generation);
+      const result = await sendWhileWorkspaceAvailable(workspaceId, () => sendEmail({ ...mail, fromEmail: platformFrom, fromName }), generation, privacy);
       return { ...result, fromEmail: platformFrom, usedFallbackFrom: true };
     } catch (retryErr) {
       // The fallback resend can hit the same wall: the PLATFORM signature is

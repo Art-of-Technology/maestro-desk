@@ -52,7 +52,7 @@ export function ticketFirstResponseMinutes(t) {
   const firstCust = msgs.find(m => m.r === 'customer');
   if (!firstCust) return null;
   const idx = msgs.indexOf(firstCust);
-  const firstAgent = msgs.find((m, i) => i > idx && (m.r === 'agent' || m.r === 'ai'));
+  const firstAgent = msgs.find((m, i) => i > idx && !m.forwarded && (m.r === 'agent' || m.r === 'ai'));
   if (!firstAgent) return null;
   const a = (firstCust.ts || '').match(/^(\d+):(\d+)/);
   const b = (firstAgent.ts || '').match(/^(\d+):(\d+)/);

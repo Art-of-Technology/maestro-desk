@@ -285,8 +285,8 @@ export async function processInboundEmail(args: {
   //     creating a new one. Match against any role; skip a soft-deleted parent
   //     ticket so the reply still surfaces via the normal create flow.
   if (inReplyTo) {
-    const [t] = await sql<{ id: string; workspace_id: string; display_id: string; customer_id: string }[]>`
-      select t.id, t.workspace_id, t.display_id, t.customer_id
+    const [t] = await sql<{ id: string; workspace_id: string; display_id: string; customer_id: string; forwarded: boolean }[]>`
+      select t.id, t.workspace_id, t.display_id, t.customer_id, cardinality(tm.forwarded_from_ticket_ids)>0 as forwarded
       from ticket_messages tm
       join tickets t on t.id = tm.ticket_id
       where tm.external_message_id = ${inReplyTo}
@@ -295,7 +295,7 @@ export async function processInboundEmail(args: {
       order by tm.created_at desc
       limit 1
     `;
-    if (t && await workspaceAvailable(t.workspace_id)) {
+    if (t && !t.forwarded && await workspaceAvailable(t.workspace_id)) {
       const attached = await attachReplyToTicket({
         workspaceId: t.workspace_id, ticketId: t.id, ticketDisplayId: t.display_id,
         customerId: t.customer_id, body, name, email,

@@ -21,6 +21,7 @@ export interface ExportEmail {
   subject: string;
   merged_from_id: string | null;
   sent_email?: SentEmail | null;
+  forwarded_from_ticket_ids?: string[];
 }
 
 export function isExportableEmail(m: Pick<ExportEmail, 'role' | 'email_metadata' | 'external_message_id'>): boolean {

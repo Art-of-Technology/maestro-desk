@@ -56,6 +56,7 @@ import {
   mentionDropdownKey,
 } from './mentions.js';
 import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import './email-forward.js';
 import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
   hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave,
@@ -470,7 +471,7 @@ export function openTicket(id) {
       ${renderEmailDetails(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
-      ${t._uuid && !t.mergedInto && m._uuid && m.downloadableEmail ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Download email</button>` : ''}
+      ${t._uuid && !t.mergedInto && m._uuid && m.downloadableEmail ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Download email</button><button type="button" class="btn btn-sm" data-action="emailForward.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Forward</button>` : ''}
       ${m.r === 'note' ? '' : bodyNote}
       ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="td.noteHistory" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">View edit history</button>` : ''}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}

@@ -44,7 +44,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'ticket_messages.sent_email', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'reply_internal_reviews'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'ticket_messages.sent_email', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'forwarded_message_copies', 'reply_internal_reviews'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -135,7 +135,7 @@ export async function eraseCustomer(args: {
     // derived output there, but preserve its own correspondence and identity.
     const copiedTargets = ticketIds.length ? await sql<{ id: string }[]>`
       select distinct ticket_id as id from ticket_messages where workspace_id=${workspaceId}
-        and merged_from_id in ${sql(ticketIds)}` : [];
+        and (merged_from_id in ${sql(ticketIds)} or forwarded_from_ticket_ids && ${ticketIds}::uuid[])` : [];
     const affectedIds = [...new Set([...ticketIds,...copiedTargets.map(t => t.id)])];
     if (affectedIds.length) {
       await sql`update tickets set ai_summary=null,ai_draft_reply=null,privacy_generation=privacy_generation+1
@@ -170,10 +170,15 @@ export async function eraseCustomer(args: {
       await sql`delete from reply_internal_reviews r using ticket_messages m
         where r.message_id=m.id and r.workspace_id=${workspaceId}
           and m.workspace_id=${workspaceId} and m.ticket_id in ${sql(ticketIds)}`;
+      const forwardFiles = await sql<{storage_key:string}[]>`delete from ticket_attachments a using ticket_messages m
+        where a.workspace_id=${workspaceId} and m.workspace_id=a.workspace_id and a.message_id=m.id
+          and m.forwarded_from_ticket_ids && ${ticketIds}::uuid[] and m.ticket_id not in ${sql(ticketIds)}
+        returning a.storage_key`;
+      attachmentKeys.push(...forwardFiles.map(a=>a.storage_key));
       // Copied messages and their cascading reviews/revisions belong to the
       // source subject; removing them leaves the destination owner's messages.
       await sql`delete from ticket_messages where workspace_id=${workspaceId}
-        and merged_from_id in ${sql(ticketIds)} and ticket_id not in ${sql(ticketIds)}`;
+        and (merged_from_id in ${sql(ticketIds)} or forwarded_from_ticket_ids && ${ticketIds}::uuid[]) and ticket_id not in ${sql(ticketIds)}`;
       await sql`delete from ticket_tags where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)}`;
       await sql`update time_entries set note=null where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)}`;
       const msgs = await sql`
@@ -212,8 +217,8 @@ export async function eraseCustomer(args: {
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
         returning storage_key
       `;
-      attachmentKeys = [...new Set(atts.map((a) => a.storage_key))];
-      attachmentsDeleted = atts.length;
+      attachmentKeys = [...new Set([...attachmentKeys,...atts.map((a) => a.storage_key)])];
+      attachmentsDeleted = atts.length + forwardFiles.length;
       await enqueueObjectDeletions(sql, attachmentKeys, 'erasure');
     }
 
