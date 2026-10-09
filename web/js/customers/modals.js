@@ -8,7 +8,8 @@
 
 import { CUSTOMERS } from '../core/data.js';
 import { showModal, closeModal } from '../core/modal.js';
-import { renderPage } from '../core/router.js';
+import { nav, renderPage } from '../core/router.js';
+import { setCustomerSelected } from '../core/state.js';
 import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { applyCustomerRow } from '../core/bootstrap.js';
 
@@ -26,7 +27,11 @@ export function openCustomerModal(custId) {
     <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${esc(vipRaw.toLowerCase())}">${esc(vipRaw)}</span></div>
     <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${esc(c.jurisdiction || '')}</span></div>
     <div class="ts-row"><span class="ts-key">Customer since</span><span class="ts-val">${esc(c.since || '')}</span></div>
-  `, null, null);
+  `, () => {
+    closeModal();
+    setCustomerSelected(custId);
+    nav('customers');
+  }, 'View full profile');
 }
 
 export function showCSVModal() {

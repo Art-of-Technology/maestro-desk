@@ -49,6 +49,9 @@ jobs:
       - name: URL destination tests
         run: bun test scripts/route-location.test.js scripts/url-navigation.test.js
 
+      - name: Customer profile ticket history
+        run: bun test scripts/customer-history.test.js
+
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 
