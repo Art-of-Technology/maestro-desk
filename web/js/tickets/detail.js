@@ -94,6 +94,7 @@ import {
   setTicketChangedCallback,
 } from '../core/presence.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
+import './email-download.js';
 
 // Live-sync hook: presence reports the server's tickets.updated_at on
 // every heartbeat. When it moves (because another agent replied, tagged,
@@ -469,6 +470,7 @@ export function openTicket(id) {
       ${renderEmailDetails(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
+      ${t._uuid && !t.mergedInto && m._uuid && m.downloadableEmail ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Download email</button>` : ''}
       ${m.r === 'note' ? '' : bodyNote}
       ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="td.noteHistory" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">View edit history</button>` : ''}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
@@ -541,6 +543,7 @@ export function openTicket(id) {
             <details class="ticket-popover ticket-more">
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
+            ${t._uuid && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}">Download thread</button>` : ''}
             ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
             ${!t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam">Mark as spam</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
@@ -1358,6 +1361,7 @@ async function sendComposeOnce(id, withoutAI = false) {
       _uuid: message.id,
       createdAt: message.created_at,
       email: message.email_metadata || null,
+      downloadableEmail: message.email_metadata?.status === 'sent',
       from: message.author_label,
       r: message.role,
       t: message.body,
