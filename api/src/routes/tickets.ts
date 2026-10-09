@@ -1,6 +1,8 @@
 import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
+import { ticketEmailDownloads } from './ticket-email-downloads.js';
+import { isExportableEmail } from '../lib/email-export.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
@@ -76,6 +78,7 @@ tickets.use('*', async (c, next) => {
 });
 
 tickets.route('/', messageDrafts);
+tickets.route('/', ticketEmailDownloads);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -262,8 +265,8 @@ tickets.get('/:id', async (c) => {
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
   const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity, aiDraftRows] = await Promise.all([
-    sql<{ id: string; body_html: string | null }[]>`
-        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata,
+    sql<{ id: string; role: string; body_html: string | null; merged_from_id: string | null; external_message_id: string | null; email_metadata: { status?: string } | null }[]>`
+        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata, m.external_message_id,
           r.review as internal_review
         from ticket_messages m left join reply_internal_reviews r
           on r.message_id=m.id and r.workspace_id=m.workspace_id
@@ -304,7 +307,8 @@ tickets.get('/:id', async (c) => {
       csat_send_claim: undefined,
       csat_send_started_at: undefined,
       reply_recipients: await ticketReplyRecipients(workspaceId, ticketId),
-      messages:     decorateMessages(msgs, attachmentsByMsg),
+      messages:     decorateMessages(msgs.map(m => ({ ...m, downloadable_email: isExportableEmail(m)
+        || Boolean(m.merged_from_id && ['customer', 'agent', 'ai'].includes(m.role) && !m.email_metadata?.status) })), attachmentsByMsg),
       tags:         tags.map((r: any) => r.tag),
       ai_tags:      aiTags,
       activity,

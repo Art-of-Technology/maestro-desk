@@ -670,6 +670,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     ts:         fmtTime(m.created_at),
     createdAt: m.created_at,
     email: m.email_metadata || null,
+    downloadableEmail: m.downloadable_email === true,
     mentions:   m.mentions || [],
     sentiment:  m.sentiment || null,
     mergedFrom: m.merged_from_id ? (ticketByUuid[m.merged_from_id] || null) : undefined,
