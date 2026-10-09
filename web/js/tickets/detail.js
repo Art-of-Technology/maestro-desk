@@ -145,6 +145,7 @@ function renderTicketCustomer(cust) {
               <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
             </div>
             <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
+            ${/^https?:\/\//i.test(cust.bo || '') ? `<div class="ts-row"><span class="ts-key">Backoffice</span><span class="ts-val"><a href="${window.escAttr(cust.bo)}" target="_blank" rel="noopener noreferrer">Open in backoffice ↗</a></span></div>` : ''}
             <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${window.escAttr((cust.vip || '').toLowerCase())}">${window.escHtml(cust.vip)}</span></div>
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
 }
