@@ -128,7 +128,7 @@ export async function exportCustomer(args: {
   const messages = ticketIds.length
     ? await sql<Record<string, unknown>[]>`
         select case when ticket_id in ${sql(ticketIds)} then ticket_id else merged_from_id end as ticket_id,
-          role, author_label, body, body_html, email_metadata, created_at, deleted_at, merged_from_id
+          role, author_label, body, body_html, email_metadata, sent_email, created_at, deleted_at, merged_from_id
         from ticket_messages
         where workspace_id = ${workspaceId} and (ticket_id in ${sql(ticketIds)} or merged_from_id in ${sql(ticketIds)})
         order by created_at asc

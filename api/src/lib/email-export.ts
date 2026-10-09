@@ -1,7 +1,8 @@
-import PDFDocument from 'pdfkit';
+import { emailPdf, type EmailPdfOptions } from './email-pdf.js';
+import type { SentEmail } from './sent-email.js';
 import MailComposer from 'nodemailer/lib/mail-composer/index.js';
 import { zipSync } from 'fflate';
-import { fileURLToPath } from 'node:url';
+
 import { HTTPException } from 'hono/http-exception';
 import { sanitizeEmailHtml } from './email-html.js';
 import { htmlToText } from './html-text.js';
@@ -19,6 +20,7 @@ export interface ExportEmail {
   created_at: Date | string;
   subject: string;
   merged_from_id: string | null;
+  sent_email?: SentEmail | null;
 }
 
 export function isExportableEmail(m: Pick<ExportEmail, 'role' | 'email_metadata' | 'external_message_id'>): boolean {
@@ -49,13 +51,15 @@ export type ExportAttachment = AttachmentRow & { ticket_id: string };
 export async function buildEmailDownload(
   emails: ExportEmail[], attachments: ExportAttachment[], format: 'pdf' | 'eml', single: boolean,
   readFile: (key: string) => Promise<Uint8Array>,
+  pdfOptions: EmailPdfOptions = {},
 ): Promise<Uint8Array> {
   if (emails.length > MAX_EXPORT_MESSAGES) throw new HTTPException(413, { message: 'This thread has more than 500 emails. Download individual emails instead.' });
+  emails = emails.map(m => m.sent_email ? { ...m, subject: m.sent_email.subject, body: m.sent_email.text, body_html: m.sent_email.html } : m);
   let size = emails.reduce((n, m) => n + Buffer.byteLength(m.body || '') + Buffer.byteLength(m.body_html || ''), 0);
   checkExportSize(size);
   // Never trust unrelated/draft attachment rows supplied by a caller.
   const files = attachments.filter(a => emails.some(m => m.id === a.message_id && m.ticket_id === a.ticket_id));
-  if (format === 'pdf') return emailPdf(emails, files);
+  if (format === 'pdf') return emailPdf(emails, files, readFile, pdfOptions);
   checkExportSize(size + files.reduce((n, a) => n + (a.size_bytes || 0), 0));
   const entries: Record<string, Uint8Array> = {};
   for (const [index, m] of emails.entries()) {
@@ -92,60 +96,4 @@ export async function buildEmailDownload(
   const bytes = zipSync(entries, { level: 0 });
   checkExportSize(bytes.byteLength);
   return bytes;
-}
-
-const fontPath = fileURLToPath(new URL('../assets/fonts/NotoSans-Regular.ttf', import.meta.url));
-async function emailPdf(emails: ExportEmail[], files: ExportAttachment[]): Promise<Uint8Array> {
-  if (emails.reduce((n, m) => n + (m.body?.length || m.body_html?.length || 0), 0) > 1_000_000) {
-    throw new HTTPException(413, { message: 'This PDF would be too large. Choose Email (.eml) or download individual emails.' });
-  }
-  const doc = new PDFDocument({ size: 'A4', margin: 48, info: { Title: 'Ticket emails', Author: 'Respovia' } });
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  let pages = 1;
-  doc.on('pageAdded', () => {
-    if (++pages > 500) throw new HTTPException(413, { message: 'This PDF exceeds 500 pages. Choose Email (.eml) or download individual emails.' });
-  });
-  const completed = new Promise<Buffer>((resolve, reject) => {
-    doc.on('data', (chunk: Buffer) => {
-      bytes += chunk.length;
-      if (bytes > MAX_EXPORT_BYTES) doc.destroy(new HTTPException(413, { message: 'This PDF exceeds 50 MB. Choose Email (.eml) or download individual emails.' }));
-      else chunks.push(chunk);
-    });
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-  });
-  // Attach the rejection handler before rendering can fail synchronously.
-  void completed.catch(() => {});
-  try {
-    doc.font(fontPath);
-    function text(value: string, size = 10) {
-      value = value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-      // PDFKit otherwise silently writes missing glyphs. Offer the lossless
-      // email format when this bundled font cannot represent a script/emoji.
-      const font = (doc as unknown as { _font: { font: { hasGlyphForCodePoint: (cp: number) => boolean } } })._font.font;
-      if ([...value].some(char => !/\s/.test(char) && !font.hasGlyphForCodePoint(char.codePointAt(0)!))) {
-        throw new HTTPException(422, { message: 'Some characters cannot be displayed in PDF. Choose Email (.eml) to keep the full content.' });
-      }
-      doc.fontSize(size).text(value, { lineGap: 3 });
-    }
-    text(emails.length === 1 ? 'Ticket email' : 'Ticket email thread', 20);
-    doc.moveDown(0.5);
-    text('Saved email content. Original transport headers are not retained. Attachments are listed below; choose Email (.eml) to download the files.', 9);
-    for (const [i, m] of emails.entries()) {
-      if (i) doc.addPage(); else doc.moveDown(1.5);
-      text(m.subject || '(No subject)', 15);
-      doc.moveDown(0.5);
-      text(`From: ${m.email_metadata?.from || `${m.author_label || 'Unknown'} (address not saved)`}`);
-      text(`To: ${m.email_metadata?.to?.join(', ') || 'Not saved'}`);
-      if (m.email_metadata?.cc?.length) text(`Cc: ${m.email_metadata.cc.join(', ')}`);
-      text(`Date: ${emailDate(m).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}`);
-      doc.moveDown();
-      text(m.body || htmlToText(m.body_html || '') || '(No text content saved)');
-      const attached = files.filter(a => a.message_id === m.id);
-      if (attached.length) { doc.moveDown(); text('Attachments', 11); for (const a of attached) text(a.filename); }
-    }
-    doc.end();
-    return await completed;
-  } catch (error) { doc.destroy(); throw error; }
 }

@@ -1,4 +1,5 @@
 import { safeError } from './diagnostics.js';
+import { sentEmailContent } from './sent-email.js';
 import type { TriageOutput } from './triage.js';
 import { getDb } from './db.js';
 import { availableTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
@@ -207,6 +208,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
 
   let postmarkMessageId: string;
   let rfcMessageId: string;
+  let emailMetadata: { from: string; to: string[]; status: string; sent_at: string };
   try {
     const result = await sendBrandedEmail({
       accessGeneration: args.accessGeneration,
@@ -222,6 +224,7 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
     });
     postmarkMessageId = result.messageId;
     rfcMessageId = result.rfcMessageId;
+    emailMetadata = { from: result.fromEmail, to: [sendContext.customerEmail], status: 'sent', sent_at: result.submittedAt };
   } catch (err) {
     if (err instanceof PostmarkNotConfiguredError) {
       return { posted: false, reason: 'postmark_not_configured' };
@@ -239,8 +242,9 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   //    as customer inbound messages — so In-Reply-To matching on a reply
   //    finds this row exactly.
   const [msg] = await sql<{ id: string }[]>`
-    insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, external_message_id)
-    values (${workspaceId}, ${ticketId}, 'ai', null, ${workspaceName}, ${draftReply}, ${rfcMessageId})
+    insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, external_message_id, sent_email, email_metadata)
+    values (${workspaceId}, ${ticketId}, 'ai', null, ${workspaceName}, ${draftReply}, ${rfcMessageId},
+      ${sql.json(sentEmailContent(composed, replySubject(sendContext.subject)))}, ${sql.json(emailMetadata)})
     returning id
   `;
   if (!msg) throw new Error('Auto-reply message insert failed');

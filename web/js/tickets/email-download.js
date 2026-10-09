@@ -18,8 +18,12 @@ function openDownload(ticketId, messageId) {
         <option value="eml">${single ? 'Email (.eml)' : 'Emails (.eml files in a ZIP)'}</option>
       </select>
     </div>
-    <p class="form-row">PDF includes the email text and attachment names. Email files include saved formatting and attachments.</p>
-    <p class="form-row">Downloads use saved content in its original language. Some older emails have incomplete sender or recipient details.</p>
+    <p class="form-row">PDF keeps the saved email layout and inline images. Email files also include downloadable attachments.</p>
+    <div class="form-row" id="email-download-images">
+      <label><input id="email-download-remote" type="checkbox"> Include remote images in PDF</label>
+      <p>Loads images from external websites, which may notify the sender. Saved inline images and your brand logo are included automatically.</p>
+    </div>
+    <p class="form-row">Older emails may have missing branding, images or sender details. Unavailable fonts use a similar font.</p>
     <p id="email-download-error" role="alert"></p>`, async () => {
     if (pending || !current()) return;
     pending = true;
@@ -31,6 +35,7 @@ function openDownload(ticketId, messageId) {
     error.textContent = '';
     try {
       const query = new URLSearchParams({ format });
+      if (format === 'pdf') query.set('remoteImages', String(document.getElementById('email-download-remote').checked));
       if (messageId) query.set('messageId', messageId);
       const blob = await apiGet(`/api/v1/tickets/${encodeURIComponent(ticket._uuid)}/emails/download?${query}`, { blob: true });
       if (!current()) return;
@@ -52,6 +57,7 @@ function openDownload(ticketId, messageId) {
     }
   }, 'Download');
   const select = document.getElementById('email-download-format');
+  select.addEventListener('change', () => { document.getElementById('email-download-images').hidden = select.value !== 'pdf'; });
   function current() {
     return select.isConnected && getJwt() === jwt && getWorkspaceId() === workspace;
   }

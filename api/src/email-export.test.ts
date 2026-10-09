@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import PostalMime from 'postal-mime';
 import { unzipSync } from 'fflate';
+import { PDFDocument } from 'pdf-lib';
+import { emailPdfHtml } from './lib/email-pdf.js';
+import { emailImageUrl, fetchEmailImage } from './lib/email-image.js';
 import { buildEmailDownload, chronologicalEmails, isExportableEmail, MAX_EXPORT_BYTES, type ExportEmail, type ExportAttachment } from './lib/email-export.js';
 
 const mail = (overrides: Partial<ExportEmail> = {}): ExportEmail => ({
@@ -62,10 +65,31 @@ describe('saved email downloads', () => {
     await expect(buildEmailDownload([mail()], [file({ size_bytes: MAX_EXPORT_BYTES + 1 })], 'eml', true, unused)).rejects.toThrow('too large');
     await expect(buildEmailDownload(Array(501).fill(mail()), [], 'eml', false, unused)).rejects.toThrow('500');
   });
-  it('generates a paginated Unicode PDF without fetching attachments; rejects unsupported characters explicitly', async () => {
-    const bytes = await buildEmailDownload([mail(), mail({ body: 'Long message\n'.repeat(160), role: 'agent' })], [file()], 'pdf', false, unused);
-    expect(Buffer.from(bytes).subarray(0, 5).toString()).toBe('%PDF-');
-    if (process.env.EMAIL_EXPORT_FIXTURE) await Bun.write(process.env.EMAIL_EXPORT_FIXTURE, bytes);
-    await expect(buildEmailDownload([mail({ body: 'Missing glyph: 🦄' })], [], 'pdf', true, unused)).rejects.toThrow('Choose Email');
+  it('preserves composed mail separately from the working reply', async () => {
+    const sent = { subject: 'Original sent subject', text: 'Header\nAnswer\nFooter', html: '<header>Header</header><p>Answer</p><footer>Footer</footer>', logo_url: null };
+    const parsed = await PostalMime.parse(await buildEmailDownload([mail({ sent_email: sent })], [], 'eml', true, unused));
+    expect(parsed.subject).toBe(sent.subject);
+    expect(parsed.text?.trim()).toBe(sent.text);
+    expect(parsed.html).toContain('Footer');
   });
+  it('keeps presentation but removes active content and unrelated inline images', () => {
+    const html = emailPdfHtml(mail({body_html: `<table style="font-family:Georgia;color:red"><tr><td>Header</td></tr></table><img src="cid:${file().id}"><script>alert(1)</script><iframe src="https://example.test"></iframe>`}), []);
+    expect(html).toContain('font-family:Georgia;color:red');
+    expect(html).not.toContain('alert(1)');
+    expect(html).not.toContain('<iframe');
+    expect(html).not.toContain('<img');
+  });
+  it('rejects private, credentialed and non-HTTP image addresses before fetching', async () => {
+    for (const url of ['http://127.0.0.1/a', 'http://2130706433/a', 'http://[::1]/a', 'http://169.254.169.254/a', 'https://user:pass@example.com/a', 'https://example.com:8080/a', 'file:///etc/passwd']) {
+      expect(() => emailImageUrl(url)).toThrow();
+      await expect(fetchEmailImage(url, new AbortController().signal)).rejects.toThrow();
+    }
+    expect(emailImageUrl('https://example.com/a#fragment')).toBe('https://example.com/a');
+  });
+  it('generates paginated Unicode PDFs without fetching ordinary attachments', async () => {
+    const bytes = await buildEmailDownload([mail({ body: '日本語 🦄', body_html: null }), mail({ body: 'Long message\n'.repeat(160), body_html: null, role: 'agent' })], [file()], 'pdf', false, unused);
+    expect(Buffer.from(bytes).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await PDFDocument.load(bytes)).getPageCount()).toBeGreaterThan(2);
+    if (process.env.EMAIL_EXPORT_FIXTURE) await Bun.write(process.env.EMAIL_EXPORT_FIXTURE, bytes);
+  }, 30000);
 });

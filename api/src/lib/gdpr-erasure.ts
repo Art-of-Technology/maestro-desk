@@ -44,7 +44,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'reply_internal_reviews'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'ticket_messages.sent_email', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'reply_internal_reviews'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -183,6 +183,7 @@ export async function eraseCustomer(args: {
           -- (plus the customer's own markup): it must go with it.
           body_html = null,
           email_metadata = null,
+          sent_email = null,
           author_label = case when role = 'customer' then ${ERASED} else author_label end
         where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
       `;
