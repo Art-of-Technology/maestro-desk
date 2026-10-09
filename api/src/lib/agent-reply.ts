@@ -1,4 +1,5 @@
 import { safeError } from './diagnostics.js';
+import { sentEmailContent } from './sent-email.js';
 // Email an agent's public reply to the customer. Called from
 // POST /tickets/:id/messages when an agent posts a `role:'agent'` reply (not
 // an internal note). Turns the portal-only reply into a real two-way email
@@ -118,6 +119,7 @@ export async function sendAgentReplyEmail(args: {
     // customer reply's In-Reply-To resolves to exactly this row.
     await sql`
       update ticket_messages set external_message_id = ${result.rfcMessageId},
+        sent_email = ${sql.json(sentEmailContent(composed, replySubject(ctx.subject)))},
         email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
           status: 'sent', sent_at: result.submittedAt,
           ...(sendingChannelId ? { sending_channel_id: sendingChannelId,

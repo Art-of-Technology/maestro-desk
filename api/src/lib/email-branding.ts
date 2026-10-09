@@ -64,6 +64,7 @@ export interface ComposeArgs {
 export interface ComposedEmail {
   text: string;
   subject?: string;
+  logoUrl?: string | null;
   // null when there's nothing to brand (no default template, no logo, no
   // signature) — the caller then sends plain text exactly as before.
   html: string | null;
@@ -213,7 +214,7 @@ export async function composeEmail(args: ComposeArgs): Promise<ComposedEmail> {
 </body>
 </html>`;
 
-  return { text, html, subject };
+  return { text, html, subject, logoUrl };
 }
 
 // ─── Text/HTML helpers ───────────────────────────────────────────────────────

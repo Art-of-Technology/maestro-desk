@@ -11,7 +11,7 @@ import { buildEmailDownload, chronologicalEmails, MAX_EXPORT_MESSAGES, type Expo
 
 export const ticketEmailDownloads = new Hono();
 let activeDownloads = 0;
-const querySchema = z.object({ format: z.enum(['pdf', 'eml']), messageId: z.string().uuid().optional() });
+const querySchema = z.object({ format: z.enum(['pdf', 'eml']), messageId: z.string().uuid().optional(), remoteImages: z.enum(['true', 'false']).optional() });
 
 // Read original records behind merges: the historical display copies omit
 // attachments, HTML, transport ids and the original creation date.
@@ -65,7 +65,7 @@ ticketEmailDownloads.get('/:id/emails/download', async c => {
         selectedId = originals[0].id;
       }
     }
-    const rows = await sql<ExportEmail[]>`select m.id,m.ticket_id,m.role,m.author_label,m.body,m.body_html,
+    const rows = await sql<ExportEmail[]>`select m.id,m.ticket_id,m.role,m.author_label,m.body,m.body_html,m.sent_email,
         m.external_message_id,m.email_metadata,m.created_at,m.merged_from_id,t.subject
       from ticket_messages m join tickets t on t.id=m.ticket_id and t.workspace_id=m.workspace_id
       where m.workspace_id=${ws} and m.ticket_id=any(${ticketIds}::uuid[]) and m.deleted_at is null
@@ -80,11 +80,12 @@ ticketEmailDownloads.get('/:id/emails/download', async c => {
     const attachments = await sql<ExportAttachment[]>`select id,ticket_id,message_id,filename,size_bytes,mime_type,is_inline,content_id,disposition,storage_key
       from ticket_attachments where workspace_id=${ws} and ticket_id=any(${ticketIds}::uuid[])
         and message_id=any(${emails.map(m => m.id)}::uuid[]) order by id`;
+    const [workspace] = await sql`select logo_url from workspaces where id=${ws}`;
     const bytes = await buildEmailDownload(emails, attachments, format, Boolean(messageId), async key => {
-      if (!isAttachmentsStorageConfigured()) throw new HTTPException(503, { message: 'Attachment storage is unavailable. Try again later or choose PDF.' });
+      if (!isAttachmentsStorageConfigured()) throw new HTTPException(503, { message: 'Attachment storage is unavailable. Try again later.' });
       try { return (await attachmentsStore().getObject(key)).bytes; }
-      catch { throw new HTTPException(503, { message: 'An attachment could not be downloaded. Try again later or choose PDF.' }); }
-    });
+      catch { throw new HTTPException(503, { message: 'An attachment could not be downloaded. Try again later.' }); }
+    }, { remoteImages: parsed.data.remoteImages === 'true', logoUrl: workspace?.logo_url });
     // Erasure, suspension, unmerge or an access change while fetching private
     // files must invalidate the finished download, not release stale content.
     await requireAvailableWorkspace(ws, generation);

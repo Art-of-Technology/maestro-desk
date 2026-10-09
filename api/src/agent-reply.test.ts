@@ -163,7 +163,14 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
         const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST',
           body: JSON.stringify({ role: 'agent', body, body_html: `<p><strong>${body}</strong></p>` }) });
         expect(res.status).toBe(201);
-        expect((await res.json() as any).delivery.emailed).toBe(true);
+        const result = await res.json() as any;
+        expect(result.delivery.emailed).toBe(true);
+        const [saved] = await sql`select body, body_html, sent_email from ticket_messages where id=${result.message.id}`;
+        expect(saved.body).toBe(body);
+        expect(saved.body_html).toBe(`<p><strong>${body}</strong></p>`);
+        expect(saved.sent_email.text).toBe(lastBody.TextBody);
+        expect(saved.sent_email.html).toBe(lastBody.HtmlBody);
+        expect(saved.sent_email.subject).toBe(lastBody.Subject);
         expect(lastBody.Subject).toBe('Re: Need help');
         expect(lastBody.HtmlBody).toContain(`<strong>${body}</strong>`);
         for (const text of ['Welcome', 'Contact us', 'Regards, Agent']) expect(lastBody.TextBody).toContain(text);
@@ -410,6 +417,13 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     const { postAutoReply } = await import('./lib/auto-reply.js');
     const auto = await postAutoReply({ workspaceId: ctx.wsId, ticketId: tid, draftReply: 'Automatic answer', confidence: 1, model: 'test', workspaceName: 'Test' });
     expect(auto.posted).toBe(true);
+    if (!auto.posted) throw new Error('Expected the automatic reply to send');
+    const [autoSaved] = await sql`select body,sent_email,email_metadata from ticket_messages where id=${auto.message_id}`;
+    expect(autoSaved.body).toBe('Automatic answer');
+    expect(autoSaved.sent_email.html).toBe(lastBody.HtmlBody ?? null);
+    expect(autoSaved.sent_email.text).toBe(lastBody.TextBody);
+    expect(autoSaved.email_metadata.status).toBe('sent');
+    expect(autoSaved.email_metadata.from).toBeTruthy();
     expect(lastBody.ReplyTo).toBe('complaints@acme.test');
     expect(lastBody.Headers).toContainEqual({ Name: 'In-Reply-To', Value: inboundId });
 

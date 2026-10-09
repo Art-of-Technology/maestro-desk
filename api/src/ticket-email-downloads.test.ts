@@ -71,12 +71,31 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
   });
   it('validates formats and enforces session, workspace, ticket and message ownership', async () => {
     expect((await request(ticket, 'format=html')).status).toBe(400);
+    expect((await request(ticket, 'format=pdf&remoteImages=yes')).status).toBe(400);
     expect((await request(ticket, 'format=pdf', ws, 'invalid')).status).toBe(401);
     expect((await request(foreignTicket)).status).toBe(404);
     expect((await request(foreignTicket, 'format=pdf', foreignWs)).status).toBe(403);
     const other = await addTicket();
     const id = await message('customer', 'Other ticket', 'received', other);
     expect((await request(ticket, `format=eml&messageId=${id}`)).status).toBe(404);
+  });
+  it('exports the sent snapshot and clears it on redaction, rejecting late content after erasure', async () => {
+    const id = await message('agent', 'Working reply', 'sent');
+    const sent = { subject: 'Sent subject', text: 'Header Answer Footer', html: '<p>Header Answer Footer</p>', logo_url: null };
+    await sql`update ticket_messages set sent_email=${sql.json(sent)} where id=${id}`;
+    const res = await request(ticket, `format=eml&messageId=${id}`);
+    expect(res.status).toBe(200);
+    expect((await PostalMime.parse(await res.arrayBuffer())).text?.trim()).toBe(sent.text);
+    await sql`update ticket_messages set body='[erased]' where id=${id}`;
+    expect((await sql`select sent_email from ticket_messages where id=${id}`)[0].sent_email).toBeNull();
+    await sql`update customers set erased_at=now() where id=${customer}`;
+    try {
+      let rejected = false;
+      try { await sql`update ticket_messages set body='Reintroduced', sent_email=${sql.json(sent)} where id=${id}`; }
+      catch { rejected = true; }
+      expect(rejected).toBe(true);
+      expect((await request()).status).toBe(404);
+    } finally { await sql`update customers set erased_at=null where id=${customer}`; }
   });
   it('rejects deleted tickets, erased customers and empty threads', async () => {
     expect((await request()).status).toBe(404);

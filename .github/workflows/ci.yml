@@ -262,6 +262,11 @@ jobs:
       - name: Thumbnail WebAssembly fallback and decoder failure isolation
         run: node scripts/check-thumbnail-runtime.mjs
 
+      - name: Install the PDF browser and fonts
+        run: |
+          bunx playwright-core install --with-deps chromium
+          sudo apt-get install -y --no-install-recommends poppler-utils fonts-liberation fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji
+
       - name: Email download runtime and bundled font
         run: node --import tsx scripts/check-email-export-runtime.mjs
 

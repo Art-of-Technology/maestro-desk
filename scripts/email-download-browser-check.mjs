@@ -29,7 +29,9 @@ export default async function checkEmailDownloads(page) {
   check(await emailButton.count() === 1, 'Only customer-facing email has a download button');
   await emailButton.click();
   check(await page.locator('#email-download-format option').count() === 2, 'Formats are offered on every download');
+  check(!(await page.locator('#email-download-remote').isChecked()), 'Remote images are opt-in');
   await page.locator('#email-download-format').selectOption('eml');
+  check(!(await page.locator('#email-download-images').isVisible()), 'Image choice applies only to PDF');
   const singleEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   check((await singleEvent).suggestedFilename().endsWith('.eml'), 'Individual download is an EML');
@@ -37,11 +39,13 @@ export default async function checkEmailDownloads(page) {
   await page.locator('.ticket-more summary').click();
   await page.getByRole('button', { name: 'Download thread', exact: true }).click();
   check(await page.locator('#email-download-format').inputValue() === 'pdf', 'Fresh prompt defaults to PDF');
+  await page.locator('#email-download-remote').check();
   check((await page.locator('#modal-container').innerText()).includes('Internal notes, drafts and status changes are excluded'), 'Thread scope is explained');
   const threadEvent = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   check((await threadEvent).suggestedFilename().endsWith('-thread.pdf'), 'Thread PDF download');
   check(!requests.at(-1).includes('messageId'), 'Full thread requests all emails');
+  check(requests.at(-1).includes('remoteImages=true'), 'Remote image selection reaches the API');
   await page.locator('.ticket-more summary').click();
   await page.getByRole('button', { name: 'Download thread', exact: true }).click();
   await page.locator('#email-download-format').selectOption('eml');
@@ -50,6 +54,7 @@ export default async function checkEmailDownloads(page) {
   check((await zipEvent).suggestedFilename().endsWith('-thread.zip'), 'Thread email download is ZIP');
   await page.setViewportSize({ width: 390, height: 844 });
   await emailButton.click();
+  check(!(await page.locator('#email-download-remote').isChecked()), 'Image consent resets for each download');
   fail = true;
   await page.getByRole('button', { name: 'Download', exact: true }).click();
   await page.waitForFunction(() => document.getElementById('email-download-error')?.textContent.includes('Attachment unavailable'));
