@@ -45,6 +45,7 @@ import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 import { refreshCustomerAccount } from './account-refresh.js';
 import { renderRiskPanel } from './risk-panel.js';
+import { renderCustomerHistory } from './history.js';
 
 // ─── Customer table column state ─────────────────────────────────────────────
 
@@ -1080,6 +1081,7 @@ function renderCustomerDetail(custId) {
     notes:        notesBlock,
     tickets:      ticketsBlock,
   };
+  if (c._uuid) Object.assign(areas, renderCustomerHistory(c));
 
   // Rows, in order, from the admin-configured area layout (Layouts → Profile
   // areas). getProfileAreaRows applies the pairing rule — neighbouring
@@ -1152,7 +1154,7 @@ function renderCustomerDetail(custId) {
           </span>
         </div>
       </div>
-      <div class="page-scroll">${renderDetailsCard(c)}
+      <div class="page-scroll"${c._uuid ? ` data-customer-history="${window.escAttr(c._uuid)}"` : ''}>${renderDetailsCard(c)}
         ${c.isSpam && !c.erased && !c.mergedInto ? `<div class="card"><div class="card-title">Spam contact</div><p>Future emails from this contact are closed as spam without a reply or survey.</p><button type="button" class="btn btn-sm" data-action="cust.unmarkSpam" data-cust-id="${window.escAttr(c.id)}">Unmark contact as spam</button></div>` : ''}
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>

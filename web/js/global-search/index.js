@@ -26,7 +26,6 @@ import { SEARCH_PAGE_FILTER, setAgentSelected, setCustomerSelected, setKbSelecte
 import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
-import { openCustomerModal } from '../customers/modals.js';
 import { matchesContact } from '../customers/contacts.js';
 import {
   registerActions, registerMousedownActions, registerInputActions,
@@ -142,7 +141,7 @@ function gsGo(type, id) {
   if (input) input.blur();
 
   if (type === 'ticket') openTicket(id);
-  else if (type === 'customer') openCustomerModal(id);
+  else if (type === 'customer') { setCustomerSelected(id); navTo('customers'); }
   else if (type === 'article') {
     setKbSelected(id);
     nav('kb');
