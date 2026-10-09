@@ -500,6 +500,7 @@ export function openTicket(id) {
       <p>Saved translations are reused until sign-out. New language checks and translations use AI credit.</p>
       </div>
       </details>
+      ${t.msgs.length ? `<button type="button" class="btn btn-sm ticket-jump-latest" data-action="td.jumpToLatest" data-ticket-id="${window.escAttr(id)}" aria-controls="thread-${window.escAttr(id)}">Jump to latest</button>` : ''}
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
     <div class="ticket-translation-notice" role="status" aria-live="polite" ${!t.translatingThread && !t.translationError && !(t.msgs || []).some(m => m.translationCacheWarning) ? 'hidden' : ''}>
@@ -1423,6 +1424,13 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.jumpToLatest': ds => {
+    const thread = document.getElementById('thread-' + ds.ticketId);
+    if (!thread?.lastElementChild) return;
+    restoreMessageScroll(thread);
+    // Replace any pending reader anchor while HTML emails are still loading.
+    sizeMessageFrames(thread);
+  },
   'td.moveInbox': ds => showMoveInbox(ds.ticketId),
   'td.refreshRecipients': (ds) => {
     const ticket = TICKETS.find(t => t.id === ds.ticketId);

@@ -39,7 +39,7 @@ export const GUIDE_STEPS = [
     body: 'Read the customer’s request and the work already done.',
     highlights: ["Check the customer, brand and previous conversation.","Use current guidance to verify facts and promises.","Treat AI summaries as a starting point; check them against the ticket."],
     instructions: [
-      'Read the latest customer message, then earlier replies and internal notes. Identify the question, any promises already made, and what is still unanswered.',
+      'Read the latest customer message, then earlier replies and internal notes. Use Jump to latest above the conversation to return to the beginning of the newest email or note. Identify the question, any promises already made, and what is still unanswered.',
       'Private file links expire after five minutes. If a link expires, refresh the ticket and open the file again. Files are unavailable while the brand is suspended.',
       'Open Details if the ticket sidebar is hidden. Check the customer, email, brand, jurisdiction, category and assigned agent. Use the copy button beside the email address to copy it. Other tickets shows ticket IDs and creation dates; times use your local timezone when available. Use Copy link beside the current ticket ID in the header to share it. Under Other tickets, copy an ID with its copy button, use Copy link to share a direct link, or select the subject to open the ticket. If copying a link fails, right-click Copy link and copy the link address. Review relevant attachments and linked tickets.',
       'Use More → Summarize for an AI summary, then verify it against the conversation. Refresh a summary marked stale before relying on it for a handover.',

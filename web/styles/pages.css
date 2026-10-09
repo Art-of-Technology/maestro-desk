@@ -363,6 +363,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .ticket-topbar::before{display:none}
 .ticket-thread-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--rule);flex-shrink:0;font-size:12px}
 .ticket-thread-tools>strong{font-weight:600}
+.ticket-page .ticket-thread-tools>.ticket-jump-latest{min-height:44px}
 .ticket-language-toggle{display:flex;gap:4px;flex-wrap:wrap}
 .ticket-page .ticket-language-toggle .btn{min-height:44px}
 .ticket-language-toggle [aria-pressed="true"]{background:var(--purple-lt);color:var(--purple);border-color:var(--purple)}
