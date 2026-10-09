@@ -3,6 +3,7 @@ import { PDFDocument } from 'pdf-lib';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { HTTPException } from 'hono/http-exception';
+import { safeError } from './diagnostics.js';
 import { sanitizeEmailHtml, rewriteCidsToUrls } from './email-html.js';
 import { escapeHtml, MAX_HTML_CHARS } from './html-text.js';
 import { sniffImageMime } from './image-sniff.js';
@@ -59,7 +60,10 @@ export async function emailPdf(emails: ExportEmail[], attachments: ExportAttachm
     headless: true, timeout: 15000,
     env: { PATH: process.env.PATH || '', HOME: tmpdir(), TMPDIR: tmpdir(),
       ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) } })
-    .catch(() => { throw new HTTPException(503, { message: 'The PDF renderer is unavailable. Try again or download the emails as EML.' }); });
+    .catch(error => {
+      console.warn('[email-pdf] browser launch failed:', safeError(error));
+      throw new HTTPException(503, { message: 'The PDF renderer is unavailable. Try again or download the emails as EML.' });
+    });
   const abort = new AbortController();
   const timer = setTimeout(() => { abort.abort(); void browser.close(); }, 60000);
   const merged = await PDFDocument.create();
@@ -137,6 +141,7 @@ export async function emailPdf(emails: ExportEmail[], attachments: ExportAttachm
     return bytes;
   } catch (error) {
     if (error instanceof HTTPException) throw error;
+    console.warn('[email-pdf] render failed:', safeError(error));
     throw new HTTPException(503, { message: 'The formatted PDF could not be created. Try again or download the emails as EML.' });
   } finally { clearTimeout(timer); abort.abort(); await browser.close(); }
 }
