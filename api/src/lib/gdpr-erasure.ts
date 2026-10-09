@@ -7,10 +7,12 @@ import { safeError } from './diagnostics.js';
 // — see `20260520121300_gdpr.sql` for that design intent, and
 // `docs/gdpr-pii-inventory.md` for the canonical surface list this implements.
 //
-// Idempotent: a customer already carrying `erased_at` short-circuits without a
-// second pass or a duplicate audit row.
+// Repeated erasure scrubs again (including historical omissions) without a
+// duplicate audit row. Historical bulk repair requires explicit approval.
 
 import { getDb } from './db.js';
+import { HTTPException } from 'hono/http-exception';
+import { customerAuditHistory } from './customer-history.js';
 import {
   deleteAttachmentObjects,
   drainObjectDeletions,
@@ -42,7 +44,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'message_drafts', 'custom_field_values', 'webhook_deliveries'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'reply_internal_reviews'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -53,6 +55,8 @@ export interface EraseResult {
   messagesRedacted: number;
   inboxRedacted: number;
   attachmentsDeleted: number;
+  retainedAuditRecords: number;
+  auditHistoryRequiresReview: true;
 }
 
 // The R2 object deleter — injectable so tests can record the keys without R2
@@ -87,6 +91,10 @@ export async function eraseCustomer(args: {
   let attachmentKeys: string[] = [];
 
   const result = await db.begin(async (sql) => {
+    // Same order as bounded sends: workspace, customer, then ticket. This also
+    // invalidates workspace-wide assistant requests which have no ticket id.
+    const [workspace] = await sql`select id from workspaces where id=${workspaceId} for update`;
+    if (!workspace) return null;
     // Lock the customer row (scoped) so a concurrent erase can't double-run.
     const [cust] = await sql<{ id: string; email: string | null; erased_at: string | null; has_legacy_kyc: boolean }[]>`
       select id, email, erased_at, to_jsonb(customers) ? 'kyc_status' as has_legacy_kyc from customers
@@ -94,21 +102,47 @@ export async function eraseCustomer(args: {
       for update
     `;
     if (!cust) return null;
-    if (cust.erased_at) {
-      return { erased: true, alreadyErased: true, fieldsErased: [], ticketsAffected: 0, notesDeleted: 0, messagesRedacted: 0, inboxRedacted: 0, attachmentsDeleted: 0 };
-    }
+    const [auditCount] = await customerAuditHistory(sql,workspaceId,customerId,true);
+    const retainedAuditRecords = Number(auditCount.count);
+    // Live merged sources are unmerged by the route first. Soft-deleted
+    // sources cannot take that path. Do not certify a partial erase or guess
+    // which newer survivor correspondence belongs to the original subject.
+    const [unresolvedMerge] = await sql`select 1 where exists (
+      select 1 from tickets where workspace_id=${workspaceId} and pre_merge_customer_id=${customerId}
+        and customer_id<>${customerId}
+    ) or exists (
+      select 1 from customers where workspace_id=${workspaceId} and merged_into_customer_id=${customerId}
+    ) or exists (
+      select 1 from customer_merges j join customers source on source.id=j.source_customer_id and source.workspace_id=j.workspace_id
+      where j.workspace_id=${workspaceId} and j.source_customer_id=${customerId} and j.unmerged_at is null
+        and source.merged_into_customer_id is not null and j.backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
+    )`;
+    if (unresolvedMerge) throw new HTTPException(409, { message: 'This profile still has merged ticket history or copied personal fields. Resolve the merge before erasing it.' });
+    await sql`update workspaces set privacy_generation=privacy_generation+1 where id=${workspaceId}`;
     // The scalar is captured BEFORE nulling — the inbox match below also uses
     // it for a legacy profile with no contact rows.
     const email = cust.email;
     // This transaction's customer lock also prevents concurrent DROP COLUMN.
     // Keep erasing legacy data until the column is physically retired, while
     // allowing this release to run after that migration (including rollback).
-    const fieldsErased = FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status');
+    const fieldsErased: string[] = [...FIELDS_ERASED.filter(field => cust.has_legacy_kyc || field !== 'kyc_status'), 'events'];
 
     const ticketRows = await sql<{ id: string }[]>`
       select id from tickets where workspace_id = ${workspaceId} and customer_id = ${customerId}
     `;
     const ticketIds = ticketRows.map((r) => r.id);
+    // A ticket merge can copy content onto another customer's ticket. Clear
+    // derived output there, but preserve its own correspondence and identity.
+    const copiedTargets = ticketIds.length ? await sql<{ id: string }[]>`
+      select distinct ticket_id as id from ticket_messages where workspace_id=${workspaceId}
+        and merged_from_id in ${sql(ticketIds)}` : [];
+    const affectedIds = [...new Set([...ticketIds,...copiedTargets.map(t => t.id)])];
+    if (affectedIds.length) {
+      await sql`update tickets set ai_summary=null,ai_draft_reply=null,privacy_generation=privacy_generation+1
+        where workspace_id=${workspaceId} and id in ${sql(affectedIds)}`;
+      await sql`delete from ticket_ai_tags where workspace_id=${workspaceId} and ticket_id in ${sql(affectedIds)}`;
+      await sql`delete from ai_reply_suggestions where workspace_id=${workspaceId} and ticket_id in ${sql(affectedIds)}`;
+    }
 
     // A CC or third-party sender can also appear on somebody else's ticket.
     // Clear that envelope without granting the contact ownership of the ticket.
@@ -136,6 +170,12 @@ export async function eraseCustomer(args: {
       await sql`delete from reply_internal_reviews r using ticket_messages m
         where r.message_id=m.id and r.workspace_id=${workspaceId}
           and m.workspace_id=${workspaceId} and m.ticket_id in ${sql(ticketIds)}`;
+      // Copied messages and their cascading reviews/revisions belong to the
+      // source subject; removing them leaves the destination owner's messages.
+      await sql`delete from ticket_messages where workspace_id=${workspaceId}
+        and merged_from_id in ${sql(ticketIds)} and ticket_id not in ${sql(ticketIds)}`;
+      await sql`delete from ticket_tags where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)}`;
+      await sql`update time_entries set note=null where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)}`;
       const msgs = await sql`
         update ticket_messages set
           body = ${ERASED},
@@ -191,7 +231,8 @@ export async function eraseCustomer(args: {
       where r.customer_note_id = n.id and r.workspace_id = ${workspaceId} and n.workspace_id = ${workspaceId}
         and (n.customer_id = ${customerId} or n.merged_from_customer_id = ${customerId})`;
     const notes = await sql`
-      delete from customer_notes where workspace_id = ${workspaceId} and customer_id = ${customerId}
+      delete from customer_notes where workspace_id = ${workspaceId}
+        and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
     `;
     const notesDeleted = notes.count;
 
@@ -213,6 +254,17 @@ export async function eraseCustomer(args: {
       await repairCustomerContacts(sql, workspaceId, holderId);
     }
 
+    // Capture existing player audit references before removing the lookup key.
+    // This journal write and erasure commit together; repeat erasure preserves it.
+    if (!cust.erased_at) await sql`
+      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason, retained_player_audit_ids)
+      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null}, array(
+        select a.id from audit_events a join customers c
+          on c.workspace_id=a.workspace_id and c.maestro_user_id=a.target_id::text
+        where c.id=${customerId} and c.workspace_id=${workspaceId} and a.target_type='player'
+      ))
+    `;
+
     await sql`
       update customers set
         first_name = null, last_name = null, username = null, email = null,
@@ -220,7 +272,7 @@ export async function eraseCustomer(args: {
         ${cust.has_legacy_kyc ? sql`kyc_status = null,` : sql``}
         jurisdiction = null,
         maestro_user_id = null, maestro_member_id = null, maestro_global_id_verified = false, player_lookup_at = null,
-        erased_at = now()
+        erased_at = coalesce(erased_at, now())
       where id = ${customerId} and workspace_id = ${workspaceId}
     `;
     // The erased_at trigger also deletes drafts, custom values and webhook payloads.
@@ -234,20 +286,17 @@ export async function eraseCustomer(args: {
         and backfilled_fields ?| ${[...CUSTOMER_PII_FIELDS]}::text[]
     `;
 
-    await sql`
-      insert into gdpr_erasures (workspace_id, customer_id, requested_by_user_id, completed_at, fields_erased, reason)
-      values (${workspaceId}, ${customerId}, ${requestedByUserId}, now(), ${fieldsErased}, ${reason ?? null})
-    `;
-
     return {
       erased: true,
-      alreadyErased: false,
+      alreadyErased: Boolean(cust.erased_at),
       fieldsErased,
       ticketsAffected,
       notesDeleted,
       messagesRedacted,
       inboxRedacted,
       attachmentsDeleted,
+      retainedAuditRecords,
+      auditHistoryRequiresReview: true as const,
     };
   });
 
@@ -258,7 +307,7 @@ export async function eraseCustomer(args: {
   // the retention cron) — the attachment rows are already gone, so the outbox
   // is the only durable record of what's left to delete. We also alert.
   // (`result` is only reached on commit.)
-  if (result && !result.alreadyErased && attachmentKeys.length) {
+  if (result && attachmentKeys.length) {
     const { failed } = await drainObjectDeletions(attachmentKeys, deleteObjects);
     if (failed.length) {
       console.error('[gdpr-erase] object deletion deferred', { failed: failed.length });

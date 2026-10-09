@@ -1,7 +1,7 @@
 // ─── Customisable widget shell (dashboard + reports) ───────────────────────
 // Each widget on the dashboard or reports page is wrapped with a chrome that
 // provides a drag handle and a hide button. Order and visibility persist
-// per browser. Per-user statistic formats are handled by stat-view.js.
+// per account and workspace. Per-user statistic formats are handled by stat-view.js.
 //
 // Click + change handlers route through core/event-delegation.js. Drag
 // events (dragstart/end/over/leave/drop) are handled by a module-internal
@@ -19,7 +19,8 @@
 // per-page catalogs (which would invert the dependency / cycle) and removes
 // the old reliance on window.DASH_WIDGETS / window.REPORT_WIDGETS.
 
-import { DASH_LAYOUT, REPORT_LAYOUT, setDashLayout, setReportLayout } from './state.js';
+import { CURRENT_PAGE } from './state.js';
+import { getWidgetLayout, saveWidgetLayout, browserWidgetLayout, retryWidgetLayout } from './widget-layout-preferences.js';
 import { renderPage } from './router.js';
 import { showModal, closeModal } from './modal.js';
 import { registerActions, registerChangeActions } from './event-delegation.js';
@@ -32,45 +33,22 @@ export function registerWidgetCatalog(scope, widgets, defaultLayout) {
 }
 function catalogWidgets(scope)       { return _CATALOGS[scope]?.widgets || []; }
 function catalogDefaultLayout(scope) { return _CATALOGS[scope]?.defaultLayout; }
-
-export function loadLayout(key, fallback) {
-  // Always deep-clone the fallback so any mutation through the returned
-  // object can't bleed into DEFAULT_*_LAYOUT (or affect a sibling page using
-  // the same fallback).
-  const cloneFallback = () => ({
-    order:  [...fallback.order],
-    hidden: [...fallback.hidden],
-    charts: { ...fallback.charts },
-  });
-  try {
-    const raw = JSON.parse(localStorage.getItem(key) || 'null');
-    if (!raw || typeof raw !== 'object') return cloneFallback();
-    return {
-      order:  Array.isArray(raw.order)  ? raw.order  : [...fallback.order],
-      hidden: Array.isArray(raw.hidden) ? raw.hidden : [...fallback.hidden],
-      charts: (raw.charts && typeof raw.charts === 'object') ? raw.charts : { ...fallback.charts },
-    };
-  } catch (e) { return cloneFallback(); }
+function layoutState(scope) { return _CATALOGS[scope] ? getWidgetLayout(scope, catalogDefaultLayout(scope)) : null; }
+const pageFor = scope => scope === 'dash' ? 'dashboard' : 'reports';
+function rerender(scope) { if (CURRENT_PAGE === pageFor(scope)) renderPage(CURRENT_PAGE); }
+function editable(ds) {
+  const state = layoutState(ds.widgetScope);
+  return state?.stamp === ds.layoutOwner ? state : null;
 }
-function saveLayout(key, layout) {
-  // Quota errors (private mode / disk full) shouldn't crash the page. Log so
-  // a developer can see it in console, but let the in-memory layout keep
-  // working for the rest of the session.
-  try { localStorage.setItem(key, JSON.stringify(layout)); }
-  catch (e) { console.warn('[layout] persist failed'); }
+function statusHtml(state) {
+  return window.escHtml(state.status) + (state.failed && !state.busy && !state.loading
+    ? ` <button class="btn btn-sm" data-action="widget.retry" data-widget-scope="${state.scope}" data-layout-owner="${state.stamp}">Retry</button>` : '');
+}
+function statusRegion(state) {
+  return `<p class="widget-layout-status report-note" role="status" data-layout-status="${state.scope}" data-layout-owner="${state.stamp}">${statusHtml(state)}</p>`;
 }
 
-// New widgets added in code releases need to land at the end of the order so
-// they're discoverable without nuking the agent's existing arrangement.
-export function reconcileLayout(layout, widgets) {
-  const ids = widgets.map(w => w.id);
-  layout.order = layout.order.filter(id => ids.includes(id));
-  ids.forEach(id => { if (!layout.order.includes(id)) layout.order.push(id); });
-  layout.hidden = layout.hidden.filter(id => ids.includes(id));
-  return layout;
-}
-
-function widgetChrome(scope, w, innerHtml) {
+function widgetChrome(scope, w, innerHtml, owner) {
   // Strip the outer .card wrapper from each widget's existing render so we
   // can put our chrome around it. Widget render functions historically wrap
   // their body in `<div class="card ...">...</div>`; we extract the inner
@@ -91,36 +69,38 @@ function widgetChrome(scope, w, innerHtml) {
   const sid = window.escAttr(scope);
   const wid = window.escAttr(w.id);
   return `
-    <div class="widget card ${window.escAttr(spanClass)}" data-widget-scope="${sid}" data-widget-id="${wid}" draggable="true">
+    <div class="widget card ${window.escAttr(spanClass)}" data-widget-scope="${sid}" data-widget-id="${wid}" data-layout-owner="${owner}" draggable="true">
       <div class="widget-head" title="Drag to reorder">
         <span class="widget-handle">⋮⋮</span>
         <span class="widget-title">${window.escHtml(w.title)}</span>
         <div class="widget-actions">
-          <button title="Hide widget" data-action="widget.hide" data-widget-scope="${sid}" data-widget-id="${wid}">×</button>
+          <button title="Hide widget" aria-label="Hide ${window.escAttr(w.title)}" data-action="widget.hide" data-widget-scope="${sid}" data-widget-id="${wid}" data-layout-owner="${owner}">×</button>
         </div>
       </div>
       <div class="widget-body">${body}</div>
     </div>`;
 }
 
-export function renderWidgetGrid(scope, gridClass, widgets, layout, stats) {
+export function renderWidgetGrid(scope, gridClass, widgets, stats) {
+  const state = layoutState(scope), layout = state.layout;
   const byId = Object.fromEntries(widgets.map(w => [w.id, w]));
   const items = layout.order
     .filter(id => !layout.hidden.includes(id))
     .map(id => byId[id])
     .filter(Boolean);
   const hiddenN = layout.hidden.length;
-  const cards = items.map(w => widgetChrome(scope, w, w.render(stats))).join('');
+  const cards = items.map(w => widgetChrome(scope, w, w.render(stats), state.stamp)).join('');
   return `
     <div class="${gridClass}" data-widget-scope="${scope}">${cards}</div>
-    <div style="margin-top:14px;display:flex;justify-content:flex-end">
-      <button class="btn btn-sm" data-action="widget.openManage" data-widget-scope="${window.escAttr(scope)}">⚙ Manage widgets${hiddenN ? ` · ${hiddenN} hidden` : ''}</button>
+    ${statusRegion(state)}<div style="margin-top:14px;display:flex;justify-content:flex-end">
+      <button class="btn btn-sm" data-action="widget.openManage" data-widget-scope="${window.escAttr(scope)}" data-layout-owner="${state.stamp}">⚙ Manage widgets${hiddenN ? ` · ${hiddenN} hidden` : ''}</button>
     </div>`;
 }
 
 let _widgetDragging = null;
 function widgetDragStart(ev, widget) {
-  _widgetDragging = { scope: widget.dataset.widgetScope, id: widget.dataset.widgetId };
+  if (!editable(widget.dataset)) return;
+  _widgetDragging = { scope: widget.dataset.widgetScope, id: widget.dataset.widgetId, owner: widget.dataset.layoutOwner };
   widget.classList.add('dragging');
   ev.dataTransfer.effectAllowed = 'move';
   // Some browsers require setData() to actually start a drag.
@@ -136,7 +116,7 @@ function widgetDragEnd(_ev, widget) {
 function widgetDragOver(ev, widget) {
   const scope = widget.dataset.widgetScope;
   const id    = widget.dataset.widgetId;
-  if (!_widgetDragging || _widgetDragging.scope !== scope) return;
+  if (!_widgetDragging || _widgetDragging.scope !== scope || !editable(widget.dataset) || _widgetDragging.owner !== widget.dataset.layoutOwner) return;
   if (_widgetDragging.id === id) return;
   ev.preventDefault();
   ev.dataTransfer.dropEffect = 'move';
@@ -151,7 +131,7 @@ function widgetDragLeave(_ev, widget) {
 function widgetDragDrop(ev, widget) {
   const scope    = widget.dataset.widgetScope;
   const targetId = widget.dataset.widgetId;
-  if (!_widgetDragging || _widgetDragging.scope !== scope) return;
+  if (!_widgetDragging || _widgetDragging.scope !== scope || !editable(widget.dataset) || _widgetDragging.owner !== widget.dataset.layoutOwner) return;
   ev.preventDefault();
   const rect = widget.getBoundingClientRect();
   const before = (ev.clientX - rect.left) < rect.width / 2;
@@ -160,7 +140,9 @@ function widgetDragDrop(ev, widget) {
 }
 
 function reorderWidget(scope, srcId, targetId, before) {
-  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  const state = layoutState(scope), layout = structuredClone(state.layout);
+  if (srcId === targetId) return;
+  if (!layout.order.includes(targetId)) return;
   const i = layout.order.indexOf(srcId);
   if (i < 0) return;
   layout.order.splice(i, 1);
@@ -168,70 +150,89 @@ function reorderWidget(scope, srcId, targetId, before) {
   if (j < 0) j = layout.order.length;
   if (!before) j += 1;
   layout.order.splice(j, 0, srcId);
-  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  saveWidgetLayout(state, layout);
+  rerender(scope);
 }
 
-function hideWidgetById(scope, id) {
-  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+function hideWidgetById(state, id) {
+  if (!catalogWidgets(state.scope).some(w => w.id === id)) return;
+  const layout = structuredClone(state.layout);
   if (!layout.hidden.includes(id)) layout.hidden.push(id);
-  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  saveWidgetLayout(state, layout);
+  rerender(state.scope);
 }
-function showWidgetById(scope, id) {
-  const layout = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+function showWidgetById(state, id) {
+  if (!catalogWidgets(state.scope).some(w => w.id === id)) return;
+  const layout = structuredClone(state.layout);
   layout.hidden = layout.hidden.filter(x => x !== id);
-  saveLayout(scope === 'dash' ? 'dash_layout' : 'report_layout', layout);
-  renderPage(scope === 'dash' ? 'dashboard' : 'reports');
+  saveWidgetLayout(state, layout);
+  rerender(state.scope);
 }
-function resetWidgetLayout(scope) {
-  const isDash = scope === 'dash';
-  const src = catalogDefaultLayout(scope);
-  if (!src) return;
-  const layout = { order: [...src.order], hidden: [...src.hidden], charts: { ...src.charts } };
-  if (isDash) setDashLayout(layout); else setReportLayout(layout);
-  saveLayout(isDash ? 'dash_layout' : 'report_layout', layout);
+function resetWidgetLayout(state) {
+  saveWidgetLayout(state, catalogDefaultLayout(state.scope));
   closeModal();
-  renderPage(isDash ? 'dashboard' : 'reports');
+  rerender(state.scope);
 }
 
 function showManageWidgetsModal(scope) {
   const widgets = catalogWidgets(scope);
-  const layout  = scope === 'dash' ? DASH_LAYOUT : REPORT_LAYOUT;
+  const state = layoutState(scope), layout = state.layout;
   const body = widgets.map(w => {
     const visible = !layout.hidden.includes(w.id);
     return `
       <div class="settings-row">
         <div>
           <div style="font-size:13px;font-weight:500;color:var(--ink)">${window.escHtml(w.title)}</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px;font-family:'DM Mono',monospace">${window.escHtml(w.id)}</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" ${visible?'checked':''} data-change-action="widget.toggleVisible" data-widget-scope="${window.escAttr(scope)}" data-widget-id="${window.escAttr(w.id)}">
+          <input type="checkbox" aria-label="Show ${window.escAttr(w.title)}" ${visible?'checked':''} data-change-action="widget.toggleVisible" data-widget-scope="${window.escAttr(scope)}" data-widget-id="${window.escAttr(w.id)}" data-layout-owner="${state.stamp}">
           <span class="toggle-slider"></span>
         </label>
       </div>`;
   }).join('');
-  showModal(scope === 'dash' ? 'Manage dashboard widgets' : 'Manage report widgets', `
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Toggle a widget off to remove it from the layout. Drag the widget headers on the page to rearrange. Order and visibility are saved per browser.</div>
+  showModal(scope === 'dash' ? 'Manage dashboard widgets' : 'Manage Insights widgets', `<div class="widget-manager">
+    <p class="report-note">Toggle widgets to show or hide them. Drag widget headers on the page to rearrange. ${state.connected ? 'Order and visibility sync for your account and workspace. Wait for Layout synced before switching devices.' : 'Demo layouts are saved in this browser.'}</p>
+    ${statusRegion(state)}
     ${body}
     <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule);text-align:right">
-      <button class="btn btn-sm btn-danger" data-action="widget.reset" data-widget-scope="${window.escAttr(scope)}">Reset layout</button>
-    </div>
+      ${browserWidgetLayout(scope, state.fallback) ? `<p class="report-note">An old layout is saved in this browser without an account owner. Import it only if it is yours; it will replace this page’s current layout.</p><button class="btn btn-sm" data-action="widget.import" data-widget-scope="${scope}" data-layout-owner="${state.stamp}">Import browser layout</button>` : ''}
+      <button class="btn btn-sm btn-danger" data-action="widget.reset" data-widget-scope="${window.escAttr(scope)}" data-layout-owner="${state.stamp}">Reset layout</button>
+    </div></div>
   `, null, null);
 }
 
 registerActions({
-  'widget.hide':          (ds) => hideWidgetById(ds.widgetScope, ds.widgetId),
-  'widget.openManage':    (ds) => showManageWidgetsModal(ds.widgetScope),
-  'widget.reset':         (ds) => resetWidgetLayout(ds.widgetScope),
+  'widget.hide': ds => { const state = editable(ds); if (state) hideWidgetById(state, ds.widgetId); },
+  'widget.openManage': ds => { if (editable(ds)) showManageWidgetsModal(ds.widgetScope); },
+  'widget.reset': ds => { const state = editable(ds); if (state) resetWidgetLayout(state); },
+  'widget.retry': ds => { const state = editable(ds); if (state) retryWidgetLayout(state); },
+  'widget.import': ds => {
+    const state = editable(ds);
+    if (!state) return;
+    const layout = browserWidgetLayout(state.scope, state.fallback);
+    if (layout) { saveWidgetLayout(state, layout); closeModal(); rerender(state.scope); }
+  },
 });
 
 registerChangeActions({
   'widget.toggleVisible': (ds, el) => {
-    if (el.checked) showWidgetById(ds.widgetScope, ds.widgetId);
-    else            hideWidgetById(ds.widgetScope, ds.widgetId);
+    const state = editable(ds);
+    if (!state) return;
+    if (el.checked) showWidgetById(state, ds.widgetId);
+    else            hideWidgetById(state, ds.widgetId);
   },
+});
+
+window.addEventListener?.('respovia:widget-layout', event => {
+  const state = layoutState(event.detail.scope);
+  if (!state || state.stamp !== event.detail.stamp) return;
+  if (event.detail.changed) rerender(state.scope);
+  for (const node of document.querySelectorAll('[data-layout-status]')) {
+    if (node.dataset.layoutOwner === state.stamp) node.innerHTML = statusHtml(state);
+  }
+  for (const el of document.querySelectorAll('[data-change-action="widget.toggleVisible"]')) {
+    if (el.dataset.layoutOwner === state.stamp) el.checked = !state.layout.hidden.includes(el.dataset.widgetId);
+  }
 });
 
 // ─── Drag-and-drop dispatcher ────────────────────────────────────────────────

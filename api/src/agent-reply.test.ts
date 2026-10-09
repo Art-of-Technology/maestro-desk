@@ -149,6 +149,34 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     }
   });
 
+  it('sends unmodified rich replies and branding with zero AI credit and an unavailable provider', async () => {
+    const { anthropic } = await import('./lib/anthropic.js');
+    const spy = spyOn(anthropic.messages, 'create').mockRejectedValue(new Error('AI unavailable'));
+    await sql`update workspaces set ai_credits_micro=0 where id=${ctx.wsId}`;
+    const [template] = await sql`insert into email_brand_templates(workspace_id,name,header_text,footer_text,is_default)
+      values (${ctx.wsId},'Manual send','Welcome','Contact us',true) returning id`;
+    const [signature] = await sql`insert into email_signatures(workspace_id,user_id,name,body_text,is_default)
+      values (${ctx.wsId},${admin.userId},'Manual send','Regards, Agent',true) returning id`;
+    try {
+      const tid = await seedTicket(`AR-${RUN}-manual`, { email: `manual-${RUN}@acme.test` });
+      for (const body of ['First reply', 'Follow-up reply']) {
+        const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST',
+          body: JSON.stringify({ role: 'agent', body, body_html: `<p><strong>${body}</strong></p>` }) });
+        expect(res.status).toBe(201);
+        expect((await res.json() as any).delivery.emailed).toBe(true);
+        expect(lastBody.Subject).toBe('Re: Need help');
+        expect(lastBody.HtmlBody).toContain(`<strong>${body}</strong>`);
+        for (const text of ['Welcome', 'Contact us', 'Regards, Agent']) expect(lastBody.TextBody).toContain(text);
+      }
+      expect(spy).not.toHaveBeenCalled();
+      expect(postmarkCalls).toBe(2);
+    } finally {
+      spy.mockRestore();
+      await sql`delete from email_brand_templates where id=${template.id}`;
+      await sql`delete from email_signatures where id=${signature.id}`;
+    }
+  });
+
   it('translation failure leaves the outbound ticket unsent and unchanged', async () => {
     const { anthropic }=await import('./lib/anthropic.js');
     const spy=spyOn(anthropic.messages,'create').mockRejectedValue(new Error('Provider unavailable'));

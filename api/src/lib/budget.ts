@@ -1,5 +1,6 @@
 import { safeError } from './diagnostics.js';
 import { getDb } from './db.js';
+import { HTTPException } from 'hono/http-exception';
 
 // Migration to Neon — Step 3 (tickets megabatch). Reads/writes via getDb().
 
@@ -23,8 +24,9 @@ export async function assertHasBudget(workspaceId: string): Promise<number> {
   const sql = getDb();
   const [row] = await sql<{ ai_credits_micro: string }[]>`
     select ai_credits_micro from workspaces where id = ${workspaceId} and deleted_at is null
+      and suspended_at is null and not is_unrouted_bucket
   `;
-  if (!row) throw new Error(`Workspace ${workspaceId} not found`);
+  if (!row) throw new HTTPException(403, { message: 'This workspace is unavailable.' });
   const balance = Number(row.ai_credits_micro);
   if (balance <= 0) throw new BudgetExceededError(balance, workspaceId);
   return balance;

@@ -15,7 +15,6 @@ export function showGDPRModal(ticketId, action) {
   const customer = CUSTOMERS.find(c => c.id === ticket?.customerId);
   if (!window.isAdmin()) { showToast('An administrator must handle this request.', 'warn'); return; }
   if (!customer?._uuid || !getJwt() || !getWorkspaceId()) { showToast('Open a saved ticket with a customer first.', 'warn'); return; }
-  if (customer.erased) { showToast('This customer’s personal data has already been erased.', 'info'); return; }
   if (busy) { showToast('A privacy action is still running. Wait for its result.', 'info'); return; }
   const ctx = { id:customer._uuid, displayId:customer.id, jwt:getJwt(), workspace:getWorkspaceId(), tickets:TICKETS.filter(t=>t.customerId===customer.id).map(t=>t.id) };
   active = ctx;
@@ -23,11 +22,11 @@ export function showGDPRModal(ticketId, action) {
     <div id="privacy-actions">
       <p>Customer <strong>${window.escHtml(customer.id)}</strong> · ${window.escHtml([customer.first,customer.last].filter(Boolean).join(' '))}</p>
       <div class="gdpr-action"><div class="gdpr-action-title">Export customer records</div>
-        <p>Download a JSON file of customer details, tickets, notes, saved drafts and custom fields. Attachment details are included; the files themselves are not.</p>
+        <p>Download customer records and linked activity and audit history for review. Attachment details are included; the files themselves are not. Records without a reliable customer link need a separate search.</p>
         <p>Review the export for information about other people and decide which documents to include before sharing it. This download is not sent to the customer.</p>
         <button type="button" class="btn btn-sm" data-action="privacy.export">Download for review</button></div>
       <div class="gdpr-action"><div class="gdpr-action-title">Erase customer data</div>
-        <p>Remove personal data from this customer’s records and tickets. Ticket history is retained with erased content. This cannot be undone.</p>
+        <p>Erase supported customer, ticket and activity content. Audit records remain and may contain historical personal information requiring separate review. This cannot be undone.</p>
         <button type="button" class="btn btn-sm btn-danger" data-action="privacy.erase">Review erasure</button></div>
       <p id="privacy-error" role="alert"></p>
       <button type="button" class="btn" data-action="modal.close">Close</button>
@@ -62,8 +61,9 @@ function confirmErasure() {
     bodyHtml:`<div id="privacy-erasure">
       <p>This erases customer <strong>${window.escHtml(ctx.displayId)}</strong> and personal data on their tickets, including saved drafts and uploaded files.</p>
       <p>Confirm that your team has checked the request and any records it must retain. This action cannot be undone. Existing exports, backups and copies held by recipients are handled separately.</p>
-      <label class="form-label" for="privacy-reason">Reason (optional)</label>
-      <textarea class="form-input" id="privacy-reason" maxlength="500"></textarea>
+      <p>Audit records remain and may contain historical personal information. Review retained history separately before confirming that the request is complete.</p>
+      <label class="form-label" for="privacy-reason">Reason</label>
+      <select class="form-input" id="privacy-reason"><option value="subject_request">Customer request</option><option value="retention_expired">Retention period ended</option><option value="consent_withdrawn">Consent withdrawn</option><option value="other">Other approved reason</option></select>
       <p id="privacy-error" role="alert"></p></div>`,
     onConfirm:async () => {
       if (!current(ctx) || busy || !window.isAdmin()) return;
@@ -80,8 +80,7 @@ function confirmErasure() {
         if (!sameScope(ctx)) return;
         window.dispatchEvent(new CustomEvent('respovia:customer-erased',{detail:{id:ctx.displayId}}));
         // Reload discards hydrated customer/ticket objects and any open attachment previews.
-        window.alert(result.alreadyErased ? 'This customer’s personal data was already erased.' :
-          `Customer data erased. Tickets affected: ${result.ticketsAffected}. Messages redacted: ${result.messagesRedacted}. Attachments removed: ${result.attachmentsDeleted}. File storage deletion is retried if needed.`);
+        window.alert(`Supported customer content erased. Tickets affected: ${result.ticketsAffected}. Messages redacted: ${result.messagesRedacted}. Attachments removed: ${result.attachmentsDeleted}. File storage deletion is retried if needed. Audit records remain and require separate review, including after a repeated erasure.`);
         window.location.reload();
       } catch (err) {
         if (current(ctx)) error.textContent = err.message || 'Erasure failed. Check the customer record before trying again.';

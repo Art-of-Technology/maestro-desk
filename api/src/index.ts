@@ -11,6 +11,7 @@ import { env, isVercelPreview, PREVIEW_SPA_ORIGIN_RE } from './lib/env.js';
 import { auth } from './lib/auth.js';
 import { authRateLimit } from './lib/auth-rate-limit.js';
 import { health } from './routes/health.js';
+import { files } from './routes/files.js';
 import { me } from './routes/me.js';
 import { workspace } from './routes/workspace.js';
 import { emailBranding } from './routes/email-branding.js';
@@ -155,6 +156,7 @@ app.route('/api/v1/macros', macros);
 app.route('/api/v1/categories', categories);
 app.route('/api/v1/kb-articles', kb);
 app.route('/api/v1/knowledge-sources', knowledgeSources);
+app.route('/api/v1/files', files);
 app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/ticket-templates', ticketTemplates);
 app.route('/api/v1/custom-fields', customFields);
@@ -174,6 +176,13 @@ app.route('/api/v1/god', god);
 app.route('/api/v1/maestro', maestro);
 
 app.onError(async (err, c) => {
+  const dbError = err as Error & { code?: string; constraint_name?: string };
+  if (dbError.constraint_name === 'customer_erased') {
+    return c.json({ error: 'This record changed or its personal data was erased. Reload before trying again.' }, 409);
+  }
+  if (dbError.code === '55P03') {
+    return c.json({ error: 'This record is busy. Reload and try again.' }, 409);
+  }
   if (err instanceof HTTPException) {
     // Expected 4xx — not an incident, never reported.
     // - A custom Response always wins untouched: it may carry mandated

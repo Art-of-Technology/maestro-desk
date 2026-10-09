@@ -10,6 +10,7 @@
 
 import { getDb } from './db.js';
 import { inboxFromThisCustomer } from './customer-contacts.js';
+import { customerAuditHistory } from './customer-history.js';
 
 export interface CustomerExport {
   exported_at: string;
@@ -30,6 +31,11 @@ export interface CustomerExport {
   contacts: Array<{ kind: string; value: string; is_primary: boolean; created_at: string }>;
   tickets: Array<Record<string, unknown> & { messages: Array<Record<string, unknown>>; attachments: Array<Record<string, unknown>> }>;
   inbox_messages: Array<Record<string, unknown>>;
+  related_ai_copies: Array<Record<string, unknown>>;
+  activity_history: Array<Record<string, unknown>>;
+  audit_history: Array<Record<string, unknown>>;
+  erasure_history: Array<Record<string, unknown>>;
+  history_review_notice: string;
 }
 
 export async function exportCustomer(args: {
@@ -37,7 +43,7 @@ export async function exportCustomer(args: {
   customerId: string;
 }): Promise<CustomerExport | null> {
   const { workspaceId, customerId } = args;
-  const sql = getDb();
+  return getDb().begin('isolation level repeatable read read only', async sql => {
 
   const [customer] = await sql<Record<string, unknown>[]>`
     select id, display_id, first_name, last_name, username, email, mobile, brand,
@@ -57,7 +63,7 @@ export async function exportCustomer(args: {
 
   const notes = await sql<{ text: string; created_at: string }[]>`
     select text, created_at from customer_notes
-    where workspace_id = ${workspaceId} and customer_id = ${customerId}
+    where workspace_id = ${workspaceId} and (customer_id = ${customerId} or merged_from_customer_id = ${customerId})
     order by created_at asc
   `;
 
@@ -89,12 +95,19 @@ export async function exportCustomer(args: {
 
   const tickets = await sql<Record<string, unknown>[]>`
     select id, display_id, subject, status_key, priority_key, category_key,
-           csat_score, csat_comment, snooze_reason, last_inbound_email, closure_reason, closure_note, closed_at, created_at, updated_at, resolved_at
+           ai_summary, ai_draft_reply, csat_score, csat_comment, snooze_reason, last_inbound_email, closure_reason, closure_note, closed_at, created_at, updated_at, resolved_at
     from tickets
-    where workspace_id = ${workspaceId} and customer_id = ${customerId}
+    where workspace_id = ${workspaceId} and (customer_id = ${customerId} or pre_merge_customer_id = ${customerId})
     order by created_at asc
   `;
   const ticketIds = tickets.map((t) => t.id as string);
+  const activityHistory = await sql`select id,entity_type,entity_id,kind,author_user_id,author_label,details,created_at
+    from events where workspace_id=${workspaceId} and (
+      (entity_type='customer' and entity_id=${customerId}) or
+      (entity_type='ticket' and entity_id=any(${ticketIds}::uuid[]))) order by created_at,id`;
+  const auditHistory = await customerAuditHistory(sql,workspaceId,customerId);
+  const erasureHistory = await sql`select requested_at,completed_at,fields_erased,reason
+    from gdpr_erasures where workspace_id=${workspaceId} and customer_id=${customerId} order by requested_at,id`;
   const customFields = await sql<Record<string, unknown>[]>`
     select v.entity_type, v.entity_id, f.key, f.label, f.field_type, v.value, v.updated_at
     from custom_field_values v join custom_fields f
@@ -114,10 +127,10 @@ export async function exportCustomer(args: {
   // All messages for the customer's tickets in one query, grouped in JS.
   const messages = ticketIds.length
     ? await sql<Record<string, unknown>[]>`
-        select ticket_id, role, author_label, body, body_html, email_metadata, created_at
+        select case when ticket_id in ${sql(ticketIds)} then ticket_id else merged_from_id end as ticket_id,
+          role, author_label, body, body_html, email_metadata, created_at, deleted_at, merged_from_id
         from ticket_messages
-        where workspace_id = ${workspaceId} and ticket_id in ${sql(ticketIds)}
-          and deleted_at is null
+        where workspace_id = ${workspaceId} and (ticket_id in ${sql(ticketIds)} or merged_from_id in ${sql(ticketIds)})
         order by created_at asc
       `
     : [];
@@ -148,10 +161,29 @@ export async function exportCustomer(args: {
     attByTicket.get(key)!.push(rest);
   }
 
+  const time = ticketIds.length ? await sql`select ticket_id,minutes,note,billable,created_at
+    from time_entries where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)} order by created_at,id` : [];
+  const tags = ticketIds.length ? await sql`select ticket_id,tag from ticket_tags
+    where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)} order by tag` : [];
+  const aiTags = ticketIds.length ? await sql`select ticket_id,tag,confidence,accepted from ticket_ai_tags
+    where workspace_id=${workspaceId} and ticket_id in ${sql(ticketIds)} order by tag` : [];
+  const reviews = ticketIds.length ? await sql`select case when m.ticket_id in ${sql(ticketIds)} then m.ticket_id else m.merged_from_id end as ticket_id,
+    r.review,r.saved_at from reply_internal_reviews r join ticket_messages m on m.id=r.message_id and m.workspace_id=r.workspace_id
+    where r.workspace_id=${workspaceId} and (m.ticket_id in ${sql(ticketIds)} or m.merged_from_id in ${sql(ticketIds)}) order by r.saved_at,r.message_id` : [];
+  const suggestions = ticketIds.length ? await sql`select s.ticket_id,s.reply,s.draft_body,s.draft_is_html,s.draft_review,
+    s.reply_context,s.reply_language,s.created_at,s.draft_updated_at,f.helpful,f.reason,f.resolution_notes
+    from ai_reply_suggestions s left join ai_reply_feedback f on f.suggestion_id=s.id
+    where s.workspace_id=${workspaceId} and (s.ticket_id in ${sql(ticketIds)} or exists
+      (select 1 from ai_reply_suggestion_sources x where x.suggestion_id=s.id and x.ticket_id in ${sql(ticketIds)}))
+    order by s.created_at,s.id` : [];
+  const valuesFor = (rows: Array<Record<string,unknown>>, id: unknown) => rows.filter(r => r.ticket_id===id)
+    .map(({ticket_id:_id,...rest}) => rest);
   const ticketsWithMessages = tickets.map((t) => {
     const { id: _id, ...rest } = t;
     return {
       ...rest,
+      time_entries: valuesFor(time,t.id), tags: valuesFor(tags,t.id), ai_tags: valuesFor(aiTags,t.id),
+      saved_reviews: valuesFor(reviews,t.id), ai_suggestions: valuesFor(suggestions,t.id),
       custom_fields: fieldsFor('ticket',t.id as string),
       drafts: drafts.filter(d => d.ticket_id===t.id).map(d => ({
         compose_tab:d.compose_tab, body:d.body, recipients:d.recipients, review:d.review, updated_at:d.updated_at,
@@ -192,11 +224,17 @@ export async function exportCustomer(args: {
     custom_fields: fieldsFor('customer',customerId),
     workspace: { name: ws?.name ?? '', slug: ws?.slug ?? '' },
     erased: Boolean(customer.erased_at),
+    activity_history: activityHistory,
+    audit_history: auditHistory,
+    erasure_history: erasureHistory,
+    history_review_notice: 'Audit records are retained and may include historical personal text. Review them before disclosure. Records without a reliable customer link require a separate search; this export does not establish complete erasure.',
     customer: customerOut,
     notes,
     note_revisions: noteRevisions,
     contacts,
     tickets: ticketsWithMessages,
     inbox_messages: inbox,
+    related_ai_copies: suggestions.filter(s => !ticketIds.includes(s.ticket_id as string)).map(({ticket_id:_id,...rest}) => rest),
   };
+  }) as Promise<CustomerExport | null>;
 }

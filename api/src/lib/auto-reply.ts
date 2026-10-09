@@ -1,6 +1,7 @@
 import { safeError } from './diagnostics.js';
 import type { TriageOutput } from './triage.js';
 import { getDb } from './db.js';
+import { availableTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import { resolveTicketRecipient } from './ticket-recipient.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
 
@@ -120,6 +121,8 @@ export function evaluateAutoReply(
 // ─── Posting ─────────────────────────────────────────────────────────────
 
 export interface PostAutoReplyArgs {
+  privacy?: TicketPrivacy;
+  accessGeneration?: string;
   workspaceId: string;
   ticketId: string;
   draftReply: string;
@@ -160,11 +163,14 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   const { workspaceId, ticketId, draftReply, confidence, model, workspaceName } = args;
   const sql = getDb();
 
-  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
+  const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null and suspended_at is null`;
   if (!workspace) return { posted: false, reason: 'workspace_unavailable' };
 
   const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
   if (ticket?.status_key === 'closed') return { posted: false, reason: 'ticket_closed' };
+
+  const privacy = args.privacy ?? await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { posted: false, reason: 'send_failed', detail: 'This ticket is no longer available.' };
 
   // 1. Idempotency check — has this ticket already been auto-replied?
   const [existing] = await sql`
@@ -203,6 +209,8 @@ export async function postAutoReply(args: PostAutoReplyArgs): Promise<PostAutoRe
   let rfcMessageId: string;
   try {
     const result = await sendBrandedEmail({
+      accessGeneration: args.accessGeneration,
+      privacy,
       workspaceId,
       fallbackFromName: workspaceName,
       to: sendContext.customerEmail,

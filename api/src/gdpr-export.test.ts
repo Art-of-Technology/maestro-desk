@@ -183,7 +183,7 @@ runDbTests('GDPR export (DB-backed)', () => {
     } finally {await sql`delete from ticket_attachments where id=${a.id}`;}
   });
 
-  it('returns 410 Gone once the customer has been erased', async () => {
+  it('allows administrators to review retained history after erasure', async () => {
     const erase = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -191,6 +191,10 @@ runDbTests('GDPR export (DB-backed)', () => {
     });
     expect(erase.status).toBe(200);
     const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/export`);
-    expect(res.status).toBe(410);
+    expect(res.status).toBe(200);
+    const bundle:any=await res.json();
+    expect(bundle.erased).toBe(true);
+    expect(bundle.audit_history.length).toBeGreaterThan(0);
+    expect(bundle.history_review_notice).toContain('retained');
   });
 });

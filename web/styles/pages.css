@@ -363,6 +363,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-page .ticket-topbar::before{display:none}
 .ticket-thread-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--rule);flex-shrink:0;font-size:12px}
 .ticket-thread-tools>strong{font-weight:600}
+.ticket-page .ticket-thread-tools>.ticket-jump-latest{min-height:44px}
 .ticket-language-toggle{display:flex;gap:4px;flex-wrap:wrap}
 .ticket-page .ticket-language-toggle .btn{min-height:44px}
 .ticket-language-toggle [aria-pressed="true"]{background:var(--purple-lt);color:var(--purple);border-color:var(--purple)}
@@ -516,6 +517,11 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .stat-view select:focus-visible,.stat-table:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
 .stat-view [hidden]{display:none!important}
 .stat-save-status:empty{display:none}
+.widget-layout-status:empty{display:none}
+.widget-manager .toggle input:focus-visible + .toggle-slider{outline:2px solid var(--purple);outline-offset:3px}
+.widget-manager .toggle{width:44px;height:44px}
+.widget-manager .toggle-slider{inset:13px 6px}
+@media(max-width:560px){.widget-layout-status .btn,.widget-manager .btn,.widget-actions button{min-height:44px}.widget-actions button{min-width:44px}}
 .stat-table,.stat-bars{max-height:360px;overflow:auto;padding-right:4px}
 .stat-table table{width:100%}
 .stat-table th,.stat-table td{white-space:nowrap}
@@ -542,7 +548,7 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .stat-legend-row strong{font-family:var(--font-mono);font-weight:400;color:var(--ink)}
 .stat-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .stat-sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-@media(max-width:560px){.report-grid{grid-template-columns:minmax(0,1fr)}.stat-view-control select{min-height:44px}.widget-actions{opacity:1}}
+@media(max-width:560px){.report-grid{grid-template-columns:minmax(0,1fr)}.stat-view-control select,.stat-save-status .btn{min-height:44px}.widget-actions{opacity:1}}
 @media(prefers-reduced-motion:reduce){.stat-view .r-bar-fill{transition:none}}
 .r-bar-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
 .r-bar-lbl{font-size:12px;color:var(--ink2);width:110px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
@@ -698,6 +704,14 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 @media(max-width:600px){.customer-risk-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.customer-risk-heading .btn{min-height:44px}}
 /* Period reporting and the active-work summary use the existing theme tokens. */
 .report-note { margin: 10px 20px; font-size: 12px; color: var(--ink2); line-height: 1.5; }
+.insights-report-page .topbar { height: auto; min-height: 48px; flex-wrap: wrap; padding-block: 8px; }
+.insights-report-page .kpi-bar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.insights-report-page .kpi-l { white-space: normal; }
+.insights-report-page .page-scroll > .report-note { margin-inline: 0; }
+@media (max-width: 768px) {
+  .insights-report-page .kpi-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .insights-report-page .topbar .btn, .insights-report-page .topbar select { min-height: 44px; }
+}
 .report-period { flex-wrap: wrap; gap: 12px; }
 .report-period label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .report-period span { font-size: 12px; color: var(--ink2); }

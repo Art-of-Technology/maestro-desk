@@ -58,11 +58,25 @@ jobs:
       - name: Statistic formats and saved preferences
         run: bun test scripts/stat-view.test.js
 
+      - name: Cross-device statistic preferences
+        run: bun test scripts/stat-view-sync.test.js
+
+      - name: Cross-device widget layouts
+        run: |
+          bun test scripts/widget-layout-sync.test.js
+          bun test scripts/widget-shell.test.js
+
+      - name: Workspace Insights reporting
+        run: bun test scripts/insights-report.test.js
+
       - name: Guided tour integrity
         run: bun test scripts/guides.test.js scripts/guides-behavior.test.js
 
       - name: Agent invitation resend
         run: bun test scripts/agent-invite.test.js
+
+      - name: Slack credential settings
+        run: bun test scripts/slack-settings.test.js
 
       - name: AI credit notification
         run: bun test scripts/ai-credit-notification.test.js
@@ -149,6 +163,7 @@ jobs:
           bun test scripts/ai-reply-separation.test.js
           bun test scripts/template-tailoring.test.js
           bun test scripts/reply-preflight.test.js
+          bun test scripts/email-resilience.test.js
           bun test scripts/feedback-resolution.test.js
           bun test scripts/handover.test.js
           bun test scripts/ai-tags.test.js
@@ -165,6 +180,7 @@ jobs:
           bun test scripts/customer-privacy.test.js
           bun test scripts/draft-attachments.test.js
           bun test scripts/ticket-inbox.test.js
+          bun test scripts/email-details.test.js
           bun test scripts/inbox-filter.test.js
           bun test scripts/reply-performance.test.js
           bun test scripts/sidebar-responsive.test.js
@@ -231,6 +247,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Dependency security audit
+        run: bun audit --audit-level=high
 
       - name: Typecheck
         run: bun run typecheck

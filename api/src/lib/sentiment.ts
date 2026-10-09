@@ -12,6 +12,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { assertHasBudget, BudgetExceededError, deductBudget } from './budget.js';
 import { getDb } from './db.js';
+import { workspaceAccessGeneration, requireAvailableWorkspace, workspaceAvailable } from './workspace-access.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 
@@ -59,6 +60,7 @@ export async function scoreMessageSentiment(args: {
 }): Promise<Sentiment | null> {
   const { workspaceId, ticketId, messageId, body } = args;
   if (!body.trim()) return null;
+  const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const sql = getDb();
 
   // Budget gate. Sentiment is nice-to-have, not load-bearing — if the
@@ -87,6 +89,7 @@ export async function scoreMessageSentiment(args: {
   const startedAt = Date.now();
   let response: Anthropic.Message;
   try {
+    await requireAvailableWorkspace(workspaceId, accessGeneration);
     response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 256,
@@ -131,39 +134,45 @@ export async function scoreMessageSentiment(args: {
     deductBudget(workspaceId, costMicro),
   ]);
 
-  if (!sentiment) return null;
+  if (!sentiment || !await workspaceAvailable(workspaceId, accessGeneration)) return null;
 
   // Fetch the message timestamp once — used by both the message
   // update and the denormalised tickets stamp. We could read it from
   // the .single() return on insert, but threading that through every
   // caller is more friction than just re-reading.
-  const [msgRow] = await sql<{ created_at: string }[]>`
-    select created_at from ticket_messages where id = ${messageId} and workspace_id = ${workspaceId}
-  `;
-  const messageCreatedAt = msgRow?.created_at;
-
-  await sql`
-    update ticket_messages set sentiment = ${sentiment}
-    where id = ${messageId} and workspace_id = ${workspaceId}
-  `;
-
-  // Denormalise onto tickets so the SPA list can filter by sentiment
-  // without joining ticket_messages on every render. Only overwrite
-  // when this message is at-or-after the current latest_customer_
-  // message_at — handles the rare case where two inbound messages
-  // arrive close together and scoring resolves out of order.
-  if (messageCreatedAt) {
-    await sql`
-      update tickets set
-        latest_customer_sentiment  = ${sentiment},
-        latest_customer_message_at = ${messageCreatedAt}
-      where id = ${ticketId} and workspace_id = ${workspaceId}
-        and (latest_customer_message_at is null or latest_customer_message_at <= ${messageCreatedAt})
+  const saved = await sql.begin(async tx => {
+    const [workspace] = await tx`select id from workspaces where id=${workspaceId}
+      and deleted_at is null and suspended_at is null and suspension_generation=${accessGeneration}::bigint for share`;
+    if (!workspace) return false;
+    const [msgRow] = await tx<{ created_at: string }[]>`
+      select created_at from ticket_messages where id = ${messageId} and workspace_id = ${workspaceId}
     `;
-  }
+    const messageCreatedAt = msgRow?.created_at;
+
+    await tx`
+      update ticket_messages set sentiment = ${sentiment}
+      where id = ${messageId} and workspace_id = ${workspaceId}
+    `;
+
+    // Denormalise onto tickets so the SPA list can filter by sentiment
+    // without joining ticket_messages on every render. Only overwrite
+    // when this message is at-or-after the current latest_customer_
+    // message_at — handles the rare case where two inbound messages
+    // arrive close together and scoring resolves out of order.
+    if (messageCreatedAt) {
+      await tx`
+        update tickets set
+          latest_customer_sentiment  = ${sentiment},
+          latest_customer_message_at = ${messageCreatedAt}
+        where id = ${ticketId} and workspace_id = ${workspaceId}
+          and (latest_customer_message_at is null or latest_customer_message_at <= ${messageCreatedAt})
+      `;
+    }
+    return true;
+  });
 
   // Sentiment is scored and stored only — it drives the badge, list filter,
   // and reports. It deliberately does NOT mutate ticket priority; automatic
   // angry→high bumping was removed as too aggressive for marginal value.
-  return sentiment;
+  return saved ? sentiment : null;
 }

@@ -6,7 +6,7 @@ import { getDb } from '../lib/db.js';
 import { readEmailUsage } from '../lib/email-usage.js';
 import { env } from '../lib/env.js';
 import { sendEmail, isPostmarkConfigured } from '../lib/postmark-outbound.js';
-import { auth } from '../lib/auth.js';
+import { auth, sendInvitationSetup } from '../lib/auth.js';
 import { deriveNameFromEmail, randomPassword } from '../lib/invite.js';
 import {
   isPostmarkAccountConfigured,
@@ -223,11 +223,17 @@ god.patch('/brands/:id', async (c) => {
     return c.json({ error: 'Cannot modify system workspace' }, 403);
   }
 
-  const [brand] = await sql`
-    update workspaces set ${sql(update)}
-    where id = ${id}
-    returning ${sql.unsafe(BRAND_COLS)}
-  `;
+  const brand = await sql.begin(async tx => {
+    const [row] = await tx`update workspaces set ${tx(update)} where id=${id} returning ${tx.unsafe(BRAND_COLS)}`;
+    if (update.suspended_at) {
+      // Keep the delivery record, but never replay stale customer events on
+      // reactivation. An operator can review the exhausted queue explicitly.
+      await tx`update webhook_deliveries set state='exhausted',last_error='workspace suspended',last_attempt_at=now()
+        where workspace_id=${id} and state='pending'`;
+      await tx`update knowledge_sources set lease_until=null where workspace_id=${id} and lease_until is not null`;
+    }
+    return row;
+  });
 
   await writeAudit({
     workspaceId: id,
@@ -285,7 +291,7 @@ god.post('/brands/:id/invite', async (c) => {
   // the users + credential-account rows (id from the table's uuid default);
   // for an existing email we reuse the current user.
   const { name, initials } = deriveNameFromEmail(email);
-  const [existing] = await sql<{ id: string }[]>`select id from users where email = ${email}`;
+  const [existing] = await sql<{ id: string; email_verified: boolean }[]>`select id, email_verified from users where email = ${email}`;
   let authUserId: string;
   let createdUser = false;
   if (existing) {
@@ -344,14 +350,15 @@ god.post('/brands/:id/invite', async (c) => {
   inviteUrl.hash = '/w/' + brandId + '/dashboard';
   const inviteLink = inviteUrl.toString();
   let emailSent = false;
+  const needsSetup = createdUser || !existing?.email_verified;
   try {
     if (isPostmarkConfigured()) {
-      if (createdUser) await auth.api.requestPasswordReset({ body: { email } });
+      if (needsSetup) emailSent = await sendInvitationSetup(email);
       else await sendEmail({ to: email, subject: 'Your Respovia brand invitation',
         textBody: 'You have been invited as an administrator of ' + brand.name + '.\n\nOpen your invitation: ' + inviteLink +
           '\n\nSign in with this email address. If you have not set a password, choose Request a setup link on the sign-in page.',
         fromEmail: env.POSTMARK_OUTBOUND_FROM, fromName: 'Respovia' });
-      emailSent = true;
+      if (!needsSetup) emailSent = true;
     }
   } catch (err) {
     emailSent = false;
@@ -368,7 +375,7 @@ god.post('/brands/:id/invite', async (c) => {
   });
 
   return c.json({ user_id: authUserId, email, email_sent: emailSent, invite_link: inviteLink,
-    invitation_type: createdUser ? 'setup' : 'sign_in' }, 201);
+    invitation_type: needsSetup ? 'setup' : 'sign_in' }, 201);
 });
 
 // ─── Domain provisioning ───────────────────────────────────────────────────

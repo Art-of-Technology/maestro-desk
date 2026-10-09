@@ -392,7 +392,7 @@ runDbTests('customer contacts (DB-backed)', () => {
   it('erasure hard-deletes the rows, records "contacts", and the erased profile refuses contact writes', async () => {
     const cid = await mkCustomer('erase');
     expect((await addEmail(cid, emailOf('erase-alt'))).status).toBe(201);
-    const res = await post(admin.token, `/api/v1/customers/${cid}/erase`, { reason: 'test' });
+    const res = await post(admin.token, `/api/v1/customers/${cid}/erase`, { reason: 'subject_request' });
     expect(res.status).toBe(200);
     expect(((await res.json()) as any).fieldsErased).toContain('contacts');
     expect((await rowsFor(cid)).length).toBe(0);

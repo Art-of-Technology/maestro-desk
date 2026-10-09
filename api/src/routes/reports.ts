@@ -6,6 +6,7 @@ import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplyPerformanceQuery, replyPerformance } from '../lib/reply-performance.js';
 import { LanguageDetectionRange, languageDetectionReport } from '../lib/language-detection-report.js';
+import { InsightsQuery, insightsReport } from '../lib/insights-report.js';
 
 // Server-side report data. SLA breach evaluation itself stays client-side
 // (business-hours engine in web/js/tickets/sla.js); this endpoint only
@@ -15,6 +16,15 @@ import { LanguageDetectionRange, languageDetectionReport } from '../lib/language
 export const reports = new Hono();
 
 reports.use('*', requireAuth);
+
+reports.get('/insights', async c => {
+  c.header('Cache-Control', 'no-store');
+  const parsed = InsightsQuery.safeParse(c.req.query());
+  if (!parsed.success) return c.json({ error: 'Choose a valid report range and end date.' }, 400);
+  const report = await insightsReport(c.get('workspaceId'), parsed.data);
+  if (!report) return c.json({ error: 'More than 10,000 tickets match. Choose a shorter date range before exporting.' }, 422);
+  return c.json(report);
+});
 
 reports.get('/reply-performance', async c => {
   c.header('Cache-Control','no-store');

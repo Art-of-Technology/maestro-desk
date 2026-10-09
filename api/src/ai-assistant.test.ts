@@ -54,6 +54,7 @@ dbTests('authenticated AI assistant', () => {
     await sql`update workspaces set ai_credits_micro = 1000000, ai_player_enrichment = false where id in (${workspaceId}, ${otherWorkspaceId})`;
     await sql`delete from ai_usage_log where workspace_id = ${workspaceId}`;
     await sql`delete from rate_limit_hits where bucket = ${'ai-assistant:' + workspaceId + ':' + userId}`;
+    await sql`delete from rate_limit_hits where bucket = ${'ai-generation-check:' + workspaceId + ':' + userId}`;
   });
 
   afterAll(async () => {
@@ -63,6 +64,53 @@ dbTests('authenticated AI assistant', () => {
       if (otherWorkspaceId) await sql`delete from workspaces where id = ${otherWorkspaceId}`;
       if (userId) await sql`delete from users where id = ${userId}`;
     }
+  });
+
+  it('tests generation using fixed text and the normal credit ledger', async () => {
+    const res = await request('/check-generation', { model: payload.model });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ generation_verified: true, model: payload.model, cost_micro: cost, balance_micro: 1000000 - cost });
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy.mock.calls[0][0]).toEqual({ model: payload.model, system: '', max_tokens: 16,
+      messages: [{ role: 'user', content: 'Reply with the word OK.' }] });
+    const rows = await sql`select action, ticket_id, cost_usd_micro from ai_usage_log where workspace_id=${workspaceId}`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ action: 'connection_check', ticket_id: null });
+    expect(Number(rows[0].cost_usd_micro)).toBe(cost);
+    expect(await balance()).toBe(1000000 - cost);
+  });
+
+  it('generation checks reject custom content and foreign workspaces without provider calls', async () => {
+    expect((await app.request('/api/v1/ai/check-generation', { method: 'POST' })).status).toBe(401);
+    expect((await request('/check-generation', { model: payload.model }, otherWorkspaceId)).status).toBe(403);
+    expect((await request('/check-generation', { model: payload.model, messages: payload.messages })).status).toBe(400);
+    expect((await request('/check-generation', { model: 'unsupported' })).status).toBe(400);
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('a free check can pass while generation is blocked by workspace credit or provider failure', async () => {
+    expect((await request('/check', { model: payload.model })).status).toBe(200);
+    await sql`update workspaces set ai_credits_micro=0 where id=${workspaceId}`;
+    const blocked = await request('/check-generation', { model: payload.model });
+    expect(blocked.status).toBe(402);
+    expect((await blocked.json() as any).code).toBe('workspace_credit_insufficient');
+    expect(createSpy).not.toHaveBeenCalled();
+    await sql`update workspaces set ai_credits_micro=1000000 where id=${workspaceId}`;
+    createSpy.mockRejectedValue(new Error('private provider billing detail'));
+    const failed = await request('/check-generation', { model: payload.model });
+    expect(failed.status).toBe(502);
+    const body = await failed.json() as any;
+    expect(body.code).toBe('ai_provider_failed');
+    expect(JSON.stringify(body)).not.toContain('private provider');
+    expect(await balance()).toBe(1000000);
+    expect(Number((await sql`select ai_reserved_micro from workspaces where id=${workspaceId}`)[0].ai_reserved_micro)).toBe(0);
+  });
+
+  it('bounds repeated generation tests and does not accept empty output as success', async () => {
+    createSpy.mockResolvedValue({ ...response, content: [] });
+    for (let i=0; i<3; i++) expect((await request('/check-generation', { model: payload.model })).status).toBe(502);
+    expect((await request('/check-generation', { model: payload.model })).status).toBe(429);
+    expect(createSpy).toHaveBeenCalledTimes(3);
   });
 
   it('requires a session and rejects a foreign workspace before calling the provider', async () => {
