@@ -262,6 +262,9 @@ jobs:
       - name: Thumbnail WebAssembly fallback and decoder failure isolation
         run: node scripts/check-thumbnail-runtime.mjs
 
+      - name: Email download runtime and bundled font
+        run: node --import tsx scripts/check-email-export-runtime.mjs
+
       # Fresh apply under Node+tsx — the exact command the production container
       # runs at boot (api/Dockerfile CMD). Keeps the prod migration path
       # exercised in CI, not just the Bun path.
