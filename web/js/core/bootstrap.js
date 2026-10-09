@@ -670,6 +670,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
     ts:         fmtTime(m.created_at),
     createdAt: m.created_at,
     email: m.email_metadata || null,
+    forwarded: (m.forwarded_from_ticket_ids || []).length > 0,
     downloadableEmail: m.downloadable_email === true,
     mentions:   m.mentions || [],
     sentiment:  m.sentiment || null,

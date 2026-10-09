@@ -21,7 +21,7 @@ export async function agentReport(workspaceId: string, query: z.infer<typeof Age
         and a.created_at < ${end}
     ), messages as materialized (
       select m.* from ticket_messages m join scoped t on t.id = m.ticket_id
-      where m.workspace_id = ${workspaceId} and m.deleted_at is null and m.merged_from_id is null
+      where m.workspace_id = ${workspaceId} and m.deleted_at is null and m.merged_from_id is null and cardinality(m.forwarded_from_ticket_ids)=0
     ), activity as materialized (
       select ticket_id, author_user_id user_id, role, left(body, 200) body, created_at from messages
       where role in ('agent','ai','note') and author_user_id is not null

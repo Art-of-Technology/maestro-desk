@@ -1,6 +1,7 @@
 import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
+import { ticketEmailForwards } from './ticket-email-forwards.js';
 import { ticketEmailDownloads } from './ticket-email-downloads.js';
 import { isExportableEmail } from '../lib/email-export.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
@@ -79,6 +80,7 @@ tickets.use('*', async (c, next) => {
 
 tickets.route('/', messageDrafts);
 tickets.route('/', ticketEmailDownloads);
+tickets.route('/', ticketEmailForwards);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -138,7 +140,7 @@ tickets.get('/work-index', async (c) => {
         and m.workspace_id = ${workspaceId} and m.role = 'customer'
         and m.deleted_at is null and m.merged_from_id is null) as first_customer_at,
       (select min(m.created_at) from ticket_messages m where m.ticket_id = tickets.id
-        and m.workspace_id = ${workspaceId} and m.role in ('agent', 'ai')
+        and m.workspace_id = ${workspaceId} and m.role in ('agent', 'ai') and cardinality(m.forwarded_from_ticket_ids)=0
         and m.deleted_at is null and m.merged_from_id is null
         and m.created_at >= (select min(fc.created_at) from ticket_messages fc
           where fc.ticket_id = tickets.id and fc.workspace_id = ${workspaceId}
@@ -210,7 +212,7 @@ tickets.get('/sync', async (c) => {
   const rows = [...await sql`
     select ${cols},
            (select tm.role from ticket_messages tm
-              where tm.ticket_id = tickets.id and tm.deleted_at is null
+              where tm.ticket_id = tickets.id and tm.deleted_at is null and cardinality(tm.forwarded_from_ticket_ids)=0
               order by tm.created_at desc limit 1) as last_message_role
     from tickets
     where workspace_id = ${workspaceId} ${cursorClause}
@@ -266,7 +268,7 @@ tickets.get('/:id', async (c) => {
 
   const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity, aiDraftRows] = await Promise.all([
     sql<{ id: string; role: string; body_html: string | null; merged_from_id: string | null; external_message_id: string | null; email_metadata: { status?: string } | null }[]>`
-        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata, m.external_message_id,
+        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata, m.external_message_id, m.forwarded_from_ticket_ids,
           r.review as internal_review
         from ticket_messages m left join reply_internal_reviews r
           on r.message_id=m.id and r.workspace_id=m.workspace_id
@@ -1347,8 +1349,8 @@ tickets.post('/:id/merge', async (c) => {
     `;
 
     // 2. Copy source messages onto primary, tagged with merged_from_id.
-    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null; email_metadata: any }[]>`
-      select id, role, author_user_id, author_label, body, mentions, email_metadata
+    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null; email_metadata: any; forwarded_from_ticket_ids: string[] }[]>`
+      select id, role, author_user_id, author_label, body, mentions, email_metadata, forwarded_from_ticket_ids
       from ticket_messages
       where ticket_id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
       order by created_at asc
@@ -1362,9 +1364,9 @@ tickets.post('/:id/merge', async (c) => {
     `;
     for (const m of srcMsgs) {
       const [copy] = await sql`
-        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id, email_metadata)
+        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id, email_metadata, forwarded_from_ticket_ids)
         values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
-                ${m.body}, ${m.mentions || []}, ${sourceId}, ${m.email_metadata ? sql.json(m.email_metadata) : null})
+                ${m.body}, ${m.mentions || []}, ${sourceId}, ${m.email_metadata ? sql.json(m.email_metadata) : null}, ${m.forwarded_from_ticket_ids})
         returning id
       `;
       await sql`insert into reply_internal_reviews(message_id, workspace_id, review, saved_at)

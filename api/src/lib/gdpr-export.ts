@@ -127,10 +127,12 @@ export async function exportCustomer(args: {
   // All messages for the customer's tickets in one query, grouped in JS.
   const messages = ticketIds.length
     ? await sql<Record<string, unknown>[]>`
-        select case when ticket_id in ${sql(ticketIds)} then ticket_id else merged_from_id end as ticket_id,
-          role, author_label, body, body_html, email_metadata, sent_email, created_at, deleted_at, merged_from_id
+        select case when ticket_id in ${sql(ticketIds)} then ticket_id
+          when merged_from_id in ${sql(ticketIds)} then merged_from_id
+          else (select x from unnest(forwarded_from_ticket_ids) x where x=any(${ticketIds}::uuid[]) limit 1) end as ticket_id,
+          role, author_label, body, body_html, email_metadata, sent_email, forwarded_from_ticket_ids, created_at, deleted_at, merged_from_id
         from ticket_messages
-        where workspace_id = ${workspaceId} and (ticket_id in ${sql(ticketIds)} or merged_from_id in ${sql(ticketIds)})
+        where workspace_id = ${workspaceId} and (ticket_id in ${sql(ticketIds)} or merged_from_id in ${sql(ticketIds)} or forwarded_from_ticket_ids && ${ticketIds}::uuid[])
         order by created_at asc
       `
     : [];

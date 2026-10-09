@@ -120,6 +120,11 @@ function frameDocument(html, imgOrigins, remote) {
     `<base target="_blank"><style>${FRAME_CSS}</style></head><body>${html}</body></html>`;
 }
 
+export function renderEmailPreview(html, attachments) {
+  return `<iframe title="Original email" sandbox="allow-same-origin" style="width:100%;height:300px;border:1px solid var(--rule)"
+    srcdoc="${window.escAttr(frameDocument(html, attachmentOrigins(attachments), false))}"></iframe>`;
+}
+
 /**
  * Body markup for a message. Falls back to the escaped plain text when the
  * message has no HTML (notes, older messages, plain-text mail).

@@ -48,7 +48,7 @@ export async function recordReplyUse(workspaceId: string, userId: string, ticket
     const [source]=await tx`select s.reply,m.body from ai_reply_suggestions s join ticket_messages m on m.id=${messageId}
       where s.id=${suggestionId} and s.workspace_id=${workspaceId} and s.ticket_id=${ticketId}
         and s.reply_context='reply' and s.sent_message_id is null and s.rejected_at is null and m.workspace_id=${workspaceId}
-        and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent'
+        and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0
         and m.deleted_at is null and m.merged_from_id is null and m.created_at>=s.created_at for update of s for share of m`;
     if(!source)return;
     await tx`update ai_reply_suggestions s set sent_message_id=m.id,used_by_user_id=${userId},
@@ -57,7 +57,7 @@ export async function recordReplyUse(workspaceId: string, userId: string, ticket
     from ticket_messages m where s.id=${suggestionId} and s.workspace_id=${workspaceId}
       and s.ticket_id=${ticketId} and s.reply_context='reply'
       and s.sent_message_id is null and s.rejected_at is null and m.id=${messageId} and m.workspace_id=${workspaceId}
-      and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent'
+      and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0
       and m.deleted_at is null and m.merged_from_id is null and m.created_at>=s.created_at`;
   });
 }

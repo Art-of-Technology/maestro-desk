@@ -23,6 +23,6 @@ export function ticketListCols(sql: ReturnType<typeof getDb>) {
     customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
     snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
     (select tm.role from ticket_messages tm
-       where tm.ticket_id = tickets.id and tm.deleted_at is null
+       where tm.ticket_id = tickets.id and tm.deleted_at is null and cardinality(tm.forwarded_from_ticket_ids)=0
        order by tm.created_at desc limit 1) as last_message_role`;
 }

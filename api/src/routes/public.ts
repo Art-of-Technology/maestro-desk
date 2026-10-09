@@ -496,7 +496,8 @@ publicRoutes.get('/:slug/customer/tickets/:displayId', async (c) => {
   const messages = await sql`
     select id, role, author_label, body, created_at
     from ticket_messages
-    where ticket_id = ${ticket.id} and role in ('customer', 'agent', 'ai') and deleted_at is null
+    where workspace_id=${ws.id} and ticket_id = ${ticket.id} and role in ('customer', 'agent', 'ai') and deleted_at is null
+      and cardinality(forwarded_from_ticket_ids)=0
     order by created_at asc
   `;
 
