@@ -52,6 +52,9 @@ jobs:
       - name: Customer profile ticket history
         run: bun test scripts/customer-history.test.js
 
+      - name: Ticket customer account recovery
+        run: bun test scripts/ticket-account-refresh.test.js
+
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 

@@ -306,6 +306,25 @@ runDbTests('player identity linking (DB-backed)', () => {
     });
   }
 
+  it('links an inbound customer on an agent refresh after a 503 lookup failure', async () => {
+    const email = `ticket-retry-${RUN}@example.test`;
+    const id = await mkCustomer(ws, email);
+    stubGateway({ error: 'temporarily unavailable' }, 503);
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, email, reason: 'inbound_email' })).toBe('failed');
+    expect((await row(id)).player_lookup_at).toBeNull();
+
+    stubGateway({ ...PLAYER, email });
+    const response = await refresh(id);
+    expect(response.status).toBe(200);
+    expect((await response.json() as any).outcome).toBe('linked');
+    expect((await row(id)).maestro_user_id).toBe(PLAYER.userId);
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0].url).searchParams.get('email')).toBe(email);
+    expect(calls[0].brandId).toBe(brand);
+    expect((await refresh(id)).status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
   it('refreshes an existing linked profile by stable ID, fills empty strings, and keeps one primary mobile', async () => {
     const id = await mkCustomer(ws, `old-email-${RUN}@example.test`, {
       maestro_user_id: PLAYER.userId, username: '  ', vip_tier: '', jurisdiction: '', brand: '',
