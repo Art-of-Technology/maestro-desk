@@ -89,6 +89,7 @@ import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.j
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { showContactDetailsModal } from '../customers/details-card.js';
+import { refreshCustomerAccount } from '../customers/account-refresh.js';
 import { navTo } from '../core/keybindings.js';
 import {
   startPresence, setComposing, confirmIfOthersComposing,
@@ -739,6 +740,13 @@ export function openTicket(id) {
     </div>`;
   syncTicketLayout(id);
   syncRoute('tickets', id);
+  if (cust && !cust.maestroUserId) {
+    void refreshCustomerAccount(cust, () => refreshTicketCustomer(cust), (err) => {
+      if (CURRENT_TICKET === id && document.getElementById('ticket-customer')?.dataset.custId === cust.id) {
+        showToast(err?.message || "Couldn't refresh account details.", 'error');
+      }
+    });
+  }
   if (entering) {
     Promise.all(['reply','note'].map(tab => refreshPersonalDraft(id, tab))).then(() => {
       if (CURRENT_TICKET === id) openTicket(id);
