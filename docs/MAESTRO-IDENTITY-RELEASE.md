@@ -79,12 +79,26 @@ release evidence. This authentication patch performs no historical data repair.
 - Local sign-out returned to authentication; reloading stayed signed out.
   The stale brand picker remained visible immediately after sign-out until
   reload. This existing frontend issue remains outside this conflict update.
-- Recovery was requested for the designated mailbox; the UI showed the
-  generic success message. Mailbox receipt and the user-controlled password
-  step remain unverified. First linking after mailbox setup and reduced
-  consent remain pending live checks; provider outages are covered only by
-  the synthetic fixture, not a live-provider outage exercise.
-- Release decision: **NO-GO pending completion of the live rehearsal and
-  operator sign-off**. This branch update does not authorize a production
-  merge or deployment. The requester must confirm the remaining results
-  before changing that decision.
+- Recovery completed: the requester confirmed receiving the reset email and
+  submitting the new password. The isolated database contains the password
+  credential and verified mailbox; all sessions predating the reset are gone.
+  The recovered user's local dashboard session was verified in the browser.
+- First linking after mailbox setup passed. Only the isolated user's Maestro
+  account link was removed; the verified local user and password credential
+  remained. A fresh real Maestro sign-in linked back to that same local user.
+- Reduced-scope consent passed through the existing explicit-link endpoint:
+  only `openid`, `profile` and `email` were requested and returned. Token
+  validation/linking succeeded; workspace access failed safely with the
+  browser message `Insufficient permissions`. Normal sign-in restored the
+  configured scope set afterward. The registration and production scopes
+  were not changed.
+- A discovery HTTP 503 was simulated in the isolated Node API, without
+  disrupting Maestro. The real login route returned its expected safe
+  unavailable-provider redirect, which the browser displayed. The temporary
+  harness asserted the isolated database, local callback, requested scopes,
+  nonce and error redirect; it is not part of the production code.
+- Integrated revision `7e418ed4b7bc010ab97797dc90170e24a83d9839` passed CI and
+  Octopus re-review (4/5, zero findings).
+- Technical rehearsal: **PASS**, with the existing sign-out UI issue above
+  recorded. Production release remains pending requester authorization.
+  This evidence update does not authorize a production merge or deployment.
