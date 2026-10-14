@@ -79,6 +79,13 @@ release evidence. This authentication patch performs no historical data repair.
 - Local sign-out returned to authentication; reloading stayed signed out.
   The stale brand picker remained visible immediately after sign-out until
   reload. This existing frontend issue remains outside this conflict update.
+  A subsequent server-side check found a release blocker: the shared browser
+  sign-out POST has neither a JSON content type nor a body. It returns HTTP
+  415 and leaves the server session valid. Reproducing the same request with
+  `Content-Type: application/json` alone returned 400; supplying that header
+  and an empty JSON object returned 200 and removed the targeted session.
+  The request fix and its regression coverage require a separately approved
+  change; the production code has not been altered by this diagnosis.
 - Recovery completed: the requester confirmed receiving the reset email and
   submitting the new password. The isolated database contains the password
   credential and verified mailbox; all sessions predating the reset are gone.
@@ -99,6 +106,8 @@ release evidence. This authentication patch performs no historical data repair.
   nonce and error redirect; it is not part of the production code.
 - Integrated revision `7e418ed4b7bc010ab97797dc90170e24a83d9839` passed CI and
   Octopus re-review (4/5, zero findings).
-- Technical rehearsal: **PASS**, with the existing sign-out UI issue above
-  recorded. Production release remains pending requester authorization.
+- Technical rehearsal: **NO-GO pending the server sign-out fix above**.
+  The identity, recovery, first-linking, reduced-scope and outage checks
+  passed; the existing stale-picker UI issue is also recorded.
+  Production release remains pending requester authorization.
   This evidence update does not authorize a production merge or deployment.
