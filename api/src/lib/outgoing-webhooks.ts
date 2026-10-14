@@ -132,7 +132,7 @@ export async function dispatchTicketEvent(args: {
 
   const webhooks = await sql<WebhookRow[]>`
     select id, events from workspace_webhooks where workspace_id = ${workspaceId} and active = true
-      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
+      and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null and w.suspended_at is null)
   `;
   const subscribed = [...webhooks].filter((w) => w.events.includes(event));
   if (subscribed.length === 0) return 0;
@@ -176,12 +176,17 @@ export async function dispatchTicketEvent(args: {
   };
 
   try {
-    for (const w of subscribed) {
-      await sql`
+    const queued = await sql.begin(async tx => {
+      const [workspace] = await tx`select id from workspaces where id=${workspaceId}
+        and deleted_at is null and suspended_at is null for share`;
+      if (!workspace) return false;
+      for (const w of subscribed) await tx`
         insert into webhook_deliveries (workspace_id, webhook_id, event, payload, next_attempt_at)
-        values (${workspaceId}, ${w.id}, ${event}, ${sql.json(payload)}, now())
+        values (${workspaceId}, ${w.id}, ${event}, ${tx.json(payload)}, now())
       `;
-    }
+      return true;
+    });
+    if (!queued) return 0;
   } catch (err) {
     console.error('[outgoing-webhooks] enqueue failed:', safeError(err));
     return 0;
@@ -241,7 +246,7 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       with claimed as (
         select id from webhook_deliveries
         where state = 'pending' and next_attempt_at <= now()
-          and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null)
+          and exists(select 1 from workspaces w where w.id=workspace_id and w.deleted_at is null and w.suspended_at is null)
         order by next_attempt_at asc
         limit ${limit}
         for update skip locked
@@ -274,6 +279,11 @@ export async function processPendingDeliveries(limit = 50): Promise<{ processed:
       return;
     }
     await sql.begin(async tx => {
+      // Same lock order as suspension: workspace before delivery. A successful
+      // suspension cannot race a new send from an already-claimed batch.
+      const [workspace] = await tx`select id from workspaces where id=${d.workspace_id}
+        and deleted_at is null and suspended_at is null for share`;
+      if (!workspace) return;
       // A claimed payload may have been erased while waiting in this batch.
       // Lock customer before delivery (the erasure lock order) and hold through
       // the bounded HTTP attempt, so erasure cannot finish before an old send.

@@ -119,6 +119,21 @@ runDbTests('inbound thread matching (DB-backed)', () => {
     expect(rows).toHaveLength(1);   // not duplicated
   });
 
+  it('opens a separate ticket for replies to forwards without changing the original customer recipient', async () => {
+    const forwardId=`<forward-${RUN}@weezboo.com>`;
+    await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,external_message_id,forwarded_from_ticket_ids)
+      values(${ctx.wsReal},${ctx.realTicket},'agent','Agent','Forward to supplier',${forwardId},${[ctx.realTicket]})`;
+    const [before]=await sql`select last_inbound_email from tickets where id=${ctx.realTicket}`;
+    const payload=inbound({from:`supplier-${RUN}@vendor.test`,subject:'Re: Fwd: Original subject',text:'Supplier response',
+      messageId:`<supplier-${RUN}@vendor.test>`,inReplyTo:forwardId});
+    const result=await processInboundEmail({workspaceId:ctx.bucket,payload});
+    expect(result.threaded).toBe(false);expect(result.ticket_id).not.toBe(ctx.realTicket);
+    const [created]=await sql`select t.workspace_id,c.email from tickets t join customers c on c.id=t.customer_id where t.id=${result.ticket_id}`;
+    expect(created.workspace_id).toBe(ctx.wsReal);expect(created.email).toBe(`supplier-${RUN}@vendor.test`);
+    expect((await sql`select last_inbound_email from tickets where id=${ctx.realTicket}`)[0].last_inbound_email).toBe(before.last_inbound_email);
+    expect((await processInboundEmail({workspaceId:ctx.bucket,payload})).deduped).toBe(true);
+  });
+
   it('reopens a resolved ticket on an email reply and clears resolved_at', async () => {
     await sql`update tickets set status_key = 'resolved', resolved_at = now() where id = ${ctx.realTicket}`;
     const res = await processInboundEmail({

@@ -12,6 +12,7 @@ import { safeError } from './diagnostics.js';
 import { env } from './env.js';
 import { isPostmarkConfigured } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
+import { availableTicketPrivacy } from './ticket-privacy.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
 
@@ -35,6 +36,8 @@ export async function notifyMentionedAgents(args: {
   const targets = mentions.filter((id) => id !== authorUserId);
   if (targets.length === 0) return { sent: 0, skipped: 0 };
 
+  const privacy = await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { sent: 0, skipped: targets.length };
   const [usersRows, ticketRows] = await Promise.all([
     sql<{ id: string; name: string | null; email: string | null; mention_email_enabled: boolean | null }[]>`
       select id, name, email, mention_email_enabled from users where id = any(${targets})`,
@@ -90,6 +93,7 @@ export async function notifyMentionedAgents(args: {
     try {
       // Branded From with platform fallback + rejection safety net.
       await sendBrandedEmail({
+        privacy,
         workspaceId, fallbackFromName: workspaceName,
         to: u.email, subject, textBody: composed.text, htmlBody: composed.html,
         replyTo: env.POSTMARK_INBOUND_REPLY_ADDRESS || null,

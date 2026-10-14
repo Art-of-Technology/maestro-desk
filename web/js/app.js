@@ -2,7 +2,7 @@
 // swap, layout hydration, the window bridge, the static-shell action wiring,
 // and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
 // moved to core/router.js — imported below and re-exposed on the bridge.
-import { DASH_LAYOUT, REPORT_LAYOUT, SESSION, setDashLayout, setReportLayout, setSession } from './core/state.js';
+import { SESSION, setSession } from './core/state.js';
 import { checkSnoozeWakeups } from './tickets/snooze.js';
 import { setWorkspaceSlug } from './core/api-client.js';
 import { setEmailLogo } from './tickets/message-html.js';
@@ -24,9 +24,6 @@ import {
   // window.setSettingsTab to dodge the settings↔notifications import cycle.
   setSettingsTab,
 } from './settings/index.js';
-import { DASH_WIDGETS, DEFAULT_DASH_LAYOUT } from './dashboard/index.js';
-import { loadLayout, reconcileLayout } from './core/widget-shell.js';
-import { REPORT_WIDGETS, DEFAULT_REPORT_LAYOUT } from './reports/index.js';
 import { nav, renderPage } from './core/router.js';
 import { initUrlRouting, resumeUrlRouting, suspendUrlRouting, discardRequestedRoute } from './core/url-navigation.js';
 
@@ -227,18 +224,6 @@ function placeholderPage(title, blurb) {
       </div>
     </div>`;
 }
-
-// ─── Layout hydration (dashboard + reports) ───────────────────────────────
-// DASH_LAYOUT and REPORT_LAYOUT are declared in core/state.js; the dashboard
-// module owns DASH_WIDGETS / DEFAULT_DASH_LAYOUT and the reports module
-// owns REPORT_WIDGETS / DEFAULT_REPORT_LAYOUT — both imported above.
-// Hydrate each layout from localStorage at startup, then reconcile against
-// its widget list so newly-added widgets land at the end of the order
-// rather than disappearing.
-setDashLayout(loadLayout('dash_layout',   DEFAULT_DASH_LAYOUT));
-setReportLayout(loadLayout('report_layout', DEFAULT_REPORT_LAYOUT));
-reconcileLayout(DASH_LAYOUT,   DASH_WIDGETS);
-reconcileLayout(REPORT_LAYOUT, REPORT_WIDGETS);
 
 // ─── App-wide utilities (fmtMinutes, escHtml) ───────────────────────────────
 // fmtMinutes was originally placed in the Agents section but is used widely

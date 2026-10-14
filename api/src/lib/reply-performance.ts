@@ -52,7 +52,7 @@ export async function replyPerformance(workspaceId: string, query: z.infer<typeo
       left join users u on u.id=s.user_id
       left join ai_reply_feedback f on f.suggestion_id=s.id
       left join ticket_messages m on m.id=s.sent_message_id and m.workspace_id=s.workspace_id
-        and m.ticket_id=s.ticket_id and m.role='agent' and m.deleted_at is null and m.merged_from_id is null
+        and m.ticket_id=s.ticket_id and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0 and m.deleted_at is null and m.merged_from_id is null
       where s.workspace_id=${workspaceId} and s.created_at>=${query.start}::timestamptz and s.created_at<${query.end}::timestamptz
         and s.reply_context is distinct from 'note' and t.deleted_at is null and t.merged_into_id is null
     ), cohort as materialized (

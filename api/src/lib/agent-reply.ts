@@ -1,4 +1,5 @@
 import { safeError } from './diagnostics.js';
+import { sentEmailContent } from './sent-email.js';
 // Email an agent's public reply to the customer. Called from
 // POST /tickets/:id/messages when an agent posts a `role:'agent'` reply (not
 // an internal note). Turns the portal-only reply into a real two-way email
@@ -17,7 +18,8 @@ import {
   replySubject,
 } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
-import { composeEmail } from './email-branding.js';
+import { availableTicketPrivacy } from './ticket-privacy.js';
+import { composeEmail, type ComposedEmail } from './email-branding.js';
 import { getDb } from './db.js';
 import { ticketReplyRecipients, type RecipientInput } from './email-recipients.js';
 import { resolveTicketReplyTo } from './ticket-reply-to.js';
@@ -42,6 +44,7 @@ export async function sendAgentReplyEmail(args: {
   messageId:    string;   // the just-inserted agent ticket_messages row
   authorUserId: string;
   body:         string;
+  composed?: ComposedEmail;
   // Sanitised HTML body of a rich-text reply (lib/email-html.ts), with inline
   // images referenced as cid:<attachment id>.
   bodyHtml?:    string | null;
@@ -51,6 +54,8 @@ export async function sendAgentReplyEmail(args: {
 }): Promise<AgentReplyDelivery> {
   const { workspaceId, ticketId, messageId, authorUserId, body } = args;
   const sql = getDb();
+  const privacy = await availableTicketPrivacy(workspaceId, [ticketId]);
+  if (!privacy) return { emailed: false, reason: 'send_failed', detail: 'This ticket is no longer available.' };
 
   const [ctx] = await sql<{
     subject: string;
@@ -85,12 +90,13 @@ export async function sendAgentReplyEmail(args: {
   `;
 
   // Header/footer + the sending agent's signature (authorUserId).
-  const composed = await composeEmail({ workspaceId, authorUserId, bodyText: body, bodyHtml: args.bodyHtml ?? null });
+  const composed = args.composed ?? await composeEmail({ workspaceId, authorUserId, bodyText: body, bodyHtml: args.bodyHtml ?? null });
 
   try {
     // Branded From (verified domain) with platform fallback + rejection
     // safety net — see send-branded-email.ts.
     const result = await sendBrandedEmail({
+      privacy,
       workspaceId,
       sendingChannelId,
       expectedSendingAddress: args.recipients ? args.recipients.sending_address : selectedInbox?.address,
@@ -113,6 +119,7 @@ export async function sendAgentReplyEmail(args: {
     // customer reply's In-Reply-To resolves to exactly this row.
     await sql`
       update ticket_messages set external_message_id = ${result.rfcMessageId},
+        sent_email = ${sql.json(sentEmailContent(composed, replySubject(ctx.subject)))},
         email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
           status: 'sent', sent_at: result.submittedAt,
           ...(sendingChannelId ? { sending_channel_id: sendingChannelId,

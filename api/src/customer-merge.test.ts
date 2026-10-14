@@ -302,7 +302,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     expect(unmerged.maestro_member_id).toBeNull();
     expect(unmerged.maestro_global_id_verified).toBe(false);
     expect((await as(admin.token, ctx.ws, `/api/v1/customers/${source}/erase`, {
-      method: 'POST', body: JSON.stringify({ reason: 'Test erasure' }),
+      method: 'POST', body: JSON.stringify({ reason: 'subject_request' }),
     })).status).toBe(200);
     const [erased] = await sql`select maestro_member_id, maestro_global_id_verified from customers where id = ${source}`;
     expect(erased.maestro_member_id).toBeNull();
@@ -380,7 +380,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
     })).status).toBe(200);
 
     const erased = await as(admin.token, ctx.ws, `/api/v1/customers/${src}/erase`, {
-      method: 'POST', body: JSON.stringify({ reason: 'Art. 17 request' }),
+      method: 'POST', body: JSON.stringify({ reason: 'subject_request' }),
     });
     expect(erased.status).toBe(200);
 
@@ -482,7 +482,7 @@ runDbTests('customer merge/unmerge (DB-backed)', () => {
       where workspace_id = ${ctx.ws} and action = 'customer.unmerged' and target_id = ${a}
       order by created_at desc limit 1
     `;
-    expect(audit.metadata.fields_skipped).toEqual(['legacy_removed_col']);
+    expect(audit.metadata.fields_skipped).toEqual([]); // Unknown legacy names are not made permanent.
   });
 
   it('unmerges: stamped tickets/notes return, post-merge tickets stay, backfill reverts only untouched fields, journal stamped, audit', async () => {

@@ -63,6 +63,7 @@ publicRoutes.get('/resolve-host', async (c) => {
   const [data] = await sql<{ slug: string }[]>`
     select slug from workspaces
     where portal_custom_domain = ${host} and portal_custom_domain_verified = true and deleted_at is null
+      and suspended_at is null and not is_unrouted_bucket
   `;
   if (!data) return c.json({ slug: null }, 404);
   return c.json({ slug: data.slug });
@@ -495,7 +496,8 @@ publicRoutes.get('/:slug/customer/tickets/:displayId', async (c) => {
   const messages = await sql`
     select id, role, author_label, body, created_at
     from ticket_messages
-    where ticket_id = ${ticket.id} and role in ('customer', 'agent', 'ai') and deleted_at is null
+    where workspace_id=${ws.id} and ticket_id = ${ticket.id} and role in ('customer', 'agent', 'ai') and deleted_at is null
+      and cardinality(forwarded_from_ticket_ids)=0
     order by created_at asc
   `;
 

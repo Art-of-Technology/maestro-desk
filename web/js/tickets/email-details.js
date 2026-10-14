@@ -8,7 +8,7 @@ export function emailDate(value) {
 }
 export function messageTime(message) {
   const email = message.email;
-  const label = email?.status === 'sent' ? 'Sent' : email?.status === 'received' ? 'Received' : email?.status === 'saved' ? 'Saved · not emailed' : 'Added';
+  const label = message.forwarded ? (email?.status === 'sent' ? 'Forwarded' : email?.forward_state === 'unknown' || email?.forward_state === 'sending' ? 'Forward · delivery unconfirmed' : 'Forward · not sent') : email?.status === 'sent' ? 'Sent' : email?.status === 'received' ? 'Received' : email?.status === 'saved' ? 'Saved · not emailed' : 'Added';
   const date = emailDate(email?.status === 'sent' ? email.sent_at : email?.received_at || message.createdAt);
   return date ? `${label} ${date}` : message.ts || '';
 }
@@ -17,8 +17,8 @@ export function renderEmailDetails(message) {
   if (!e) return '';
   const esc = window.escHtml;
   const row = (label, value) => value ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
-  const recipients = [...(e.to || []), ...(e.cc || [])];
-  const fields = row('From', e.from) + row('To', (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
+  const recipients = [...(e.status === 'received' ? [] : e.to || []), ...(e.cc || [])];
+  const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')
     + row('Sent by sender', e.status === 'received' ? emailDate(e.sent_at) : '');

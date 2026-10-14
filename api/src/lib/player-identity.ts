@@ -28,6 +28,7 @@ import { maestroBrandIdForWorkspace } from './maestro-workspace.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import type { PlayerAccessCategory } from './player-audit.js';
 import { ensurePrimaryContacts, syncPrimaryMirror } from './customer-contacts.js';
+import { workspaceAccessGeneration, requireAvailableWorkspace } from './workspace-access.js';
 
 export { memberNotFound };
 
@@ -80,12 +81,16 @@ export function linkedCategories(member: Member): PlayerAccessCategory[] {
  */
 export async function applyPlayerToCustomer(
   sql: postgres.Sql<{}>,
-  args: { workspaceId: string; customerId: string; member: Member },
+  args: { workspaceId: string; customerId: string; member: Member; accessGeneration?: string },
 ): Promise<boolean> {
   const m = args.member;
   const userId = str(m.userId);
   if (!userId) return false;
   return sql.begin(async (tx) => {
+    const [workspace] = await tx`select id from workspaces where id=${args.workspaceId}
+      and deleted_at is null and suspended_at is null
+      and (${args.accessGeneration ?? null}::bigint is null or suspension_generation=${args.accessGeneration ?? null}::bigint) for share`;
+    if (!workspace) return false;
     const [current] = await tx<Record<string, unknown>[]>`
       select c.maestro_user_id, c.maestro_member_id, c.username, c.vip_tier,
              c.jurisdiction, c.brand, c.email, c.mobile, c.backoffice_url,
@@ -93,7 +98,7 @@ export async function applyPlayerToCustomer(
       from customers c join workspaces w on w.id = c.workspace_id
       where c.id = ${args.customerId} and c.workspace_id = ${args.workspaceId}
         and c.erased_at is null and c.deleted_at is null and c.merged_into_customer_id is null
-        and w.deleted_at is null and w.maestro_brand_id is not null
+        and w.deleted_at is null and w.suspended_at is null and w.maestro_brand_id is not null
         and (c.maestro_user_id is null or c.maestro_user_id = ${userId})
       for update of c
     `;
@@ -222,6 +227,7 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
 
   const brandId = await maestroBrandIdForWorkspace(args.workspaceId);
   if (!brandId) return 'no_brand';
+  const accessGeneration = await workspaceAccessGeneration(args.workspaceId);
   const missingBackoffice = !str(c.backoffice_url) && playerBackofficeUrl(brandId, c.maestro_user_id);
   if (c.maestro_user_id && !missingBackoffice && [c.username, c.vip_tier, c.jurisdiction, c.brand, c.mobile].every(str)) return 'skipped';
 
@@ -237,6 +243,7 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   // contact's next email rather than waiting a day.
   let member: Member | null;
   try {
+    await requireAvailableWorkspace(args.workspaceId, accessGeneration);
     const res = await workerFetch<Member>('/api/v1/proxy/member/lookup', {
       brandId,
       // The gateway response userId is the brand Member ID (e.g. 50119).
@@ -277,7 +284,7 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
     return 'identity_mismatch';
   }
 
-  const linked = await applyPlayerToCustomer(sql, { workspaceId: args.workspaceId, customerId: args.customerId, member });
+  const linked = await applyPlayerToCustomer(sql, { workspaceId: args.workspaceId, customerId: args.customerId, member, accessGeneration });
   await stampLookup(sql, args);
   if (!linked) return 'skipped';   // a concurrent link won, or the row changed under us
 
@@ -300,6 +307,7 @@ async function stampLookup(sql: Db, args: { workspaceId: string; customerId: str
     update customers set player_lookup_at = now()
     where id = ${args.customerId} and workspace_id = ${args.workspaceId}
       and erased_at is null and deleted_at is null and merged_into_customer_id is null
+      and exists(select 1 from workspaces where id=${args.workspaceId} and suspended_at is null and deleted_at is null)
   `;
 }
 
@@ -439,7 +447,7 @@ async function runBackfillInner(sql: Db, opts: BackfillOptions): Promise<PlayerI
   }
 
   const workspaces = await sql<{ id: string }[]>`
-    select id from workspaces where maestro_brand_id is not null and deleted_at is null order by created_at
+    select id from workspaces where maestro_brand_id is not null and deleted_at is null and suspended_at is null order by created_at
   `;
   result.workspaces = workspaces.length;
 
@@ -509,7 +517,7 @@ async function countRemaining(sql: Db): Promise<number> {
     select count(*)::int as n
     from customers c
     join workspaces w on w.id = c.workspace_id
-    where w.maestro_brand_id is not null and w.deleted_at is null
+    where w.maestro_brand_id is not null and w.deleted_at is null and w.suspended_at is null
       and c.maestro_user_id is null and c.email is not null and c.player_lookup_at is null
       and c.erased_at is null and c.deleted_at is null and c.merged_into_customer_id is null
   `;

@@ -54,7 +54,7 @@ export async function handleSlackEvent(args: {
   // unrelated Slack chatter out of our DB.
   const [mapping] = await sql<{ ticket_id: string }[]>`
     select ticket_id from slack_thread_mappings
-    where exists(select 1 from workspaces w where w.id=${workspaceId} and w.deleted_at is null)
+    where exists(select 1 from workspaces w where w.id=${workspaceId} and w.deleted_at is null and w.suspended_at is null)
     and workspace_id = ${workspaceId} and channel_id = ${ev.channel} and thread_ts = ${ev.thread_ts}
   `;
   if (!mapping) return;
@@ -90,7 +90,8 @@ export async function handleSlackEvent(args: {
   try {
     await sql`
       insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body)
-      values (${workspaceId}, ${mapping.ticket_id}, ${role}, ${authorUserId}, ${authorName}, ${ev.text})
+      select ${workspaceId}, ${mapping.ticket_id}, ${role}, ${authorUserId}, ${authorName}, ${ev.text}
+      where exists(select 1 from workspaces where id=${workspaceId} and deleted_at is null and suspended_at is null)
     `;
   } catch (err) {
     console.error('[slack-inbound] ticket_messages insert failed:', safeError(err));

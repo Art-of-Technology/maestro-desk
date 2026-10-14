@@ -1,6 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, computeCostMicro } from './anthropic.js';
 import { getDb } from './db.js';
+import { workspaceAccessGeneration, requireAvailableWorkspace, workspaceAvailable } from './workspace-access.js';
 
 const MODEL = 'claude-haiku-4-5';
 // At most two calls per lookup, each reserving <= $0.05, without retries.
@@ -9,6 +10,7 @@ export const SEARCH_TIMEOUT_MS = 8000;
 
 export async function replySearchTool(workspaceId: string, userId: string,
   action: 'reply_search_expand' | 'reply_search_rank', system: string, content: string, tool: Anthropic.Tool) {
+  const accessGeneration = await workspaceAccessGeneration(workspaceId);
   const sql = getDb();
   const reserved = computeCostMicro(MODEL, {
     input_tokens: Buffer.byteLength(system + content + JSON.stringify(tool)) + 1024,
@@ -16,11 +18,13 @@ export async function replySearchTool(workspaceId: string, userId: string,
   });
   if (reserved > SEARCH_CALL_CAP_MICRO) return { input: null, costMicro: 0 };
   const [reservation] = await sql`update workspaces set ai_credits_micro=ai_credits_micro-${reserved}, ai_reserved_micro=ai_reserved_micro+${reserved}
-    where id=${workspaceId} and ai_credits_micro>=${reserved} returning id`;
+    where id=${workspaceId} and ai_credits_micro>=${reserved}
+      and deleted_at is null and suspended_at is null and not is_unrouted_bucket returning id`;
   if (!reservation) return { input: null, costMicro: 0 };
   const started = Date.now();
   let response;
   try {
+    await requireAvailableWorkspace(workspaceId, accessGeneration);
     response = await anthropic.messages.create({ model: MODEL, max_tokens: 512, system,
       messages: [{ role: 'user', content }], tools: [tool], tool_choice: { type: 'tool', name: tool.name } },
     { timeout: SEARCH_TIMEOUT_MS, maxRetries: 0 });
@@ -43,5 +47,6 @@ export async function replySearchTool(workspaceId: string, userId: string,
         ${usage.cache_creation_input_tokens},${usage.cache_read_input_tokens},${costMicro},${Date.now() - started},${response.id})`;
   });
   const result = response.content.find(b => b.type === 'tool_use' && b.name === tool.name);
+  if (!await workspaceAvailable(workspaceId, accessGeneration)) return { input: null, costMicro };
   return { input: response.stop_reason !== 'max_tokens' && result?.type === 'tool_use' ? result.input : null, costMicro };
 }

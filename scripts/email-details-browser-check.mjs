@@ -46,6 +46,8 @@ export default async function checkEmailDetails(page) {
   await cc.fill('reviewer@example.test');
   const details=await page.locator('.message-email-details').innerText();
   if (!details.includes('vip@spacecasino.com') || !details.includes('colleague@example.test')) throw Error('Email envelope missing');
+  if (!details.includes('Received via') || (details.match(/vip@spacecasino.com/g) || []).length !== 1) throw Error('Incoming inbox is duplicated');
+  if ((await page.locator('.message-email-details dt').allTextContents()).includes('To')) throw Error('Incoming email still has a To row');
   if (!(await page.locator('.message-time').innerText()).includes('29 Sept 2026')) throw Error('Full date missing');
   await page.setViewportSize({width:700,height:900});
   if (await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)) throw Error('Page overflows');
@@ -64,5 +66,5 @@ export default async function checkEmailDetails(page) {
     const payload=(await import('/js/tickets/email-details.js')).replyRecipientPayload(ticket);
     if(payload.sending_channel_id!=='vip'||payload.sending_address!=='vip@spacecasino.com')throw Error('Sender missing from send payload');
   });
-  return {checks:'Full date, inbox, From/To/CC, reply modes, recipient drafts, sender selection/restoration/expiry, note isolation, CC validation, responsive overflow'};
+  return {checks:'Full date, inbox without duplicate To, From/CC, reply modes, recipient drafts, sender selection/restoration/expiry, note isolation, CC validation, responsive overflow'};
 }

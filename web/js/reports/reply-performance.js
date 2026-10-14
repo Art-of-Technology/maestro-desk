@@ -1,6 +1,7 @@
 import { apiGet, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { downloadCSV } from '../core/csv.js';
+import { renderStatView } from '../core/stat-view.js';
 import { formatRoute } from '../core/route-location.js';
 
 const reasons = {wrong_match:'Wrong match',outdated_advice:'Outdated advice',wrong_language:'Wrong language',other:'Other',none:'No reason given'};
@@ -63,16 +64,22 @@ export function renderPerformanceData(data,workspace,offset=0) {
   const s=data.summary;
   const kpis=[['Recorded suggestions',s.generated],['Helpful rate',ratio(s.helpful,s.rated)],['Confirmed uses',s.used],['Use rate',ratio(s.used,s.tracked)],['Median time to post',minutes(s.median_seconds)],['Cost per confirmed use',s.used?money(s.cost_micro/s.used):'Unavailable']];
   const statsRows = rows => rows.map(r=>`<tr><th scope="row">${esc(r.agent_name || r.day || r.reply_language || r.query_type)}</th>${[r.generated,r.shown,r.rated,ratio(r.helpful,r.rated),r.used,ratio(r.used,r.tracked),minutes(r.median_seconds),r.used?money(r.cost_micro/r.used):'Unavailable',r.substantial??0,r.rejected??0].map(v=>`<td>${esc(v)}</td>`).join('')}</tr>`);
+  const group = (id, title, label, rows, trend = false) => renderStatView(id, title, [label, 'Suggestions', 'Shown', 'Rated', 'Confirmed uses', 'Explicitly rejected'], rows.map(r => [r.agent_name || r.day || r.reply_language || r.query_type, r.generated, r.shown, r.rated, r.used, r.rejected ?? 0]), {
+    choices: trend ? ['table', 'line', 'bar'] : ['table', 'bar'],
+    tableHtml: table([label, ...screenHeaders], statsRows(rows)),
+    xValues: trend ? rows.map(r => Date.parse(r.day)) : undefined,
+    chartNote: 'Charts show counts. Choose Table for rates, median time to post, cost per use and substantial changes. These counts overlap.',
+  });
   return `<div class="performance-kpis">${kpis.map(([label,value])=>`<div class="card"><strong>${esc(value)}</strong><span>${label}</span></div>`).join('')}</div>
     <p>${s.shown} shown · ${s.rated} rated · ${s.helpful} helpful · ${s.not_helpful} not helpful · ${s.generated-s.tracked} with usage tracking unavailable.</p>
     <p>${s.substantial??0} accepted with substantial changes · ${s.rejected??0} explicitly rejected · ${s.generated-s.used-(s.rejected??0)} with no outcome recorded · ${s.change_unavailable??0} accepted with change measurement unavailable.</p>
     <p class="performance-explainer">Accepted means confirmed use when posted. Substantial change is a subset of accepted replies: at least 30% text difference using character-pair overlap, ignoring case and repeated whitespace. It includes translation and is not a quality score. Rejection requires the agent's explicit choice; no rating or no use is not rejection. Language is the requested reply language and query type is the ticket category at generation, not a new AI classification. Older records may be unavailable.</p>
     <p class="performance-explainer">Helpful rate = helpful ÷ rated. Use rate = confirmed uses ÷ use-tracked suggestions. Time to post is elapsed time, not active work or time saved. “Changed” includes translation and whitespace-normalized text changes. Generation cost is ${money(s.cost_micro)} across ${s.cost_known} records; it excludes later editing, translation and unrecorded requests. Cost per use includes unused recorded suggestions. Missing show events are not proof a suggestion was unseen. Deleted records are excluded.</p>
-    ${!s.generated?'<p>No suggestions match these filters. Change the date range or clear a filter.</p>':`<h2>By agent</h2>${table(['Agent',...screenHeaders],statsRows(data.agents))}
-    <h2>Daily trend (UTC)</h2>${table(['Date',...screenHeaders],statsRows(data.trend))}
-    <h2>By requested reply language</h2>${table(['Language',...screenHeaders],statsRows(data.languages||[]))}
-    <h2>By query type (ticket category)</h2>${table(['Query type',...screenHeaders],statsRows(data.queryTypes||[]))}
-    <h2>Reported problems</h2>${data.reasons.length?`<ul>${data.reasons.map(r=>`<li>${reasons[r.reason] || 'No reason given'}: ${r.count}</li>`).join('')}</ul>`:'<p>No negative ratings in this selection.</p>'}
+    ${!s.generated?'<p>No suggestions match these filters. Change the date range or clear a filter.</p>':`<h2>By agent</h2>${group('ai-agents', 'AI replies by agent', 'Agent', data.agents)}
+    <h2>Daily trend (UTC)</h2>${group('ai-trend', 'AI reply daily trend', 'Date', data.trend, true)}
+    <h2>By requested reply language</h2>${group('ai-languages', 'AI replies by language', 'Language', data.languages || [])}
+    <h2>By query type (ticket category)</h2>${group('ai-types', 'AI replies by query type', 'Query type', data.queryTypes || [])}
+    <h2>Reported problems</h2>${renderStatView('ai-problems', 'Reported AI reply problems', ['Reason', 'Reports'], data.reasons.map(r => [reasons[r.reason] || 'No reason given', Number(r.count)]), { choices: ['table', 'bar'] })}
     <h2>Suggestion details</h2><p>${offset+1}–${offset+data.details.length} of ${s.generated}</p>
     ${table(['Ticket','Agent','Created (UTC)','Rating / reason','Shown','Confirmed use','Text at posting','Outcome','Language','Query type','Elapsed'],data.details.map(r=>`<tr><td><a href="${window.escAttr(formatRoute({workspaceId:workspace,page:'tickets',entityId:r.ticket_id}))}">${esc(r.display_id)}</a></td><td>${esc(r.agent_name)}</td><td>${esc(r.created_at)}</td><td>${r.helpful===null?'Not rated':r.helpful?'Helpful':'Not helpful'}${r.reason?' / '+esc(reasons[r.reason]):''}</td><td>${r.shown_at?'Recorded':'Not recorded'}</td><td>${r.reply_context!=='reply'?'Unavailable':r.sent_at?'Yes':'Not recorded'}</td><td>${r.sent_at?(r.sent_changed?'Changed':'Unchanged'):'Unavailable'}</td><td>${esc(outcomeLabel(r))}</td><td>${esc(r.reply_language||'Not recorded')}</td><td>${esc(r.query_type||'Not recorded')}</td><td>${minutes(r.elapsed_seconds)}</td></tr>`))}
     <div class="performance-exports">${offset?`<button type="button" class="btn" data-action="replyPerformance.page" data-offset="${Math.max(0,offset-50)}">Previous</button>`:''}${data.hasMore?`<button type="button" class="btn" data-action="replyPerformance.page" data-offset="${offset+50}">Next</button>`:''}</div>`}`;

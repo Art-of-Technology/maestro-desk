@@ -28,7 +28,7 @@ import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { findMatchingSLAPolicy, evaluateSLATimestamps, fmtSLAMinutes } from '../tickets/sla.js';
 import { openTicket } from '../tickets/detail.js';
-import { rBarRow } from './index.js';
+import { renderStatView } from '../core/stat-view.js';
 import { downloadCSV } from '../core/csv.js';
 import { showToast } from '../core/toast.js';
 import { TICKETS } from '../core/data.js';
@@ -153,54 +153,17 @@ function sbByDayChart(breached) {
       if (c >= b.start && c < b.end) { b.count++; break; }
     }
   }
-  const max = Math.max(1, ...buckets.map(b => b.count));
-  const bars = buckets.map(b => `
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0">
-      <div style="flex:1;width:100%;display:flex;flex-direction:column;justify-content:flex-end" title="${b.label || mmDD(b.start)}: ${b.count}">
-        <div style="height:${(b.count / max) * 100}%;background:var(--red-lt);border-top:2px solid ${b.count ? 'var(--red)' : 'transparent'};border-radius:2px 2px 0 0"></div>
-      </div>
-      <div style="font-size:9px;color:var(--ink3);font-family:'DM Mono',monospace;white-space:nowrap;min-height:11px">${b.label}</div>
-    </div>`).join('');
-  return `
-    <div class="card">
-      <div class="card-title">Breaches by day</div>
-      <div style="display:flex;align-items:stretch;gap:3px;height:120px;padding:6px 0 2px">${bars}</div>
-    </div>`;
+  const rows = buckets.map(b => [b.start.toLocaleDateString('en-CA'), b.count]);
+  return '<div class="card"><div class="card-title">Breaches by day</div>' + renderStatView('sla-days', 'Breaches by day', ['Period starting', 'Breached tickets'], rows, { choices: ['bar', 'line', 'table'], colorFor: () => 'var(--red)' }) + '<p class="report-note">Grouped by ticket creation date.</p></div>';
 }
 
 function sbByTargetChart(s) {
-  const max = Math.max(s.frBreaches, s.resBreaches, 1);
-  return `
-    <div class="card">
-      <div class="card-title">By policy target</div>
-      ${rBarRow('First reply', s.frBreaches, max, 'var(--red)')}
-      ${rBarRow('Resolution', s.resBreaches, max, 'var(--purple)')}
-      <div style="margin-top:12px;font-size:11px;color:var(--ink3)">A ticket can breach both targets.</div>
-    </div>`;
+  return '<div class="card"><div class="card-title">By policy target</div>' + renderStatView('sla-target', 'Breaches by policy target', ['Target', 'Breaches'], [['First reply', s.frBreaches], ['Resolution', s.resBreaches]]) + '<p class="report-note">A ticket can breach both targets.</p></div>';
 }
 
 function sbAttainmentRing(s, total) {
-  if (s.attainment == null) {
-    return `<div class="card"><div class="card-title">Attainment</div>
-      <div style="color:var(--ink3);font-size:12px;padding:20px 0;text-align:center">No tickets matched an active SLA policy</div></div>`;
-  }
-  const deg = Math.round((s.met / total) * 360);
-  return `
-    <div class="card">
-      <div class="card-title">Attainment</div>
-      <div class="sb-ring-wrap">
-        <div class="sb-ring" style="background:conic-gradient(var(--green) 0 ${deg}deg,var(--red) ${deg}deg 360deg)">
-          <div class="sb-ring-inner">
-            <span class="sb-ring-n">${s.attainment}%</span>
-            <span class="sb-ring-l">met</span>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--ink2)">
-          <span><span class="sb-dot" style="background:var(--green)"></span>${s.met} within SLA</span>
-          <span><span class="sb-dot" style="background:var(--red)"></span>${s.breached.length} breached</span>
-        </div>
-      </div>
-    </div>`;
+  if (s.attainment == null) return '<div class="card"><div class="card-title">Attainment</div><p>No tickets matched an active SLA policy.</p></div>';
+  return '<div class="card"><div class="card-title">Attainment</div><p>' + s.attainment + '% within SLA</p>' + renderStatView('sla-attainment', 'SLA attainment', ['Outcome', 'Tickets'], [['Within SLA', s.met], ['Breached', total - s.met]], { choices: ['donut', 'bar', 'table'], colorFor: k => k === 'Within SLA' ? 'var(--green)' : 'var(--red)' }) + '</div>';
 }
 
 // ─── Table ────────────────────────────────────────────────────────────────

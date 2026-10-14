@@ -32,7 +32,7 @@ export async function dashboardReport(workspaceId: string, userId: string, perio
         and closed_at >= ${start}::timestamptz and closed_at < ${end}::timestamptz),
       'replies', (select count(*) from ticket_messages m join scoped t on t.id = m.ticket_id
         where m.workspace_id = ${workspaceId} and m.deleted_at is null and m.merged_from_id is null
-        and m.role in ('agent', 'ai') and m.created_at >= ${start}::timestamptz and m.created_at < ${end}::timestamptz),
+        and m.role in ('agent', 'ai') and cardinality(m.forwarded_from_ticket_ids)=0 and m.created_at >= ${start}::timestamptz and m.created_at < ${end}::timestamptz),
       'csatCount', (select count(*) from rated), 'avgCSAT', (select avg(csat_score) from rated),
       'byStatus', coalesce((select jsonb_object_agg(status_key, n) from
         (select status_key, count(*) n from cohort group by status_key) s), '{}'::jsonb),

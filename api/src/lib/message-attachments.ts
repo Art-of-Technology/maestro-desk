@@ -19,6 +19,7 @@ import { safeError } from './diagnostics.js';
 
 import type { Sql, TransactionSql } from 'postgres';
 import { getDb } from './db.js';
+import { privateFileUrl } from './private-file-links.js';
 import { attachmentsStore, contentDispositionFor, isAttachmentsStorageConfigured, type R2Store } from './r2.js';
 import {
   classifyAttachment, fileExtension, formatSkipNote, DENY_EXT,
@@ -237,7 +238,7 @@ export async function loadAttachmentsForTicket(
     rows.map(async (r) => {
       if (!store) return null;
       try {
-        return await store.presignGet(r.storage_key);
+        return privateFileUrl({ kind: 'attachment', id: r.id, workspaceId, storageKey: r.storage_key });
       } catch (err) {
         console.warn('[attachments] presign failed:', safeError(err));
         return null;

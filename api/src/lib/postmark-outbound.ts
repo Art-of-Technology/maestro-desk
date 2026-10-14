@@ -140,6 +140,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   }
 
   const res = await fetch(ENDPOINT, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: {
       'X-Postmark-Server-Token': env.POSTMARK_SERVER_TOKEN,

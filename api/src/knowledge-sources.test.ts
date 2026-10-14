@@ -133,6 +133,41 @@ db('knowledge source lifecycle and isolation', () => {
     if (ws) await sql`delete from workspaces where id in (${ws},${other})`;
     if (user) await sql`delete from users where id in (${user},${memberId})`;
   });
+  it('matches country names and codes and accepts queries without search terms', async () => {
+    const { publishedKnowledgeMaterial } = await import('./lib/knowledge-context.js');
+    const [fixture] = await sql`select provision_brand(${'market-' + crypto.randomUUID()},'Market fixture') as id`;
+    try {
+      for (const [id, jurisdiction] of [['CL-CODE','CL'],['CL-NAME','Chile'],['MX-CODE','MX'],['MX-NAME','Mexico'],['GENERAL','']]) {
+        const [article] = await sql`insert into kb_articles(workspace_id,display_id,title,body,status)
+          values(${fixture.id},${id},'Marketfixture policy','Marketfixture published terms.','published') returning id`;
+        if (jurisdiction) await sql`insert into knowledge_sources(workspace_id,article_id,kind,title,jurisdiction,locator,fingerprint)
+          values(${fixture.id},${article.id},'file','Marketfixture',${jurisdiction},${id + '.txt'},${id})`;
+      }
+      await sql`insert into kb_articles(workspace_id,display_id,title,body,status) values
+        (${fixture.id},'DRAFT','Marketfixture','Unpublished terms.','draft'),
+        (${other},'FOREIGN-MARKET','Marketfixture','Foreign workspace terms.','published')`;
+      for (const query of ['marketfixture', '', 'please help thanks', 'por favor', '!? a']) {
+        for (const market of ['CL', 'Chile', ' chile ']) {
+          const material = await publishedKnowledgeMaterial(fixture.id, query, market);
+          expect(material.references.map(r => r.id).sort()).toEqual(['CL-CODE','CL-NAME','GENERAL']);
+        }
+        const material = await publishedKnowledgeMaterial(fixture.id, query);
+        expect(material.references.map(r => r.id).sort()).toEqual(['CL-CODE','CL-NAME','GENERAL','MX-CODE','MX-NAME']);
+      }
+      expect((await publishedKnowledgeMaterial(fixture.id, 'marketfixture', 'Mexico')).references.map(r => r.id).sort())
+        .toEqual(['GENERAL','MX-CODE','MX-NAME']);
+      expect((await publishedKnowledgeMaterial(fixture.id, 'marketfixture', 'unknown market')).references.map(r => r.id))
+        .toEqual(['GENERAL']);
+      await sql`update knowledge_sources set jurisdiction=case jurisdiction when 'CL' then 'GB' else 'United Kingdom' end
+        where workspace_id=${fixture.id} and jurisdiction in ('CL','Chile')`;
+      for (const market of ['GB','United Kingdom']) {
+        expect((await publishedKnowledgeMaterial(fixture.id, 'marketfixture', market)).references.map(r => r.id).sort())
+          .toEqual(['CL-CODE','CL-NAME','GENERAL']);
+      }
+    } finally {
+      await sql`delete from workspaces where id=${fixture.id}`;
+    }
+  });
   it('stores and deduplicates versions; only explicit publication exposes the body to AI', async () => {
     const { saveKnowledgeVersion } = await import('./lib/knowledge-sources.js');
     const { publishedKnowledgeContext } = await import('./lib/knowledge-context.js');
@@ -453,7 +488,8 @@ db('knowledge source lifecycle and isolation', () => {
       const download = (await (await request('/' + sourceId + '/download')).json()) as {
         url: string;
       };
-      expect(download.url).toContain(replaced.storage_key);
+      expect(new URL(download.url).pathname).toBe(`/api/v1/files/knowledge/${sourceId}`);
+      expect(download.url).not.toContain(replaced.storage_key);
       expect(
         (
           await request('/' + sourceId + '/publish', 'POST', {

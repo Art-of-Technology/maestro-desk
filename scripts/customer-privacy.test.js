@@ -41,10 +41,11 @@ test('export downloads only after a successful response, prevents duplicate clic
   expect(failed.downloads).toEqual([]);expect(failed.nodes.get('privacy-error').textContent).toBe('Forbidden');
 });
 test('confirmed erasure reports actual success and clears copies; failures never claim success',async()=>{
-  const a=harness();a.showGDPRModal('TK-1','erase');a.nodes.get('privacy-reason').value='Verified request';
+  const a=harness();a.showGDPRModal('TK-1','erase');a.nodes.get('privacy-reason').value='subject_request';
   let release;a.control.hold=new Promise(r=>{release=r;});const pending=a.confirm.onConfirm();await a.confirm.onConfirm();
   expect(a.calls).toHaveLength(1);release();await pending;
-  expect(a.calls[0]).toEqual({path:'/api/v1/customers/customer-uuid/erase',body:{reason:'Verified request'}});
+  expect(a.calls[0]).toEqual({path:'/api/v1/customers/customer-uuid/erase',body:{reason:'subject_request'}});
+  expect(a.alerts[0]).toContain('Audit records remain');
   expect(a.cleared[0]).toEqual(['TK-1',true,'workspace',null]);expect(a.reloads).toBe(1);expect(a.alerts[0]).toContain('Tickets affected: 1');
   const b=harness();b.showGDPRModal('TK-1','erase');b.control.error=Error('Unmerge duplicates first');await b.confirm.onConfirm();
   expect(b.nodes.get('privacy-error').textContent).toBe('Unmerge duplicates first');expect(b.reloads).toBe(0);expect(b.cleared).toEqual([]);

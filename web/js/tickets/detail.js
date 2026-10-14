@@ -56,6 +56,7 @@ import {
   mentionDropdownKey,
 } from './mentions.js';
 import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import './email-forward.js';
 import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
   hydrateSharedAiDraft, activateSharedAiDraft, queueSharedAiDraftSave,
@@ -73,7 +74,7 @@ import {
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
-import { enableRemoteImages, renderMessageBody, sizeMessageFrames } from './message-html.js';
+import { enableRemoteImages, renderMessageBody, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
 import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
@@ -88,12 +89,14 @@ import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.j
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { showContactDetailsModal } from '../customers/details-card.js';
+import { refreshCustomerAccount } from '../customers/account-refresh.js';
 import { navTo } from '../core/keybindings.js';
 import {
   startPresence, setComposing, confirmIfOthersComposing,
   setTicketChangedCallback,
 } from '../core/presence.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
+import './email-download.js';
 
 // Live-sync hook: presence reports the server's tickets.updated_at on
 // every heartbeat. When it moves (because another agent replied, tagged,
@@ -145,6 +148,7 @@ function renderTicketCustomer(cust) {
               <div class="ts-contact-value"><span>${window.escHtml(cust.email || 'No email address')}</span>${copyButton(cust.email, 'email address')}</div>
             </div>
             <div class="ts-row"><span class="ts-key">Brand</span><span class="ts-val">${window.escHtml(cust.brand)}</span></div>
+            ${/^https?:\/\//i.test(cust.bo || '') ? `<div class="ts-row"><span class="ts-key">Backoffice</span><span class="ts-val"><a href="${window.escAttr(cust.bo)}" target="_blank" rel="noopener noreferrer">Open in backoffice ↗</a></span></div>` : ''}
             <div class="ts-row"><span class="ts-key">VIP</span><span class="vip-badge vip-${window.escAttr((cust.vip || '').toLowerCase())}">${window.escHtml(cust.vip)}</span></div>
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
 }
@@ -468,6 +472,7 @@ export function openTicket(id) {
       ${renderEmailDetails(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
+      ${t._uuid && !t.mergedInto && m._uuid && m.downloadableEmail ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Download email</button><button type="button" class="btn btn-sm" data-action="emailForward.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Forward</button>` : ''}
       ${m.r === 'note' ? '' : bodyNote}
       ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="td.noteHistory" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">View edit history</button>` : ''}
       ${m.internalReview ? renderReplyReview(id, m.internalReview, true) : ''}
@@ -499,6 +504,7 @@ export function openTicket(id) {
       <p>Saved translations are reused until sign-out. New language checks and translations use AI credit.</p>
       </div>
       </details>
+      ${t.msgs.length ? `<button type="button" class="btn btn-sm ticket-jump-latest" data-action="td.jumpToLatest" data-ticket-id="${window.escAttr(id)}" aria-controls="thread-${window.escAttr(id)}">Jump to latest</button>` : ''}
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
     <div class="ticket-translation-notice" role="status" aria-live="polite" ${!t.translatingThread && !t.translationError && !(t.msgs || []).some(m => m.translationCacheWarning) ? 'hidden' : ''}>
@@ -520,16 +526,9 @@ export function openTicket(id) {
     </div>` : '';
 
   const main = document.getElementById('main-area');
-  // Preserve the reader's place across in-place re-renders (openTicket is also
-  // the re-render path for tag/status edits, presence repaints, async loads,
-  // etc.). main.innerHTML below rebuilds a fresh .thread scrolled to the top,
-  // so capture the outgoing thread's position first: keep it only if the same
-  // ticket was already open AND scrolled up from the bottom; otherwise (a fresh
-  // open, or already pinned to the newest message) we jump to the latest reply.
+  // Capture the message and offset, since HTML email heights change while loading.
   const prevThread = document.getElementById('thread-' + id);
-  const keepScroll = prevThread &&
-    (prevThread.scrollHeight - prevThread.scrollTop - prevThread.clientHeight > 40)
-      ? prevThread.scrollTop : null;
+  const keepScroll = captureMessageScroll(prevThread);
   const currentTicketUrl = ticketUrl(t.id);
   main.innerHTML = `
     <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}">
@@ -546,6 +545,7 @@ export function openTicket(id) {
             <details class="ticket-popover ticket-more">
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
+            ${t._uuid && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}">Download thread</button>` : ''}
             ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
             ${!t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam">Mark as spam</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
@@ -665,6 +665,7 @@ export function openTicket(id) {
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
                     </div>
                   </div>
                 </div>
@@ -739,17 +740,23 @@ export function openTicket(id) {
     </div>`;
   syncTicketLayout(id);
   syncRoute('tickets', id);
+  if (cust && !cust.maestroUserId) {
+    void refreshCustomerAccount(cust, () => refreshTicketCustomer(cust), (err) => {
+      if (CURRENT_TICKET === id && document.getElementById('ticket-customer')?.dataset.custId === cust.id) {
+        showToast(err?.message || "Couldn't refresh account details.", 'error');
+      }
+    });
+  }
   if (entering) {
     Promise.all(['reply','note'].map(tab => refreshPersonalDraft(id, tab))).then(() => {
       if (CURRENT_TICKET === id) openTicket(id);
     });
   }
 
-  // Show the most recent reply on open: scroll to the bottom, unless we're
-  // restoring a scrolled-up reader's position from an in-place re-render.
+  // Fresh opens start at the newest message; refreshes retain the reader's place.
   const thread = document.getElementById('thread-' + id);
   if (thread) {
-    thread.scrollTop = keepScroll === null ? thread.scrollHeight : keepScroll;
+    restoreMessageScroll(thread, keepScroll);
     sizeMessageFrames(thread, keepScroll);
   }
 
@@ -1220,11 +1227,11 @@ function showSentTextModal(ticketId, msgIdx) {
     null, null);
 }
 
-async function sendCompose(id) {
+async function sendCompose(id, withoutAI = false) {
   if (sendingReplies.has(id)) return false;
   sendingReplies.add(id);
   try {
-    const result = await sendComposeOnce(id);
+    const result = await sendComposeOnce(id, withoutAI);
     if (result !== false) invalidateAgentReport();
     return result;
   }
@@ -1232,7 +1239,7 @@ async function sendCompose(id) {
 }
 const sendingReplies = new Set();
 
-async function sendComposeOnce(id) {
+async function sendComposeOnce(id, withoutAI = false) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
@@ -1281,7 +1288,7 @@ async function sendComposeOnce(id) {
   let outgoingHtml = draftHtml;
   let replyLanguage = null;
   const languageChoice = JSON.stringify([t.autoTranslateReplies, t.customerLanguageManual, t.customerLanguageManual ? t.detectedCustomerLang : null]);
-  if (tab !== 'note') {
+  if (tab !== 'note' && !withoutAI) {
     setAiThinking(true);
     try {
       const res = await prepareCustomerReply(t, txt, draftHtml);
@@ -1310,6 +1317,7 @@ async function sendComposeOnce(id) {
     }
     const warnings = replyWarnings({ text: outgoing, customerName: CUSTOMERS.find(c => c.id === t.customerId)?.first,
       replyLanguage, customerLanguage: t.detectedCustomerLang, review: loadMessageReview(id) });
+    if (withoutAI) warnings.unshift('Send without AI: your message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.');
     if (warnings.length && !window.confirm(`Check before sending\n\n${warnings.join('\n\n')}\n\nSend this reply anyway?`)) return false;
     if (!stillCurrent()) return false;
   }
@@ -1333,6 +1341,7 @@ async function sendComposeOnce(id) {
         role: isNote ? 'note' : 'agent',
         email_recipients: recipients,
         body: outgoing,
+        reply_language: replyLanguage || undefined,
         body_html: html || undefined,
         attachment_ids: attachmentIds.length ? attachmentIds : undefined,
         mentions: isNote ? (mentions || []).map((m) => m.userId).filter(Boolean) : undefined,
@@ -1341,6 +1350,7 @@ async function sendComposeOnce(id) {
       });
       message = res.message;
       delivery = res.delivery;
+      if (res.subject) t.subject = res.subject;
       try { clearSentDraft = finishDraftSend(id, tab, sentDraft, res.draft_version); }
       catch {
         clearSentDraft = false;
@@ -1360,6 +1370,7 @@ async function sendComposeOnce(id) {
       _uuid: message.id,
       createdAt: message.created_at,
       email: message.email_metadata || null,
+      downloadableEmail: message.email_metadata?.status === 'sent',
       from: message.author_label,
       r: message.role,
       t: message.body,
@@ -1426,6 +1437,13 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.jumpToLatest': ds => {
+    const thread = document.getElementById('thread-' + ds.ticketId);
+    if (!thread?.lastElementChild) return;
+    restoreMessageScroll(thread);
+    // Replace any pending reader anchor while HTML emails are still loading.
+    sizeMessageFrames(thread);
+  },
   'td.moveInbox': ds => showMoveInbox(ds.ticketId),
   'td.refreshRecipients': (ds) => {
     const ticket = TICKETS.find(t => t.id === ds.ticketId);
@@ -1510,6 +1528,7 @@ registerActions({
   'td.unmarkSpam':     (ds) => unmarkSpamContact(TICKETS.find(t => t.id === ds.ticketId)?.customerId, () => { if (CURRENT_TICKET === ds.ticketId) openTicket(ds.ticketId); }),
   'td.loadSharedAiDraft': (ds) => { if(activateSharedAiDraft(ds.ticketId))openTicket(ds.ticketId); },
   'td.send':           (ds) => sendCompose(ds.ticketId),
+  'td.sendWithoutAI':  (ds) => { hideSendMenu(ds.ticketId); return sendCompose(ds.ticketId, true); },
   'td.toggleSendMenu': (ds) => toggleSendMenu(ds.ticketId),
   'td.sendAnd':        (ds) => sendComposeAnd(ds.ticketId, ds.status),
 });

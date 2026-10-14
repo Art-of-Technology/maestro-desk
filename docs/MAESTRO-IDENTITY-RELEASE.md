@@ -57,3 +57,34 @@ claims or to an unverified userinfo response when required claims are missing.
 Current backup service logs show successful nightly uploads through 2026-10-05;
 archive integrity, a current restore drill and attachment recovery remain separate
 release evidence. This authentication patch performs no historical data repair.
+
+## Rehearsal evidence — 2026-10-14
+
+- Identity source: `dd9d7b45e2a15bc39660e8b998d2370d53db5194`, integrated with
+  main `02852af5512f1d0e4e73d2c6b24ed58191b2155a`. The CI conflict was resolved
+  by retaining both the identity fixture and main's PDF/runtime checks.
+- Automated: all 80 synthetic-provider checks passed on Node 22.23.2 and Node
+  24.16.0; 30 focused authentication, invitation and session tests passed on
+  isolated PostgreSQL 17. Typecheck, dependency audit (no vulnerabilities),
+  frontend build, 24 route and seven detail smokes, bridge/import/header checks
+  and a manual review of the identity/linking boundary passed. Dedicated SAST
+  and secret scanners were not installed.
+- Live: the existing ACTIVE Service Desk registration permits the localhost
+  callback. A designated existing Maestro user signed into the PR's Node 22
+  API against a separate local database, then signed in again with the same
+  linked identity. The actual client-secret-post exchange succeeded; the
+  validated ID token used RS256, the expected issuer/audience, a nonce,
+  boolean verified email and integer expiry/issued-at claims. No token or
+  raw claim payload is included in this evidence. No production data changed.
+- Local sign-out returned to authentication; reloading stayed signed out.
+  The stale brand picker remained visible immediately after sign-out until
+  reload. This existing frontend issue remains outside this conflict update.
+- Recovery was requested for the designated mailbox; the UI showed the
+  generic success message. Mailbox receipt and the user-controlled password
+  step remain unverified. First linking after mailbox setup and reduced
+  consent remain pending live checks; provider outages are covered only by
+  the synthetic fixture, not a live-provider outage exercise.
+- Release decision: **NO-GO pending completion of the live rehearsal and
+  operator sign-off**. This branch update does not authorize a production
+  merge or deployment. The requester must confirm the remaining results
+  before changing that decision.

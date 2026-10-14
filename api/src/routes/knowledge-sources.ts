@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { getDb } from '../lib/db.js';
+import { privateFileUrl } from '../lib/private-file-links.js';
 import {
   canonicalKnowledgeUrl,
   MAX_KNOWLEDGE_BYTES,
@@ -294,7 +295,7 @@ knowledgeSources.get('/:id/download', async (c) => {
   const [s] =
     await getDb()`select storage_key from knowledge_sources where id=${c.req.param('id')} and workspace_id=${c.get('workspaceId')} and kind='file'`;
   return s?.storage_key
-    ? c.json({ url: await attachmentsStore().presignGet(s.storage_key, { expiresSeconds: 300 }) })
+    ? c.json({ url: privateFileUrl({ kind: 'knowledge', id: c.req.param('id'), workspaceId: c.get('workspaceId'), storageKey: s.storage_key }) })
     : c.json({ error: 'File not found' }, 404);
 });
 knowledgeSources.delete('/:id', async (c) => {

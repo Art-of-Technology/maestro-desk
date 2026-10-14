@@ -1,4 +1,5 @@
 import { getDb } from './db.js';
+import { lockTicketPrivacy, type TicketPrivacy } from './ticket-privacy.js';
 import type { ReplyExample } from './previous-replies.js';
 import { replyChangeRatio } from './reply-change.js';
 import type { z } from 'zod';
@@ -9,9 +10,15 @@ type StoredReplyReview = z.infer<typeof ReplyReview>;
 // Lock eligible target/source customers and tickets while creating the snapshot.
 // Concurrent erasure waits, then the deletion triggers purge the new snapshot.
 export async function recordReplySuggestion(workspaceId: string, userId: string, ticketId: string,
-  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview }): Promise<string | null> {
+  reply: string, examples: ReplyExample[] = [], tracking?: { context?: 'reply' | 'note'; costMicro: number; language?: string; review?: StoredReplyReview; accessGeneration?: string; privacyGeneration?: string; privacy?: TicketPrivacy }): Promise<string | null> {
   const sql = getDb();
   return sql.begin(async tx => {
+    const [workspace] = await tx`select id from workspaces where id=${workspaceId}
+      and deleted_at is null and suspended_at is null
+      and (${tracking?.accessGeneration ?? null}::bigint is null or suspension_generation=${tracking?.accessGeneration ?? null}::bigint)
+      and (${tracking?.privacyGeneration ?? null}::bigint is null or privacy_generation=${tracking?.privacyGeneration ?? null}::bigint) for share`;
+    if (!workspace) return null;
+    if (tracking?.privacy) await lockTicketPrivacy(tx, workspaceId, tracking.privacy);
     const replyIds = examples.map(e => e.replyId);
     const tickets = await tx`select t.id,t.category_key from tickets t
       join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id
@@ -41,7 +48,7 @@ export async function recordReplyUse(workspaceId: string, userId: string, ticket
     const [source]=await tx`select s.reply,m.body from ai_reply_suggestions s join ticket_messages m on m.id=${messageId}
       where s.id=${suggestionId} and s.workspace_id=${workspaceId} and s.ticket_id=${ticketId}
         and s.reply_context='reply' and s.sent_message_id is null and s.rejected_at is null and m.workspace_id=${workspaceId}
-        and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent'
+        and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0
         and m.deleted_at is null and m.merged_from_id is null and m.created_at>=s.created_at for update of s for share of m`;
     if(!source)return;
     await tx`update ai_reply_suggestions s set sent_message_id=m.id,used_by_user_id=${userId},
@@ -50,7 +57,7 @@ export async function recordReplyUse(workspaceId: string, userId: string, ticket
     from ticket_messages m where s.id=${suggestionId} and s.workspace_id=${workspaceId}
       and s.ticket_id=${ticketId} and s.reply_context='reply'
       and s.sent_message_id is null and s.rejected_at is null and m.id=${messageId} and m.workspace_id=${workspaceId}
-      and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent'
+      and m.ticket_id=${ticketId} and m.author_user_id=${userId} and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0
       and m.deleted_at is null and m.merged_from_id is null and m.created_at>=s.created_at`;
   });
 }

@@ -1,5 +1,6 @@
 import { safeError } from './diagnostics.js';
 import { getDb } from './db.js';
+import { workspaceAccessGeneration, sendWhileWorkspaceAvailable } from './workspace-access.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 // Slack HTTP (chat.postMessage / webhook) unchanged.
@@ -80,6 +81,8 @@ export async function notifySlack(args: {
   ticketId:    string;
 }): Promise<boolean> {
   const { workspaceId, event, ticketId } = args;
+  const generation = await workspaceAccessGeneration(workspaceId).catch(() => null);
+  if (generation === null) return false;
   const sql = getDb();
 
   const [integration] = await sql<{ webhook_url: string; channel: string | null; active: boolean; events: string[]; bot_token: string | null }[]>`
@@ -138,14 +141,15 @@ export async function notifySlack(args: {
       };
       if (existing) postBody.thread_ts = existing.thread_ts;
 
-      const res = await fetch('https://slack.com/api/chat.postMessage', {
+      const res = await sendWhileWorkspaceAvailable(workspaceId, () => fetch('https://slack.com/api/chat.postMessage', {
         method:  'POST',
         headers: {
           'Content-Type':  'application/json; charset=utf-8',
           'Authorization': `Bearer ${integration.bot_token}`,
         },
         body: JSON.stringify(postBody),
-      });
+        signal: AbortSignal.timeout(15000),
+      }), generation);
       const json = await res.json().catch(() => ({})) as any;
       if (!json.ok) {
         console.warn('[slack] chat.postMessage failed', { status: res.status });
@@ -172,11 +176,12 @@ export async function notifySlack(args: {
   if (integration.channel) body.channel = integration.channel;
 
   try {
-    const res = await fetch(integration.webhook_url, {
+    const res = await sendWhileWorkspaceAvailable(workspaceId, () => fetch(integration.webhook_url, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
-    });
+      signal: AbortSignal.timeout(15000),
+    }), generation);
     if (!res.ok) {
       console.warn('[slack] post failed', { status: res.status });
     }

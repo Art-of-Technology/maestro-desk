@@ -50,7 +50,7 @@ run('permanent ticket history', () => {
     expect(audits[0].metadata.after).toBe('high');
     expect(audits[1].metadata.before).toBeNull();
     expect(audits[1].metadata.after).toBe(user);
-    expect(audits[1].metadata.after_label).toBe('Original Agent');
+    expect(audits[1].metadata.after_label).toBeUndefined();
   });
   it('keeps recorded names after renaming an agent and reloads ticket history', async () => {
     await sql`update users set name = 'Renamed Agent' where id = ${user}`;
@@ -77,7 +77,7 @@ run('permanent ticket history', () => {
     expect((await request(`tickets/${ticket}/tags/audit-retry`, 'DELETE')).status).toBe(204);
     const audit = await sql`select metadata from audit_events where workspace_id = ${ws} and action = 'ticket.tag.changed' order by seq`;
     expect(audit).toHaveLength(2);
-    expect(audit[1].metadata.before).toBe('audit-retry');
+    expect(audit[1].metadata.before).toBe('[tag]');
     expect(audit[1].metadata.after).toBeNull();
   });
   it('rolls back the change and activity if the audit insert fails', async () => {

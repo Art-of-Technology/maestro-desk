@@ -22,7 +22,7 @@
 import { CUSTOMERS, CATEGORIES } from '../core/data.js';
 import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
-import { AI_MODEL, AI_MODELS, setAIModel, getAIStatus, checkAIConnection } from '../ai/client.js';
+import { AI_MODEL, AI_MODELS, setAIModel, getAIStatus, checkAIConnection, checkAIGeneration } from '../ai/client.js';
 import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
@@ -541,9 +541,10 @@ function settingsAI() {
         </select>
       </div>
       <div id="ai-settings-status" role="status" aria-live="polite" style="font-size:12px;line-height:1.6">Checking workspace settings…</div>
-      <button class="btn btn-sm" data-action="settings.checkAi" style="margin-top:12px">Check connection</button>
+      <button class="btn btn-sm" data-action="settings.checkAi" style="margin-top:12px">Check key and model (free)</button>
+      <button class="btn btn-sm" data-action="settings.checkAiGeneration" style="margin-top:12px">Test AI generation…</button>
       <div id="ai-connection-result" role="status" aria-live="polite" style="font-size:12px;margin-top:8px"></div>
-      <p style="font-size:11px;color:var(--ink3)">The connection check verifies the server key and model access. AI requests also need provider billing credit and workspace credit.</p>
+      <p style="font-size:11px;color:var(--ink3)">The free check does not test generation or billing credit. The generation test sends fixed test text with no customer data and uses a small amount of provider and workspace credit.</p>
       <div class="settings-row">
         <div><div style="font-size:13px">Include player account details</div>
         <div style="font-size:11px;color:var(--ink3)">Allow VIP tier, brand and jurisdiction in AI context. Ticket text is still sent when this is off. AML data is excluded. Workspace admins can change this setting.</div></div>
@@ -570,18 +571,23 @@ async function refreshAIStatus() {
   }
 }
 
-async function testAIConnection() {
+async function testAIConnection(generation = false) {
   const node = document.getElementById('ai-connection-result');
   const ws = getWorkspaceId(), jwt = getJwt();
-  if (!node) return;
+  if (!node || node.dataset.checking === 'true') return;
+  if (generation && !window.confirm('Test AI generation? This sends fixed test text with no customer data and uses a small amount of provider and workspace credit.')) return;
   const model = AI_MODEL;
-  node.textContent = 'Checking connection…';
+  node.dataset.checking = 'true';
+  node.textContent = generation ? 'Testing AI generation…' : 'Checking key and model…';
   try {
-    await checkAIConnection();
-    if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt() && model === AI_MODEL) node.textContent = 'Connected. The selected model is available.';
+    const result = await (generation ? checkAIGeneration() : checkAIConnection());
+    if (generation && result.generation_verified !== true) throw new Error('AI generation was not verified. Try again.');
+    if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt() && model === AI_MODEL) node.textContent = generation
+      ? 'AI generated a test response successfully. This confirms it worked at the time of this test.'
+      : 'Key and model access verified. Generation and billing credit have not been tested.';
   } catch (err) {
     if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt() && model === AI_MODEL) node.textContent = err?.message || 'Connection failed.';
-  }
+  } finally { delete node.dataset.checking; }
   refreshAIStatus();
 }
 
@@ -727,8 +733,8 @@ function settingsIntegrations() {
         Paste your Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:var(--purple)">incoming-webhook URL</a> — it's the secret, so treat it like a password.
       </div>
       <div class="form-row">
-        <label class="form-label">Webhook URL</label>
-        <input class="form-input" id="slack-url" type="url" value="${window.escAttr(slack?.webhook_url || '')}" placeholder="https://hooks.slack.com/services/..." autocomplete="off"/>
+        <label class="form-label" for="slack-url">Webhook URL</label>
+        <input class="form-input" id="slack-url" type="password" placeholder="${slack?.has_webhook ? 'Leave blank to keep the saved webhook' : 'https://hooks.slack.com/services/...'}" autocomplete="off"/>
       </div>
       <div class="form-row">
         <label class="form-label">Channel override (optional)</label>
@@ -1183,7 +1189,7 @@ async function saveSlackIntegration() {
   const botToken      = document.getElementById('slack-bot-token')?.value.trim() || '';
   const signingSecret = document.getElementById('slack-signing-secret')?.value.trim() || '';
   const msg = document.getElementById('slack-msg');
-  if (!url) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
+  if (!url && !SLACK_INTEGRATION?.has_webhook) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
   if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
   msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
   try {
@@ -1192,14 +1198,15 @@ async function saveSlackIntegration() {
     // alone, which is what we want for "save settings without
     // rotating credentials".
     const body = {
-      webhook_url: url,
       channel:     channel || null,
       active,
       events,
     };
+    if (url)           body.webhook_url    = url;
     if (botToken)      body.bot_token      = botToken;
     if (signingSecret) body.signing_secret = signingSecret;
     await apiPut('/api/v1/integrations/slack', body);
+    document.getElementById('slack-url').value = '';
     const res = await apiGet('/api/v1/integrations/slack');
     SLACK_INTEGRATION = res.integration;
     document.getElementById('slack-bot-token').value = '';
@@ -1337,6 +1344,7 @@ async function toggleCategory(key, nextActive) {
 
 registerActions({
   'settings.checkAi':           () => testAIConnection(),
+  'settings.checkAiGeneration': () => testAIConnection(true),
   'settings.setTab':             (ds) => setSettingsTab(ds.tab),
   'settings.logout':            () => window.logout(),
   // workspace branding / portal

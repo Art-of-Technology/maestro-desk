@@ -23,7 +23,7 @@ import {
 } from '../lib/customer-contacts.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const eraseBody = z.object({ reason: z.string().trim().max(500).optional() });
+const eraseBody = z.object({ reason: z.enum(['subject_request','retention_expired','consent_withdrawn','other']).optional() });
 
 // The customer row as the SPA sees it — one column list shared by GET / and
 // PATCH /:id so the two can never drift apart (the SPA applies a PATCH
@@ -1227,11 +1227,8 @@ customers.get('/:id/export', async (c) => {
   const bundle = await exportCustomer({ workspaceId, customerId });
   if (!bundle) return c.json({ error: 'Customer not found' }, 404);
 
-  // Already erased → there's no personal data left to hand out. Signal it
-  // distinctly instead of returning a mostly-null skeleton with 200.
-  if (bundle.erased) {
-    return c.json({ error: 'This customer\'s personal data has been erased', erased_at: bundle.customer.erased_at }, 410);
-  }
+  // An erased profile may still have retained audit history. Administrators
+  // must be able to review it; erased_at is not proof that every copy is gone.
 
   // Exporting everything we hold about a person is a sensitive read — log it.
   await writeAudit({

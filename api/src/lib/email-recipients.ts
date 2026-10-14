@@ -69,14 +69,20 @@ export async function ticketReplyRecipients(workspaceId: string, ticketId: strin
   const cc = input ? external(input.cc).filter(e => !to.includes(e)) : suggestedCc;
   if (input && to.length + cc.length > 50) throw new HTTPException(400, { message: 'Use no more than 50 recipients.' });
   const all = [...to, ...(input ? cc : [])];
+  const suppressed = await hasSuppressedRecipients(workspaceId, all);
+  return { source_message_id: source?.id || null, to, cc, in_reply_to: source?.external_message_id || null,
+    sending_inboxes: sendingInboxes, default_sending_channel_id: defaultInbox?.id || null,
+    default_from: branded?.fromEmail || env.POSTMARK_OUTBOUND_FROM || '',
+    suppressed: !!recipient?.suppressed || suppressed, can_send: !!recipient && !!to.length };
+}
+
+export async function hasSuppressedRecipients(workspaceId: string, all: string[]): Promise<boolean> {
+  const sql = getDb();
   const blocked = all.length ? await sql`select 1 from customer_contacts cc join customers c on c.id=cc.customer_id and c.workspace_id=cc.workspace_id
     where cc.workspace_id=${workspaceId} and cc.kind='email' and lower(cc.value::text) in ${sql(all)}
       and (cc.bounce_state in ('hard','spam') or cc.deleted_at is not null or c.is_spam or c.erased_at is not null or c.deleted_at is not null)
     union all select 1 from customers c where c.workspace_id=${workspaceId} and lower(c.email::text) in ${sql(all)}
       and (c.email_bounce_state in ('hard','spam') or c.is_spam or c.erased_at is not null or c.deleted_at is not null)
     limit 1` : [];
-  return { source_message_id: source?.id || null, to, cc, in_reply_to: source?.external_message_id || null,
-    sending_inboxes: sendingInboxes, default_sending_channel_id: defaultInbox?.id || null,
-    default_from: branded?.fromEmail || env.POSTMARK_OUTBOUND_FROM || '',
-    suppressed: !!recipient?.suppressed || !!blocked.length, can_send: !!recipient && !!to.length };
+  return !!blocked.length;
 }

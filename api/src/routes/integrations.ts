@@ -31,7 +31,7 @@ const SlackBody = z.object({
   webhook_url:    z.string().url().refine(
     (u) => { try { const p = new URL(u); return p.protocol === 'https:' && p.host === 'hooks.slack.com'; } catch { return false; } },
     'must be a https://hooks.slack.com/ URL',
-  ),
+  ).optional(),
   channel:        z.string().max(80).nullable().optional(),
   active:         z.boolean().optional(),
   events:         z.array(z.enum(EVENT_NAMES)).min(1).max(EVENT_NAMES.length),
@@ -43,19 +43,15 @@ integrations.get('/slack', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const [data] = await sql`
-    select webhook_url, channel, active, events, bot_token, signing_secret, created_at, updated_at
+    select channel, active, events, created_at, updated_at,
+           nullif(webhook_url, '') is not null as has_webhook,
+           right(bot_token, 6) as bot_token_suffix,
+           nullif(bot_token, '') is not null as has_bot_token,
+           nullif(signing_secret, '') is not null as has_signing_secret
     from slack_integrations where workspace_id = ${workspaceId}
   `;
   if (!data) return c.json({ integration: null });
-  const { bot_token, signing_secret, ...rest } = data;
-  return c.json({
-    integration: {
-      ...rest,
-      bot_token_suffix:   bot_token ? bot_token.slice(-6) : null,
-      has_bot_token:      Boolean(bot_token),
-      has_signing_secret: Boolean(signing_secret),
-    },
-  });
+  return c.json({ integration: data });
 });
 
 integrations.put('/slack', async (c) => {
@@ -72,14 +68,23 @@ integrations.put('/slack', async (c) => {
   // bot_token / signing_secret: undefined = "don't touch", null = "clear".
   const row: Record<string, unknown> = {
     workspace_id: workspaceId,
-    webhook_url:  input.webhook_url,
     channel:      input.channel ?? null,
     active:       input.active ?? true,
     events:       input.events,
   };
   if (input.bot_token !== undefined)      row.bot_token      = input.bot_token;
   if (input.signing_secret !== undefined) row.signing_secret = input.signing_secret;
-  await upsertByWorkspace(sql, 'slack_integrations', row);
+  if (input.webhook_url !== undefined) {
+    row.webhook_url = input.webhook_url;
+    await upsertByWorkspace(sql, 'slack_integrations', row);
+  } else {
+    // Keep the existing credential server-side. A stale settings form must
+    // not recreate a connection that another administrator disconnected.
+    const { workspace_id, ...fields } = row;
+    const updated = await sql`update slack_integrations set ${sql(fields)}
+      where workspace_id = ${workspaceId} returning workspace_id`;
+    if (!updated.length) return c.json({ error: 'Webhook URL is required for a new connection' }, 400);
+  }
   return c.json({ ok: true });
 });
 

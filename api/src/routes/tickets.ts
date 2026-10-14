@@ -1,6 +1,9 @@
 import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
+import { ticketEmailForwards } from './ticket-email-forwards.js';
+import { ticketEmailDownloads } from './ticket-email-downloads.js';
+import { isExportableEmail } from '../lib/email-export.js';
 import { recordNoteRevision } from '../lib/note-revisions.js';
 import { recordTicketActivity, snoozeState } from '../lib/ticket-activity.js';
 import { clearTicketSnooze } from '../lib/ticket-snooze.js';
@@ -17,6 +20,9 @@ import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../li
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
+import { composeEmail, type ComposedEmail } from '../lib/email-branding.js';
+import { emailTranslator } from '../lib/email-translation.js';
+import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
 import { ReplyReview } from '../lib/reply-review.js';
 import { recordReplyUse } from '../lib/reply-feedback.js';
 import { publishTicketChanged } from '../lib/pubby.js';
@@ -73,6 +79,8 @@ tickets.use('*', async (c, next) => {
 });
 
 tickets.route('/', messageDrafts);
+tickets.route('/', ticketEmailDownloads);
+tickets.route('/', ticketEmailForwards);
 
 // Pagination is offset-based for the skeleton; switch to keyset before
 // ticket volumes get serious.
@@ -132,7 +140,7 @@ tickets.get('/work-index', async (c) => {
         and m.workspace_id = ${workspaceId} and m.role = 'customer'
         and m.deleted_at is null and m.merged_from_id is null) as first_customer_at,
       (select min(m.created_at) from ticket_messages m where m.ticket_id = tickets.id
-        and m.workspace_id = ${workspaceId} and m.role in ('agent', 'ai')
+        and m.workspace_id = ${workspaceId} and m.role in ('agent', 'ai') and cardinality(m.forwarded_from_ticket_ids)=0
         and m.deleted_at is null and m.merged_from_id is null
         and m.created_at >= (select min(fc.created_at) from ticket_messages fc
           where fc.ticket_id = tickets.id and fc.workspace_id = ${workspaceId}
@@ -204,7 +212,7 @@ tickets.get('/sync', async (c) => {
   const rows = [...await sql`
     select ${cols},
            (select tm.role from ticket_messages tm
-              where tm.ticket_id = tickets.id and tm.deleted_at is null
+              where tm.ticket_id = tickets.id and tm.deleted_at is null and cardinality(tm.forwarded_from_ticket_ids)=0
               order by tm.created_at desc limit 1) as last_message_role
     from tickets
     where workspace_id = ${workspaceId} ${cursorClause}
@@ -259,8 +267,8 @@ tickets.get('/:id', async (c) => {
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
 
   const [msgs, tags, aiTags, time, mergedFrom, mergedInto, attachmentsByMsg, activity, aiDraftRows] = await Promise.all([
-    sql<{ id: string; body_html: string | null }[]>`
-        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata,
+    sql<{ id: string; role: string; body_html: string | null; merged_from_id: string | null; external_message_id: string | null; email_metadata: { status?: string } | null }[]>`
+        select m.id, m.role, m.author_user_id, m.author_label, m.body, m.body_html, m.mentions, m.merged_from_id, m.sentiment, m.created_at, m.email_metadata, m.external_message_id, m.forwarded_from_ticket_ids,
           r.review as internal_review
         from ticket_messages m left join reply_internal_reviews r
           on r.message_id=m.id and r.workspace_id=m.workspace_id
@@ -301,7 +309,8 @@ tickets.get('/:id', async (c) => {
       csat_send_claim: undefined,
       csat_send_started_at: undefined,
       reply_recipients: await ticketReplyRecipients(workspaceId, ticketId),
-      messages:     decorateMessages(msgs, attachmentsByMsg),
+      messages:     decorateMessages(msgs.map(m => ({ ...m, downloadable_email: isExportableEmail(m)
+        || Boolean(m.merged_from_id && ['customer', 'agent', 'ai'].includes(m.role) && !m.email_metadata?.status) })), attachmentsByMsg),
       tags:         tags.map((r: any) => r.tag),
       ai_tags:      aiTags,
       activity,
@@ -787,6 +796,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
+  reply_language: z.enum(SUPPORTED_LANGUAGES).optional(),
   draft_version: z.number().int().min(0).max(2147483646).optional(),
   role:     z.enum(['agent', 'note']),
   email_recipients: EmailRecipients.optional(),
@@ -884,6 +894,23 @@ tickets.post('/:id/messages', async (c) => {
   // for plain-text mail clients, search and the AI context.
   const bodyText = (input.body?.trim() || (bodyHtml ? htmlToText(bodyHtml) : '')) || '(empty message)';
 
+  // Prepare all customer-facing wording before consuming the draft or saving a message.
+  let composed: ComposedEmail | undefined;
+  let originalSubject: string | undefined;
+  if (input.role === 'agent' && input.reply_language) {
+    const [outbound] = await sql`select subject from tickets t where t.id=${ticketId} and t.workspace_id=${workspaceId}
+      and not exists (select 1 from ticket_messages m where m.ticket_id=t.id and m.workspace_id=${workspaceId}
+        and m.role in ('customer','agent','ai'))`;
+    originalSubject = outbound?.subject;
+    try {
+      composed = await composeEmail({ workspaceId, authorUserId: userId, bodyText, bodyHtml,
+        subject: originalSubject, translate: emailTranslator(workspaceId, userId, input.reply_language) });
+    } catch (error) {
+      console.warn('[agent-reply] email translation failed:', safeError(error));
+      return c.json({ error: 'Could not translate the email subject, header or footer. Your draft has been kept. Check AI credit and try again.' }, 502);
+    }
+  }
+
   // Deduped: a client that sends the same id twice means one file, and the
   // claim asserts rows-updated === ids-requested — without this it would fail
   // with a misleading "1 attachment is unknown or already sent".
@@ -905,6 +932,13 @@ tickets.post('/:id/messages', async (c) => {
   let message, draftVersion: number | undefined;
   try {
     message = await sql.begin(async (tx) => {
+      if (composed?.subject && originalSubject !== undefined) {
+        const [updated] = await tx`update tickets set subject=${composed.subject}, updated_at=now()
+          where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null and subject=${originalSubject}
+            and not exists (select 1 from ticket_messages where ticket_id=${ticketId} and workspace_id=${workspaceId}
+              and role in ('customer','agent','ai')) returning id`;
+        if (!updated) throw new DraftConflict('The ticket changed. Review it before sending.');
+      }
       if (input.draft_version !== undefined) {
         const [active] = await tx`select id from tickets where id=${ticketId} and workspace_id=${workspaceId}
           and deleted_at is null for update`;
@@ -970,7 +1004,7 @@ tickets.post('/:id/messages', async (c) => {
         : [];
       delivery = await sendAgentReplyEmail({
         workspaceId, ticketId, messageId: message.id, authorUserId: userId,
-        body: bodyText, bodyHtml, attachments: files, recipients: input.email_recipients,
+        body: bodyText, bodyHtml, composed, attachments: files, recipients: input.email_recipients,
       });
     } catch (err) {
       console.error('[agent-reply] send threw:', safeError(err));
@@ -987,7 +1021,7 @@ tickets.post('/:id/messages', async (c) => {
   const decorated = claimIds.length
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
-  return c.json({ message: decorated, delivery, draft_version: draftVersion }, 201);
+  return c.json({ message: decorated, delivery, draft_version: draftVersion, subject: composed?.subject }, 201);
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
@@ -1315,8 +1349,8 @@ tickets.post('/:id/merge', async (c) => {
     `;
 
     // 2. Copy source messages onto primary, tagged with merged_from_id.
-    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null; email_metadata: any }[]>`
-      select id, role, author_user_id, author_label, body, mentions, email_metadata
+    const srcMsgs = await sql<{ id: string; role: string; author_user_id: string | null; author_label: string | null; body: string | null; mentions: string[] | null; email_metadata: any; forwarded_from_ticket_ids: string[] }[]>`
+      select id, role, author_user_id, author_label, body, mentions, email_metadata, forwarded_from_ticket_ids
       from ticket_messages
       where ticket_id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
       order by created_at asc
@@ -1330,9 +1364,9 @@ tickets.post('/:id/merge', async (c) => {
     `;
     for (const m of srcMsgs) {
       const [copy] = await sql`
-        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id, email_metadata)
+        insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, mentions, merged_from_id, email_metadata, forwarded_from_ticket_ids)
         values (${workspaceId}, ${primaryId}, ${m.role}, ${m.author_user_id}, ${m.author_label},
-                ${m.body}, ${m.mentions || []}, ${sourceId}, ${m.email_metadata ? sql.json(m.email_metadata) : null})
+                ${m.body}, ${m.mentions || []}, ${sourceId}, ${m.email_metadata ? sql.json(m.email_metadata) : null}, ${m.forwarded_from_ticket_ids})
         returning id
       `;
       await sql`insert into reply_internal_reviews(message_id, workspace_id, review, saved_at)

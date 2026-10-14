@@ -115,7 +115,16 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     expect(res.status).toBe(404);
   });
 
-  it('erases all PII surfaces and writes the audit row', async () => {
+  it('rejects free-text reasons before erasing the customer', async () => {
+    const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, {
+      method: 'POST', body: JSON.stringify({ reason: 'Private customer details' }),
+    });
+    expect(res.status).toBe(400);
+    const [customer] = await sql`select erased_at from customers where id=${ctx.customerId}`;
+    expect(customer.erased_at).toBeNull();
+  });
+
+  it('erases supported PII surfaces and writes the audit row', async () => {
     // Contacts model: a primary + a secondary address on the profile.
     await sql`
       insert into customer_contacts (workspace_id, customer_id, kind, value, is_primary) values
@@ -124,7 +133,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
     `;
     const res = await as(admin.token, `/api/v1/customers/${ctx.customerId}/erase`, {
       method: 'POST',
-      body: JSON.stringify({ reason: 'DSAR #1' }),
+      body: JSON.stringify({ reason: 'subject_request' }),
     });
     expect(res.status).toBe(200);
     const body: any = await res.json();
@@ -181,7 +190,7 @@ runDbTests('GDPR erasure (DB-backed)', () => {
 
     const era = await sql<any[]>`select fields_erased, reason, completed_at from gdpr_erasures where customer_id = ${ctx.customerId}`;
     expect(era.length).toBe(1);
-    expect(era[0].reason).toBe('DSAR #1');
+    expect(era[0].reason).toBe('subject_request');
     expect(era[0].fields_erased).toContain('email');
     expect(era[0].fields_erased).toContain('contacts');
     expect(era[0].fields_erased).toContain('maestro_user_id');

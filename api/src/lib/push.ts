@@ -3,6 +3,7 @@ import webpush from 'web-push';
 import { Agent } from 'node:https';
 import { env } from './env.js';
 import { getDb } from './db.js';
+import { sendWhileWorkspaceAvailable } from './workspace-access.js';
 import { safeLookup, assertSafePushEndpoint } from './ssrf.js';
 
 // Connect-time SSRF guard for the outbound push POST (audit follow-up). web-push
@@ -49,7 +50,7 @@ export interface PushResult { sent: number; pruned: number }
 // expired) prunes that row so we don't keep trying. Other errors are logged
 // and skipped. Never throws — callers (the inbound webhook) must not fail on a
 // push hiccup. No-ops when VAPID isn't configured.
-export async function sendPushToUser(userId: string, payload: PushPayload): Promise<PushResult> {
+export async function sendPushToUser(userId: string, payload: PushPayload, workspaceId?: string): Promise<PushResult> {
   if (!isPushConfigured()) return { sent: 0, pruned: 0 };
   const sql = getDb();
 
@@ -76,14 +77,17 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       return;
     }
     try {
-      await webpush.sendNotification(
+      const send = () => webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
         body,
         {
           TTL: 60 * 60,             // hold up to 1h if the device is offline, then drop
           agent: safePushAgent(),   // connect-time SSRF re-validation (see above)
+          timeout: 15000,
         },
       );
+      if (workspaceId) await sendWhileWorkspaceAvailable(workspaceId, send);
+      else await send();
       sent++;
     } catch (err: any) {
       const status = err?.statusCode;

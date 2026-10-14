@@ -160,6 +160,9 @@ export async function applyAssignmentRules(args: {
 }): Promise<AssignResult | null> {
   const { workspaceId, ticketId } = args;
   return getDb().begin(async sql => {
+    const [workspace] = await sql`select id from workspaces where id=${workspaceId}
+      and suspended_at is null and deleted_at is null for share`;
+    if (!workspace) return null;
 
     const [ticket] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; customer_id: string | null; assigned_user_id: string | null }[]>`
       select status_key, priority_key, category_key, customer_id, assigned_user_id from tickets

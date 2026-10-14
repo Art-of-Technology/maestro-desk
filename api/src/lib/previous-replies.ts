@@ -2,7 +2,7 @@ import { getDb } from './db.js';
 
 export type ReplyTicket = { id: string; display_id: string; subject: string; brand: string | null;
   jurisdiction: string | null; first_name: string; last_name: string; email: string | null;
-  mobile: string | null; username: string | null };
+  mobile: string | null; username: string | null; maestro_user_id: string | null; vip_tier: string | null };
 
 const STOP = new Set('the and for that this with have from your you can please help hello thanks thank would could about ticket reply customer'.split(' '));
 export function replyTerms(text: string) {
@@ -39,7 +39,7 @@ export function genericDetails(text: string, customer: Record<string, unknown>, 
 export async function previousReplyMaterial(workspaceId: string, ticketId: string, includeExamples = true) {
   const sql = getDb();
   const [ticket] = await sql<ReplyTicket[]>`
-    select t.id,t.display_id,t.subject,c.brand,c.jurisdiction,
+    select t.id,t.display_id,t.subject,c.brand,c.jurisdiction,c.maestro_user_id,c.vip_tier,
       c.first_name,c.last_name,c.email,c.mobile,c.username
     from tickets t join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id
     where t.workspace_id=${workspaceId} and t.id=${ticketId} and t.deleted_at is null
@@ -109,7 +109,7 @@ export async function searchReplyHistory(workspaceId: string, ticket: ReplyTicke
       from distinct_hits h join eligible t on t.id=h.ticket_id
       join ticket_messages q on q.id=h.id and q.workspace_id=${workspaceId}
       join lateral (select id,left(body,4000) as body from ticket_messages
-        where workspace_id=${workspaceId} and ticket_id=t.id and role='agent'
+        where workspace_id=${workspaceId} and ticket_id=t.id and role='agent' and cardinality(forwarded_from_ticket_ids)=0
           and deleted_at is null and merged_from_id is null and created_at>=q.created_at
         order by created_at,id limit 1) r on true
       order by h.score desc,h.created_at desc,q.id limit 12`;
@@ -130,7 +130,7 @@ export async function revalidateReplyExamples(workspaceId: string, ticket: Reply
       and c.deleted_at is null and c.erased_at is null
       and c.brand is not distinct from ${ticket.brand} and c.jurisdiction is not distinct from ${ticket.jurisdiction}
       and q.id in ${sql(examples.map(e => e.questionId))} and r.id in ${sql(examples.map(e => e.replyId))}
-      and q.role='customer' and r.role='agent' and q.deleted_at is null and r.deleted_at is null
+      and q.role='customer' and r.role='agent' and cardinality(r.forwarded_from_ticket_ids)=0 and q.deleted_at is null and r.deleted_at is null
       and q.merged_from_id is null and r.merged_from_id is null`;
   const fresh = rows.map(redactExample);
   return examples.filter(e => fresh.some(r => JSON.stringify(r) === JSON.stringify(e)));

@@ -24,7 +24,7 @@ export async function historicalReferences(workspaceId:string,examples:ReplyExam
     from ticket_messages m join tickets t on t.id=m.ticket_id and t.workspace_id=m.workspace_id
     join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id
     where m.workspace_id=${workspaceId} and m.id=any(${examples.map(e=>e.replyId)}::uuid[])
-      and m.deleted_at is null and m.merged_from_id is null and m.role='agent'
+      and m.deleted_at is null and m.merged_from_id is null and m.role='agent' and cardinality(m.forwarded_from_ticket_ids)=0
       and t.deleted_at is null and t.merged_into_id is null and t.status_key in ('resolved','closed')
       and c.deleted_at is null and c.erased_at is null
       and c.brand is not distinct from ${target.brand} and c.jurisdiction is not distinct from ${target.jurisdiction}`;
