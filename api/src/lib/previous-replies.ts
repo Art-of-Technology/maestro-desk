@@ -2,7 +2,7 @@ import { getDb } from './db.js';
 
 export type ReplyTicket = { id: string; display_id: string; subject: string; brand: string | null;
   jurisdiction: string | null; first_name: string; last_name: string; email: string | null;
-  mobile: string | null; username: string | null };
+  mobile: string | null; username: string | null; maestro_user_id: string | null; vip_tier: string | null };
 
 const STOP = new Set('the and for that this with have from your you can please help hello thanks thank would could about ticket reply customer'.split(' '));
 export function replyTerms(text: string) {
@@ -39,7 +39,7 @@ export function genericDetails(text: string, customer: Record<string, unknown>, 
 export async function previousReplyMaterial(workspaceId: string, ticketId: string, includeExamples = true) {
   const sql = getDb();
   const [ticket] = await sql<ReplyTicket[]>`
-    select t.id,t.display_id,t.subject,c.brand,c.jurisdiction,
+    select t.id,t.display_id,t.subject,c.brand,c.jurisdiction,c.maestro_user_id,c.vip_tier,
       c.first_name,c.last_name,c.email,c.mobile,c.username
     from tickets t join customers c on c.id=t.customer_id and c.workspace_id=t.workspace_id
     where t.workspace_id=${workspaceId} and t.id=${ticketId} and t.deleted_at is null
