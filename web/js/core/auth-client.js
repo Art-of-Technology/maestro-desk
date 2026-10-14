@@ -144,7 +144,8 @@ export function signOut(userId = getCurrentUser()?.id, broadcast = true) {
   if (jwt) {
     fetch(`${API_BASE}/api/auth/sign-out`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${jwt}` },
+      headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: '{}',
     }).catch(() => {});
   }
   setJwt(null);
