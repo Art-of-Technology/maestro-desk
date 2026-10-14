@@ -159,7 +159,7 @@ async function generate(c: Context, input: z.infer<typeof RequestBody>, connecti
     if (denied) return denied;
   }
   if ((historical || generic) && !input.ticketId) return c.json({ error: 'Choose a ticket first.' }, 400);
-  const ticketContext = input.ticketId && input.action !== 'detect_language'
+  const ticketContext = input.ticketId && !historical && input.action !== 'detect_language'
     ? await previousReplyMaterial(workspaceId, input.ticketId, false) : null;
   if (input.ticketId && !historical && !generic) {
     const ticketExists = input.action === 'detect_language'

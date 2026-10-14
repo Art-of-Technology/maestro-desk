@@ -2,6 +2,12 @@ import { getDb } from './db.js';
 import { knowledgeReference } from './reply-evidence.js';
 
 const STOP = new Set('the and for that this with have from your you can please help hello thanks thank would could about ticket reply customer write una uno por para que con del los las como porque donde favor'.split(' '));
+const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+// Intl also names obsolete region codes; they must not overwrite current codes.
+const regionCodes = new Map(Array.from({ length: 26 * 26 }, (_, i) => {
+  const code = String.fromCharCode(65 + Math.floor(i / 26), 65 + i % 26);
+  return [regionNames.of(code)!.toUpperCase(), code] as const;
+}).filter(([, code]) => !['AN','BU','CS','DD','DY','FX','HV','NH','RH','SU','TP','UK','VD','YD','YU','ZR'].includes(code)));
 export function knowledgeTerms(query: string) {
   return [...new Set((query.toLowerCase().match(/[\p{L}\p{N}]{3,40}/gu) || []).filter(t => !STOP.has(t)))].slice(0, 40);
 }
@@ -50,9 +56,10 @@ export function selectKnowledgePassages(body: string, query: string, limit = 600
 export async function publishedKnowledgeMaterial(workspaceId: string, query: string, jurisdiction: string | null = null) {
   const sql = getDb();
   const terms = knowledgeTerms(query).join(' | ');
-  const market = jurisdiction?.trim().toUpperCase() || null;
+  const jurisdictionName = jurisdiction?.trim().toUpperCase() || null;
+  const market = jurisdictionName && (regionCodes.get(jurisdictionName) || jurisdictionName);
   const marketName = market && /^[A-Z]{2}$/.test(market)
-    ? new Intl.DisplayNames(['en'], { type: 'region' }).of(market)?.toUpperCase() ?? market : market;
+    ? regionNames.of(market)?.toUpperCase() ?? market : market;
   const rows =
     await sql`with candidates as (select a.id,a.display_id,a.title,a.category,a.body,a.updated_at,a.review_due_date,a.search_document,s.locator,s.language,s.jurisdiction,s.checked_at,s.error,
     upper(coalesce(nullif(trim(s.jurisdiction),''),
