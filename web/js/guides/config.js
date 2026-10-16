@@ -129,7 +129,7 @@ export const GUIDE_STEPS = [
       'Before sending, confirm the correct ticket and Reply tab, customer name, language, facts, links and attachments. Remove placeholders and internal-only information.',
       'Choose Send to submit the reply. The arrow beside it offers Send and resolve, Send and set pending, or Send and escalate when you also want to change the status.',
       'If “Check before sending” appears, read each warning. Cancel to fix or verify the draft. Confirm only after checking; the warning cannot verify policy or payment claims for you.',
-      'Wait for the result and check the conversation and any delivery notice. If sending fails, read the error and check whether the message was saved before retrying. After a combined send-and-status action, also check the displayed status.',
+      'Wait for the result and check the conversation and delivery notice. Use Retry sending on a failed reply to resend the saved email and attachments without adding another message. Respovia blocks retries when delivery is unconfirmed to avoid sending the email twice. After a combined send-and-status action, also check the displayed status.',
     ],
   },
   {

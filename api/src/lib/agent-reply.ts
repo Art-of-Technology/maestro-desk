@@ -72,8 +72,12 @@ export async function sendAgentReplyEmail(args: {
   let attempted = false, state = 'failed';
   try {
     const savedRecipients = claimed.email_metadata?.retry_recipients;
-    if (savedRecipients) args.recipients = EmailRecipients.parse(savedRecipients);
-    else if (args.recipients) {
+    if (savedRecipients || args.recipients) {
+      const parsed = EmailRecipients.safeParse(savedRecipients || args.recipients);
+      if (!parsed.success) throw new HTTPException(400, { message: 'The saved email recipients are invalid. Check the ticket before sending again.' });
+      args.recipients = parsed.data;
+    }
+    if (!savedRecipients && args.recipients) {
       await sql`update ticket_messages set email_metadata=email_metadata || ${sql.json({retry_recipients: args.recipients})}
         where id=${messageId} and workspace_id=${workspaceId} and deleted_at is null`;
     }

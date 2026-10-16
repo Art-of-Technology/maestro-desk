@@ -222,6 +222,13 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(postmarkCalls).toBe(1);
   });
 
+  it('rejects malformed saved retry recipients with a clean validation error', async () => {
+    const { message, path } = await failedReply('retry-invalid');
+    await sql`update ticket_messages set email_metadata=email_metadata || ${sql.json({retry_recipients:{to:['invalid']}})} where id=${message.id}`;
+    expect((await as(path, {method:'POST'})).status).toBe(400);
+    expect(postmarkCalls).toBe(1);
+  });
+
   it('translates a new outbound subject and branding even when the body is already Spanish', async () => {
     const { anthropic } = await import('./lib/anthropic.js');
     const spy = spyOn(anthropic.messages, 'create');
