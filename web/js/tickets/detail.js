@@ -31,7 +31,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS,
   translateText,
   toggleThreadTranslate, toggleAutoTranslateReplies,
-  setCustomerLanguage, retryCustomerLanguage, hasMessageTranslation, ensureConversationTranslation,
+  setCustomerLanguage, retryCustomerLanguage, hasMessageTranslation, hasSubjectTranslation, ensureConversationTranslation,
   initialiseReplyLanguage, ensureCustomerLanguage, customerLanguageStatus, outgoingLanguageStatus, prepareCustomerReply, latestCustomerText,
 } from '../ai/translate.js';
 import { aiAction } from '../ai/reply.js';
@@ -507,10 +507,10 @@ export function openTicket(id) {
       ${t.msgs.length ? `<button type="button" class="btn btn-sm ticket-jump-latest" data-action="td.jumpToLatest" data-ticket-id="${window.escAttr(id)}" aria-controls="thread-${window.escAttr(id)}">Jump to latest</button>` : ''}
       <button class="btn btn-sm" data-action="tl.details" data-ticket-id="${window.escAttr(id)}" aria-controls="ticket-details-${id}" aria-expanded="false">Details</button>
     </div>
-    <div class="ticket-translation-notice" role="status" aria-live="polite" ${!t.translatingThread && !t.translationError && !(t.msgs || []).some(m => m.translationCacheWarning) ? 'hidden' : ''}>
+    <div class="ticket-translation-notice" role="status" aria-live="polite" ${!t.translatingThread && !t.translationError && !t.subjectTranslation?.translationCacheWarning && !(t.msgs || []).some(m => m.translationCacheWarning) ? 'hidden' : ''}>
       ${t.translatingThread ? 'Preparing translations… You can switch to Original while this finishes.' : t.translationError ? window.escHtml(t.translationError) : ''}
       ${t.translationError && threadOn ? `<button class="btn btn-sm" data-action="td.translatedConversation" data-ticket-id="${window.escAttr(id)}">Retry translation</button>` : ''}
-      ${(t.msgs || []).some(m => m.translationCacheWarning) ? '<span>Could not save translations in this browser. Reloading may require another paid translation.</span>' : ''}
+      ${t.subjectTranslation?.translationCacheWarning || (t.msgs || []).some(m => m.translationCacheWarning) ? '<span>Could not save translations in this browser. Reloading may require another paid translation.</span>' : ''}
     </div>`;
 
   // Sentiment backfill nudge — only when this is a real (api-backed)
@@ -568,7 +568,7 @@ export function openTicket(id) {
       <div class="ticket-heading">
         ${mergedBanner}
         ${snoozeBanner}
-        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px"><span id="ticket-subject-${id}">${window.escHtml(t.subject)}</span> <button type="button" class="btn btn-sm" data-action="td.editSubject" data-ticket-id="${window.escAttr(id)}">Edit subject</button></div>
+        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px"><span id="ticket-subject-${id}">${window.escHtml(threadOn && hasSubjectTranslation(t) ? t.subjectTranslation.translation : t.subject)}</span> <button type="button" class="btn btn-sm" data-action="td.editSubject" data-ticket-id="${window.escAttr(id)}">Edit subject</button></div>
         <div class="ticket-metadata">
           ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
@@ -1088,6 +1088,7 @@ function editTicketSubject(id) {
         if (heading) heading.textContent = ticket.subject;
       }
       if (input === document.getElementById('edit-ticket-subject')) closeModal();
+      ensureConversationTranslation(ticket);
       showToast('Subject saved', 'success');
     } catch (error) {
       if (input === document.getElementById('edit-ticket-subject')) {

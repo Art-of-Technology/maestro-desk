@@ -56,6 +56,10 @@ export function hasMessageTranslation(message, target = AGENT_PREFERRED_LANG) {
     && message.translationSource === messageTranslationSource(message) && !!message.translation;
 }
 
+export function hasSubjectTranslation(ticket, target = AGENT_PREFERRED_LANG) {
+  return !!ticket.subjectTranslation && ticket.subjectTranslation.t === ticket.subject && hasMessageTranslation(ticket.subjectTranslation, target);
+}
+
 async function translateMessageContent(ticket, message, index, target) {
   const source = messageTranslationSource(message);
   const scope = translationScope();
@@ -122,6 +126,11 @@ export async function detectAndTranslateThread(ticketId) {
     t.translatingThread = true;
     try {
       if (CURRENT_TICKET === ticketId && scope === translationScope()) openTicket(ticketId);
+      if (String(t.subject || '').trim() && !hasSubjectTranslation(t, target)) {
+        const subject = { t: t.subject };
+        t.subjectTranslation = subject;
+        await translateMessageContent(t, subject, 'subject', target);
+      }
       // Serial messages let Original stop queued paid work, and avoid bursts.
       for (const [index, message] of (t.msgs || []).entries()) {
         if (!t.translateThread || target !== AGENT_PREFERRED_LANG || scope !== translationScope()) break;
@@ -157,7 +166,7 @@ export function toggleThreadTranslate(ticketId, on) {
 // Called after rendering: new messages use saved results or translate once.
 export function ensureConversationTranslation(ticket) {
   if (!ticket.translateThread || ticket.translationError || runningThreads.has(ticket)) return;
-  if ((ticket.msgs || []).some(m => ['customer', 'agent', 'note', 'ai'].includes(m.r) && String(m.t || '').trim() && !hasMessageTranslation(m))) {
+  if ((String(ticket.subject || '').trim() && !hasSubjectTranslation(ticket)) || (ticket.msgs || []).some(m => ['customer', 'agent', 'note', 'ai'].includes(m.r) && String(m.t || '').trim() && !hasMessageTranslation(m))) {
     void detectAndTranslateThread(ticket.id);
   }
 }
