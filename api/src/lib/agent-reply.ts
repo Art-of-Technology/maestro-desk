@@ -1,5 +1,6 @@
 import { safeError } from './diagnostics.js';
 import { sentEmailContent } from './sent-email.js';
+import { env } from './env.js';
 // Email an agent's public reply to the customer. Called from
 // POST /tickets/:id/messages when an agent posts a `role:'agent'` reply (not
 // an internal note). Turns the portal-only reply into a real two-way email
@@ -15,6 +16,7 @@ import { sentEmailContent } from './sent-email.js';
 import {
   isPostmarkConfigured,
   PostmarkSendError,
+  generateRfcMessageId,
   replySubject,
 } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
@@ -126,12 +128,19 @@ export async function sendAgentReplyEmail(args: {
     const files = args.attachments ?? await loadOutboundFiles(await listAttachmentsForMessage(workspaceId, messageId));
     const replyTo = await resolveTicketReplyTo(workspaceId, ticketId);
 
-    await sql`update ticket_messages set email_metadata=email_metadata || '{"delivery_state":"sending"}'::jsonb
+    const attemptId = crypto.randomUUID();
+    const rfcMessageId = generateRfcMessageId(env.POSTMARK_OUTBOUND_FROM);
+    await sql`update ticket_messages set email_metadata=email_metadata || ${sql.json({
+      delivery_state: 'sending', send_attempt_id: attemptId, pending_message_id: rfcMessageId,
+      send_attempt_at: new Date().toISOString(),
+    })}
       where id=${messageId} and workspace_id=${workspaceId} and deleted_at is null`;
     attempted = true;
     // Branded From (verified domain) with platform fallback + rejection
     // safety net — see send-branded-email.ts.
     const result = await sendBrandedEmail({
+      metadata: { workspace_id: workspaceId, message_id: messageId, send_attempt_id: attemptId },
+      rfcMessageId,
       privacy,
       workspaceId,
       sendingChannelId,
@@ -156,8 +165,8 @@ export async function sendAgentReplyEmail(args: {
     await sql`
       update ticket_messages set external_message_id = ${result.rfcMessageId},
         sent_email = ${sql.json(sentEmailContent(composed, subject))},
-        email_metadata = ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
-          status: 'sent', delivery_state: 'sent', sent_at: result.submittedAt,
+        email_metadata = (email_metadata - 'retry_recipients') || ${sql.json({ from: result.fromEmail, to: recipient.to, cc: args.recipients ? recipient.cc : [],
+          status: 'sent', delivery_state: 'sent', sent_at: result.submittedAt, postmark_message_id: result.messageId,
           ...(sendingChannelId ? { sending_channel_id: sendingChannelId,
             reply_to: selectedInbox?.address,
             used_fallback_from: result.usedFallbackFrom } : {}) })}
@@ -168,6 +177,12 @@ export async function sendAgentReplyEmail(args: {
       ...(result.usedFallbackFrom ? { fallback_from: result.fromEmail } : {}) };
   } catch (err) {
     if (!attempted) throw err;
+    const [receipt] = await sql`select email_metadata from ticket_messages
+      where id=${messageId} and workspace_id=${workspaceId} and deleted_at is null`;
+    if (receipt?.email_metadata?.status === 'sent') {
+      state = 'sent';
+      return { emailed: true, reason: 'sent', postmark_message_id: receipt.email_metadata.postmark_message_id };
+    }
     // Only a definite refusal is safe to retry. Timeouts, 5xx and failed receipts may have delivered.
     const refused = err instanceof PostmarkSendError &&
       ((err.httpStatus >= 400 && err.httpStatus < 500) || (err.httpStatus >= 200 && err.httpStatus < 300 && err.code > 0));

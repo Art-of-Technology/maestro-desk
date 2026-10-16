@@ -16,6 +16,8 @@ const ENDPOINT = 'https://api.postmarkapp.com/email';
 const STREAM = 'outbound';   // default transactional stream
 
 export interface SendEmailArgs {
+  metadata?: Record<string, string>;
+  rfcMessageId?: string;
   cc?: string;
   to: string;
   subject: string;
@@ -85,7 +87,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   // a `<UUID@mtasv.net>` and we'd have to know/match Postmark's suffix
   // to identify replies. Domain comes from the From address — replies
   // referencing this ID via In-Reply-To resolve cleanly in our DB.
-  const rfcMessageId = generateRfcMessageId(args.fromEmail);
+  const rfcMessageId = args.rfcMessageId ?? generateRfcMessageId(args.fromEmail);
 
   const headers: Array<{ Name: string; Value: string }> = [
     { Name: 'Message-Id', Value: rfcMessageId },
@@ -112,6 +114,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     TextBody: string;
     HtmlBody?: string;
     MessageStream: string;
+    Metadata?: Record<string, string>;
     Headers: Array<{ Name: string; Value: string }>;
     ReplyTo?: string;
     Attachments?: Array<{ Name: string; Content: string; ContentType: string; ContentID?: string }>;
@@ -122,6 +125,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     Subject: args.subject,
     TextBody: args.textBody,
     MessageStream: STREAM,
+    ...(args.metadata ? { Metadata: args.metadata } : {}),
     Headers: headers,
   };
   if (args.htmlBody) {
@@ -195,7 +199,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
  * is extracted from the outbound From address so the Message-Id looks like
  * it originates from our sending domain (good for SPF/DKIM consistency).
  */
-function generateRfcMessageId(fromEmail: string): string {
+export function generateRfcMessageId(fromEmail: string): string {
   const domain = fromEmail.split('@')[1] || 'maestro.local';
   return `<${crypto.randomUUID()}@${domain}>`;
 }

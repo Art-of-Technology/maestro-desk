@@ -7,6 +7,17 @@ globalThis.window ||= globalThis;
 window.escHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 window.escAttr = window.escHtml;
 
+test('delivery labels count every distinct To and CC recipient and show receipt timestamps', () => {
+  const message = { createdAt: '2026-10-16T12:00:00Z', email: { status: 'sent', sent_at: '2026-10-16T12:00:00Z',
+    to: ['one@example.test'], cc: ['ONE@example.test', 'two@example.test'] } };
+  expect(messageTime(message)).toStartWith('Sent ');
+  message.email.delivered_recipients = { 'one@example.test': '2026-10-16T12:01:00Z' };
+  expect(messageTime(message)).toStartWith('Partially delivered ');
+  expect(renderEmailDetails(message)).toContain('Delivery confirmed');
+  message.email.delivered_recipients['two@example.test'] = '2026-10-16T12:02:00Z';
+  expect(messageTime(message)).toStartWith('Delivered ');
+});
+
 test('only definitively failed public replies offer a retry on the original message', () => {
   const message = { _uuid: 'original-id', r: 'agent', email: { status: 'saved', delivery_state: 'failed' } };
   expect(renderEmailRetry(message)).toContain('Retry sending');

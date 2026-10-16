@@ -11,8 +11,12 @@ export function messageTime(message) {
   const label = message.forwarded ? (email?.status === 'sent' ? 'Forwarded' : email?.forward_state === 'unknown' || email?.forward_state === 'sending' ? 'Forward · delivery unconfirmed' : 'Forward · not sent') : email?.status === 'sent' ? 'Sent' : email?.status === 'received' ? 'Received' : email?.status === 'saved' ? 'Saved · not emailed' : 'Added';
   const deliveryLabel = !message.forwarded && email?.status === 'saved' && ['sending', 'preparing', 'unknown'].includes(email.delivery_state)
     ? email.delivery_state === 'unknown' ? 'Delivery unconfirmed' : 'Sending' : label;
+  const recipients = [...new Set([...(email?.to || []), ...(email?.cc || [])].map(address => address.toLowerCase()))];
+  const delivered = recipients.filter(address => email?.delivered_recipients?.[address]).length;
+  const confirmedLabel = email?.status === 'sent' && delivered
+    ? delivered === recipients.length ? 'Delivered' : 'Partially delivered' : deliveryLabel;
   const date = emailDate(email?.status === 'sent' ? email.sent_at : email?.received_at || message.createdAt);
-  return date ? `${deliveryLabel} ${date}` : message.ts || '';
+  return date ? `${confirmedLabel} ${date}` : message.ts || '';
 }
 export function renderEmailRetry(message) {
   if (!message._uuid || message.r !== 'agent' || message.forwarded || message.mergedFrom || message.email?.status !== 'saved') return '';
@@ -27,6 +31,7 @@ export function renderEmailDetails(message) {
   const row = (label, value) => value ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
   const recipients = [...(e.status === 'received' ? [] : e.to || []), ...(e.cc || [])];
   const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
+    + row('Delivery confirmed', Object.entries(e.delivered_recipients || {}).map(([address, at]) => `${address}: ${emailDate(at)}`).join('; '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')
     + row('Sent by sender', e.status === 'received' ? emailDate(e.sent_at) : '');

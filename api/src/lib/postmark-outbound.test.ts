@@ -65,6 +65,13 @@ function headerNames(body: Record<string, unknown>): string[] {
 }
 
 describe('sendEmail Reply-To handling', () => {
+  it('uses a saved threading reference and passes delivery correlation metadata', async () => {
+    const metadata = { workspace_id: 'workspace', message_id: 'message', send_attempt_id: 'attempt' };
+    const result = await sendEmail({ ...baseArgs, metadata, rfcMessageId: '<saved@example.test>' });
+    expect(captured!.body.Metadata).toEqual(metadata);
+    expect(captured!.body.Headers).toContainEqual({ Name: 'Message-Id', Value: '<saved@example.test>' });
+    expect(result.rfcMessageId).toBe('<saved@example.test>');
+  });
   it('sends Reply-To as a top-level ReplyTo field, never in Headers', async () => {
     await sendEmail({ ...baseArgs, replyTo: 'reply@inbound.postmarkapp.com' });
 
