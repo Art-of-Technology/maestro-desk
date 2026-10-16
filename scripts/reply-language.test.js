@@ -28,6 +28,38 @@ const tx = await import('../web/js/ai/translate.js');
 const fixture = () => ({ id:'T1', _uuid:'ticket-1', _detailLoaded:true, msgs:[{ _uuid:'m1',r:'customer',t:'Necesito ayuda con mi cuenta' }] });
 beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; requests.length=0; storage.clear(); tickets.length=0; labels.clear(); });
 
+test('subject-only tickets translate, reuse results, and invalidate edited subjects and scope', async () => {
+  const t = { ...fixture(), subject: 'Necesito ayuda', msgs: [] }; tickets.push(t);
+  await tx.toggleThreadTranslate(t.id, true);
+  expect(tx.hasSubjectTranslation(t)).toBe(true);
+  expect(t.subject).toBe('Necesito ayuda');
+  expect(calls).toBe(2);
+  tx.toggleThreadTranslate(t.id, false);
+  await tx.toggleThreadTranslate(t.id, true);
+  expect(calls).toBe(2);
+  t.subject = 'Otro asunto';
+  expect(tx.hasSubjectTranslation(t)).toBe(false);
+  tx.ensureConversationTranslation(t);
+  await tx.detectAndTranslateThread(t.id);
+  expect(tx.hasSubjectTranslation(t)).toBe(true);
+  expect(calls).toBe(4);
+  expect(tx.hasSubjectTranslation(t, 'German')).toBe(false);
+  scope = 'other-workspace';
+  expect(tx.hasSubjectTranslation(t)).toBe(false);
+});
+
+test('same-language subjects skip generation and empty subjects skip requests', async () => {
+  const t = { ...fixture(), subject: 'Account help', msgs: [] }; tickets.push(t); answer = 'English';
+  await tx.toggleThreadTranslate(t.id, true);
+  expect(tx.hasSubjectTranslation(t)).toBe(true);
+  expect(t.subjectTranslation.translation).toBe(t.subject);
+  expect(calls).toBe(1);
+  t.subject = '';
+  await tx.toggleThreadTranslate(t.id, true);
+  expect(calls).toBe(1);
+  expect(tx.hasSubjectTranslation({})).toBe(false);
+});
+
 test('default is enabled and detection updates visible labels without opening controls', async () => {
   const t=fixture(); labels.set('customer-language-T1',{}); labels.set('reply-language-T1',{});
   const task=tx.ensureCustomerLanguage(t);
