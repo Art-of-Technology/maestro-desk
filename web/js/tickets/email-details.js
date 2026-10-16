@@ -9,8 +9,16 @@ export function emailDate(value) {
 export function messageTime(message) {
   const email = message.email;
   const label = message.forwarded ? (email?.status === 'sent' ? 'Forwarded' : email?.forward_state === 'unknown' || email?.forward_state === 'sending' ? 'Forward · delivery unconfirmed' : 'Forward · not sent') : email?.status === 'sent' ? 'Sent' : email?.status === 'received' ? 'Received' : email?.status === 'saved' ? 'Saved · not emailed' : 'Added';
+  const deliveryLabel = !message.forwarded && email?.status === 'saved' && ['sending', 'preparing', 'unknown'].includes(email.delivery_state)
+    ? email.delivery_state === 'unknown' ? 'Delivery unconfirmed' : 'Sending' : label;
   const date = emailDate(email?.status === 'sent' ? email.sent_at : email?.received_at || message.createdAt);
-  return date ? `${label} ${date}` : message.ts || '';
+  return date ? `${deliveryLabel} ${date}` : message.ts || '';
+}
+export function renderEmailRetry(message) {
+  if (!message._uuid || message.r !== 'agent' || message.forwarded || message.mergedFrom || message.email?.status !== 'saved') return '';
+  if (message.email.delivery_state === 'failed') return `<button type="button" class="btn btn-sm" data-action="emailRetry.send" data-message-id="${window.escAttr(message._uuid)}">Retry sending</button>`;
+  if (message.email.delivery_state === 'unknown') return '<p role="status">Delivery could not be confirmed. Check delivery before sending again.</p>';
+  return '';
 }
 export function renderEmailDetails(message) {
   const e = message.email;

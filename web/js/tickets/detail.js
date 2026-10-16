@@ -55,7 +55,8 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { messageTime, renderEmailDetails, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import { messageTime, renderEmailDetails, renderEmailRetry, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import './email-retry.js';
 import './email-forward.js';
 import { saveDraftRecipients } from './drafts.js';
 import { loadDraft, saveDraft, clearDraft, clearAllDrafts, loadMessageReview, confirmedReplySuggestion,
@@ -472,6 +473,7 @@ export function openTicket(id) {
       ${renderEmailDetails(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
+      ${t._uuid && !t.mergedInto ? renderEmailRetry(m) : ''}
       ${t._uuid && !t.mergedInto && m._uuid && m.downloadableEmail ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Download email</button><button type="button" class="btn btn-sm" data-action="emailForward.open" data-ticket-id="${window.escAttr(id)}" data-message-id="${window.escAttr(m._uuid)}">Forward</button>` : ''}
       ${m.r === 'note' ? '' : bodyNote}
       ${m.r === 'note' && window.isAdmin() && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="td.editNote" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="td.noteHistory" data-ticket-id="${window.escAttr(id)}" data-note-id="${window.escAttr(m._uuid || '')}" data-msg-idx="${i}">View edit history</button>` : ''}
@@ -1423,6 +1425,8 @@ export function notifyReplyDelivery(delivery) {
     no_from:                 'Reply saved. Not emailed — no sender address is configured for this workspace.',
     sending_inbox_unavailable: 'Reply saved but not emailed. The sending inbox changed or is no longer verified. Choose another From inbox.',
     send_failed:             'Reply saved, but the email failed to send. Try again or reach the customer another way.',
+    delivery_unconfirmed:    'Delivery could not be confirmed. Check delivery before sending again.',
+    already_sent:            'This message has already been sent or is being sent. Refresh the ticket to check delivery.',
   }[delivery.reason] || 'Reply saved, but it wasn’t emailed.';
   showToast(msg, delivery.reason === 'send_failed' ? 'error' : 'warn', 6000);
 }

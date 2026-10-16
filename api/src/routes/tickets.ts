@@ -30,8 +30,8 @@ import { hasDeletePermission, requireWorkspaceAdmin } from '../lib/authz.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import {
-  AttachmentClaimError, claimAttachments, decorateMessages, listAttachmentsForMessage,
-  loadAttachmentsForTicket, loadOutboundFiles, storeUpload,
+  AttachmentClaimError, claimAttachments, decorateMessages,
+  loadAttachmentsForTicket, storeUpload,
 } from '../lib/message-attachments.js';
 import {
   MAX_INLINE_IMAGES, MAX_REPLY_ATTACHMENT_BYTES, MAX_UPLOAD_FILE_BYTES,
@@ -997,14 +997,9 @@ tickets.post('/:id/messages', async (c) => {
     try { await sql`update tickets set last_reply_notified_at = null where id = ${ticketId} and workspace_id = ${workspaceId}`; }
     catch (err) { console.warn('[push] clear notify throttle failed:', safeError(err)); }
     try {
-      // Load the bytes of everything bound to this message so Postmark can
-      // carry them (inline images keep the cid: token the HTML references).
-      const files = claimIds.length
-        ? await loadOutboundFiles(await listAttachmentsForMessage(workspaceId, message.id))
-        : [];
       delivery = await sendAgentReplyEmail({
         workspaceId, ticketId, messageId: message.id, authorUserId: userId,
-        body: bodyText, bodyHtml, composed, attachments: files, recipients: input.email_recipients,
+        body: bodyText, bodyHtml, composed, recipients: input.email_recipients,
       });
     } catch (err) {
       console.error('[agent-reply] send threw:', safeError(err));
@@ -1022,6 +1017,26 @@ tickets.post('/:id/messages', async (c) => {
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
   return c.json({ message: decorated, delivery, draft_version: draftVersion, subject: composed?.subject }, 201);
+});
+
+// Retry delivery of a saved reply without inserting another thread message.
+tickets.post('/:id/messages/:messageId/retry', async (c) => {
+  const parsed = z.object({ id: z.string().uuid(), messageId: z.string().uuid() }).safeParse(c.req.param());
+  if (!parsed.success) return c.json({ error: 'Choose a valid message.' }, 400);
+  const { id, messageId } = parsed.data, workspaceId = c.get('workspaceId'), sql = getDb();
+  const limited = await enforceRateLimit(c, { name: 'reply-retry', by: `${workspaceId}:${c.get('userId')}`, max: 10, windowSeconds: 60, failClosed: true });
+  if (limited) return limited;
+  const [message] = await sql`select m.* from ticket_messages m join tickets t on t.id=m.ticket_id and t.workspace_id=m.workspace_id
+    where m.workspace_id=${workspaceId} and m.ticket_id=${id} and m.id=${messageId}
+      and m.deleted_at is null and t.deleted_at is null and t.merged_into_id is null
+      and m.role='agent' and m.body<>'[erased]' and cardinality(m.forwarded_from_ticket_ids)=0 and m.merged_from_id is null`;
+  if (!message) return c.json({ error: 'Message not found.' }, 404);
+  if (message.external_message_id || message.email_metadata?.status === 'sent') return c.json({ error: 'This email has already been sent.' }, 409);
+  if (message.email_metadata?.delivery_state !== 'failed') return c.json({ error: 'Delivery is unconfirmed or still in progress. Check delivery before trying again.' }, 409);
+  const delivery = await sendAgentReplyEmail({ workspaceId, ticketId: id, messageId,
+    authorUserId: message.author_user_id, body: message.body, bodyHtml: message.body_html });
+  const [updated] = await sql`select email_metadata from ticket_messages where workspace_id=${workspaceId} and id=${messageId} and deleted_at is null`;
+  return c.json({ delivery, email_metadata: updated?.email_metadata || null });
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
