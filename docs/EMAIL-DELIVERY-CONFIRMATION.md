@@ -51,6 +51,43 @@ using subject, recipient and approximate time alone, or resend them automaticall
 Confirm their exact identity and delivery in Postmark before any manual repair.
 This change does not backfill old records or send historical messages.
 
+The separately approved TK-133 repair is `api/scripts/reconcile-tk133-email.ts`.
+Run it with operator `DATABASE_URL` and `POSTMARK_SERVER_TOKEN`; the default is a
+dry run. `--apply --confirm <snapshotHash>` commits the two approved 16 October
+sends together only if the rows still match the dry-run fingerprint. It fetches
+only their two known Postmark IDs, checks sender/recipients and delivery events,
+matches exact saved email content (or the complete legacy body), rejects ambiguous
+matches, and locks the live workspace/customer/ticket/messages before writing.
+It refuses other tickets, timestamps, merged/deleted/erased rows and conflicting
+send identifiers. It never sends mail. Repeated apply is a no-op after verification.
+
+The repair changes only `external_message_id` and `email_metadata`. Previous values
+are retained under `email_metadata.delivery_repair`, with the repair marker and
+time. Recovery, if necessary, restores `previous_external_message_id` and
+`previous_email_metadata` from that marker for the two reviewed rows; inspect
+subsequent changes first. Output contains row/provider IDs and counts, never email
+content or addresses. No database migration or API route is added. The script is
+not copied into the production app image; run a reviewed bundle in an isolated
+maintenance process on the existing internal database network, dry run first.
+
+Operator steps (Dokploy owner/admin):
+
+1. Build the reviewed source from the repository root:
+   `bun build api/scripts/reconcile-tk133-email.ts --target node --format esm --outfile reconcile-tk133-email.mjs`.
+2. Upload that bundle to `/tmp/reconcile-tk133-email.mjs` in the running production
+   API container. Use its existing environment and internal database connection;
+   do not expose a database port or copy credentials into commands/chat.
+3. Run `node /tmp/reconcile-tk133-email.mjs`. Require `mode: dry-run` and exactly
+   two rows with the approved provider IDs. Retain its `snapshotHash`.
+4. Run `node /tmp/reconcile-tk133-email.mjs --apply --confirm <snapshotHash>`.
+   Require `mode: apply` and two rows. Re-run the dry run; both must report
+   `alreadyRepaired: true`. Refresh TK-133 and check both delivery times.
+5. Remove the temporary bundle. No recurring maintenance schedule is needed.
+
+The current integration account cannot create server-level schedules (Dokploy
+returns 403: only owners/admins can manage them). Production execution therefore
+requires an owner/admin; the tested bundle itself grants no additional access.
+
 This tracks agent replies only. AI auto-replies, forwards, surveys and other
 notifications keep their existing send behaviour. There is no background provider
 polling or automatic resend. If a receipt never arrives, the state remains
