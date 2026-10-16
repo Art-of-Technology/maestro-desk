@@ -8,8 +8,18 @@ import { processInboundEmail, resolveInboundWorkspace } from '../lib/inbound-ema
 import { verifySlackSignature } from '../lib/slack-verify.js';
 import { handleSlackEvent } from '../lib/slack-inbound.js';
 import { PostmarkBounce, processBounceEvent, fromDomain } from '../lib/postmark-bounce.js';
+import { PostmarkDelivery, processDeliveryEvent } from '../lib/postmark-delivery.js';
 
 export const webhooks = new Hono();
+
+webhooks.post('/postmark/delivery', bodyLimit({ maxSize: 64 * 1024 }), async c => {
+  assertPostmarkAuth(c);
+  const parsed = PostmarkDelivery.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Invalid delivery payload' }, 400);
+  // Let database failures return 500 so Postmark retries the receipt.
+  const matched = await processDeliveryEvent(parsed.data);
+  return c.json({ ok: true, matched });
+});
 
 // POST /api/v1/webhooks/postmark/inbound
 //

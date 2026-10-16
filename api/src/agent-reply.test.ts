@@ -26,6 +26,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
   const ctx = {} as Record<string, string>;
 
   const realFetch = globalThis.fetch;
+  const providerId = '883953f4-6105-42a2-a16a-77a8eac79483';
   let postmarkCalls = 0;
   let lastBody: any = null;
   let failMail = false;
@@ -44,7 +45,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
         if (mailGate) await mailGate;
         if (refuseMail) return new Response(JSON.stringify({ ErrorCode: 422, Message: 'Rejected for test' }), { status: 422 });
         if (failMail) return new Response('Mail service unavailable', { status: 503 });
-        return new Response(JSON.stringify({ MessageID: 'pm-id', SubmittedAt: '2026-01-01T00:00:00Z', To: 'x', ErrorCode: 0, Message: 'OK' }),
+        return new Response(JSON.stringify({ MessageID: providerId, SubmittedAt: '2026-01-01T00:00:00Z', To: 'x', ErrorCode: 0, Message: 'OK' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       return realFetch(input as any, init);
@@ -121,6 +122,98 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     refuseMail = false;
     return { tid, message, path: `/api/v1/tickets/${tid}/messages/${message.id}/retry` };
   }
+
+  function receipt(body = lastBody, patch = {}) {
+    return { RecordType: 'Delivery', MessageStream: 'outbound', MessageID: providerId,
+      Recipient: body.To.split(',')[0], DeliveredAt: '2026-10-16T12:01:00Z', Metadata: body.Metadata, ...patch };
+  }
+  function deliver(payload = receipt(), authenticated = true) {
+    return app.request('/api/v1/webhooks/postmark/delivery', { method: 'POST', body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json', ...(authenticated ? {
+        Authorization: `Basic ${btoa(`postmark:${process.env.POSTMARK_INBOUND_SECRET}`)}`,
+      } : {}) } });
+  }
+
+  it('recovers a lost send response, restores threading and blocks duplicate sending', async () => {
+    failMail = true;
+    const tid = await seedTicket(`AR-${RUN}-delivery-recovery`, { email: `delivery-${RUN}@acme.test` });
+    const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Answer' }) });
+    const { message } = await response.json() as any;
+    expect(message.email_metadata.delivery_state).toBe('unknown');
+    const payload = receipt();
+    expect((await deliver(payload)).status).toBe(200);
+    expect((await deliver(payload)).status).toBe(200);
+    const [row] = await sql`select external_message_id,email_metadata from ticket_messages where id=${message.id}`;
+    expect(row.email_metadata.status).toBe('sent');
+    expect(row.email_metadata.delivered_recipients).toEqual({ [payload.Recipient]: payload.DeliveredAt });
+    expect(row.external_message_id).toBe(lastBody.Headers.find((h:any)=>h.Name==='Message-Id').Value);
+    expect((await as(`/api/v1/tickets/${tid}/messages/${message.id}/retry`, { method: 'POST' })).status).toBe(409);
+    expect(postmarkCalls).toBe(1);
+  });
+
+  it.each([false, true])('keeps concurrent receipts before the send finishes (response lost: %s)', async lost => {
+    failMail = lost;
+    const email = `race-${lost}-${RUN}@acme.test`, extra = 'copy@example.test';
+    const tid = await seedTicket(`AR-${RUN}-delivery-race-${lost}`, { email });
+    const [source] = await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,email_metadata)
+      values(${ctx.wsId},${tid},'customer','Customer','Question',${sql.json({status:'received',from:email,to:['support@maestro.test'],cc:[extra]})}) returning id`;
+    let release!: () => void;
+    mailGate = new Promise<void>(resolve => { release = resolve; });
+    const sending = as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'Answer',
+      email_recipients:{source_message_id:source.id,to:[email],cc:[extra],mode:'reply_all'} }) });
+    try {
+      for (let i = 0; i < 100 && !lastBody; i++) await new Promise(resolve => setTimeout(resolve, 10));
+      expect(lastBody.Metadata.send_attempt_id).toBeTruthy();
+      const results = await Promise.all([deliver(), deliver(receipt(lastBody, {Recipient:extra}))]);
+      expect(results.map(r=>r.status)).toEqual([200,200]);
+    } finally { release(); }
+    const { message, delivery } = await (await sending).json() as any;
+    expect(delivery.emailed).toBe(true);
+    expect(message.email_metadata.cc).toEqual([extra]);
+    expect(Object.keys(message.email_metadata.delivered_recipients)).toHaveLength(2);
+  });
+
+  it('rejects unauthenticated and malformed receipts and ignores mismatched references', async () => {
+    const { message } = await failedReply('delivery-guards');
+    const payload = receipt();
+    expect((await deliver(payload, false)).status).toBe(401);
+    expect((await deliver({...payload, DeliveredAt:'invalid'})).status).toBe(400);
+    for (const patch of [{ Recipient:'stranger@example.test' }, { Metadata:{} },
+      {Metadata:{...payload.Metadata,workspace_id:crypto.randomUUID()}},
+      {Metadata:{...payload.Metadata,send_attempt_id:crypto.randomUUID()}}]) {
+      expect((await (await deliver({...payload,...patch})).json() as any).matched).toBe(false);
+    }
+    await sql`update ticket_messages set deleted_at=now() where id=${message.id}`;
+    expect((await (await deliver(payload)).json() as any).matched).toBe(false);
+  });
+
+  it('ignores a different provider message, stale retry attempts and erased content', async () => {
+    const { tid, message, path } = await failedReply('delivery-stale');
+    const previous = receipt();
+    const retried = await as(path, {method:'POST'});
+    expect((await retried.json() as any).delivery.emailed).toBe(true);
+    expect((await (await deliver(previous)).json() as any).matched).toBe(false);
+    const current = receipt();
+    expect((await (await deliver({...current,MessageID:crypto.randomUUID()})).json() as any).matched).toBe(false);
+    const [before] = await sql`select email_metadata from ticket_messages where id=${message.id}`;
+    expect(before.email_metadata.delivered_recipients).toBeUndefined();
+    expect((await (await deliver(current)).json() as any).matched).toBe(true);
+    await sql`update customers set erased_at=now() where id=(select customer_id from tickets where id=${tid})`;
+    expect((await (await deliver(current)).json() as any).matched).toBe(false);
+    await sql`update ticket_messages set body='[erased]',body_html=null,email_metadata=null where id=${message.id}`;
+    expect((await (await deliver(current)).json() as any).matched).toBe(false);
+    const [erased] = await sql`select email_metadata from ticket_messages where id=${message.id}`;
+    expect(erased.email_metadata).toBeNull();
+  });
+
+  it('returns 500 on receipt storage failure so Postmark can retry', async () => {
+    const delivery = await import('./lib/postmark-delivery.js');
+    const handler = spyOn(delivery, 'processDeliveryEvent').mockRejectedValue(new Error('Temporary storage failure'));
+    try {
+      expect((await deliver({ RecordType:'Delivery',MessageStream:'outbound',MessageID:providerId,
+        Recipient:'test@example.test',DeliveredAt:'2026-10-16T12:01:00Z',Metadata:{} })).status).toBe(500);
+    } finally { handler.mockRestore(); }
+  });
 
   it('retries the same message and saved email content once, without another thread row', async () => {
     const { tid, message, path } = await failedReply('retry-original');
@@ -411,7 +504,8 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(lastBody.To).toBe(email);
     expect(lastBody.Cc).toBe(cc);
     expect(lastBody.Headers).toContainEqual({Name:'In-Reply-To',Value:'<original@example.test>'});
-    expect(sent.message.email_metadata).toEqual({from:'support@maestro.test',to:[email],cc:[cc],status:'sent',delivery_state:'sent',sent_at:'2026-01-01T00:00:00Z'});
+    expect(sent.message.email_metadata).toMatchObject({from:'support@maestro.test',to:[email],cc:[cc],status:'sent',delivery_state:'sent',sent_at:'2026-01-01T00:00:00Z',postmark_message_id:providerId});
+    expect(sent.message.email_metadata.send_attempt_id).toBe(lastBody.Metadata.send_attempt_id);
     expect(await sql`select id from customer_contacts where workspace_id=${ctx.wsId} and value=${cc}`).toHaveLength(0);
     const other = await seedTicket(`AR-${RUN}-foreign-envelope`, {email:'elsewhere@acme.test'});
     expect((await send(recipients,'agent',other)).status).toBe(400);
