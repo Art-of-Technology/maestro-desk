@@ -634,7 +634,7 @@ export function openTicket(id) {
                   <details class="ticket-popover composer-insert">
                     <summary class="btn btn-sm">Tools ▾</summary>
                     <div class="ticket-popover-panel">
-                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Macros</button>
+                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Insert template</button>
                   ${COMPOSE_TAB === 'reply' && t._uuid ? `<button class="btn btn-sm" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar">Similar replies</button>${window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}">Save as template</button>` : ''}` : ''}
                       <strong>Insert placeholder</strong>
                       <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{name}">Customer name</button>

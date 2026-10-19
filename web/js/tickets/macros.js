@@ -83,7 +83,7 @@ export function showMacroPanel(id) {
       </div>
     </div>`;
   }).join('');
-  showModal('Insert canned response', `<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">{name} placeholders are auto-filled with the customer\'s first name.</div>${items}`, null, null);
+  showModal('Response templates', `<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">{name} placeholders are auto-filled with the customer\'s first name.</div>${items}`, null, null);
 }
 
 async function runMacro(macroId, ticketId) {

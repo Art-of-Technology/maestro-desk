@@ -1,6 +1,6 @@
 // ─── Response templates ──────────────────────────────────────────────────────
 // Admin-managed library of canned reply texts. Agents pick one from the
-// composer's "Insert canned response" panel; macros (tickets/macros.js)
+// composer's "Response templates" panel; macros (tickets/macros.js)
 // reference them by id for reply-step actions.
 //
 // Click/change/input handlers route through core/event-delegation.js.
