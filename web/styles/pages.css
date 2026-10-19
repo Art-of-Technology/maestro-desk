@@ -406,9 +406,11 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-language>summary{white-space:normal;text-align:left}
 .ticket-language .ticket-popover-panel{width:300px;max-height:55dvh;overflow-y:auto}
 .ticket-language .ticket-popover-panel p{margin:0;color:var(--ink2);line-height:1.5}
-.composer-insert .ticket-popover-panel{max-height:50dvh;overflow-y:auto}
 .ticket-page .composer-actions{flex-wrap:wrap}
-.composer-insert .ticket-popover-panel{top:auto;bottom:calc(100% + 6px);right:auto;left:0}
+.ticket-page .composer-foot .composer-tool{width:32px;min-width:32px;min-height:32px;padding:0;justify-content:center;color:var(--ink2)}
+.composer-tool svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.composer-tool-separator{width:1px;height:20px;background:var(--rule2);margin:0 2px}
+@media(pointer:coarse){.ticket-page .composer-foot .composer-tool{width:44px;min-width:44px;min-height:44px}}
 .ticket-page .comp-meta{flex-shrink:0}
 .ticket-page .comp-meta [hidden]{display:none}
 .ticket-page[data-compose-mode="expanded"] .composer{height:72%;max-height:72%}

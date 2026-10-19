@@ -4,6 +4,42 @@ import { runInNewContext } from 'node:vm';
 import './bridge-smoke-shim-prefix.js';
 
 const { captureTicketLayout, setComposerMode } = await import('../web/js/tickets/layout.js');
+
+function replyTools(tab = 'reply', admin = true, live = true) {
+  const source = readFileSync(new URL('../web/js/tickets/detail.js', import.meta.url), 'utf8');
+  const markup = source.slice(source.indexOf('<div class="composer-actions"'), source.indexOf('<div class="composer-send-actions">'));
+  return runInNewContext('`' + markup + '`', {
+    id: 'TK-1', t: { _uuid: live ? 'ticket-uuid' : null, attachments: [] }, COMPOSE_TAB: tab,
+    window: { escAttr: value => value, isAdmin: () => admin },
+  });
+}
+
+test('composer exposes the former Tools actions directly with accessible icon labels', () => {
+  const html = replyTools();
+  expect(html).not.toContain('<details');
+  const buttons = [...html.matchAll(/<button\b([^>]*composer-tool[^>]*)>/g)].map(match => match[1]);
+  expect(buttons).toHaveLength(7);
+  for (const button of buttons) {
+    expect(button).toContain('type="button"');
+    expect(button).toContain('data-ticket-id="TK-1"');
+    const label = button.match(/aria-label="([^"]+)"/)[1];
+    expect(button).toContain(`title="${label}"`);
+  }
+  expect(html).toContain('data-action="td.macroPanel"');
+  expect(html).toContain('data-verb="similar"');
+  for (const token of ['name', 'ticket', 'brand', 'agent']) expect(html).toContain(`data-token="{${token}}"`);
+});
+
+test('composer icons preserve reply, note, demo and admin visibility rules', () => {
+  expect(replyTools('reply', false)).toContain('data-verb="similar"');
+  expect(replyTools('reply', false)).not.toContain('data-action="td.saveTemplate"');
+  for (const html of [replyTools('note'), replyTools('reply', true, false)]) {
+    expect(html).not.toContain('data-verb="similar"');
+    expect(html).not.toContain('data-action="td.saveTemplate"');
+    expect(html).toContain('data-action="td.macroPanel"');
+    expect(html).toContain('data-token="{name}"');
+  }
+});
 test('expand and restore preserve the editor, reading position and details preference', () => {
   const editor = { value: 'Unsent reply', focus() {} };
   const thread = { scrollTop: 123 };
