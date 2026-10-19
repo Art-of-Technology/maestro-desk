@@ -841,11 +841,15 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .message-email-details dd { margin: 0; min-width: 0; }
 .message-email-details summary { cursor: pointer; padding: 4px 0; }
 .email-inbox { padding: 5px 0; }
-.reply-recipients { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--rule); font-size: 12px; }
-.reply-recipients select, .reply-recipients input { min-width: 0; width: 100%; padding: 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--off); color: var(--ink); font: inherit; }
-.reply-recipients select { width: fit-content; }
+.reply-recipients { display: grid; gap: 6px; padding: 0 0 8px; margin-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.reply-sender-row,.reply-address-row { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 8px; align-items: center; }
+.reply-recipients select, .reply-recipients input { min-width: 0; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--off); color: var(--ink); font: inherit; }
+.reply-recipients .reply-cc-toggle { min-width: 44px; min-height: 32px; padding: 4px 8px; }
+.reply-cc-field { display: grid; grid-template-columns: 36px minmax(0,1fr); gap: 8px; align-items: center; }
+.reply-cc-field[hidden] { display: none; }
 .reply-to { overflow-wrap: anywhere; }
-.reply-recipients small { grid-column: 2; color: var(--ink3); }
+.reply-recipient-warning { color: var(--ink3); }
+@media(pointer:coarse) { .reply-recipients select,.reply-recipients input,.reply-recipients .reply-cc-toggle { min-height: 44px; } }
 @media (max-width: 600px) { .message-time { width: 100%; margin-left: 0; } }
 .attachment-preview{width:min(960px,calc(100vw - 32px));max-height:calc(100dvh - 32px);margin:auto;padding:0;border:1px solid var(--rule);border-radius:var(--r2);background:var(--off);color:var(--ink);overflow:auto}
 .attachment-preview::backdrop{background:rgba(0,0,0,.55)}
