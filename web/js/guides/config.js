@@ -82,7 +82,7 @@ export const GUIDE_STEPS = [
     body: 'Choose Reply, answer the question and check what the customer will receive.',
     highlights: ["Choose Reply for the customer, or Internal note for colleagues.","Answer the question and explain the next action.","Check To, CC, language, facts and attachments before sending."],
     instructions: [
-      'Open the ticket and choose Reply. Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
+      'Open the ticket and choose Reply. On phones, the composer fills the screen below the ticket breadcrumb; Minimise returns to the conversation and keeps your draft. Swipe the bottom icon row to reach more tools. On larger screens, Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
       'Acknowledge the issue, answer each question and explain the next action. Use the editor for formatting and Attach for relevant files. Check the attachments belong to this customer.',
       'Automatic customer language detection uses the subject and latest customer message. Substantive body text takes precedence if they differ; you can choose a language manually.',
       'Above the email editor, choose From and Reply or Reply all in the first row, then check To below. Choose Cc to add email addresses; existing Cc recipients stay visible. Your own inboxes and duplicate addresses are excluded.',
