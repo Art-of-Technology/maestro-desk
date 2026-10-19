@@ -467,6 +467,22 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
   .ticket-page .composer-foot{position:sticky;bottom:0}
   .ticket-page .ticket-popover-panel,.ticket-page .comp-menu{max-height:100px;overflow-y:auto}
 }
+@media(max-width:600px){
+  .app:has(.ticket-page:not([data-compose-mode="read"])) .global-search{display:none}
+  .ticket-page:not([data-compose-mode="read"]) :is(.ticket-heading,.ticket-header-actions,.ticket-thread-tools,.thread,.ticket-sidebar){display:none}
+  .ticket-page:not([data-compose-mode="read"]) .ticket-main{display:flex;overflow:hidden;border-right:0}
+  .ticket-page:not([data-compose-mode="read"]) .composer{flex:1;height:auto;max-height:none}
+  .ticket-page:not([data-compose-mode="read"]) .composer-body{flex:1;max-height:none}
+  .ticket-page:not([data-compose-mode="read"]) .compose-area{flex:1;height:auto;max-height:none}
+  .ticket-page .composer-view-actions [data-action="tl.expand"]{display:none}
+  .ticket-page .composer-foot{padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  .ticket-page .composer-foot>span{display:none}
+  .ticket-page .composer-actions{order:-1;flex-wrap:nowrap;overflow-x:auto;width:100%;min-width:0;padding:4px 0}
+  .ticket-page .composer-actions>.btn,.ticket-page .composer-tool-separator{flex-shrink:0}
+  .ticket-page .composer-send-actions{gap:4px}
+  .ticket-page .composer-foot>.btn,.ticket-page .composer-send-actions>.btn{padding-inline:8px}
+  .ticket-page .composer-send{min-width:64px}
+}
 .ts-section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--rule)}
 .ts-section:last-child{border-bottom:none}
 .ts-heading{font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:8px}
