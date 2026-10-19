@@ -629,20 +629,29 @@ export function openTicket(id) {
               <div class="composer-foot">
                 <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
                 <span style="font-size:11px;color:var(--ink3)">Uploaded files sync with your draft.</span>
-                <div class="composer-actions">
+                <div class="composer-actions" role="group" aria-label="Reply tools">
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
-                  <details class="ticket-popover composer-insert">
-                    <summary class="btn btn-sm">Tools ▾</summary>
-                    <div class="ticket-popover-panel">
-                  <button class="btn btn-sm" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}">Insert template</button>
-                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button class="btn btn-sm" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar">Similar replies</button>${window.isAdmin() ? `<button class="btn btn-sm" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}">Save as template</button>` : ''}` : ''}
-                      <strong>Insert placeholder</strong>
-                      <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{name}">Customer name</button>
-                      <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{ticket}">Ticket ID</button>
-                      <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{brand}">Brand</button>
-                      <button class="btn btn-sm" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{agent}">Agent name</button>
-                    </div>
-                  </details>
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}" aria-label="Insert template" title="Insert template">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/></svg>
+                  </button>
+                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button type="button" class="btn btn-sm composer-tool" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar" aria-label="Similar replies" title="Similar replies">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h14v11H8l-5 4zM10 17h6l5 4V10h-1"/></svg>
+                  </button>${window.isAdmin() ? `<button type="button" class="btn btn-sm composer-tool" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}" aria-label="Save as template" title="Save as template">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h9M14 3v5h5V3zM8 12h5M18 13v8M14 17h8"/></svg>
+                  </button>` : ''}` : ''}
+                  <span class="composer-tool-separator" aria-hidden="true"></span>
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{name}" aria-label="Insert customer name" title="Insert customer name">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="4"/><path d="M4 21v-3a8 8 0 0 1 16 0v3"/></svg>
+                  </button>
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{ticket}" aria-label="Insert ticket ID" title="Insert ticket ID">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3 7 21M17 3l-2 18M3 8h18M3 16h18"/></svg>
+                  </button>
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{brand}" aria-label="Insert brand" title="Insert brand">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V3h14v18M9 7h1M14 7h1M9 11h1M14 11h1M10 21v-6h4v6"/></svg>
+                  </button>
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.insertVar" data-ticket-id="${window.escAttr(id)}" data-token="{agent}" aria-label="Insert agent name" title="Insert agent name">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-3a8 8 0 0 1 16 0v7a3 3 0 0 1-3 3h-4M4 11H2v7h4v-7zM20 11h2v7h-4v-7z"/><circle cx="12" cy="10" r="3"/></svg>
+                  </button>
                   <div class="thinking" id="thinking-${id}"><span class="dot">·</span><span class="dot">·</span><span class="dot">·</span>&nbsp;working</div>
                 </div>
                 <div class="composer-send-actions">
