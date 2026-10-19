@@ -55,6 +55,9 @@ jobs:
       - name: Ticket customer account recovery
         run: bun test scripts/ticket-account-refresh.test.js
 
+      - name: Ticket contact lookup handoff
+        run: bun test scripts/ticket-contact-lookup.test.js
+
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
 

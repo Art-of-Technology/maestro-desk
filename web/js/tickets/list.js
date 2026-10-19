@@ -36,7 +36,8 @@ import { showToast } from '../core/toast.js';
 import { clearAllDrafts } from './drafts.js';
 import { isOutstanding, compareUrgency, workQueueState, loadWorkQueue, refreshQueueUrgency, invalidateWorkQueue } from './work-queue.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
-import { apiGet, apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId, getBrandId } from '../core/api-client.js';
+import { contactArrays, matchesContact } from '../customers/contacts.js';
 import { saveBulkAssignments } from './bulk-assignment.js';
 import { showBulkEdit } from './bulk-edit.js';
 
@@ -207,6 +208,12 @@ export function renderTickets() {
   }).join('');
 
   const list = getFilteredTickets();
+  const lookupQuery = FILTER_QUERY.trim();
+  const contactQuery = lookupQuery.toLowerCase();
+  const offerLookup = lookupQuery && getBrandId() && !CUSTOMERS.some(c =>
+    [c.id, `${c.first || ''} ${c.last || ''}`, c.username].some(v => (v || '').toLowerCase().includes(contactQuery))
+    || matchesContact(c, contactQuery)
+  );
   const groups = groupTicketsBy(list.slice(0, VISIBLE_LIMIT), TICKET_GROUP_BY);
   const cats = [...new Set(TICKETS.map(t => t.category))];
   const inboxes = CHANNELS.filter(c => c.type === 'email');
@@ -332,6 +339,7 @@ export function renderTickets() {
              the merged bar, so the input needs an explicit accessible name —
              a placeholder is not one, and it vanishes once you type. */''}
         <input class="filter-select" id="ticket-search" type="search" aria-label="Search tickets" placeholder="Search subject, ID, customer, tag, agent…" style="width:250px" value="${window.escAttr(FILTER_QUERY)}" data-input-action="tickets.setQuery"/>
+        ${offerLookup ? `<button class="btn btn-sm" data-action="players.lookupQuery" data-query="${window.escAttr(lookupQuery)}" title="No matching contact. Look up this email or username in Maestro.">Look up in Maestro</button>` : ''}
         ${/* Three kinds of chip share this row, so each group is marked: the
              built-in views are plain .filter-tag, a pinned saved search adds
              .filter-tag-saved, and everything after the separator is an
@@ -585,7 +593,7 @@ function getFilteredTickets() {
   if (FILTER_SENTIMENT !== 'all') list = list.filter(t => t.sentiment === FILTER_SENTIMENT);
   if (FILTER_INBOX !== 'all') list = list.filter(t => FILTER_INBOX === 'none' ? !t.channelId : t.channelId === FILTER_INBOX);
   if (FILTER_QUERY.trim()) {
-    const q = FILTER_QUERY.toLowerCase();
+    const q = FILTER_QUERY.trim().toLowerCase();
     list = list.filter(t => {
       const cust = CUSTOMERS.find(c => c.id === t.customerId);
       const custName = t.customerName || (cust ? (cust.first + ' ' + cust.last) : '');
@@ -593,6 +601,7 @@ function getFilteredTickets() {
         || t.subject.toLowerCase().includes(q)
         || (t.tags || []).some(tag => tag.toLowerCase().includes(q))
         || custName.toLowerCase().includes(q)
+        || contactArrays(cust).emails.some(({ value }) => (value || '').toLowerCase().includes(q))
         || (t.agent || '').toLowerCase().includes(q);
     });
   }

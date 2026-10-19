@@ -24,7 +24,7 @@
 import { copyButton } from '../core/copy.js';
 import { showToast } from '../core/toast.js';
 import { apiGet, apiPost, getBrandId } from '../core/api-client.js';
-import { renderPage } from '../core/router.js';
+import { nav, renderPage } from '../core/router.js';
 import { setCustomerSelected } from '../core/state.js';
 import { CUSTOMERS } from '../core/data.js';
 import { hasContact } from './contacts.js';
@@ -349,7 +349,18 @@ function openLocalCustomer(custId) {
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
+async function lookupPlayerQuery(query) {
+  const value = (query || '').trim();
+  if (!value || !getBrandId() || STARTING) return;
+  resetPlayerLookup();
+  LOOKUP_OPEN = true;
+  LOOKUP_VALUE = value;
+  nav('customers');
+  await runLookup();
+}
+
 registerActions({
+  'players.lookupQuery': (ds) => lookupPlayerQuery(ds.query),
   'players.lookup':    () => { LOOKUP_OPEN = true; renderPage('customers'); },
   'players.run':       () => runLookup(),
   'players.startConvo':() => startConversation(),

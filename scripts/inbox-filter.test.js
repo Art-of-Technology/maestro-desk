@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'bun:test';
+import { contactArrays } from '../web/js/customers/contacts.js';
 
 const source = readFileSync(new URL('../web/js/tickets/list.js', import.meta.url), 'utf8');
 const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end));
@@ -15,7 +16,7 @@ function fixture() {
       {id:'5',status:'resolved',channelId:'payments',priority:'high'}],
     isOutstanding:t=>!['resolved','closed'].includes(t.status), renderPage() {},
     inboxLabel:t=>({support:'Zebra support',payments:'Accounts'}[t.channelId] || (t.channelId ? 'Unavailable inbox' : 'Unassigned')),
-    registerInputActions() {},
+    registerInputActions() {}, contactArrays,
   };
   for (const name of ['Category','Priority','Agent','Sentiment','Query']) state['setFilter'+name] = value => { state['FILTER_'+name.toUpperCase()] = value; };
   state.registerActions = actions => { state.actions=actions; };
@@ -52,4 +53,41 @@ test('inbox sorting uses displayed names in both directions, including missing i
   expect(s.getFilteredTickets().map(t=>t.id)).toEqual(['2','4','3','1']);
   s.SORT_DIR=-1;
   expect(s.getFilteredTickets().map(t=>t.id)).toEqual(['1','3','4','2']);
+});
+
+test('email search matches primary and secondary addresses, ignoring case and surrounding spaces', () => {
+  const s = fixture();
+  s.TICKETS.forEach(t => { t.subject = 'Help'; t.customerId = 'customer'; });
+  for (const contact of [
+    { email: 'Person@Example.com' },
+    { email: 'primary@example.com', emails: [{ value: 'primary@example.com' }, { value: 'Person@Example.com' }] },
+  ]) {
+    s.CUSTOMERS = [{ id: 'customer', first: 'A', last: 'Customer', ...contact }];
+    s.FILTER_QUERY = '  PERSON@EXAMPLE.COM  ';
+    expect(s.getFilteredTickets().map(t => t.id)).toEqual(['1', '2', '3', '4']);
+    s.FILTER_QUERY = 'person@';
+    expect(s.getFilteredTickets()).toHaveLength(4);
+  }
+});
+
+test('email search keeps inbox, priority and history filters and ignores missing contacts', () => {
+  const s = fixture();
+  s.TICKETS.forEach(t => { t.subject = 'Help'; t.customerId = 'customer'; });
+  s.CUSTOMERS = [{ id: 'customer', email: 'person@example.com' }];
+  s.FILTER_QUERY = 'person@example.com'; s.FILTER_INBOX = 'payments'; s.FILTER_PRIORITY = 'high';
+  expect(s.getFilteredTickets().map(t => t.id)).toEqual(['2']);
+  s.FILTER_STATUS = 'history';
+  expect(s.getFilteredTickets().map(t => t.id)).toEqual(['5']);
+  s.CUSTOMERS = [];
+  expect(s.getFilteredTickets()).toHaveLength(0);
+});
+
+test('email matching does not add mobile or username matching', () => {
+  const s = fixture();
+  s.TICKETS.forEach(t => { t.subject = 'Help'; t.customerId = 'customer'; });
+  s.CUSTOMERS = [{ id: 'customer', mobile: '123456789', username: 'playername' }];
+  for (const query of ['123456789', 'playername']) {
+    s.FILTER_QUERY = query;
+    expect(s.getFilteredTickets()).toHaveLength(0);
+  }
 });
