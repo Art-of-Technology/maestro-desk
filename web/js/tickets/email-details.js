@@ -52,17 +52,25 @@ export function renderReplyRecipients(ticket) {
   const stale = draft.source_message_id !== ticket.replyRecipients.source_message_id || JSON.stringify(draft.to) !== JSON.stringify(ticket.replyRecipients.to);
   const inboxes = ticket.replyRecipients.sending_inboxes || [];
   const unavailable = draft.sending_channel_id && !inboxes.some(inbox => inbox.id === draft.sending_channel_id && inbox.address === draft.sending_address);
+  const ccVisible = Boolean(draft.cc.trim());
   return `<div class="reply-recipients">
+    <div class="reply-sender-row">
     <label for="reply-from-${id}">From</label><select id="reply-from-${id}" data-change-action="td.replyFrom" data-ticket-id="${id}">
       <option value="" ${!draft.sending_channel_id ? 'selected' : ''}>Workspace default${ticket.replyRecipients.default_from ? ` — ${window.escHtml(ticket.replyRecipients.default_from)}` : ''}</option>
       ${unavailable ? `<option value="${window.escAttr(draft.sending_channel_id)}" selected disabled>Previously selected inbox unavailable — choose another</option>` : ''}
       ${inboxes.map(inbox => `<option value="${window.escAttr(inbox.id)}" ${!unavailable && draft.sending_channel_id === inbox.id ? 'selected' : ''}>${window.escHtml(inbox.address)}</option>`).join('')}
     </select>
-    <label for="reply-mode-${id}">Action</label><select id="reply-mode-${id}" data-change-action="td.replyMode" data-ticket-id="${id}">
+    <select id="reply-mode-${id}" aria-label="Reply mode" data-change-action="td.replyMode" data-ticket-id="${id}">
       <option value="reply" ${draft.mode === 'reply' ? 'selected' : ''}>Reply</option><option value="reply_all" ${draft.mode === 'reply_all' ? 'selected' : ''}>Reply all</option></select>
+    </div>
+    <div class="reply-address-row">
     <span>To</span><span class="reply-to">${window.escHtml(draft.to.join(', ') || 'No email recipient')}</span>
-    <label for="reply-cc-${id}">CC</label><input id="reply-cc-${id}" type="email" multiple value="${window.escAttr(draft.cc)}" placeholder="Add email addresses, separated by commas" data-input-action="td.replyCc" data-ticket-id="${id}" aria-describedby="reply-recipient-hint-${id}">
-    <small id="reply-recipient-hint-${id}">${stale ? `This draft uses earlier recipients. <button type="button" class="btn btn-sm" data-action="td.refreshRecipients" data-ticket-id="${id}">Use latest recipients</button>` : 'Check who will receive this email before sending.'}</small>
+    <button type="button" class="btn btn-sm reply-cc-toggle" data-action="td.toggleReplyCc" data-ticket-id="${id}" aria-label="Cc recipients" aria-expanded="${ccVisible}" aria-controls="reply-cc-field-${id}">Cc</button>
+    </div>
+    <div class="reply-cc-field" id="reply-cc-field-${id}" ${ccVisible ? '' : 'hidden'}>
+    <label for="reply-cc-${id}">Cc</label><input id="reply-cc-${id}" type="email" multiple value="${window.escAttr(draft.cc)}" placeholder="Email addresses, separated by commas" data-input-action="td.replyCc" data-ticket-id="${id}">
+    </div>
+    ${stale ? `<small class="reply-recipient-warning" role="status">This draft uses earlier recipients. <button type="button" class="btn btn-sm" data-action="td.refreshRecipients" data-ticket-id="${id}">Use latest recipients</button></small>` : ''}
   </div>`;
 }
 export function changeReplyMode(ticket, mode) {

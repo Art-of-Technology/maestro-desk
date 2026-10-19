@@ -1533,6 +1533,14 @@ registerActions({
   'td.insertVar':      (ds) => insertVar(ds.ticketId, ds.token),
   'td.macroPanel':     (ds) => showMacroPanel(ds.ticketId),
   'td.saveTemplate':   (ds) => saveReplyAsTemplate(ds.ticketId, ds.msgIdx === undefined ? undefined : Number(ds.msgIdx)),
+  'td.toggleReplyCc': (ds, el) => {
+    const field = document.getElementById(`reply-cc-field-${ds.ticketId}`);
+    const input = document.getElementById(`reply-cc-${ds.ticketId}`);
+    if (!field || !input) return;
+    field.hidden = !field.hidden && !input.value.trim();
+    el.setAttribute('aria-expanded', String(!field.hidden));
+    if (!field.hidden) input.focus({ preventScroll: true });
+  },
   // GDPR modal lives in customers/modals.js. The detail↔modals↔customers/index
   // cycle (customers/index→detail edge from #127) is tolerated — the binding
   // is only used inside this closure, never at module top level.
