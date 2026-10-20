@@ -35,6 +35,7 @@ jobs:
           SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
           WRAP_UP_RECEIPT: ${{ vars.CODEX_WRAP_UP_RECEIPT }}
           HOSTED_WRAP_UP_ENABLED: ${{ vars.HOSTED_WRAP_UP_ENABLED }}
+          LOCAL_PROJECT_ACTIVITY: ${{ vars.CODEX_LOCAL_PROJECT_ACTIVITY }}
           REPORT_MODE: ${{ inputs.mode || 'send' }}
       - name: Save preview for review
         if: inputs.mode == 'preview'

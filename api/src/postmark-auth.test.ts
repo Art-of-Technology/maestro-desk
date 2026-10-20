@@ -12,7 +12,7 @@ process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder-0123456789';
 process.env.POSTMARK_INBOUND_SECRET ||= 'unit-test-secret-0123456789';
 
-const SECRET = 'unit-test-secret-0123456789';
+const SECRET = process.env.POSTMARK_INBOUND_SECRET;
 const realEnvMod = await import('./lib/env.js');
 // Spread the full module so every export survives the mock (a partial stub
 // would drop siblings like isVercelPreview if this override leaks to a later file).

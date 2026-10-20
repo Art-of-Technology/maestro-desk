@@ -6,6 +6,9 @@ export const ukParts = date => Object.fromEntries(new Intl.DateTimeFormat('en-GB
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 }).formatToParts(date).map(p => [p.type, p.value]));
 export const dateKey = p => `${p.year}-${p.month}-${p.day}`;
+const validLocalCoverage = (value, cutoff) => value !== null && typeof value === 'object' && !Array.isArray(value) &&
+  Object.entries(value).every(([id, through]) => /^[a-z][a-z0-9-]*$/.test(id) && typeof through === 'string' &&
+    Number.isFinite(Date.parse(through)) && new Date(through).toISOString() === through && Date.parse(through) <= Date.parse(cutoff));
 
 export function validReceipt(receipt, now = Date.now()) {
   const coverage = Date.parse(receipt?.coverageThrough), verified = Date.parse(receipt?.verifiedAt);
@@ -14,10 +17,11 @@ export function validReceipt(receipt, now = Date.now()) {
       (receipt?.transport === 'slack-webhook' && /^\d+$/.test(receipt?.runId || '')));
 }
 
-export function github(token, fetchImpl = fetch) {
+export function github(token, fetchImpl = fetch, targetRepository = repository) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(targetRepository)) throw new Error('Invalid report repository');
   return async (route, method = 'GET', body) => {
     if (!token) throw new Error('Missing GitHub token');
-    const response = await fetchImpl(`https://api.github.com/repos/${repository}/${route}`, {
+    const response = await fetchImpl(`https://api.github.com/repos/${targetRepository}${route ? '/' + route : ''}`, {
       method, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28' },
       ...(body ? { body: JSON.stringify(body) } : {}), redirect: 'error', signal: AbortSignal.timeout(20_000),
@@ -33,11 +37,13 @@ export async function readState(api, now = Date.now()) {
   const value = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
   if (value.version !== 1 || !validReceipt(value.receipt, now) ||
       !Object.hasOwn(value, 'pending') || !Object.hasOwn(value, 'lastDate') || !Object.hasOwn(value, 'lastTestRun')) throw new Error('Invalid report state');
+  if (value.localCoverage !== undefined && !validLocalCoverage(value.localCoverage, value.receipt.coverageThrough)) throw new Error('Invalid local coverage');
   if ((value.lastDate !== null && value.lastDate !== dateKey(ukParts(new Date(value.receipt.coverageThrough)))) ||
       (value.lastTestRun !== null && !/^\d+$/.test(value.lastTestRun))) throw new Error('Invalid report delivery markers');
   if (value.pending !== null && (!['send', 'test'].includes(value.pending?.mode) || !/^\d+$/.test(value.pending?.runId || '') ||
       !Number.isFinite(Date.parse(value.pending?.cutoff)) || Date.parse(value.pending.cutoff) < Date.parse(value.receipt.coverageThrough) ||
       value.pending.date !== dateKey(ukParts(new Date(value.pending.cutoff))))) throw new Error('Invalid pending delivery');
+  if (value.pending?.localCoverage !== undefined && !validLocalCoverage(value.pending.localCoverage, value.pending.cutoff)) throw new Error('Invalid pending local coverage');
   return { sha: file.sha, value };
 }
 
