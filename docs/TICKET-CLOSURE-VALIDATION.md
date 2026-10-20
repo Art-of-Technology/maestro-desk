@@ -1,6 +1,6 @@
 # Ticket closure validation
 
-Agents can choose **More → Close without resolution**, or choose the same action in the bulk status menu. Spam, Abuse, Duplicate, and Other are supported reasons. The optional note is internal. Closed tickets remain searchable and can be reopened explicitly.
+Agents can choose **More → Close without resolution**, or choose the same action in the bulk status menu. Spam, Abuse, Duplicate, and Other are the default reasons. Brand admins can configure reasons and whether one is required under **Configuration → Ticket statuses**. Spam stays available on the built-in Closed choice and retains its contact-blocking behaviour. The optional note is internal. Closed tickets remain searchable and can be reopened explicitly.
 
 ## Verification
 

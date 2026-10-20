@@ -89,7 +89,8 @@ From the **Configuration hub** (top-bar cog) you can:
 - **Categories, canned responses, and ticket templates** for your queue.
 - **Ticket statuses**: add a name, workflow category and survey rule. For **Resolved — no survey**,
   choose **Resolved** and **Never send**. Agents can use the choice on tickets, in bulk actions,
-  macros and the send menu. Closed choices still require a reason and never send surveys.
+  macros and the send menu. Set **Reason required** for each choice and add, rename or retire
+  its available reasons. Recorded reason labels stay in ticket history. Closed choices never send surveys.
   Reports and SLAs use the workflow category. Retire choices to hide them from new selections;
   existing tickets keep them. Update macros before retiring a choice they use. Survey settings
   are saved when selected, so later changes apply to future selections.
