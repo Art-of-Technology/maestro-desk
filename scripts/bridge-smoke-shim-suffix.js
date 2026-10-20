@@ -16,7 +16,7 @@ const _routes = [
   'notifications', 'profile', 'layouts', 'custom-fields',
   'ticket-templates', 'business-hours',
   'sla', 'assignment-rules', 'templates', 'macros',
-  'config', 'sla-breach',
+  'config', 'sla-breach', 'ticket-statuses',
 ];
 
 // renderPage() falls back to the dashboard on an unknown key rather than

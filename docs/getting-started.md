@@ -78,7 +78,7 @@ A few things that help at volume:
 - **Responsible-gambling safety**: the AI will not auto-reply to a player who shows
   self-exclusion or harm signals — those are held for a human.
 - **CSAT**: resolved tickets can trigger a satisfaction survey (consent-respecting, with an
-  unsubscribe link).
+  unsubscribe link). A status configured as **Never send** blocks automatic and manual surveys.
 
 ## Administering a brand (Brand Owners)
 
@@ -87,6 +87,12 @@ From the **Configuration hub** (top-bar cog) you can:
 - **Invite and manage agents** (also under **Agents** in the sidebar). Deactivate an agent
   to revoke access; it sticks even if they sign in again via Maestro.
 - **Categories, canned responses, and ticket templates** for your queue.
+- **Ticket statuses**: add a name, workflow category and survey rule. For **Resolved — no survey**,
+  choose **Resolved** and **Never send**. Agents can use the choice on tickets, in bulk actions,
+  macros and the send menu. Closed choices still require a reason and never send surveys.
+  Reports and SLAs use the workflow category. Retire choices to hide them from new selections;
+  existing tickets keep them. Update macros before retiring a choice they use. Survey settings
+  are saved when selected, so later changes apply to future selections.
 - **Branding** — your logo and colours; the player-facing portal and emails use them.
 - **Integrations** — email (Postmark), Slack, and outbound webhooks.
 - **AI settings** — enable/limit AI features and set the spend budget. Sharing player

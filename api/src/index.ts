@@ -39,6 +39,7 @@ import { kb } from './routes/kb.js';
 import { knowledgeSources } from './routes/knowledge-sources.js';
 import { cannedResponses } from './routes/canned-responses.js';
 import { ticketTemplates } from './routes/ticket-templates.js';
+import { ticketStatuses } from './routes/ticket-statuses.js';
 import { customFields } from './routes/custom-fields.js';
 import { assignRules } from './routes/assign-rules.js';
 import { roles } from './routes/roles.js';
@@ -159,6 +160,7 @@ app.route('/api/v1/knowledge-sources', knowledgeSources);
 app.route('/api/v1/files', files);
 app.route('/api/v1/canned-responses', cannedResponses);
 app.route('/api/v1/ticket-templates', ticketTemplates);
+app.route('/api/v1/ticket-statuses', ticketStatuses);
 app.route('/api/v1/custom-fields', customFields);
 app.route('/api/v1/assign-rules', assignRules);
 app.route('/api/v1/roles', roles);
@@ -177,6 +179,8 @@ app.route('/api/v1/maestro', maestro);
 
 app.onError(async (err, c) => {
   const dbError = err as Error & { code?: string; constraint_name?: string };
+  if (dbError.constraint_name === 'ticket_status_survey_in_progress') return c.json({ error: 'A survey is being sent. Try changing status once it finishes.' }, 409);
+  if (dbError.constraint_name === 'ticket_status_unavailable') return c.json({ error: 'This ticket status is unavailable. Reload the status options.' }, 400);
   if (dbError.constraint_name === 'customer_erased') {
     return c.json({ error: 'This record changed or its personal data was erased. Reload before trying again.' }, 409);
   }

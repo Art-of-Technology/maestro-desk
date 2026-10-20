@@ -1,3 +1,4 @@
+import { statusChoice, selectedStatus, statusSelectOptions, loadStatusOptions, statusOptionsState } from './status-options.js';
 // ─── Macros ──────────────────────────────────────────────────────────────────
 // A macro is an agent-triggered, ordered sequence of mutations applied to a
 // single ticket (or each ticket in a bulk selection). Steps run through the
@@ -45,7 +46,7 @@ function macNextId() {
 }
 
 const MAC_ACTION_KINDS = [
-  { kind:'status',   label:'Set status',     hint:'open / pending / escalated / gdpr / resolved' },
+  { kind:'status',   label:'Set status',     hint:'an available brand status (closing requires a reason)' },
   { kind:'priority', label:'Set priority',   hint:'urgent / high / normal / low' },
   { kind:'assign',   label:'Assign to',      hint:'agent name (or "unassign")' },
   { kind:'tag',      label:'Add tag',        hint:'lowercase, hyphenated' },
@@ -54,7 +55,7 @@ const MAC_ACTION_KINDS = [
 ];
 
 function macActionSummary(a) {
-  if (a.kind === 'status')   return `→ status <strong>${window.escHtml(a.value)}</strong>`;
+  if (a.kind === 'status')   return `→ status <strong>${window.escHtml(statusChoice(a.value)?.label || a.value)}</strong>`;
   if (a.kind === 'priority') return `→ priority <strong>${window.escHtml(a.value)}</strong>`;
   if (a.kind === 'assign')   return a.value === 'unassign' ? '→ unassign' : `→ assign to <strong>${window.escHtml(a.value)}</strong>`;
   if (a.kind === 'tag')      return `+ tag <strong>${window.escHtml(a.value)}</strong>`;
@@ -99,6 +100,13 @@ async function runMacro(macroId, ticketId) {
   if ((macro.actions || []).some(a => a.kind === 'assign' && a.value !== 'unassign' && !AGENTS.some(ag => ag.name === a.value))) {
     alert('An assigned agent is no longer available. Edit the macro before applying it.'); return;
   }
+  if ((macro.actions || []).some(a => a.kind === 'status')) {
+    await loadStatusOptions(true);
+    if (!active()) return;
+    if (!statusOptionsState().ready || macro.actions.some(a => a.kind === 'status' && (!statusChoice(a.value)?.is_active || statusChoice(a.value)?.base_key === 'closed'))) {
+      alert('A ticket status is unavailable. Refresh statuses or edit this macro before applying it.'); return;
+    }
+  }
   const replies = [];
   for (const a of macro.actions || []) {
     if (!active()) return;
@@ -132,7 +140,7 @@ async function runMacro(macroId, ticketId) {
     // The shared ticket editors report their own failures. Stop here instead
     // of applying later steps or recording a successful macro usage.
     if (!active()) return;
-    if (a.kind === 'status' && t.status !== a.value) return;
+    if (a.kind === 'status' && selectedStatus(t) !== a.value) return;
     if (a.kind === 'priority' && t.priority !== a.value) return;
     if (a.kind === 'tag' && !t.tags?.includes(a.value)) return;
     if (a.kind === 'assign' && (t.agent || '') !== (a.value === 'unassign' ? '' : a.value)) return;
@@ -201,7 +209,7 @@ function macStepRow(a, i) {
   const esc = s => window.escAttr(s || '');
   const valueInput = (() => {
     if (a.kind === 'status') {
-      return `<select class="form-input" data-mac-val="${i}">${['open','pending','escalated','gdpr','resolved'].map(v=>`<option value="${v}" ${a.value===v?'selected':''}>${v}</option>`).join('')}</select>`;
+      return `<select class="form-input" data-mac-val="${i}">${statusSelectOptions(a.value, { excludeClosed: true })}</select>`;
     }
     if (a.kind === 'priority') {
       return `<select class="form-input" data-mac-val="${i}">${['urgent','high','normal','low'].map(v=>`<option value="${v}" ${a.value===v?'selected':''}>${v}</option>`).join('')}</select>`;

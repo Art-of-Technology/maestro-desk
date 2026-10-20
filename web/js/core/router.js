@@ -48,6 +48,7 @@ import { renderChannels } from '../channels/index.js';
 import { renderWebhooks } from '../webhooks/index.js';
 import { renderSettings } from '../settings/index.js';
 import { renderConfigHub } from '../config-hub/index.js';
+import { renderTicketStatuses } from '../settings/ticket-statuses.js';
 import { renderHelp } from '../help/index.js';
 import { renderNotificationsPage, refreshNotifBadge } from '../notifications/index.js';
 import { renderProfile } from '../profile/index.js';
@@ -129,6 +130,7 @@ export function renderPage(page) {
     webhooks:      renderWebhooks,
     settings:      renderSettings,
     config:        renderConfigHub,
+    'ticket-statuses': renderTicketStatuses,
     help:          renderHelp,
     notifications: renderNotificationsPage,
     profile:       renderProfile,

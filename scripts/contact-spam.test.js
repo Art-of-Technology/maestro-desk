@@ -42,7 +42,7 @@ test('single spam action preselects the reason, marks its contact and exposes un
   expect(title).toBe('Mark as spam'); expect(label).toBe('Mark as spam');
   expect(body).toContain('Future emails'); expect(reason.value).toBe('spam');
   await confirm();
-  expect(requests).toEqual([{ path: '/api/v1/tickets/1/close', data: { reason: 'spam', note: '' } }]);
+  expect(requests).toEqual([{ path: '/api/v1/tickets/1/close', data: { reason: 'spam', note: '', status_option_key: 'closed' } }]);
   expect(tickets[0]).toMatchObject({ status: 'closed', closureReason: 'spam', resolvedAt: null });
   expect(contacts[0].isSpam).toBe(true); expect(changed).toEqual(['1']); expect(closed).toBe(true);
   expect(closureDetails(tickets[0])).toContain('Unmark contact as spam');

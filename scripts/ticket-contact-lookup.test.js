@@ -12,6 +12,7 @@ function ticketSearch(query, customers = [], brand = 'brand') {
     FILTER_QUERY: query, FILTER_AGENT: 'all', FILTER_CATEGORY: 'all', FILTER_PRIORITY: 'all', FILTER_SENTIMENT: 'all',
     SESSION: null, TICKET_SELECTED_IDS: new Set(), CUSTOMERS: customers, TICKETS: [], AGENTS: [], CHANNELS: [], MACROS: [],
     getWorkspaceId: () => 'workspace', getJwt: () => 'session', getBrandId: () => brand,
+    statusChoice: () => null, statusOptions: () => [], statusLabel: t => t.status, statusSelectOptions: () => '',
     workQueueState: () => ({ ready: true }), refreshQueueUrgency() {}, isOutstanding: () => true,
     inboxLabel: () => '', matchesContact, window: { escHtml: esc, escAttr: esc, canDeleteRecords: () => false },
     registerActions() {}, registerChangeActions() {}, registerInputActions() {},

@@ -15,6 +15,7 @@ test('empty To blocks Send and Send and resolve before consuming the draft or ru
     TICKETS: [ticket], CURRENT_TICKET: ticket.id, COMPOSE_TAB: 'reply',
     getPlainText: () => 'Keep this reply', isComposerEmpty: () => false,
     getWorkspaceId: () => 'workspace', getJwt: () => 'session',
+    loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }), statusChoice: () => ({ is_active: true }),
     attachmentsUploading: () => false, pendingAttachmentIds: () => attachments,
     replyRecipientPayload: () => ({ to: [], cc: [] }),
     showToast: message => notices.push(message),
@@ -84,7 +85,8 @@ test('save and exit stores reply HTML and notes separately, restores both, and s
     saveDraft: (id, text) => saveDraft(id, text, tab), queueSharedAiDraftSave() {},
     hideMentionDropdown() {}, updateMentionDropdown() {}, setComposing() {}, isComposerEmpty: () => false,
     renderPage: () => { exits++; }, showToast() {},
-    getWorkspaceId: () => 'workspace', getJwt: () => 'session', CURRENT_TICKET: 'TK-116',
+    getWorkspaceId: () => 'workspace', getJwt: () => 'session',
+    loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }), statusChoice: () => ({ is_active: true }), CURRENT_TICKET: 'TK-116',
     flushPersonalDraft: async () => {}, draftSyncStatus: () => 'Synced', attachmentsUploading:()=>false,
   };
   await runInNewContext(controls + composeInput + "saveDraftAndExit('TK-116');", context);

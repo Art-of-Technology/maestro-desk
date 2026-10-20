@@ -17,6 +17,14 @@ export async function recordTicketActivity(sql: TransactionSql, input: {
   const [actor] = actorId ? await sql`select name from users where id = ${actorId}` : [];
   const author = actorId ? actor?.name || 'Former agent' : input.source === 'customer_reply' ? 'Customer reply' : 'System';
   let beforeLabel = before, afterLabel = after;
+  let beforeCategory = before, afterCategory = after;
+  if (kind === 'status') {
+    const rows = await sql`select key, label, base_key from ticket_statuses where workspace_id=${workspaceId} and key in ${sql([before, after].filter((v): v is string => Boolean(v)))}`;
+    beforeLabel = rows.find(s => s.key === before)?.label || before;
+    afterLabel = rows.find(s => s.key === after)?.label || after;
+    beforeCategory = rows.find(s => s.key === before)?.base_key || before;
+    afterCategory = rows.find(s => s.key === after)?.base_key || after;
+  }
   if (kind === 'snooze') {
     const label = (value: string | null) => {
       if (!value) return 'Not snoozed';
@@ -56,7 +64,8 @@ export async function recordTicketActivity(sql: TransactionSql, input: {
       to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created_at`;
   await sql`insert into audit_events (workspace_id, actor_user_id, action, target_type, target_id, metadata, created_at)
     values (${workspaceId}, ${actorId}, ${`ticket.${kind}.changed`}, 'ticket', ${ticketId},
-      ${sql.json({ event_id: event.id, actor_label: author, before, after, before_label: beforeLabel, after_label: afterLabel,
+      ${sql.json({ event_id: event.id, actor_label: author, before: beforeCategory, after: afterCategory,
+        ...(kind === 'status' ? { before_option: before, after_option: after } : {}), before_label: beforeLabel, after_label: afterLabel,
         source: input.source || 'agent', context: input.context || {} })},
       ${event.created_at})`;
   return [event];

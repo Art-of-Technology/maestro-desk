@@ -17,6 +17,8 @@ function fixture() {
     isOutstanding:t=>!['resolved','closed'].includes(t.status), renderPage() {},
     inboxLabel:t=>({support:'Zebra support',payments:'Accounts'}[t.channelId] || (t.channelId ? 'Unavailable inbox' : 'Unassigned')),
     registerInputActions() {}, contactArrays,
+    statusChoice: key => ({ base_key: key }), selectedStatus: t => t.statusOption || t.status,
+    STATUS_CATEGORIES: ['open','pending','escalated','gdpr','resolved','closed'],
   };
   for (const name of ['Category','Priority','Agent','Sentiment','Query']) state['setFilter'+name] = value => { state['FILTER_'+name.toUpperCase()] = value; };
   state.registerActions = actions => { state.actions=actions; };
