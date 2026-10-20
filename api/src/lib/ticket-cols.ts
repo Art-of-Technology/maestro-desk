@@ -19,7 +19,7 @@ import type { getDb } from './db.js';
 
 export function ticketListCols(sql: ReturnType<typeof getDb>) {
   return sql`id, display_id, subject, status_key, status_option_key, status_survey_enabled, priority_key, category_key, assigned_user_id, channel_id,
-    closure_reason, closure_note, closed_at, closed_by_user_id,
+    closure_reason, closure_note, closed_at, closed_by_user_id, status_reason, status_reason_label,
     customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
     snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment,
     (select tm.role from ticket_messages tm

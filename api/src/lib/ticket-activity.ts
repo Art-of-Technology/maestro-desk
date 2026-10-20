@@ -56,7 +56,7 @@ export async function recordTicketActivity(sql: TransactionSql, input: {
     : input.source === 'snooze_expired' ? 'Snooze expired'
     : input.source === 'merge' ? 'Ticket merged'
     : input.source === 'unmerge' ? 'Merge undone' : null;
-  const details = source ? `${change} (${source})` : change;
+  const details = (source ? `${change} (${source})` : change) + (kind === 'status' && input.context?.reason_label ? ` · Reason: ${input.context.reason_label}` : '');
   const [event] = await sql`insert into events
     (workspace_id, entity_type, entity_id, kind, author_user_id, author_label, details, created_at)
     values (${workspaceId}, 'ticket', ${ticketId}, ${kind}, ${actorId}, ${author}, ${details}, clock_timestamp())

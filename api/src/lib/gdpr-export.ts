@@ -95,7 +95,7 @@ export async function exportCustomer(args: {
 
   const tickets = await sql<Record<string, unknown>[]>`
     select id, display_id, subject, status_key, priority_key, category_key,
-           ai_summary, ai_draft_reply, csat_score, csat_comment, snooze_reason, last_inbound_email, closure_reason, closure_note, closed_at, created_at, updated_at, resolved_at
+           ai_summary, ai_draft_reply, csat_score, csat_comment, snooze_reason, last_inbound_email, closure_reason, closure_note, status_reason, status_reason_label, closed_at, created_at, updated_at, resolved_at
     from tickets
     where workspace_id = ${workspaceId} and (customer_id = ${customerId} or pre_merge_customer_id = ${customerId})
     order by created_at asc

@@ -898,6 +898,11 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .status-settings-table td:first-child{min-width:160px;max-width:320px;overflow-wrap:anywhere}
 .ticket-status-modal{max-height:calc(100dvh - 32px);overflow:auto}
 .ticket-status-modal .modal-close{border:0;background:transparent;color:var(--ink);cursor:pointer}
+.status-reasons{border:1px solid var(--rule);border-radius:var(--r);padding:12px;margin:12px 0;min-width:0}
+.status-reason-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.status-reason-row .form-input{min-width:0;flex:1}
+.status-reason-row .auth-check{flex-shrink:0}
+.ticket-status-modal .auth-check{min-height:44px}
 .ticket-status-settings :focus-visible,.ticket-status-modal :focus-visible{outline:2px solid var(--purple);outline-offset:2px}
 @media(max-width:768px),(pointer:coarse){
   .ticket-status-settings .btn,.ticket-status-modal button,.ticket-status-modal .form-input{min-height:44px}

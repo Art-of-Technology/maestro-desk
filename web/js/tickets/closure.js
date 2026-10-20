@@ -1,11 +1,12 @@
 import { AGENTS, CUSTOMERS, TICKETS } from '../core/data.js';
 import { SESSION } from '../core/state.js';
-import { apiPost, apiDelete, getWorkspaceId } from '../core/api-client.js';
+import { apiPost, apiDelete, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { showToast } from '../core/toast.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { refreshTicketSLA } from './sla.js';
+import { statusChoice, DEFAULT_CLOSURE_REASONS } from './status-options.js';
 
 export const CLOSURE_REASONS = { spam: 'Spam', abuse: 'Abuse', duplicate: 'Duplicate', other: 'Other' };
 
@@ -17,7 +18,7 @@ export function closureDetails(t) {
   if (t.status !== 'closed') return spamNotice;
   const actor = AGENTS.find(a => a.userId === t.closedByUserId)?.name;
   return `${spamNotice}<div class="ts-section"><div class="ts-heading">Closed without resolution</div>
-    <div>${window.escHtml(CLOSURE_REASONS[t.closureReason] || 'Other')}</div>
+    <div>${window.escHtml(t.statusReasonLabel || CLOSURE_REASONS[t.closureReason] || t.closureReason || 'No reason given')}</div>
     ${actor ? `<div class="closure-date">Closed by ${window.escHtml(actor)}</div>` : ''}
     ${t.closedAt ? `<div class="closure-date">${window.escHtml(new Date(t.closedAt).toLocaleString())}</div>` : ''}
     ${t.closureNote ? `<div class="closure-note">${window.escHtml(t.closureNote)}</div>` : ''}
@@ -26,37 +27,41 @@ export function closureDetails(t) {
 
 export function showCloseTickets(ids, onChanged, presetReason = '', statusOption = 'closed') {
   const spam = presetReason === 'spam';
+  const choice = statusChoice(statusOption);
+  const reasons = choice?.reasons || DEFAULT_CLOSURE_REASONS;
+  const required = spam || (choice?.reason_required ?? true);
   const targets = ids.map(id => TICKETS.find(t => t.id === id)).filter(t => t && !t.mergedInto && (spam || t.status !== 'closed'));
   if (!targets.length) { showToast('These tickets are already closed or merged.'); return; }
   let busy = false;
   const title = spam ? (targets.length === 1 ? 'Mark as spam' : `Mark ${targets.length} tickets as spam`) : (targets.length === 1 ? 'Close without resolution' : `Close ${targets.length} tickets without resolution`);
-  const workspace = getWorkspaceId();
+  const workspace = getWorkspaceId(), jwt = getJwt();
   showModal(title, `
     <p>No customer email or satisfaction survey will be sent. You can reopen the tickets later.</p>
     <p>Choosing Spam also marks linked contacts as spam. Future emails from their addresses in this workspace will be closed as spam. You can undo this from the contact or ticket.</p>
-    <div class="form-row"><label class="form-label" for="closure-reason">Reason (required)</label>
-      <select class="form-input" id="closure-reason" required${spam ? ' disabled' : ''}>
-        <option value="">Choose a reason</option>
-        ${Object.entries(CLOSURE_REASONS).map(([key, label]) => `<option value="${key}"${key === presetReason ? ' selected' : ''}>${label}</option>`).join('')}
+    <div class="form-row"><label class="form-label" for="closure-reason">Reason (${required ? 'required' : 'optional'})</label>
+      <select class="form-input" id="closure-reason" ${required ? 'required' : ''}${spam ? ' disabled' : ''}>
+        <option value="">${required ? 'Choose a reason' : 'No reason'}</option>
+        ${reasons.filter(r => r.is_active).map(r => `<option value="${window.escAttr(r.key)}"${r.key === presetReason ? ' selected' : ''}>${window.escHtml(r.label)}</option>`).join('')}
       </select></div>
     <div class="form-row"><label class="form-label" for="closure-note">Internal note (optional)</label>
       <textarea class="form-input" id="closure-note" rows="3" maxlength="4000"></textarea></div>
     <div id="closure-error" role="alert"></div>`, async () => {
-    if (busy) return;
+    if (busy || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     const reasonInput = document.getElementById('closure-reason');
     const error = document.getElementById('closure-error');
     const reason = reasonInput.value;
-    if (!CLOSURE_REASONS[reason]) { error.textContent = 'Choose a closure reason.'; reasonInput.focus(); return; }
+    const selectedReason = reasons.find(r => r.key === reason && r.is_active);
+    if ((required || reason) && !selectedReason) { error.textContent = 'Choose a closure reason.'; reasonInput.focus(); return; }
     const note = document.getElementById('closure-note').value.trim();
     busy = true;
     const button = error.closest('.modal').querySelector('[data-action="modal.confirm"]');
     button.disabled = true; button.textContent = 'Closing…'; error.textContent = '';
     const succeeded = [], failed = [];
     for (const t of targets) {
-      if (workspace !== getWorkspaceId()) break;
+      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) break;
       try {
         const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason, note, status_option_key: statusOption }) : null;
-        if (workspace !== getWorkspaceId()) return;
+        if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
         if (reason === 'spam') {
           const contact = CUSTOMERS.find(c => c.id === t.customerId);
           if (contact && !contact.erased && !contact.mergedInto) contact.isSpam = true;
@@ -65,18 +70,19 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
         t.status = 'closed';
         t.statusOption = result?.ticket.status_option_key || statusOption;
         t.statusSurveyEnabled = false;
-        t.closureReason = result?.ticket.closure_reason || reason;
+        t.closureReason = result?.ticket.closure_reason || reason || null;
+        t.statusReasonLabel = result?.ticket.status_reason_label || selectedReason?.label || null;
         t.closureNote = result ? result.ticket.closure_note : note || null;
         t.closedAt = result?.ticket.closed_at || new Date().toISOString();
         t.closedByUserId = result?.ticket.closed_by_user_id || SESSION?.userId || null;
         t.resolvedAt = null; t.snoozedUntil = null; t.snoozedAt = null; t.snoozeReason = null;
         t._detailLoaded = false;
         refreshTicketSLA(t);
-        if (!t._uuid) logTicketEvent(t.id, 'system', `Closed without resolution: ${CLOSURE_REASONS[reason]}.${note ? '\n' + note : ''}`);
+        if (!t._uuid) logTicketEvent(t.id, 'system', `Closed without resolution: ${selectedReason?.label || 'No reason given'}.${note ? '\n' + note : ''}`);
         succeeded.push(t.id);
       } catch (err) { failed.push(`${t.id}: ${err?.message || 'Could not close ticket.'}`); }
     }
-    if (workspace !== getWorkspaceId()) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     if (error.isConnected) {
       if (!failed.length) closeModal();
       else {

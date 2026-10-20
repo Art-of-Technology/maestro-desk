@@ -48,6 +48,7 @@ run('brand ticket status options', () => {
   it('seeds defaults, lets agents read, and restricts configuration to their brand admins', async () => {
     const defaults = await json(await request('ticket-statuses', 'GET', undefined, ws, agentToken));
     expect(defaults.statuses.find((s: any) => s.key === 'resolved').send_survey).toBe(true);
+    expect(defaults.statuses.find((s: any) => s.key === 'closed')).toMatchObject({ reason_required: true, reasons: expect.arrayContaining([expect.objectContaining({ key: 'spam', is_active: true })]) });
     expect((await request('ticket-statuses', 'POST', { label: 'Forbidden', base_key: 'resolved', send_survey: false }, ws, agentToken)).status).toBe(403);
     const choice = await option();
     const [created] = await sql`select metadata from audit_events where workspace_id=${ws} and action='ticket_status.created' order by seq desc limit 1`;
@@ -101,6 +102,49 @@ run('brand ticket status options', () => {
     expect((await request(`tickets/${fresh}`, 'PATCH', { status_option_key: foreign.key })).status).toBe(400);
     expect((await request(`tickets/${fresh}`, 'PATCH', { status_option_key: closed.key, status_key: 'resolved' })).status).toBe(400);
     expect((await request('tickets', 'POST', { subject: 'Invalid closure', customer_id: customer, status_option_key: closed.key })).status).toBe(400);
+  });
+
+  it('enforces per-status reasons and preserves recorded labels after renaming and retirement', async () => {
+    const reasons = [{ key: 'awaiting-documents', label: 'Awaiting documents', is_active: true }];
+    const choice = (await json(await request('ticket-statuses', 'POST', { label: 'Waiting for documents', base_key: 'pending', send_survey: false, reason_required: true, reasons }), 201)).status;
+    const id = await ticket();
+    expect((await request(`tickets/${id}`, 'PATCH', { status_option_key: choice.key })).status).toBe(400);
+    expect((await request(`tickets/${id}`, 'PATCH', { status_option_key: choice.key, status_reason: 'duplicate' })).status).toBe(400);
+    const result = await json(await request(`tickets/${id}`, 'PATCH', { status_option_key: choice.key, status_reason: reasons[0].key }));
+    expect(result.activity[0].details).toContain('Reason: Awaiting documents');
+    await json(await request(`ticket-statuses/${choice.key}`, 'PUT', { label: choice.label, send_survey: false, is_active: true, reason_required: false,
+      reasons: [{ ...reasons[0], label: 'Documents requested', is_active: false }] }));
+    const [saved] = await sql`select status_reason, status_reason_label from tickets where id=${id}`;
+    expect(saved).toMatchObject({ status_reason: 'awaiting-documents', status_reason_label: 'Awaiting documents' });
+    expect((await request(`tickets/${await ticket()}`, 'PATCH', { status_option_key: choice.key, status_reason: reasons[0].key })).status).toBe(400);
+    await json(await request(`tickets/${await ticket()}`, 'PATCH', { status_option_key: choice.key }));
+    expect((await request(`ticket-statuses/${choice.key}`, 'PUT', { label: choice.label, send_survey: false, is_active: true, reasons: [] })).status).toBe(400);
+  });
+
+  it('allows optional closure without a reason and custom closure reasons without changing spam semantics', async () => {
+    const choice = (await json(await request('ticket-statuses', 'POST', { label: 'Administrative close', base_key: 'closed', send_survey: false, reason_required: false,
+      reasons: [{ key: 'test-account', label: 'Test account', is_active: true }] }), 201)).status;
+    const noReason = await json(await request(`tickets/${await ticket()}/close`, 'POST', { status_option_key: choice.key }));
+    expect(noReason.ticket.closure_reason).toBeNull();
+    const result = await json(await request(`tickets/${await ticket()}/close`, 'POST', { status_option_key: choice.key, reason: 'test-account' }));
+    expect(result.ticket.closure_reason).toBe('test-account'); expect(result.ticket.status_reason_label).toBe('Test account');
+    await json(await request(`ticket-statuses/${choice.key}`, 'PUT', { label: choice.label, send_survey: false, is_active: true, reasons: [{ key: 'test-account', label: 'Renamed reason', is_active: false }] }));
+    await sql.begin(tx => reopenOnCustomerReply(tx, ws, result.ticket.id));
+    const [history] = await sql`select body from ticket_messages where ticket_id=${result.ticket.id} and role='note'`;
+    expect(history.body).toContain('Reason: Test account');
+    expect((await request('ticket-statuses/closed', 'PUT', { label: 'Closed', send_survey: false, is_active: true, reason_required: false, reasons: [] })).status).toBe(400);
+  });
+
+  it('rejects invalid configuration and enforces reasons for API ticket creation', async () => {
+    for (const reasons of [[], [{ key: 'same', label: 'One', is_active: true }, { key: 'same', label: 'Two', is_active: true }]]) {
+      expect((await request('ticket-statuses', 'POST', { label: 'Invalid', base_key: 'pending', send_survey: false, reason_required: true, reasons })).status).toBe(400);
+    }
+    const choice = (await json(await request('ticket-statuses', 'POST', { label: 'Needs reason', base_key: 'pending', send_survey: false, reason_required: true,
+      reasons: [{ key: 'review', label: 'Review needed', is_active: true }] }), 201)).status;
+    expect((await request('tickets', 'POST', { subject: 'Missing reason', customer_id: customer, status_option_key: choice.key })).status).toBe(400);
+    const created = await json(await request('tickets', 'POST', { subject: 'With reason', customer_id: customer, status_option_key: choice.key, status_reason: 'review' }), 201);
+    const [saved] = await sql`select status_reason_label from tickets where id=${created.ticket.id}`;
+    expect(saved.status_reason_label).toBe('Review needed');
   });
 
   it('customer replies restore the built-in open choice and active survey claims prevent silent status changes', async () => {
