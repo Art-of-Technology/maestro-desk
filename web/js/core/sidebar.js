@@ -38,14 +38,7 @@ function apply(collapsed) {
     btn.setAttribute('aria-label', label);
     btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   }
-  // Collapsed, the sign-out row is an unlabelled dot — give it a tooltip so
-  // it isn't a mystery click target.
-  const foot = document.querySelector('.sidebar .sb-foot');
-  if (foot) {
-    if (collapsed) foot.setAttribute('title', 'Sign out');
-    else foot.removeAttribute('title');
-  }
-  // Same problem, eight more times: the rail hides every .sb-lbl, so each nav
+  // The rail hides every .sb-lbl, so each nav
   // row becomes a bare icon with no tooltip and no accessible name. Borrow
   // the label text we just hid. Read from .sb-lbl rather than a static map so
   // rows added later (or relabelled per workspace) are covered for free.

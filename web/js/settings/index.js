@@ -5,8 +5,8 @@
 // integration code (fetchKbArticles, KB_TICKET_CACHE, refresh path) stays
 // in app.js because the composer and ticket sidebar also depend on it.
 //
-// External reaches (interim, via window): isAdmin, escAttr, escHtml,
-// logout — all still in app.js. navTo is a direct ES import.
+// External reaches (interim, via window): isAdmin, escAttr, escHtml — all
+// still in app.js. navTo is a direct ES import.
 // refreshNotifBadge, setAIModel, setAgentPreferredLang,
 // showModal/closeModal,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
@@ -129,7 +129,6 @@ function settingsProfile() {
           <input class="form-input" value="${SESSION?.role||''}" disabled style="opacity:.6"/>
         </div>
       </div>
-      <div style="margin-top:16px"><button class="btn btn-danger" data-action="settings.logout">Sign out</button></div>
     </div>
     ${settingsMySignature()}`;
 }
@@ -138,8 +137,6 @@ function updateProfileName(name) {
   const trimmed = name.trim();
   if (!SESSION || !trimmed) return;
   SESSION.name = trimmed;
-  const a = document.getElementById('sb-uname');   if (a) a.textContent = trimmed;
-  const b = document.getElementById('sf-name');    if (b) b.textContent = trimmed;
   const c = document.getElementById('pf-name-sm'); if (c) c.textContent = trimmed;
   const d = document.getElementById('pf-name-lg'); if (d) d.textContent = trimmed;
 }
@@ -147,7 +144,6 @@ function updateProfileInitials(v) {
   const trimmed = v.trim().toUpperCase();
   if (!SESSION || !trimmed) return;
   SESSION.initials = trimmed;
-  const av  = document.getElementById('sb-av');    if (av)  av.textContent  = trimmed;
   const av2 = document.getElementById('pf-av-sm'); if (av2) av2.textContent = trimmed;
   const av3 = document.getElementById('pf-av-lg'); if (av3) av3.textContent = trimmed;
 }
@@ -1346,7 +1342,6 @@ registerActions({
   'settings.checkAi':           () => testAIConnection(),
   'settings.checkAiGeneration': () => testAIConnection(true),
   'settings.setTab':             (ds) => setSettingsTab(ds.tab),
-  'settings.logout':            () => window.logout(),
   // workspace branding / portal
   'settings.uploadLogo':        () => uploadWorkspaceLogo(),
   'settings.saveBranding':      () => saveWorkspaceBranding(),
