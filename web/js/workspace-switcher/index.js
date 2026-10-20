@@ -224,12 +224,11 @@ async function switchWorkspace(m) {
 }
 
 // Re-stamp the per-workspace bits of the session (role + custom-field rights
-// vary by membership) and reflect them in the sidebar / profile chrome. Name,
+// vary by membership) and reflect them in the profile chrome. Name,
 // initials, and userId carry over unchanged.
 function applyIdentity(m) {
   const role = m.role_name || (m.is_admin ? 'Admin' : 'Senior Agent');
   setSession({ ...SESSION, role, canManageCustomFields: m.can_manage_custom_fields === true, canDelete: m.can_delete === true });
-  setText('sb-urole', role);
   setText('pf-role-lg', role);
   const navRoles = document.getElementById('nav-roles');
   if (navRoles) navRoles.style.opacity = role === 'Read Only' ? '.3' : '';

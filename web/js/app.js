@@ -57,10 +57,6 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
   setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  document.getElementById('sb-av').textContent = initials;
-  document.getElementById('sb-uname').textContent = name;
-  document.getElementById('sb-urole').textContent = role;
-  document.getElementById('sf-name').textContent = name;
   document.getElementById('pf-av-sm').textContent = initials;
   document.getElementById('pf-av-lg').textContent = initials;
   document.getElementById('pf-name-sm').textContent = name;
@@ -303,9 +299,8 @@ Object.assign(
     setSettingsTab },
 );
 
-// Static index.html shell handlers (sidebar nav items + the sign-out foot).
-// nav is imported from core/router.js; logout is app-local. The shell reaches
-// both only through these data-action handlers.
+// Static index.html shell navigation handlers.
+// nav is imported from core/router.js.
 registerActions({
   'app.nav':    (ds, el) => nav(ds.page, el),
   // Header tab switch on a merged destination (Insights). Unlike
@@ -320,7 +315,6 @@ registerActions({
     document.getElementById('cog-btn')?.classList.add('active');
     renderPage('config');
   },
-  'app.logout': () => logout(),
 });
 
 initGuides(nav);

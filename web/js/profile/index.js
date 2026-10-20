@@ -1,9 +1,9 @@
 // ─── Profile page ────────────────────────────────────────────────────────────
-// The signed-in agent's own profile page (sidebar avatar → My profile or
-// the profile-menu dropdown). Read-only summary of the agent's account
+// The signed-in agent's own profile page (the profile-menu dropdown).
+// Read-only summary of the agent's account
 // (name / role / email / member-since) plus a snapshot of their workload:
 // open + resolved + CSAT + recent activity, with quick links into Tickets,
-// Settings tabs, and Sign out.
+// Settings tabs.
 //
 // Not to be confused with `js/profile-menu/` — that's the top-bar avatar
 // dropdown. This module is the page rendered when you nav to "profile".
@@ -15,7 +15,7 @@
 // these should become CSS `:hover` rules across the codebase, but that's
 // an unrelated cleanup.
 //
-// External reaches (interim, via window): escAttr, escHtml, logout — all
+// External reaches (interim, via window): escAttr, escHtml — all
 // still in app.js. Cross-module function calls (showAgentOOOModal,
 // isAgentOOO, …) are direct ES imports.
 
@@ -130,7 +130,6 @@ export function renderProfile() {
             <button class="btn" data-action="profile.gotoSettings" data-tab="profile">Edit profile</button>
             <button class="btn" data-action="profile.gotoSettings" data-tab="appearance">Appearance</button>
             <button class="btn" data-action="profile.gotoSettings" data-tab="notifications">Notifications</button>
-            <button class="btn btn-danger" style="margin-left:auto" data-action="profile.logout">Sign out</button>
           </div>
         </div>
       </div>
@@ -142,5 +141,4 @@ registerActions({
   'profile.editOOO':        () => showAgentOOOModal(SESSION.name),
   'profile.gotoSettings':   (ds) => { setSettingsTabValue(ds.tab); navTo('settings'); },
   'profile.gotoMyTickets':  () => { setTicketView('mine'); navTo('tickets'); },
-  'profile.logout':         () => window.logout(),
 });
