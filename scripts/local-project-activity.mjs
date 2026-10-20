@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -14,17 +14,13 @@ const validEntry = entry => localProjects.has(entry?.project) && /^[a-f0-9-]{36}
 function locked(directory, action) {
   mkdirSync(directory, { recursive: true });
   const file = join(directory, 'activity.lock');
-  try {
-    const pid = Number(readFileSync(file, 'utf8'));
-    if (!Number.isSafeInteger(pid) || pid <= 0) {
-      if (Date.now() - statSync(file).mtimeMs < 60000) throw new Error('Local activity is busy; retry recording or syncing');
-    } else {
-      try { process.kill(pid, 0); throw new Error('Local activity is busy; retry recording or syncing'); }
-      catch (error) { if (error.code !== 'ESRCH') throw error; }
-    }
-    unlinkSync(file);
-  } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const fd = openSync(file, 'wx');
+  let fd;
+  try { fd = openSync(file, 'wx'); }
+  catch (error) {
+    if (error.code === 'EEXIST') throw new Error('Local activity is busy; retry, or inspect the lock owner if it persists');
+    throw error;
+  }
+  // shortcut: crashed writers need manual lock recovery; never steal a lock another process may have acquired.
   try { writeFileSync(fd, String(process.pid)); return action(); }
   finally { closeSync(fd); unlinkSync(file); }
 }

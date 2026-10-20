@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, unlinkSync, utimesSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { recordActivity, activitySnapshot, validateActivity } from './local-project-activity.mjs';
@@ -103,7 +103,8 @@ test('recording and snapshots share a lock so a half-written completion cannot f
   unlinkSync(file);
   writeFileSync(file, '');
   assert.throws(() => activitySnapshot(since, dir, new Date(through)), /busy/);
-  utimesSync(file, new Date(0), new Date(0));
+  // Only manual recovery after checking the owner removes an abandoned lock.
+  unlinkSync(file);
   assert.deepEqual(activitySnapshot(since, dir, new Date(through)).entries, []);
   recordActivity('orbit', 'fix', 'Record after snapshot', dir, new Date(completedAt));
   assert.equal(activitySnapshot(since, dir, new Date(through)).entries.length, 1);
