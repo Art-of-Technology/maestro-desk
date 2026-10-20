@@ -123,6 +123,7 @@ jobs:
           node --test scripts/scheduled-job-monitor.test.mjs
           node --test scripts/wrap-up-monitor.test.mjs
           node --test scripts/daily-wrap-up.test.mjs
+          node --test scripts/local-project-activity.test.mjs
           bash scripts/cron-job-response.test.sh
 
       - name: Unassigned notification tests
