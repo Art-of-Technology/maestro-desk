@@ -185,6 +185,13 @@
 .modal-title{font-family:var(--font-sans);font-size:18px;font-weight:600;color:var(--ink);letter-spacing:-.025em}
 .modal-close{cursor:pointer;color:var(--ink3);font-size:18px;line-height:1;padding:2px 6px;border-radius:var(--r)}
 .modal-close:hover{color:var(--ink);background:var(--off2)}
+.conversation-language-modal .modal-body>p{margin-bottom:16px}
+.conversation-language-modal .modal-close{border:0;background:transparent;min-width:32px;min-height:32px}
+.conversation-language-modal #nt-language-error{color:var(--red);margin-top:8px}
+@media(pointer:coarse){
+  .conversation-language-modal button,.conversation-language-modal select{min-height:44px}
+  .conversation-language-modal .modal-close{min-width:44px}
+}
 .modal-body{padding:20px;overflow-y:auto;flex:1}
 .modal-foot{padding:12px 20px;border-top:1px solid var(--rule);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0}
 /* ── Form ── */
