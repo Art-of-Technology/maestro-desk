@@ -1,3 +1,4 @@
+import { selectedStatus, statusLabel, statusChoice, statusSelectOptions, statusOptions, STATUS_CATEGORIES } from './status-options.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { ticketDateMs } from './date-sort.js';
 import { inboxLabel } from './inbox.js';
@@ -187,7 +188,7 @@ export function renderTickets() {
   const scopeKey = JSON.stringify([getWorkspaceId(), getJwt()]);
   if (inboxFilterScope !== scopeKey) { FILTER_INBOX = 'all'; inboxFilterScope = scopeKey; }
   ensureSavedSearchesLoaded();
-  const history = ['history', 'resolved', 'closed'].includes(FILTER_STATUS);
+  const history = ['history', 'resolved', 'closed'].includes(statusChoice(FILTER_STATUS)?.base_key || FILTER_STATUS);
   const scopes = history ? ['outstanding', 'history'] : ['outstanding'];
   for (const scope of scopes) {
     const state = workQueueState(scope);
@@ -258,7 +259,7 @@ export function renderTickets() {
       <td>${window.escHtml(t.customerName || (cust ? cust.first+' '+cust.last : '—'))}</td>
       <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)">${window.escHtml(t.subject)}${t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now() ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3);font-weight:400" title="Snoozed">💤 ${window.escHtml(formatSnoozeUntil(t.snoozedUntil))}</span>` : ''}</td>
       <td class="ticket-inbox-cell" title="${window.escAttr(inboxLabel(t))}">${window.escHtml(inboxLabel(t))}</td>
-      <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
+      <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(statusLabel(t))}</span></td>
       <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
       <td>${window.escHtml(t.category)}</td>
       <td>${t.agent ? window.escHtml(t.agent) : '<span style="color:var(--ink3)">Unassigned</span>'}</td>
@@ -285,11 +286,7 @@ export function renderTickets() {
       <button class="btn btn-sm" data-action="tickets.bulkAssign">Assign…</button>
       <select class="filter-select" data-change-action="tickets.bulkStatus">
         <option value="">Set status…</option>
-        <option value="open">Open</option>
-        <option value="pending">Pending</option>
-        <option value="escalated">Escalated</option>
-        <option value="resolved">Resolved</option>
-        <option value="closed">Close without resolution…</option>
+        ${statusSelectOptions('')}
       </select>
       <select class="filter-select" data-change-action="tickets.bulkPriority">
         <option value="">Set priority…</option>
@@ -329,6 +326,7 @@ export function renderTickets() {
         <button class="btn btn-sm" data-action="tickets.retryQueue">Refresh</button></p>
       ${bulkBar}
       <div class="tab-bar" aria-label="Ticket status">${tabs}</div>
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 20px">Status option<select class="filter-select" data-change-action="tickets.statusOption"><option value="outstanding">Outstanding tickets</option><option value="history" ${FILTER_STATUS === 'history' ? 'selected' : ''}>Ticket history</option>${statusOptions({ includeRetired: true }).map(s => `<option value="${window.escAttr(s.key)}" ${FILTER_STATUS === s.key ? 'selected' : ''}>${window.escHtml(s.label)}${s.is_active ? '' : ' (retired)'}</option>`).join('')}</select></label>
       ${/* One bar, not two (issue #447). What stays out here is what an agent
              uses constantly — search, the saved views, and a chip for every
              filter currently narrowing the list. The rarely-touched
@@ -578,7 +576,7 @@ function setTicketQuery(q)  {
 function setTicketGroupBy(v) { TICKET_GROUP_BY = v; renderPage('tickets'); }
 
 function getFilteredTickets() {
-  const history = ['history', 'resolved', 'closed'].includes(FILTER_STATUS);
+  const history = ['history', 'resolved', 'closed'].includes(statusChoice(FILTER_STATUS)?.base_key || FILTER_STATUS);
   let list = TICKETS.filter(t => !t.mergedInto && !t._mergedIntoUuid && (history ? ['resolved', 'closed'].includes(t.status) : isOutstanding(t)));
   if (FILTER_VIEW === 'mine' && SESSION) list = list.filter(t => t.agent === SESSION.name);
   else if (FILTER_VIEW === 'unassigned') list = list.filter(t => !t.agent);
@@ -586,7 +584,7 @@ function getFilteredTickets() {
   else if (FILTER_VIEW === 'breach')     list = list.filter(t => t.sla === 'breach' || t.sla === 'warn');
   else if (FILTER_VIEW === 'snoozed')    list = list.filter(t => t.snoozedUntil && new Date(t.snoozedUntil).getTime() > Date.now());
   else if (FILTER_VIEW === 'needs_attention') list = list.filter(needsAttention);
-  if (!['all', 'outstanding', 'history'].includes(FILTER_STATUS)) list = list.filter(t => t.status === FILTER_STATUS);
+  if (!['all', 'outstanding', 'history'].includes(FILTER_STATUS)) list = list.filter(t => STATUS_CATEGORIES.includes(FILTER_STATUS) ? t.status === FILTER_STATUS : selectedStatus(t) === FILTER_STATUS);
   if (FILTER_CATEGORY !== 'all') list = list.filter(t => t.category === FILTER_CATEGORY);
   if (FILTER_PRIORITY !== 'all') list = list.filter(t => t.priority === FILTER_PRIORITY);
   if (FILTER_AGENT !== 'all')    list = list.filter(t => t.agent === FILTER_AGENT);
@@ -750,17 +748,17 @@ function bulkAssignTickets() {
 
 async function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
-  if (v === 'closed' || v === 'spam') {
+  if (statusChoice(v)?.base_key === 'closed' || v === 'spam') {
     showCloseTickets([...TICKET_SELECTED_IDS], (succeeded) => {
       succeeded.forEach(id => TICKET_SELECTED_IDS.delete(id));
       updateNavBadges();
       if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');
-    }, v === 'spam' ? 'spam' : '');
+    }, v === 'spam' ? 'spam' : '', v === 'spam' ? 'closed' : v);
     return;
   }
   for (const id of [...TICKET_SELECTED_IDS]) {
     await changeTicketStatus(id, v);
-    if (TICKETS.find(t => t.id === id)?.status === v) TICKET_SELECTED_IDS.delete(id);
+    if (selectedStatus(TICKETS.find(t => t.id === id) || {}) === v) TICKET_SELECTED_IDS.delete(id);
   }
   updateNavBadges();
   renderPage('tickets');
@@ -912,6 +910,7 @@ registerChangeActions({
   'tickets.applySearchSelect': (ds, el) => { applySavedSearch(el.value); el.value = ''; },
   'tickets.toggleSelected':    (ds) => toggleTicketSelected(ds.id),
   'tickets.toggleAll':         () => toggleAllTickets(),
+  'tickets.statusOption': (_ds, el) => setStatusFilter(el.value),
   'tickets.bulkStatus':        (ds, el) => { const value = el.value; el.value = ''; return bulkSetStatus(value); },
   'tickets.bulkPriority':      (ds, el) => bulkSetPriority(el.value),
   'tickets.setAgent':          (ds, el) => setAgentFilter(el.value),

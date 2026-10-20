@@ -22,7 +22,7 @@ function harness() {
   const context = {
     getJwt: () => control.jwt, getWorkspaceId: () => control.workspace,
     registerActions: map => Object.assign(actions, map),
-    buildTicketLookups: () => ({}), copyButton: () => '',
+    statusLabel: t => t.statusOption || t.status, buildTicketLookups: () => ({}), copyButton: () => '',
     updateOrInsertTicket: (row, _lookups, target) => {
       if (!target) { inserted.push(row); return; }
       target.unshift({ _uuid: row.id, id: row.display_id, subject: row.subject, status: row.status_key, priority: row.priority_key, sla: 'ok', updated: 'Yesterday' });

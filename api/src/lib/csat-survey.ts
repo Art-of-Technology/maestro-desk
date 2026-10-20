@@ -29,7 +29,7 @@ import { resolveTicketReplyTo } from './ticket-reply-to.js';
 
 export type CsatSurveyResult =
   | { sent: true;  token: string }
-  | { sent: false; reason: 'not_resolved' | 'in_progress' | 'already_requested' | 'already_rated' | 'no_email' | 'no_consent' | 'email_suppressed' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
+  | { sent: false; reason: 'disabled_by_status' | 'not_resolved' | 'in_progress' | 'already_requested' | 'already_rated' | 'no_email' | 'no_consent' | 'email_suppressed' | 'postmark_not_configured' | 'no_from' | 'no_workspace' | 'send_failed'; detail?: string };
 
 // Provider and SQL errors can contain recipient addresses or query parameters.
 // Keep diagnostics useful without logging those bodies or the survey token.
@@ -41,8 +41,10 @@ export async function sendCsatSurvey(args: {
   portalBase?: string;
 }): Promise<CsatSurveyResult> {
   const { workspaceId, ticketId } = args;
-  if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
   const sql = getDb();
+  const [policy] = await sql`select status_key, status_survey_enabled from tickets where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null`;
+  if (policy?.status_key === 'resolved' && policy.status_survey_enabled === false) return { sent: false, reason: 'disabled_by_status' };
+  if (!isPostmarkConfigured()) return { sent: false, reason: 'postmark_not_configured' };
   const [workspace] = await sql`select id from workspaces where id=${workspaceId} and deleted_at is null`;
   if (!workspace) return { sent: false, reason: 'no_workspace' };
   const privacy = await availableTicketPrivacy(workspaceId, [ticketId]);
@@ -51,13 +53,13 @@ export async function sendCsatSurvey(args: {
   const [claimed] = await sql`
     update tickets set csat_send_claim = ${claim}, csat_send_started_at = now()
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null
-      and merged_into_id is null and status_key = 'resolved'
+      and merged_into_id is null and status_key = 'resolved' and status_survey_enabled = true
       and (csat_send_claim is null or csat_send_started_at < now() - interval '10 minutes')
     returning id
   `;
   if (!claimed) {
-    const [ticket] = await sql`select status_key from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
-    return { sent: false, reason: ticket?.status_key === 'resolved' ? 'in_progress' : 'not_resolved' };
+    const [ticket] = await sql`select status_key, status_survey_enabled from tickets where id = ${ticketId} and workspace_id = ${workspaceId}`;
+    return { sent: false, reason: ticket?.status_key !== 'resolved' ? 'not_resolved' : ticket.status_survey_enabled === false ? 'disabled_by_status' : 'in_progress' };
   }
   try {
     return await sendClaimedSurvey(args, claim, privacy);

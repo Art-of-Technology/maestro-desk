@@ -1,3 +1,4 @@
+import { loadStatusOptions } from '../tickets/status-options.js';
 import { replaceSavedActivity } from './ticket-history.js';
 // Workspace data bootstrap.
 //
@@ -116,6 +117,8 @@ export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   const t = target[idx];
   t.subject       = row.subject;
   t.status        = row.status_key;
+  t.statusOption = row.status_option_key || row.status_key;
+  t.statusSurveyEnabled = row.status_survey_enabled;
   t.closureReason = row.closure_reason || null;
   t.closureNote = row.closure_note || null;
   t.closedAt = row.closed_at || null;
@@ -161,6 +164,8 @@ function mapTicket(t, customerByUuid, userByUuid) {
     subject:         t.subject,
     customerId:      customerByUuid[t.customer_id]?.id || customerByUuid[t.customer_id]?.display_id || null,
     status:          t.status_key,
+    statusOption: t.status_option_key || t.status_key,
+    statusSurveyEnabled: t.status_survey_enabled,
     closureReason: t.closure_reason || null,
     closureNote: t.closure_note || null,
     closedAt: t.closed_at || null,
@@ -241,6 +246,8 @@ export function mapCustomerNote(n) {
 export async function loadWorkspaceData() {
   const workspace = getWorkspaceId(), jwt = getJwt();
   replaceInPlace(MACROS, []);
+  await loadStatusOptions(true);
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   const [ticketsRes, customersRes, agentsRes, channelsRes, slaRes, tagsRes, kbRes, cannedRes, ttRes, cfRes, arRes, rolesRes, cvRes, catsRes, custNotesRes, layoutsRes, macrosRes] = await Promise.all([
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
@@ -627,6 +634,8 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   const res = await apiGet(`/api/v1/tickets/${t._uuid}`);
   const d = res.ticket;
   if (!d) return t;
+  t.statusOption = d.status_option_key || d.status_key;
+  t.statusSurveyEnabled = d.status_survey_enabled;
   t.categoryKey = d.category_key ?? null;
   t.channelId = d.channel_id ?? null;
   t._listUpdatedAt = d.updated_at;

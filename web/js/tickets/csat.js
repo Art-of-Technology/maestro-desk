@@ -62,6 +62,7 @@ export function ticketCSATBlock(t) {
         <button class="btn btn-sm" data-action="csat.openSurvey" data-ticket-id="${window.escAttr(t.id)}">Preview customer view</button>
       </div>`;
   }
+  if (t.status === 'resolved' && t.statusSurveyEnabled === false) return '<div class="ts-section"><div class="ts-heading">CSAT survey</div><p>This status does not send satisfaction surveys.</p></div>';
   if (t.status === 'resolved') {
     return `
       <div class="ts-section">
@@ -75,6 +76,7 @@ export function ticketCSATBlock(t) {
 export function notifySurveyResult(survey) {
   if (survey.sent) { showToast('Satisfaction survey sent.'); return; }
   const messages = {
+    disabled_by_status: 'No survey is sent for this status.',
     not_resolved: 'Only resolved tickets can receive a survey.',
     already_requested: 'A survey has already been sent.',
     already_rated: 'This ticket already has a survey response.',
@@ -91,6 +93,7 @@ const sendingSurveys = new Set();
 async function requestCSAT(id) {
   const t = TICKETS.find(x => x.id === id);
   if (!t) return;
+  if (t.statusSurveyEnabled === false) { showToast('No survey is sent for this status.'); return; }
   if (t.status !== 'resolved') { showToast('Only resolved tickets can receive a survey.'); return; }
   const stamp = new Date().toISOString().slice(0, 10);
   if (t._uuid) {

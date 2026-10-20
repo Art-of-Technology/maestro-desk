@@ -1,6 +1,7 @@
 import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { buildTicketLookups, updateOrInsertTicket } from '../core/bootstrap.js';
 import { registerActions } from '../core/event-delegation.js';
+import { statusLabel } from '../tickets/status-options.js';
 import { openTicket } from '../tickets/detail.js';
 import { copyButton } from '../core/copy.js';
 
@@ -34,7 +35,7 @@ function renderTickets(root, state) {
   const rows = mapped.map(t => `<tr>
     <td class="bold"><button type="button" class="link" style="border:0;background:transparent;padding:4px 0;font:inherit;text-align:left;white-space:nowrap" data-action="customerHistory.openTicket" data-ticket-uuid="${window.escAttr(t._uuid)}">${window.escHtml(t.id)}</button>${copyButton(t.id, 'ticket number')}</td>
     <td><button type="button" class="link" style="border:0;background:transparent;padding:4px 0;font:inherit;text-align:left;white-space:nowrap" data-action="customerHistory.openTicket" data-ticket-uuid="${window.escAttr(t._uuid)}">${window.escHtml(t.subject)}</button></td>
-    <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(t.status)}</span></td>
+    <td><span class="tag tag-${window.escAttr(t.status)}">${window.escHtml(statusLabel(t))}</span></td>
     <td><span class="tag tag-${window.escAttr(t.priority)}">${window.escHtml(t.priority)}</span></td>
     <td>${window.escHtml(t.agent || '')}</td>
     <td>${window.escHtml(t.sla)}</td><td>${window.escHtml(t.updated)}</td>

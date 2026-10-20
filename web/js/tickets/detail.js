@@ -1,3 +1,4 @@
+import { statusChoice, statusLabel, selectedStatus, statusSelectOptions, statusOptions, loadStatusOptions, statusOptionsState, STATUS_CATEGORIES } from './status-options.js';
 import { invalidateAgentReport } from '../agents/statistics.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
@@ -412,7 +413,7 @@ export function openTicket(id) {
             <div style="flex:1;min-width:0;cursor:pointer" data-action="td.openTicket" data-ticket-id="${window.escAttr(linkedId)}">
               <div style="font-size:11.5px;color:var(--ink2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(lt.subject)}</div>
               <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
-                <span class="tag tag-${lt.status}" style="font-size:9px">${lt.status}</span>
+                <span class="tag tag-${lt.status}" style="font-size:9px">${window.escHtml(statusLabel(lt))}</span>
                 <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(linkedId)}</span>
               </div>
             </div>
@@ -575,9 +576,7 @@ export function openTicket(id) {
           ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
             <span class="ticket-status-dot" aria-hidden="true"></span>
-            <select aria-label="Ticket status" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">
-              ${['open','pending','escalated','gdpr','resolved','closed'].map(s => `<option value="${s}"${t.status === s ? ' selected' : ''}>${s === 'gdpr' ? 'GDPR' : s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
-            </select>
+            <select aria-label="Ticket status" title="${statusOptionsState().ready ? 'Choose a ticket status' : 'Status options unavailable. Reload to try again.'}" ${!statusOptionsState().ready ? 'disabled' : ''} data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">${statusSelectOptions(selectedStatus(t))}</select>
           </label>
           <label class="ticket-inline-property ticket-inline-priority" data-priority="${window.escAttr(t.priority)}">
             <span aria-hidden="true">⚑</span>
@@ -673,6 +672,7 @@ export function openTicket(id) {
                     <button class="btn btn-sm btn-solid composer-send" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
                     <button class="btn btn-sm btn-solid composer-send-more" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
+                      ${statusOptions().filter(s => !STATUS_CATEGORIES.includes(s.key) && s.base_key !== 'closed').map(s => `<button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(s.key)}">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set ${window.escHtml(s.label)}</button>`).join('')}
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
@@ -908,35 +908,46 @@ export async function insertMacro(ticketId, idx) {
 
 export async function changeTicketStatus(id, val) {
   const t = TICKETS.find(x => x.id === id);
-  if (!t || t.status === val) return;
-  if (val === 'closed' || val === 'spam') {
+  if (!t || selectedStatus(t) === val) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  await loadStatusOptions();
+  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
+  const choice = statusChoice(val);
+  if (val !== 'spam' && (!choice || !choice.is_active)) { showToast('This status is unavailable. Refresh the status options.'); return; }
+  const category = choice?.base_key || 'closed';
+  if (category === 'closed' || val === 'spam') {
     const select = document.querySelector('[aria-label="Ticket status"]');
-    if (select) select.value = t.status;
+    if (select) select.value = selectedStatus(t);
     showCloseTickets([id], async (succeeded) => {
       if (!succeeded.length) return;
       updateNavBadges();
       if (t._uuid) await loadTicketDetail(id);
       if (CURRENT_TICKET === id) openTicket(id);
-    }, val === 'spam' ? 'spam' : '');
+    }, val === 'spam' ? 'spam' : '', val === 'spam' ? 'closed' : val);
     return;
   }
-  if (t.status === 'closed' && val !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
+  if (t.status === 'closed' && category !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
   // Demo state is local; live survey timestamps belong to the mailer.
-  const stampCsat = !t._uuid && val === 'resolved' && !t.csatRequestedAt && !t.csat
+  const stampCsat = !t._uuid && category === 'resolved' && choice.send_survey && !t.csatRequestedAt && !t.csat
     ? new Date().toISOString().slice(0, 10)
     : null;
   if (t._uuid) {
     try {
-      const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_key: val });
+      const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_option_key: val });
+      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
       applySavedActivity(t, res);
+      t.statusOption = res.ticket.status_option_key;
+      t.statusSurveyEnabled = res.ticket.status_survey_enabled;
       t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
       if (res.survey) notifySurveyResult(res.survey);
     }
-    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = t.status; } alert(`Couldn't change status: ${err?.message || err}`); return; }
+    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
-  t.status = val;
+  t.status = category;
+  t.statusOption = val;
+  if (!t._uuid) t.statusSurveyEnabled = choice.send_survey;
   invalidateAgentReport();
   t.closureReason = null; t.closureNote = null; t.closedAt = null; t.closedByUserId = null;
   refreshTicketSLA(t);
@@ -1224,8 +1235,12 @@ function hideSendMenu(id) { const m = document.getElementById('send-menu-' + id)
 
 async function sendComposeAnd(id, status) {
   hideSendMenu(id);
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  await loadStatusOptions(true);
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  if (!statusOptionsState().ready || !statusChoice(status)?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
   const sent = await sendCompose(id);
-  if (sent === false) return;
+  if (sent === false || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   await changeTicketStatus(id, status);
   if (CURRENT_TICKET === id) openTicket(id);
 }

@@ -18,6 +18,7 @@ const GROUPS = [
   {
     title: 'Ticketing & SLAs',
     items: [
+      { page:'ticket-statuses', label:'Ticket statuses', summary:'Choose agent status options and whether resolved tickets receive a survey.', adminOnly:true, icon:'<path d="M2 3h9M2 6.5h9M2 10h9" stroke="currentColor"/>' },
       { page:'sla',              label:'SLA Policies',      summary:'Set response and resolution time targets per priority, with breach escalation.',
         icon:'<circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 3.5v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' },
       { page:'business-hours',   label:'Business Hours',    summary:'Define working hours and holidays that drive SLA timers and availability.',

@@ -4,7 +4,7 @@ import { recordTicketActivity } from './ticket-activity.js';
 // Lock the ticket so simultaneous replies archive each closure once. The note
 // and state change commit together: a failed archive must not erase history.
 export async function reopenOnCustomerReply(sql: TransactionSql, workspaceId: string, ticketId: string): Promise<void> {
-  const [ticket] = await sql`select status_key, closure_reason, closure_note, closed_at, closed_by_user_id
+  const [ticket] = await sql`select status_key, status_option_key, closure_reason, closure_note, closed_at, closed_by_user_id
     from tickets where id = ${ticketId} and workspace_id = ${workspaceId}
       and deleted_at is null for update`;
   if (!ticket || !['pending', 'resolved', 'closed'].includes(ticket.status_key)) return;
@@ -24,5 +24,5 @@ export async function reopenOnCustomerReply(sql: TransactionSql, workspaceId: st
     closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null
     where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null`;
   await recordTicketActivity(sql, { workspaceId, ticketId, actorId: null, kind: 'status',
-    before: ticket.status_key, after: 'open', source: 'customer_reply' });
+    before: ticket.status_option_key, after: 'open', source: 'customer_reply' });
 }

@@ -21,6 +21,7 @@
 // `mousedown` (the original event) so the close + action fire together.
 
 import { TICKETS } from '../core/data.js';
+import { statusChoice, statusLabel } from './status-options.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from './sla.js';
@@ -64,7 +65,7 @@ export function showMergeTicketModal(id) {
   if (t.mergedInto) { alert(`Already merged into ${t.mergedInto}.`); return; }
   const card = x => `
       <div data-mousedown-action="linked.mergeAndClose" data-id="${window.escAttr(id)}" data-other-id="${window.escAttr(x.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-        <span class="tag tag-${window.escAttr(x.status)}" style="font-size:9px">${window.escHtml(x.status)}</span>
+        <span class="tag tag-${window.escAttr(x.status)}" style="font-size:9px">${window.escHtml(statusLabel(x))}</span>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${window.escHtml(x.id)}</span>
         <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(x.subject)}</span>
       </div>`;
@@ -88,8 +89,9 @@ async function mergeTickets(srcId, primaryId) {
     alert(`${primaryId} is already a duplicate of ${primary.mergedInto}. Pick the chain's primary instead.`);
     return;
   }
+  let saved;
   if (src._uuid && primary._uuid) {
-    try { applySavedActivity(src, await apiPost(`/api/v1/tickets/${src._uuid}/merge`, { into_id: primary._uuid })); }
+    try { const response = await apiPost(`/api/v1/tickets/${src._uuid}/merge`, { into_id: primary._uuid }); applySavedActivity(src, response); saved = response.source; }
     catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
   }
   src.mergedInto = primaryId;
@@ -106,12 +108,16 @@ async function mergeTickets(srcId, primaryId) {
     mergedFrom: srcId,
   });
   (src.msgs || []).forEach(m => primary.msgs.push({ ...m, mergedFrom: srcId }));
+  src._statusBeforeMerge = src.status;
+  src._statusOptionBeforeMerge = src.statusOption;
+  src._surveyEnabledBeforeMerge = src.statusSurveyEnabled;
   if (src.status !== 'resolved') {
-    src._statusBeforeMerge = src.status;
     if (!src._uuid) logTicketEvent(srcId, 'status', `Status: ${src.status} → resolved (merged)`);
     src.status = 'resolved';
     refreshTicketSLA(src);
   }
+  src.statusOption = saved?.status_option_key || (src._statusBeforeMerge === 'resolved' ? src.statusOption : 'resolved');
+  src.statusSurveyEnabled = saved?.status_survey_enabled ?? statusChoice(src.statusOption)?.send_survey;
   logTicketEvent(srcId, 'system', `Merged into ${primaryId}`);
   logTicketEvent(primaryId, 'system', `Merged in ${srcId}: "${src.subject}"`);
   updateNavBadges();
@@ -125,12 +131,12 @@ export async function unmergeTicket(srcId) {
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
   const primary = TICKETS.find(x => x.id === primaryId);
-  let savedStatus;
+  let saved;
   if (src._uuid) {
     try {
       const response = await apiPost(`/api/v1/tickets/${src._uuid}/unmerge`, {});
       applySavedActivity(src, response);
-      savedStatus = response.source.status_key;
+      saved = response.source;
     }
     catch (err) { alert(`Couldn't un-merge: ${err?.message || err}`); return; }
   }
@@ -142,13 +148,17 @@ export async function unmergeTicket(srcId) {
   src.mergedAt = null;
   // Restore the pre-merge status if we captured one; otherwise default to 'open'
   // so the un-merged ticket re-enters the queue rather than staying resolved-but-active.
-  const restored = savedStatus || src._statusBeforeMerge || 'open';
-  if ((savedStatus || src.status === 'resolved') && src.status !== restored) {
+  const restored = saved?.status_key || src._statusBeforeMerge || 'open';
+  if ((saved || src.status === 'resolved') && src.status !== restored) {
     if (!src._uuid) logTicketEvent(srcId, 'status', `Status: resolved → ${restored} (un-merged)`);
     src.status = restored;
     refreshTicketSLA(src);
   }
+  src.statusOption = saved?.status_option_key || src._statusOptionBeforeMerge || restored;
+  src.statusSurveyEnabled = saved?.status_survey_enabled ?? src._surveyEnabledBeforeMerge ?? statusChoice(src.statusOption)?.send_survey;
   delete src._statusBeforeMerge;
+  delete src._statusOptionBeforeMerge;
+  delete src._surveyEnabledBeforeMerge;
   logTicketEvent(srcId, 'system', `Un-merged from ${primaryId}`);
   if (primary) logTicketEvent(primaryId, 'system', `${srcId} un-merged`);
   updateNavBadges();
@@ -164,7 +174,7 @@ export function showLinkTicketModal(id) {
   const list = candidates.length
     ? candidates.map(x => `
         <div data-mousedown-action="linked.linkAndClose" data-id="${window.escAttr(id)}" data-other-id="${window.escAttr(x.id)}" style="padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
-          <span class="tag tag-${x.status}" style="font-size:9px">${x.status}</span>
+          <span class="tag tag-${x.status}" style="font-size:9px">${window.escHtml(statusLabel(x))}</span>
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${x.id}</span>
           <span style="flex:1;font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(x.subject)}</span>
         </div>`).join('')

@@ -138,7 +138,9 @@ export const GUIDE_STEPS = [
     body: 'Record whether work is active, waiting, escalated or finished.',
     highlights: ["Use Open for work in progress, or Pending when waiting.","Escalate with a handover note when you need help.","Resolve completed work. Follow your team’s process for privacy requests."],
     instructions: [
-      'Open Details → Properties → Ticket status to change status without composing a reply. Changing the status is separate from explaining the outcome to the customer.',
+      'Use Ticket status below the subject to change status without composing a reply. Changing the status is separate from explaining the outcome to the customer.',
+      'Brand admins can add, rename or retire choices under Configuration → Ticket statuses. Choose a workflow category and whether a resolved choice sends a survey. For Resolved — no survey, choose Resolved and Never send. Closed choices always require a closure reason and never send surveys. Categories cannot be changed after creation. Built-in statuses stay available; update macros using a choice before retiring it.',
+      'Custom choices appear in ticket status, bulk actions, macros and the send menu. Use the status filter beside the queue tabs to find a specific choice. Reports and SLAs use its workflow category. Survey policy is saved when the choice is selected, so later settings edits affect future selections. A no-survey selection also blocks manual survey sending; it cannot recall a survey already sent.',
       'Open: work still needs attention. Pending: waiting for information or another action; leave a note stating what you are waiting for and who will follow up.',
       'Escalated: the issue needs further help. Use More → Escalate or the status selector, assign the appropriate agent and leave a handover note. A status change alone does not explain the issue to the next person.',
       'GDPR: use for privacy requests under your team’s process. Ask the responsible colleague how to proceed before using data export, redaction or erasure controls.',

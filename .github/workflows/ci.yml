@@ -104,6 +104,9 @@ jobs:
       - name: Ticket date sorting and frontend deployment verification
         run: bun test scripts/ticket-date-sort.test.js scripts/frontend-deployment-check.test.js
 
+      - name: Brand ticket status options
+        run: bun test scripts/ticket-status-options.test.js
+
       - name: API build fingerprint and deployment verification
         run: bun test scripts/api-fingerprint.test.js scripts/api-deployment-check.test.js scripts/current-deployment.test.js
 

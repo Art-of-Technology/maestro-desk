@@ -5,12 +5,13 @@ import { setJwt, setWorkspaceId } from '../web/js/core/api-client.js';
 import { changeTicketCategory, renderTicketCategory, ticketCategoryKey } from '../web/js/tickets/category.js';
 import { loadTicketDetail } from '../web/js/core/bootstrap.js';
 import { setCurrentTicket } from '../web/js/core/state.js';
+import { loadStatusOptions } from '../web/js/tickets/status-options.js';
 import { changeTicketStatus, changeTicketPriority } from '../web/js/tickets/detail.js';
 
 const escape = s => String(s).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 window.escHtml = window.escAttr = escape;
 let ticket;
-beforeEach(() => {
+beforeEach(async () => {
   setJwt('test'); setWorkspaceId('workspace');
   CATEGORIES.splice(0, CATEGORIES.length,
     { key: 'General', label: 'General', is_active: true },
@@ -18,6 +19,8 @@ beforeEach(() => {
     { key: 'Old', label: 'Retired category', is_active: false });
   ticket = { id: 'TK-23', _uuid: 'ticket-id', category: 'General', categoryKey: 'General', status: 'open', priority: 'normal', tags: ['keep-tag'], msgs: [] };
   TICKETS.splice(0, TICKETS.length, ticket);
+  globalThis.fetch = mock(async () => ({ ok: true, text: async () => JSON.stringify({ statuses: ['open','pending'].map(key => ({ key, label:key, base_key:key, is_active:true, send_survey:false })) }) }));
+  await loadStatusOptions(true);
   globalThis.fetch = mock(async (_url, opts) => ({ ok: true, text: async () => JSON.stringify({ ticket: { category_key: JSON.parse(opts.body).category_key } }) }));
 });
 test('uses stored keys with readable labels and preserves inactive or empty categories', () => {

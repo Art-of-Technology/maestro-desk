@@ -16,6 +16,7 @@ import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
 import { ticketListCols } from '../lib/ticket-cols.js';
+import { activeTicketStatus, statusCategories } from '../lib/ticket-status.js';
 import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
@@ -201,7 +202,7 @@ tickets.get('/sync', async (c) => {
   const cursorTs = pipeIdx === -1 ? rawCursor : rawCursor.slice(0, pipeIdx);
   const cursorId = pipeIdx === -1 ? ''        : rawCursor.slice(pipeIdx + 1);
 
-  const cols = sql`id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, channel_id,
+  const cols = sql`id, display_id, subject, status_key, status_option_key, status_survey_enabled, priority_key, category_key, assigned_user_id, channel_id,
     closure_reason, closure_note, closed_at, closed_by_user_id,
     customer_id, sla_state, created_at, updated_at, snoozed_until, snoozed_at, snooze_reason,
     snooze_woken_at, merged_into_id, merged_at, status_before_merge, latest_customer_sentiment, deleted_at`;
@@ -349,11 +350,13 @@ tickets.patch('/:id/ai-draft', async c => {
 });
 
 const CloseTicket = z.object({
+  status_option_key: z.string().max(64).optional(),
   reason: z.enum(['spam', 'abuse', 'duplicate', 'other']),
   note: z.string().trim().max(4000).optional(),
 }).strict();
 
 type ClosedTicketRow = {
+  status_option_key: string; status_survey_enabled: boolean;
   id: string; status_key: string; closure_reason: string | null; closure_note: string | null;
   closed_at: string | null; closed_by_user_id: string | null; survey_sending?: boolean;
   snoozed_until?: string | null; snooze_reason?: string | null;
@@ -365,13 +368,15 @@ tickets.post('/:id/close', async (c) => {
   const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
   const result = await getDb().begin(async (sql) => {
+    const choice = await activeTicketStatus(sql, workspaceId, parsed.data.status_option_key || 'closed');
+    if (choice.base_key !== 'closed') return { ok: false as const, error: 'Choose a closed status.', status: 400 as const };
     // Match the contacts/merge lock order: customer before ticket.
     const [contact] = parsed.data.reason === 'spam' ? await sql`select c.id from customers c
       join tickets t on t.customer_id = c.id and t.workspace_id = c.workspace_id
       where t.id = ${ticketId} and t.workspace_id = ${workspaceId} and t.deleted_at is null
         and t.merged_into_id is null and c.deleted_at is null and c.erased_at is null
         and c.merged_into_customer_id is null for update of c` : [];
-    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id, snoozed_until, snooze_reason,
+    const [ticket] = await sql<ClosedTicketRow[]>`select id, status_key, status_option_key, status_survey_enabled, closure_reason, closure_note, closed_at, closed_by_user_id, snoozed_until, snooze_reason,
       (csat_send_claim is not null and csat_send_started_at >= now() - interval '10 minutes') as survey_sending
       from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null for update`;
@@ -380,22 +385,22 @@ tickets.post('/:id/close', async (c) => {
     // closure while an already-started survey is still being delivered.
     if (ticket.survey_sending) return { ok: false as const, error: 'A survey is being sent. Try closing this ticket once it finishes.', status: 409 as const };
     if (contact) await setCustomerSpam(sql, workspaceId, contact.id, true, c.get('userId'));
-    if (ticket.status_key === 'closed' && (parsed.data.reason !== 'spam' || ticket.closure_reason === 'spam')) {
+    if (ticket.status_key === 'closed' && (!parsed.data.status_option_key || ticket.status_option_key === choice.key) && (parsed.data.reason !== 'spam' || ticket.closure_reason === 'spam')) {
       return { ok: true as const, ticket, changed: false, activity: [] };
     }
-    const [updated] = await sql<ClosedTicketRow[]>`update tickets set status_key = 'closed',
+    const [updated] = await sql<ClosedTicketRow[]>`update tickets set status_key = 'closed', status_option_key = ${choice.key},
       closure_reason = ${parsed.data.reason}, closure_note = ${parsed.data.note || null},
       closed_at = now(), closed_by_user_id = ${c.get('userId')}, resolved_at = null,
       sla_state = 'ok', snoozed_until = null, snoozed_at = null, snoozed_by_user_id = null,
       snooze_reason = null, csat_send_claim = null, csat_send_started_at = null
       where id = ${ticketId} and workspace_id = ${workspaceId}
-      returning id, status_key, closure_reason, closure_note, closed_at, closed_by_user_id`;
+      returning id, status_key, status_option_key, status_survey_enabled, closure_reason, closure_note, closed_at, closed_by_user_id`;
     const [actor] = await sql`select name from users where id = ${c.get('userId')}`;
     await sql`insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body)
       values (${workspaceId}, ${ticketId}, 'system', ${c.get('userId')}, ${actor?.name || 'Agent'},
         ${`Closed without resolution: ${parsed.data.reason}.${parsed.data.note ? '\n' + parsed.data.note : ''}`})`;
     const activity = await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
-      kind: 'status', before: ticket.status_key, after: 'closed', source: 'close',
+      kind: 'status', before: ticket.status_option_key, after: choice.key, source: 'close',
       context: { reason: updated.closure_reason, note: updated.closure_note } });
     activity.push(...await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
       kind: 'snooze', before: snoozeState(ticket), after: null, source: 'close' }));
@@ -409,7 +414,7 @@ tickets.post('/:id/close', async (c) => {
     catch (err) { console.warn('[outgoing-webhooks] closed failed:', safeError(err)); }
   }
   const t = result.ticket;
-  return c.json({ ticket: { id: t.id, status_key: t.status_key, closure_reason: t.closure_reason,
+  return c.json({ ticket: { id: t.id, status_key: t.status_key, status_option_key: t.status_option_key, status_survey_enabled: t.status_survey_enabled, closure_reason: t.closure_reason,
     closure_note: t.closure_note, closed_at: t.closed_at, closed_by_user_id: t.closed_by_user_id }, activity: result.activity });
 });
 
@@ -454,7 +459,8 @@ tickets.patch('/:id/inbox', async c => {
 // to unassign.
 const PatchTicket = z.object({
   subject:          z.string().trim().min(1).max(500).optional(),
-  status_key:        z.string().optional(),
+  status_key:        z.enum(statusCategories).optional(),
+  status_option_key: z.string().max(64).optional(),
   priority_key:      z.string().optional(),
   category_key:      z.string().nullable().optional(),
   assigned_user_id:  z.string().uuid().nullable().optional(),
@@ -487,11 +493,18 @@ tickets.patch('/:id', async (c) => {
   const result = await sql.begin(async (sql) => {
     // Workspace-scope check before the update; also captures the pre-update
     // column values used below for change-detection (Slack / webhook events).
-    const [existing] = await sql<{ status_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
-      select status_key, priority_key, category_key, assigned_user_id from tickets
+    const [existing] = await sql<{ status_key: string; status_option_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
+      select status_key, status_option_key, priority_key, category_key, assigned_user_id from tickets
       where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
     `;
     if (!existing) return c.json({ error: 'Ticket not found' }, 404);
+
+    if (updates.status_option_key !== undefined || updates.status_key !== undefined) {
+      const choice = await activeTicketStatus(sql, workspaceId, updates.status_option_key ?? updates.status_key!);
+      if (updates.status_key && updates.status_key !== choice.base_key) return c.json({ error: 'Status category does not match this option.' }, 400);
+      updates.status_key = choice.base_key as typeof updates.status_key;
+      updates.status_option_key = choice.key;
+    }
 
     if (updates.status_key === 'closed') return c.json({ error: 'Use Close without resolution and choose a reason.' }, 400);
     if (existing.status_key === 'closed' && updates.status_key && !['closed', 'open'].includes(updates.status_key)) {
@@ -533,13 +546,13 @@ tickets.patch('/:id', async (c) => {
     const reopenSet = statusTransition && existing.status_key === 'closed'
       ? sql`, closure_reason = null, closure_note = null, closed_at = null, closed_by_user_id = null` : sql``;
     const [saved] = await sql`update tickets set ${sql(updates)}${resolvedAtSet}${reopenSet}
-      where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id, display_id, subject, status_key, priority_key, category_key, assigned_user_id, sla_state, updated_at,
+      where id = ${ticketId} and workspace_id = ${workspaceId} and status_key = ${existing.status_key} returning id, display_id, subject, status_key, status_option_key, status_survey_enabled, priority_key, category_key, assigned_user_id, sla_state, updated_at,
         csat_score, csat_stars, csat_comment, csat_requested_at, csat_submitted_at`;
     if (!saved) return c.json({ error: 'The ticket changed. Refresh it and try again.' }, 409);
 
     const activity = [];
     if (updates.status_key !== undefined) activity.push(...await recordTicketActivity(sql, {
-      workspaceId, ticketId, actorId: c.get('userId'), kind: 'status', before: existing.status_key, after: updates.status_key,
+      workspaceId, ticketId, actorId: c.get('userId'), kind: 'status', before: existing.status_option_key, after: saved.status_option_key,
     }));
     if (updates.priority_key !== undefined) activity.push(...await recordTicketActivity(sql, {
       workspaceId, ticketId, actorId: c.get('userId'), kind: 'priority', before: existing.priority_key, after: updates.priority_key,
@@ -561,7 +574,8 @@ tickets.patch('/:id', async (c) => {
     catch (err) { console.warn('[slack] notify resolved failed:', safeError(err)); }
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.resolved',  ticketId }); }
     catch (err) { console.warn('[outgoing-webhooks] resolved failed:', safeError(err)); }
-    // Await the mailer so the response reports whether a survey was sent.
+  }
+  if ((statusChanged || updated.status_option_key !== existing.status_option_key) && updated.status_key === 'resolved') {
     survey = await requestSurvey(workspaceId, ticketId);
   }
   if (statusChanged && updates.status_key === 'escalated') {
@@ -1334,8 +1348,8 @@ tickets.post('/:id/merge', async (c) => {
 
   return sql.begin(async sql => {
     // Lock both rows in a stable order, including reverse simultaneous merges.
-    const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string | null; merged_into_id: string | null }[]>`
-      select id, display_id, subject, status_key, merged_into_id
+    const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string; status_option_key: string; merged_into_id: string | null }[]>`
+      select id, display_id, subject, status_key, status_option_key, merged_into_id
       from tickets
       where id = any(${[sourceId, primaryId]}) and workspace_id = ${workspaceId} and deleted_at is null
       order by id for update
@@ -1353,14 +1367,14 @@ tickets.post('/:id/merge', async (c) => {
 
     // 1. Update source row.
     const wasResolved = source.status_key === 'resolved';
-    await sql`
+    const [mergedStatus] = await sql`
       update tickets set
         merged_into_id      = ${primaryId},
         merged_at           = now(),
         status_before_merge = ${wasResolved ? null : source.status_key},
         status_key          = 'resolved',
         resolved_at         = coalesce(resolved_at, now())
-      where id = ${sourceId} and workspace_id = ${workspaceId}
+      where id = ${sourceId} and workspace_id = ${workspaceId} returning status_key, status_option_key, status_survey_enabled
     `;
 
     // 2. Copy source messages onto primary, tagged with merged_from_id.
@@ -1390,10 +1404,10 @@ tickets.post('/:id/merge', async (c) => {
     }
 
     const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),
-      kind: 'status', before: source.status_key, after: 'resolved', source: 'merge', context: { primary_id: primaryId } });
+      kind: 'status', before: source.status_option_key, after: mergedStatus.status_option_key, source: 'merge', context: { primary_id: primaryId } });
     return c.json({
       activity,
-      source: { id: sourceId, merged_into_display_id: primary.display_id },
+      source: { id: sourceId, ...mergedStatus, merged_into_display_id: primary.display_id },
       primary: { id: primaryId, display_id: primary.display_id },
     });
   });
@@ -1418,8 +1432,8 @@ tickets.post('/:id/unmerge', async (c) => {
     if (!candidate) return c.json({ error: 'Source ticket not found' }, 404);
     await sql`select id from tickets where workspace_id = ${workspaceId}
       and id = any(${[sourceId, candidate.merged_into_id].filter(Boolean)}) order by id for update`;
-    const [source] = await sql<{ id: string; status_key: string; merged_into_id: string | null; status_before_merge: string | null }[]>`
-      select id, status_key, merged_into_id, status_before_merge
+    const [source] = await sql<{ id: string; status_key: string; status_option_key: string; merged_into_id: string | null; status_before_merge: string | null }[]>`
+      select id, status_key, status_option_key, merged_into_id, status_before_merge
       from tickets
       where id = ${sourceId} and workspace_id = ${workspaceId} and deleted_at is null
     `;
@@ -1435,25 +1449,24 @@ tickets.post('/:id/unmerge', async (c) => {
       where workspace_id = ${workspaceId} and ticket_id = ${source.merged_into_id} and merged_from_id = ${sourceId}
     `;
 
-    // 2. Restore source row. restoredStatus is never 'resolved' (merge nulls
-    // status_before_merge for already-resolved sources), so the merge-time
-    // resolved_at stamp is always cleared with it.
+    // The status trigger restores the original choice and survey snapshot;
+    // legacy merges without a saved choice fall back to their canonical status.
     const restoredStatus = source.status_before_merge || 'open';
-    await sql`
+    const [restored] = await sql`
       update tickets set
         merged_into_id      = null,
         merged_at           = null,
         status_before_merge = null,
         status_key          = ${restoredStatus},
         resolved_at         = null
-      where id = ${sourceId} and workspace_id = ${workspaceId}
+      where id = ${sourceId} and workspace_id = ${workspaceId} returning status_key, status_option_key, status_survey_enabled
     `;
 
     const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),
-      kind: 'status', before: source.status_key, after: restoredStatus, source: 'unmerge', context: { primary_id: source.merged_into_id } });
+      kind: 'status', before: source.status_option_key, after: restored.status_option_key, source: 'unmerge', context: { primary_id: source.merged_into_id } });
     return c.json({
       activity,
-      source: { id: sourceId, status_key: restoredStatus },
+      source: { id: sourceId, ...restored },
       primary: { id: source.merged_into_id },
     });
   });
@@ -1657,7 +1670,8 @@ tickets.post('/:id/apply-rules', async (c) => {
 const CreateTicket = z.object({
   subject: z.string().min(1).max(500),
   customer_id: z.string().uuid(),
-  status_key: z.string().refine(value => value !== 'closed', 'Create the ticket before closing it with a reason.').default('open'),
+  status_key: z.enum(statusCategories).default('open'),
+  status_option_key: z.string().max(64).optional(),
   priority_key: z.string().default('normal'),
   // Bounded like every other free-text field — the value is validated
   // against the workspace's categories below, but an unbounded string
@@ -1684,6 +1698,10 @@ tickets.post('/', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
+
+  const statusChoice = await activeTicketStatus(sql, workspaceId, input.status_option_key || input.status_key);
+  if (body.status_key && body.status_key !== statusChoice.base_key) return c.json({ error: 'Status category does not match this option.' }, 400);
+  if (statusChoice.base_key === 'closed') return c.json({ error: 'Create the ticket before closing it with a reason.' }, 400);
 
   // Confirm the customer belongs to this workspace — never insert a ticket that
   // references another workspace's customer (advisory #16).
@@ -1722,9 +1740,9 @@ tickets.post('/', async (c) => {
   const displayId = await nextDisplayId(sql, workspaceId, 'ticket');
 
   const [created] = await sql<{ id: string }[]>`
-    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key, category_key, assigned_user_id)
+    insert into tickets (workspace_id, display_id, subject, customer_id, status_key, status_option_key, priority_key, category_key, assigned_user_id)
     values (${workspaceId}, ${displayId}, ${input.subject}, ${input.customer_id},
-            ${input.status_key}, ${input.priority_key}, ${categoryKey},
+            ${statusChoice.base_key}, ${statusChoice.key}, ${input.priority_key}, ${categoryKey},
             ${input.assigned_user_id ?? userId})
     returning id
   `;

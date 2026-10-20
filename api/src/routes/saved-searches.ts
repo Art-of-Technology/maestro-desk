@@ -20,7 +20,7 @@ savedSearches.use('*', requireAuth);
 // Filters JSON. Loosely typed so the UI can add filter dimensions without a
 // schema bump; .strict() rejects unknown keys.
 const Filters = z.object({
-  status:    z.string().max(40).optional(),
+  status:    z.string().max(64).optional(),
   category:  z.string().max(80).optional(),
   priority:  z.string().max(40).optional(),
   agent:     z.string().max(120).optional(),

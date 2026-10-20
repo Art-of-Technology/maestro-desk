@@ -24,7 +24,7 @@ export function closureDetails(t) {
     <div class="closure-date">No satisfaction survey.${contact?.isSpam ? '' : ' A new customer reply reopens the ticket.'}</div></div>`;
 }
 
-export function showCloseTickets(ids, onChanged, presetReason = '') {
+export function showCloseTickets(ids, onChanged, presetReason = '', statusOption = 'closed') {
   const spam = presetReason === 'spam';
   const targets = ids.map(id => TICKETS.find(t => t.id === id)).filter(t => t && !t.mergedInto && (spam || t.status !== 'closed'));
   if (!targets.length) { showToast('These tickets are already closed or merged.'); return; }
@@ -55,7 +55,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '') {
     for (const t of targets) {
       if (workspace !== getWorkspaceId()) break;
       try {
-        const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason, note }) : null;
+        const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason, note, status_option_key: statusOption }) : null;
         if (workspace !== getWorkspaceId()) return;
         if (reason === 'spam') {
           const contact = CUSTOMERS.find(c => c.id === t.customerId);
@@ -63,6 +63,8 @@ export function showCloseTickets(ids, onChanged, presetReason = '') {
         }
         applySavedActivity(t, result);
         t.status = 'closed';
+        t.statusOption = result?.ticket.status_option_key || statusOption;
+        t.statusSurveyEnabled = false;
         t.closureReason = result?.ticket.closure_reason || reason;
         t.closureNote = result ? result.ticket.closure_note : note || null;
         t.closedAt = result?.ticket.closed_at || new Date().toISOString();

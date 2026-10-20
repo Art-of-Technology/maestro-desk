@@ -27,6 +27,7 @@ mock.module('../web/js/tickets/detail.js', () => ({ insertMacro() {}, openTicket
 mock.module('../web/js/tickets/template-content.js', () => ({ appendTemplate() {} }));
 mock.module('../web/js/core/api-client.js', () => ({
   getJwt: () => 'session', getWorkspaceId: () => workspace,
+  async apiGet() { return { statuses: ['open', 'pending', 'resolved'].map(key => ({ key, label: key, base_key: key, is_active: true, send_survey: key === 'resolved' })) }; },
   async apiPost(path, body) {
     calls.push({ path, body });
     if (fail) throw new Error('Offline');

@@ -889,3 +889,17 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 /* Customer privacy actions share the existing modal, with readable groups and touch targets. */
 .privacy-modal p{margin:8px 0}
 .privacy-modal .btn{min-height:44px}
+.ticket-status-settings{display:block;overflow:auto;min-height:0}
+.ticket-status-settings .topbar{height:auto;min-height:48px;flex-wrap:wrap;gap:12px;padding-block:12px}
+.ticket-status-settings h1{margin:0}
+.status-settings-actions{display:flex;gap:8px;margin-left:auto}
+.status-settings-table{overflow:auto;max-width:100%}
+.status-settings-table th{white-space:nowrap}
+.status-settings-table td:first-child{min-width:160px;max-width:320px;overflow-wrap:anywhere}
+.ticket-status-modal{max-height:calc(100dvh - 32px);overflow:auto}
+.ticket-status-modal .modal-close{border:0;background:transparent;color:var(--ink);cursor:pointer}
+.ticket-status-settings :focus-visible,.ticket-status-modal :focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+@media(max-width:768px),(pointer:coarse){
+  .ticket-status-settings .btn,.ticket-status-modal button,.ticket-status-modal .form-input{min-height:44px}
+  .ticket-status-modal .modal-close{min-width:44px}
+}
