@@ -1,7 +1,7 @@
 import { beforeEach, expect, mock, test } from 'bun:test';
 
 const tickets = [], contacts = [], requests = [];
-let confirm, title, body, label, workspace, failId, failUndo, closed, changed;
+let confirm, title, body, label, workspace, failId, failUndo, closed, changed, jwt, statusSettings;
 const button = { disabled: false, textContent: '' };
 const modal = { querySelector: () => button, classList: { add() {} }, setAttribute() {}, addEventListener() {} };
 const reason = { value: '', focus() {}, addEventListener() {}, closest: () => modal };
@@ -13,6 +13,7 @@ mock.module('../web/js/core/data.js', () => ({ AGENTS: [], TICKETS: tickets, CUS
 mock.module('../web/js/core/state.js', () => ({ SESSION: { userId: 'agent' } }));
 mock.module('../web/js/core/api-client.js', () => ({
   getWorkspaceId: () => workspace,
+  getJwt: () => jwt,
   apiPost: async (path, data) => {
     requests.push({ path, data });
     if (path.includes(failId)) throw new Error('Temporary failure');
@@ -28,10 +29,13 @@ mock.module('../web/js/core/toast.js', () => ({ showToast() {} }));
 mock.module('../web/js/core/activity-log.js', () => ({ logTicketEvent() {} }));
 mock.module('../web/js/core/ticket-history.js', () => ({ applySavedActivity() {} }));
 mock.module('../web/js/tickets/sla.js', () => ({ refreshTicketSLA() {} }));
+mock.module('../web/js/tickets/status-options.js', () => ({ statusChoice: () => statusSettings,
+  DEFAULT_CLOSURE_REASONS: ['spam', 'abuse', 'duplicate', 'other'].map(key => ({ key, label: key[0].toUpperCase() + key.slice(1), is_active: true })) }));
 const { showCloseTickets, closureDetails, unmarkSpamContact } = await import('../web/js/tickets/closure.js');
 
 beforeEach(() => {
   workspace = 'one'; failId = 'never'; failUndo = false; closed = false; changed = [];
+  jwt = 'session'; statusSettings = null;
   requests.length = 0; error.textContent = ''; reason.value = ''; note.value = '';
   tickets.splice(0, tickets.length, ...['1', '2'].map(id => ({ id, _uuid: id, customerId: 'c' + id, status: 'open' })));
   contacts.splice(0, contacts.length, ...['1', '2'].map(id => ({ id: 'c' + id, _uuid: 'c' + id })));
@@ -75,4 +79,20 @@ test('closed tickets can mark a contact; generic closure does not mark it, and f
 test('switching workspace before confirmation does not write to the new workspace', async () => {
   showCloseTickets(['1', '2'], null, 'spam'); workspace = 'two'; await confirm();
   expect(requests).toHaveLength(0); expect(tickets.every(t => t.status === 'open')).toBe(true);
+});
+
+test('optional closure accepts no reason, while required custom reasons reject missing and retired choices', async () => {
+  statusSettings = { reason_required: false, reasons: [] };
+  showCloseTickets(['1']); expect(body).toContain('Reason (optional)'); await confirm();
+  expect(tickets[0].closureReason).toBeNull(); expect(closed).toBe(true);
+  statusSettings = { reason_required: true, reasons: [{ key: 'custom-review', label: 'Review complete', is_active: true }, { key: 'retired', label: 'Old', is_active: false }] };
+  showCloseTickets(['2']); await confirm(); expect(error.textContent).toBe('Choose a closure reason.');
+  reason.value = 'retired'; await confirm(); expect(tickets[1].status).toBe('open');
+  reason.value = 'custom-review'; await confirm();
+  expect(tickets[1].statusReasonLabel).toBe('Review complete'); expect(tickets[1].closureReason).toBe('custom-review');
+});
+
+test('switching user within the same workspace cancels a pending closure', async () => {
+  showCloseTickets(['1'], null, 'spam'); jwt = 'other-session'; await confirm();
+  expect(requests).toHaveLength(0); expect(tickets[0].status).toBe('open');
 });

@@ -96,6 +96,7 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
       prepareDraftSend: async () => ({ version: 1 }), finishDraftSend: () => true, refreshPersonalDraft: async () => {},
       openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, alert() {},
       changeTicketStatus: async (_id, value) => { status = value; },
+      chooseStatusReason: async () => null,
     };
     await runInNewContext(sendFunctions + (scenario === 'resolve'
       ? "sendComposeAnd('test', 'resolved')" : "sendCompose('test')"), context);
