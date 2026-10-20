@@ -88,6 +88,7 @@ import {
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
+import { chooseStatusReason } from './status-reasons.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
 import { showContactDetailsModal } from '../customers/details-card.js';
@@ -906,7 +907,7 @@ export async function insertMacro(ticketId, idx) {
   if (t && await appendTemplate(t, r)) onComposeInput(ticketId);
 }
 
-export async function changeTicketStatus(id, val) {
+export async function changeTicketStatus(id, val, reasonKey) {
   const t = TICKETS.find(x => x.id === id);
   if (!t || selectedStatus(t) === val) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
@@ -927,13 +928,20 @@ export async function changeTicketStatus(id, val) {
     return;
   }
   if (t.status === 'closed' && category !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
+  if (reasonKey === undefined) {
+    const select = document.querySelector('[aria-label="Ticket status"]');
+    if (select) select.value = selectedStatus(t);
+    reasonKey = await chooseStatusReason(choice);
+    if (reasonKey === undefined) return;
+  }
+  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
   // Demo state is local; live survey timestamps belong to the mailer.
   const stampCsat = !t._uuid && category === 'resolved' && choice.send_survey && !t.csatRequestedAt && !t.csat
     ? new Date().toISOString().slice(0, 10)
     : null;
   if (t._uuid) {
     try {
-      const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_option_key: val });
+      const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_option_key: val, status_reason: reasonKey });
       if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
       applySavedActivity(t, res);
       t.statusOption = res.ticket.status_option_key;
@@ -944,7 +952,7 @@ export async function changeTicketStatus(id, val) {
     catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } alert(`Couldn't change status: ${err?.message || err}`); return; }
   }
   const prevSla = t.sla;
-  if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}`);
+  if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}${reasonKey ? ' · Reason: ' + choice.reasons.find(r => r.key === reasonKey)?.label : ''}`);
   t.status = category;
   t.statusOption = val;
   if (!t._uuid) t.statusSurveyEnabled = choice.send_survey;
@@ -1239,9 +1247,11 @@ async function sendComposeAnd(id, status) {
   await loadStatusOptions(true);
   if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   if (!statusOptionsState().ready || !statusChoice(status)?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
+  const reason = await chooseStatusReason(statusChoice(status));
+  if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   const sent = await sendCompose(id);
   if (sent === false || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
-  await changeTicketStatus(id, status);
+  await changeTicketStatus(id, status, reason);
   if (CURRENT_TICKET === id) openTicket(id);
 }
 

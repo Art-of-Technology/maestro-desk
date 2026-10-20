@@ -32,12 +32,15 @@ import { openTicket, notifyReplyDelivery } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
 import { saveDraft } from './drafts.js';
 import { showToast } from '../core/toast.js';
+import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
+import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
 // persisted — the server (or the demo mint) only runs at the very end.
 const NT = {
+  statusReason: '',
   busy: false,
   templateId: null,
   customer: null,        // { uuid|null, displayId, label }
@@ -59,6 +62,7 @@ function resetNT() {
   NT.categoryValue = '';
   NT.categoryLabel = '';
   NT.subject = '';
+  NT.statusReason = '';
   NT.priority = 'normal';
   NT.agentUserId = null;
   NT.agentName = '';
@@ -102,7 +106,11 @@ function matchTemplateCategory(tplCategory) {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 // templateId: prefill from a ticket template (ticket-templates page "Use").
 // custDisplayId: prefill the customer (customer-profile "New ticket" button).
-export function showNewTicketModal(templateId, custDisplayId) {
+export async function showNewTicketModal(templateId, custDisplayId) {
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  if (workspace) await loadStatusOptions();
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  if (!statusOptionsState().ready) { showToast('Reload ticket statuses before creating a ticket.'); return; }
   resetNT();
   if (templateId) applyTemplateToNT(templateId);
   if (custDisplayId) {
@@ -205,6 +213,7 @@ function renderStep1() {
     ${visible('subject') ? `<div class="form-row"><label class="form-label">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
     ${categoryRow || priorityRow ? `<div class="form-grid">${categoryRow}${priorityRow}</div>` : ''}
     ${agentRow}
+    ${statusReasonField(statusChoice('open'), 'nt-status-reason', NT.statusReason)}
   `, () => {
     if (NT.busy) return;
     harvestStep1();
@@ -224,6 +233,7 @@ function renderStep1() {
 }
 
 function harvestStep1() {
+  NT.statusReason = document.getElementById('nt-status-reason')?.value || '';
   NT.subject = document.getElementById('nt-subj')?.value.trim() ?? NT.subject;
   const catSel = document.getElementById('nt-cat');
   if (catSel) {
@@ -242,6 +252,7 @@ function harvestStep1() {
 }
 
 function validateStep1(haveCats) {
+  if (statusChoice('open')?.reason_required && !NT.statusReason) { alert('Choose a reason for the Open status.'); document.getElementById('nt-status-reason')?.focus(); return false; }
   if (visible('customerId') && !NT.customer) { alert('Pick a customer — search by name, email, or ID.'); return false; }
   if (visible('subject') && required('subject') && !NT.subject) { alert('Subject is required.'); return false; }
   // Category is compulsory (locked required in FIELD_LAYOUTS) — agents must
@@ -456,6 +467,7 @@ async function runCreate({ message, send, withoutAI = false }) {
     customerUuid: NT.customer?.uuid || null,
     customerDisplayId: NT.customer?.displayId || 'M001',
     subject: NT.subject,
+    statusReason: NT.statusReason,
     categoryValue: NT.categoryValue,
     categoryLabel: NT.categoryLabel,
     priority: NT.priority,
@@ -501,7 +513,7 @@ async function createOnServer(snap, { message, send }) {
     showToast('This workspace hides the Customer field, but a ticket needs one — re-enable it under Configuration › Layouts.', 'error', 8000);
     return null;
   }
-  const body = { subject: snap.subject, customer_id: snap.customerUuid, priority_key: snap.priority };
+  const body = { subject: snap.subject, customer_id: snap.customerUuid, priority_key: snap.priority, status_reason: snap.statusReason || null };
   if (snap.categoryValue) body.category_key = snap.categoryValue;
   if (snap.agentUserId) body.assigned_user_id = snap.agentUserId;
 

@@ -1,7 +1,9 @@
 import { apiGet, getJwt, getWorkspaceId } from '../core/api-client.js';
 
 export const STATUS_CATEGORIES = ['open', 'pending', 'escalated', 'gdpr', 'resolved', 'closed'];
-const defaults = STATUS_CATEGORIES.map((key, sort_order) => ({ key, label: key[0].toUpperCase() + key.slice(1), base_key: key, send_survey: key === 'resolved', is_active: true, sort_order }));
+export const DEFAULT_CLOSURE_REASONS = ['spam', 'abuse', 'duplicate', 'other'].map(key => ({ key, label: key[0].toUpperCase() + key.slice(1), is_active: true }));
+const defaults = STATUS_CATEGORIES.map((key, sort_order) => ({ key, label: key[0].toUpperCase() + key.slice(1), base_key: key, send_survey: key === 'resolved', is_active: true, sort_order,
+  reason_required: key === 'closed', reasons: key === 'closed' ? DEFAULT_CLOSURE_REASONS : [] }));
 let identity, rows = [], ready = false, error = '', loading;
 function context() {
   const key = `${getWorkspaceId() || ''}:${getJwt() || ''}`;
@@ -32,7 +34,8 @@ export async function loadStatusOptions(force = false) {
       const response = await apiGet('/api/v1/ticket-statuses');
       if (key !== context()) return;
       if (!Array.isArray(response.statuses) || response.statuses.some(s => typeof s.key !== 'string' || typeof s.label !== 'string' || !STATUS_CATEGORIES.includes(s.base_key) || typeof s.is_active !== 'boolean' || typeof s.send_survey !== 'boolean')) throw new Error('Invalid status options.');
-      rows = response.statuses; ready = true; error = '';
+      if (response.statuses.some(s => (s.reason_required !== undefined && typeof s.reason_required !== 'boolean') || (s.reasons !== undefined && (!Array.isArray(s.reasons) || s.reasons.some(r => !r || typeof r.key !== 'string' || typeof r.label !== 'string' || typeof r.is_active !== 'boolean'))))) throw new Error('Invalid reason options.');
+      rows = response.statuses.map(s => ({ ...s, reason_required: s.reason_required ?? s.base_key === 'closed', reasons: s.reasons ?? (s.base_key === 'closed' ? DEFAULT_CLOSURE_REASONS : []) })); ready = true; error = '';
     } catch {
       if (key === context()) { ready = false; error = 'Could not load ticket statuses. Reload to try again.'; }
     } finally { if (key === context()) loading = null; }

@@ -68,6 +68,7 @@ runDbTests('GDPR export (DB-backed)', () => {
       returning id
     `;
     ctx.ticketId = tk.id;
+    await sql`update tickets set status_reason_label = 'Documents requested' where id = ${tk.id}`;
     for(const type of ['customer','ticket']) {
       const [f]=await sql`insert into custom_fields(workspace_id,entity_type,key,label,field_type)
         values(${wsId},${type},'privacy_export','Review details','text') returning id`;
@@ -138,6 +139,7 @@ runDbTests('GDPR export (DB-backed)', () => {
     expect(body.customer).not.toHaveProperty('has_legacy_kyc');
 
     expect(body.review_required).toBe(true);
+    expect(body.tickets[0].status_reason_label).toBe('Documents requested');
     expect(body.attachment_contents_included).toBe(false);
     expect(body.custom_fields[0]).toMatchObject({key:'privacy_export',value:'customer personal value'});
     expect(body.tickets[0].custom_fields[0]).toMatchObject({value:'ticket personal value'});

@@ -770,7 +770,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     expect(after.closed_by_user_id).toBeNull();
     const [note] = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note'`;
     expect(note.body).toContain('Internal assessment must remain private');
-    expect(note.body).toContain('Reason: duplicate');
+    expect(note.body).toContain('Reason: Duplicate');
     expect(note.body).toContain(admin.userId);
     expect(note.body).toContain('Reply Agent');
     expect(note.body).toContain(new Date(closed.closed_at).toISOString());
@@ -810,7 +810,7 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     notes = await sql`select body from ticket_messages where ticket_id = ${tid} and role = 'note' order by created_at`;
     expect(notes).toHaveLength(2);
     expect(notes[1].body).toContain('Second closure');
-    expect(notes[1].body).toContain('Reason: abuse');
+    expect(notes[1].body).toContain('Reason: Abuse');
     expect(postmarkCalls).toBe(0);
   });
 

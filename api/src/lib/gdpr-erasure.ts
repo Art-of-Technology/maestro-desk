@@ -44,7 +44,7 @@ export const CUSTOMER_PII_FIELDS = [
 // What gdpr_erasures.fields_erased records: the columns above plus 'contacts'
 // — the customer_contacts rows (Phase 4 contacts model), which are a table,
 // not a column, and are hard-deleted below.
-const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'note_revisions', 'ticket_messages.email_metadata', 'ticket_messages.sent_email', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'forwarded_message_copies', 'reply_internal_reviews'] as const;
+const FIELDS_ERASED = [...CUSTOMER_PII_FIELDS, 'contacts', 'tickets.last_inbound_email', 'tickets.closure_note', 'tickets.status_reason_label', 'note_revisions', 'ticket_messages.email_metadata', 'ticket_messages.sent_email', 'message_drafts', 'custom_field_values', 'webhook_deliveries', 'tickets.ai_summary', 'tickets.ai_draft_reply', 'ticket_tags', 'ticket_ai_tags', 'time_entries.note', 'merged_message_copies', 'forwarded_message_copies', 'reply_internal_reviews'] as const;
 
 export interface EraseResult {
   erased: boolean;
@@ -195,7 +195,7 @@ export async function eraseCustomer(args: {
       messagesRedacted = msgs.count;
 
       const tks = await sql`
-        update tickets set subject = ${ERASED}, csat_comment = null, snooze_reason = null, last_inbound_email = null, closure_note = null
+        update tickets set subject = ${ERASED}, csat_comment = null, snooze_reason = null, last_inbound_email = null, closure_note = null, status_reason_label = null
         where workspace_id = ${workspaceId} and id in ${sql(ticketIds)}
       `;
       ticketsAffected = tks.count;

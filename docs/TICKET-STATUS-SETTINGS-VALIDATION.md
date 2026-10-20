@@ -4,7 +4,9 @@ Validated 2026-10-20 against PostgreSQL 17, the Node migration runner, native br
 
 ## Scope and behavior
 
-Brand admins manage named choices under Configuration → Ticket statuses. Each choice has an immutable canonical category and a survey rule. Agents can select choices from ticket detail, bulk actions, macros and send actions, and filter tickets by custom choices. Closed choices use the existing required-reason flow. Ticket templates retain their existing open-ticket default.
+Brand admins manage named choices under Configuration → Ticket statuses. Each choice has an immutable canonical category, a survey rule, a required/optional reason setting and an editable reason list. Agents can select choices from ticket detail, bulk actions, macros and send actions, and filter tickets by custom choices. Closed choices require a reason by default; admins can make it optional. Ticket templates retain their existing open-ticket default and prompt for its configured reason.
+
+The reason-settings extension passed 126 API tests and three frontend tests, typecheck, build, import/bridge checks, 25 route smokes, seven detail smokes and browser status/closure checks. All 136 migrations applied to fresh PostgreSQL 17. Browser checks include required-reason validation, cancellation, saving, keyboard focus and 390/768/1280/1920 widths. Recorded labels survive renaming/retirement; privacy export and erasure include the stored labels.
 
 `tickets.status_key` remains canonical. `status_option_key` records the selected choice; `status_survey_enabled` snapshots its survey rule. Settings edits do not change prior selections. Retirement hides choices without deleting ticket history and refuses choices referenced by active macros. Merge/unmerge restores the original choice and policy, including retired choices. Customer replies reopen through the existing canonical workflow.
 

@@ -5,6 +5,22 @@ import { runInNewContext } from 'node:vm';
 const source = readFileSync(new URL('../web/js/tickets/detail.js', import.meta.url), 'utf8');
 const controls = source.slice(source.indexOf('function editTicketSubject('), source.indexOf('function editTicketNote('));
 
+test('send and set status collects the reason before sending and cancellation keeps the reply unsent', async () => {
+  const sendAnd = source.slice(source.indexOf('async function sendComposeAnd('), source.indexOf('function showSentTextModal('));
+  for (const reason of [undefined, null, 'reason-review']) {
+    const calls = [];
+    await runInNewContext(sendAnd + "sendComposeAnd('TK-5', 'pending');", {
+      hideSendMenu() {}, getWorkspaceId: () => 'workspace', getJwt: () => 'session',
+      loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }), statusChoice: () => ({ is_active: true }),
+      chooseStatusReason: async () => { calls.push('reason'); return reason; },
+      sendCompose: async () => { calls.push('send'); return true; },
+      changeTicketStatus: async (id, status, selectedReason) => calls.push({ id, status, selectedReason }),
+      CURRENT_TICKET: null,
+    });
+    expect(calls).toEqual(reason === undefined ? ['reason'] : ['reason', 'send', { id: 'TK-5', status: 'pending', selectedReason: reason }]);
+  }
+});
+
 test('empty To blocks Send and Send and resolve before consuming the draft or running AI', async () => {
   const send = source.slice(source.indexOf('async function sendComposeAnd('), source.indexOf('// Map the server'));
   const ticket = { id: 'TK-5', _uuid: 'uuid', replyRecipients: { to: [] }, msgs: [], status: 'open' };
@@ -21,6 +37,7 @@ test('empty To blocks Send and Send and resolve before consuming the draft or ru
     showToast: message => notices.push(message),
     hideSendMenu() {},
     changeTicketStatus: () => { throw Error('Must not resolve the ticket'); },
+    chooseStatusReason: async () => null,
     prepareCustomerReply: () => { throw Error('Must not run AI'); },
     prepareDraftSend: () => { throw Error('Must not consume the draft'); },
     apiPost: () => { throw Error('Must not post a message'); },

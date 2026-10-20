@@ -29,3 +29,14 @@ test('late responses from another brand cannot overwrite current choices, and lo
   expect(statuses.statusOptionsState().ready).toBe(false); expect(statuses.statusOptionsState().error).toContain('Reload');
   fail = false;
 });
+
+test('normalizes legacy closure defaults and rejects malformed reason settings', async () => {
+  workspace = 'reason-brand'; response = { statuses: [choice('closed', { base_key: 'closed' })] };
+  await statuses.loadStatusOptions();
+  expect(statuses.statusChoice('closed').reason_required).toBe(true);
+  expect(statuses.statusChoice('closed').reasons.map(r => r.key)).toContain('spam');
+  response = { statuses: [choice('bad', { reason_required: 'yes', reasons: [] })] };
+  await statuses.loadStatusOptions(true); expect(statuses.statusOptionsState().ready).toBe(false);
+  response = { statuses: [choice('bad', { reasons: [null] })] };
+  await statuses.loadStatusOptions(true); expect(statuses.statusOptionsState().ready).toBe(false);
+});

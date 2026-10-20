@@ -120,6 +120,7 @@ export function updateOrInsertTicket(row, lookups, target = TICKETS) {
   t.statusOption = row.status_option_key || row.status_key;
   t.statusSurveyEnabled = row.status_survey_enabled;
   t.closureReason = row.closure_reason || null;
+  t.statusReasonLabel = row.status_reason_label || null;
   t.closureNote = row.closure_note || null;
   t.closedAt = row.closed_at || null;
   t.closedByUserId = row.closed_by_user_id || null;
@@ -167,6 +168,7 @@ function mapTicket(t, customerByUuid, userByUuid) {
     statusOption: t.status_option_key || t.status_key,
     statusSurveyEnabled: t.status_survey_enabled,
     closureReason: t.closure_reason || null,
+    statusReasonLabel: t.status_reason_label || null,
     closureNote: t.closure_note || null,
     closedAt: t.closed_at || null,
     closedByUserId: t.closed_by_user_id || null,
@@ -357,6 +359,7 @@ export async function loadWorkspaceData() {
     customerId:      customerByUuid[t.customer_id]?.display_id || null,
     status:          t.status_key,
     closureReason: t.closure_reason || null,
+    statusReasonLabel: t.status_reason_label || null,
     closureNote: t.closure_note || null,
     closedAt: t.closed_at || null,
     closedByUserId: t.closed_by_user_id || null,
@@ -716,6 +719,7 @@ export async function loadTicketDetail(displayId, { force = false } = {}) {
   t.snoozeReason    = d.snooze_reason || '';
   t.resolvedAt      = d.resolved_at || null;
   t.closureReason = d.closure_reason || null;
+  t.statusReasonLabel = d.status_reason_label || null;
   t.closureNote = d.closure_note || null;
   t.closedAt = d.closed_at || null;
   t.closedByUserId = d.closed_by_user_id || null;

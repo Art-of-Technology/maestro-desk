@@ -30,6 +30,7 @@ import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { openTicket, changeTicketStatus } from './detail.js';
 import { showCloseTickets } from './closure.js';
+import { chooseStatusReason } from './status-reasons.js';
 import { showNewTicketModal } from './new-ticket.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
@@ -756,8 +757,14 @@ async function bulkSetStatus(v) {
     }, v === 'spam' ? 'spam' : '', v === 'spam' ? 'closed' : v);
     return;
   }
-  for (const id of [...TICKET_SELECTED_IDS]) {
-    await changeTicketStatus(id, v);
+  const choice = statusChoice(v);
+  if (!choice?.is_active) { showToast('This status is unavailable. Refresh the status options.'); return; }
+  const ids = [...TICKET_SELECTED_IDS], workspace = getWorkspaceId(), jwt = getJwt();
+  const reason = await chooseStatusReason(choice);
+  if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  for (const id of ids) {
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    await changeTicketStatus(id, v, reason);
     if (selectedStatus(TICKETS.find(t => t.id === id) || {}) === v) TICKET_SELECTED_IDS.delete(id);
   }
   updateNavBadges();
