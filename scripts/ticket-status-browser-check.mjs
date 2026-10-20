@@ -33,6 +33,12 @@ export default async function checkTicketStatuses(page, screenshotDir) {
   });
   await page.getByRole('button', { name: 'Add status', exact: true }).click();
   await page.getByLabel('Name', { exact: true }).fill('Resolved — no survey');
+  await page.getByLabel('Workflow category', { exact: true }).selectOption('closed');
+  if (!(await page.getByLabel('Reason required', { exact: true }).isChecked()) || await page.locator('#status-reasons [data-reason-key]').count() !== 4) throw Error('Closure defaults missing');
+  await page.getByLabel('Workflow category', { exact: true }).selectOption('pending');
+  if (await page.getByLabel('Reason required', { exact: true }).isChecked() || await page.locator('#status-reasons [data-reason-key]').count()) throw Error('Closure reasons leaked into another category');
+  await page.getByLabel('Workflow category', { exact: true }).selectOption('closed');
+  if (await page.locator('#status-reasons [data-reason-key="spam"]').count() !== 1) throw Error('Returning to Closed lost Spam');
   await page.getByLabel('Workflow category', { exact: true }).selectOption('resolved');
   await page.getByRole('button', { name: 'Save status', exact: true }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });

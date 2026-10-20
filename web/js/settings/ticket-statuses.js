@@ -5,6 +5,7 @@ import { showModal, closeModal } from '../core/modal.js';
 import { showToast } from '../core/toast.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 
+let categoryDrafts, previousCategory;
 export function renderTicketStatuses() {
   if (!window.isAdmin()) return '<div class="page ticket-status-settings"><div class="topbar"><h1 class="tb-title">Ticket statuses</h1></div><p class="report-note">Brand admin permission is required to manage ticket statuses.</p></div>';
   const state = statusOptionsState();
@@ -19,6 +20,7 @@ function edit(key) {
   const old = key ? statusOptions({ includeRetired: true }).find(s => s.key === key) : null;
   if (key && !old) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
+  categoryDrafts = new Map(); previousCategory = old?.base_key || STATUS_CATEGORIES[0];
   const trigger = document.activeElement;
   let busy = false;
   showModal(old ? 'Edit ticket status' : 'Add ticket status', `
@@ -36,7 +38,7 @@ function edit(key) {
     const error = document.getElementById('status-error');
     const label = document.getElementById('status-name').value.trim();
     if (!label) { error.textContent = 'Enter a status name.'; document.getElementById('status-name').focus(); return; }
-    const reasons = [...document.querySelectorAll('#status-reasons [data-reason-key]')].map(row => ({ key: row.dataset.reasonKey, label: row.querySelector('input[type="text"]').value.trim(), is_active: !row.querySelector('input[type="checkbox"]').checked }));
+    const reasons = readReasons();
     const reason_required = document.getElementById('status-reason-required').checked;
     if (reasons.length > 50 || reasons.some(r => !r.label) || new Set(reasons.filter(r => r.is_active).map(r => r.label.toLowerCase())).size !== reasons.filter(r => r.is_active).length || (reason_required && !reasons.some(r => r.is_active))) {
       error.textContent = 'Give each reason a unique name. Keep at least one available when a reason is required (maximum 50 reasons).'; return;
@@ -76,12 +78,17 @@ function edit(key) {
 function updateSurvey() {
   const category = document.getElementById('status-category'), survey = document.getElementById('status-survey');
   if (!category || !survey) return;
-  if (!category.disabled && category.value !== 'closed') document.querySelector('#status-reasons [data-reason-key="spam"]')?.remove();
   survey.disabled = category.value !== 'resolved'; if (survey.disabled) survey.value = 'false';
-  if (!category.disabled && category.value === 'closed' && !document.getElementById('status-reasons').children.length) {
-    document.getElementById('status-reasons').innerHTML = DEFAULT_CLOSURE_REASONS.map(r => reasonRow(r)).join('');
-    document.getElementById('status-reason-required').checked = true;
+  if (!category.disabled && category.value !== previousCategory) {
+    const required = document.getElementById('status-reason-required');
+    categoryDrafts.set(previousCategory, { required: required.checked, reasons: readReasons() });
+    const next = categoryDrafts.get(category.value) || { required: category.value === 'closed', reasons: category.value === 'closed' ? DEFAULT_CLOSURE_REASONS : [] };
+    document.getElementById('status-reasons').innerHTML = next.reasons.map(r => reasonRow(r)).join('');
+    required.checked = next.required; previousCategory = category.value;
   }
+}
+function readReasons() {
+  return [...document.querySelectorAll('#status-reasons [data-reason-key]')].map(row => ({ key: row.dataset.reasonKey, label: row.querySelector('input[type="text"]').value.trim(), is_active: !row.querySelector('input[type="checkbox"]').checked }));
 }
 function reasonRow(reason, builtinClosed = false) {
   const id = `reason-${reason.key}`, locked = builtinClosed && reason.key === 'spam';
