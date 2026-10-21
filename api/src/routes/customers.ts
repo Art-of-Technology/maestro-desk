@@ -16,6 +16,7 @@ import { customerSummary, customerTicketPage, customerVisible } from '../lib/cus
 import { customerRisk } from '../lib/customer-risk.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { setCustomerSpam } from '../lib/customer-spam.js';
+import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
 import {
   ContactError, addContact, removeContact, setPrimaryContact, resolveCustomerByContact,
   ensurePrimaryContacts, moveContactsForMerge, restoreContactsForUnmerge,
@@ -30,7 +31,7 @@ const eraseBody = z.object({ reason: z.enum(['subject_request','retention_expire
 // response with the same mapper it bootstraps from). getDb() returns `since`
 // as a YYYY-MM-DD calendar value rather than a midnight-UTC timestamp.
 const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, email, mobile, brand, vip_tier,
-           jurisdiction, consent, since, backoffice_url, erased_at, created_at, is_spam,
+           jurisdiction, preferred_language, consent, since, backoffice_url, erased_at, created_at, is_spam,
            maestro_user_id, maestro_member_id, maestro_global_id_verified,
            merged_into_customer_id, merged_at,
            email_bounce_state, email_last_bounce_type, email_last_bounce_at, email_bounce_count`;
@@ -554,7 +555,7 @@ const MergeBody = z.object({ into_id: z.string().uuid() });
 // "kept", so once a name does leave, stale journal rows say so in the audit
 // instead of masquerading as a deliberate decision not to revert.
 const BACKFILL_COLS = [
-  'username', 'brand', 'vip_tier', 'jurisdiction', 'kyc_status', 'since', 'backoffice_url',
+  'username', 'brand', 'vip_tier', 'jurisdiction', 'preferred_language', 'kyc_status', 'since', 'backoffice_url',
   // Maestro player ids (text columns — see the 20260903100000 migration).
   'maestro_user_id', 'maestro_member_id',
 ] as const;
@@ -583,12 +584,12 @@ customers.post('/:id/merge', async (c) => {
     // the same pair (either direction) can't deadlock.
     const [a, b] = [sourceId, primaryId].sort();
     const rows = await tx<{ id: string; display_id: string; first_name: string | null; last_name: string | null; email: string | null;
-      mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null;
+      mobile: string | null; username: string | null; brand: string | null; vip_tier: string | null; jurisdiction: string | null; preferred_language: string | null;
       kyc_status: string | null; since: string | null; backoffice_url: string | null;
       maestro_user_id: string | null; maestro_member_id: string | null; maestro_global_id_verified: boolean;
       merged_into_customer_id: string | null; erased_at: string | null }[]>`
       select id, display_id, first_name, last_name, email, mobile, username, brand, vip_tier,
-             jurisdiction, to_jsonb(customers) ->> 'kyc_status' as kyc_status, since, backoffice_url,
+             jurisdiction, preferred_language, to_jsonb(customers) ->> 'kyc_status' as kyc_status, since, backoffice_url,
              maestro_user_id, maestro_member_id, maestro_global_id_verified, merged_into_customer_id, erased_at
       from customers
       where id = any(${[a, b]}) and workspace_id = ${workspaceId} and deleted_at is null
@@ -1064,6 +1065,7 @@ const PatchCustomer = z.object({
   brand:          blankToNull(z.string().trim().max(100)),
   vip_tier:       blankToNull(z.string().trim().max(50)),
   jurisdiction:   blankToNull(z.string().trim().max(100)),
+  preferred_language: blankToNull(z.enum(SUPPORTED_LANGUAGES)),
   since:          blankToNull(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine(isRealDate, 'Invalid date')),
   backoffice_url: blankToNull(z.string().trim().max(2048).url().refine((u) => /^https?:\/\//i.test(u), 'Must be an http(s) link')),
   // The column is nullable, but null and false both mean "no consent": the

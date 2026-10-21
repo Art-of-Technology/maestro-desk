@@ -11,6 +11,7 @@ export default async(page) => {
     let body={}; let status=200;
     if(path.endsWith('/ticket-statuses')) body={statuses:['open','pending','escalated','gdpr','resolved','closed'].map(key=>({key,label:key,base_key:key,is_active:true,send_survey:key==='resolved'}))};
     else if(path.endsWith('/ai/messages')) { aiCalls++; body=fail?{error:'Provider unavailable'}:{text:data.action==='detect_language'?'Spanish':'Su cuenta está lista.'};status=fail?502:200; }
+    else if(path.endsWith('/customers/'+customerId)&&route.request().method()==='PATCH') body={customer:{preferred_language:data.preferred_language}};
     else if(path.endsWith('/tickets')&&route.request().method()==='POST') {
       creates++;status=201;body={ticket:{id:ticketId,display_id:'TK-LANG',subject:data.subject,customer_id:customerId,status_key:'open',priority_key:'normal'}};
     } else if(path.endsWith('/messages')&&route.request().method()==='POST') {

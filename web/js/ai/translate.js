@@ -25,12 +25,11 @@ import { messageTranslationRequest, translationScope } from './translation-cache
 import { openTicket } from '../tickets/detail.js';
 import { showModal } from '../core/modal.js';
 import { registerActions } from '../core/event-delegation.js';
+import { TRANSLATOR_LANGS } from './languages.js';
 
 export let AGENT_PREFERRED_LANG = localStorage.getItem('agent_preferred_lang') || 'English';
 
-export const TRANSLATOR_LANGS = [
-  'English','Spanish','French','German','Italian','Portuguese','Dutch','Swedish','Norwegian','Danish','Finnish','Polish','Czech','Hungarian','Romanian','Greek','Russian','Ukrainian','Turkish','Arabic','Hebrew','Hindi','Japanese','Mandarin Chinese','Cantonese','Korean','Thai','Vietnamese','Indonesian',
-];
+export { TRANSLATOR_LANGS };
 
 export async function translateText(text, targetLang, request = callClaude) {
   if (!text || !text.trim()) return { error: 'No text to translate.' };

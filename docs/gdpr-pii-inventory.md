@@ -13,6 +13,11 @@ redact the personal data** and stamp `customers.erased_at`.
 
 ## Surfaces
 
+`customers.preferred_language` stores an agent-confirmed conversation preference.
+It is included in customer exports and nulled on erasure, including merge-journal
+copies. Database constraints prevent a preference being written onto an erased
+customer. Permanent audit metadata records only the field name.
+
 ### S3 activity and audit boundaries
 
 `events.details` and `author_label` are redacted on customer erasure; event identity

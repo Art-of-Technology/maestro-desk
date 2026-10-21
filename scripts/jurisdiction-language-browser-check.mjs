@@ -15,6 +15,8 @@ export default async page => {
     await p.evaluate(async jurisdiction => {
       const { CUSTOMERS } = await import('/js/core/data.js');
       CUSTOMERS[0].jurisdiction = jurisdiction;
+      CUSTOMERS[0].preferredLanguage = '';
+      CUSTOMERS[1].preferredLanguage = '';
       await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, CUSTOMERS[0].id);
     }, jurisdiction);
     await p.locator('#nt-subj').fill('Account update');

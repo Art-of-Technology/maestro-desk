@@ -59,7 +59,7 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
   const patch = (token: string | null, cid: string, body: unknown) =>
     as(token, url(cid), { method: 'PATCH', body: JSON.stringify(body) });
   const rowOf = async (cid: string) => (await sql<Record<string, any>[]>`
-    select first_name, last_name, username, brand, vip_tier, jurisdiction, consent, since::text as since,
+    select first_name, last_name, username, brand, vip_tier, jurisdiction, preferred_language, consent, since::text as since,
            backoffice_url, updated_at from customers where id = ${cid}
   `)[0];
   const auditsFor = (cid: string) => sql<{ action: string; metadata: Record<string, any> }[]>`
@@ -234,6 +234,54 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
     const foreign = await mkCustomer('FOREIGN', {}, ctx.ws2);
     expect((await patch(agent.token, foreign, { brand: 'X' })).status).toBe(404);
     expect((await rowOf(foreign)).brand).toBeNull();
+  });
+
+  it('preferred language is validated, shared with other agents, clearable and audited without values', async () => {
+    const cid = await mkCustomer('LANG', { jurisdiction: 'CL' });
+    for (const invalid of ['Klingon', 'es', '<script>', 123, true, {}]) {
+      expect((await patch(agent.token, cid, { preferred_language: invalid })).status).toBe(400);
+    }
+    const saved = await patch(agent.token, cid, { preferred_language: 'French' });
+    expect(saved.status).toBe(200);
+    expect((await saved.json() as any).customer.preferred_language).toBe('French');
+    const list = await (await as(admin.token, '/api/v1/customers')).json() as any;
+    expect(list.customers.find((c: any) => c.id === cid).preferred_language).toBe('French');
+    expect((await rowOf(cid)).jurisdiction).toBe('CL');
+    expect((await patch(agent.token, cid, { preferred_language: 'French' })).status).toBe(200);
+    const audits = await auditsFor(cid);
+    expect(audits.length).toBe(1);
+    expect(audits[0].metadata.changed_pii).toContain('preferred_language');
+    expect(JSON.stringify(audits[0].metadata)).not.toContain('French');
+    const exported = await (await as(admin.token, `${url(cid)}/export`)).json() as any;
+    expect(exported.customer.preferred_language).toBe('French');
+    expect((await patch(agent.token, cid, { preferred_language: '' })).status).toBe(200);
+    expect((await rowOf(cid)).preferred_language).toBeNull();
+    const foreign = await mkCustomer('LANG-FOREIGN', {}, ctx.ws2);
+    expect((await patch(agent.token, foreign, { preferred_language: 'Spanish' })).status).toBe(404);
+    expect((await rowOf(foreign)).preferred_language).toBeNull();
+    expect((await patch(null, cid, { preferred_language: 'Spanish' })).status).toBe(401);
+    expect((await patch(outsider.token, cid, { preferred_language: 'Spanish' })).status).toBe(403);
+  });
+
+  it('preferred language follows merge/unmerge and erasure, with database guards', async () => {
+    const source = await mkCustomer('LANG-SOURCE', { preferred_language: 'Spanish' });
+    const primary = await mkCustomer('LANG-PRIMARY');
+    expect((await as(admin.token, `${url(source)}/merge`, { method: 'POST', body: JSON.stringify({ into_id: primary }) })).status).toBe(200);
+    expect((await rowOf(primary)).preferred_language).toBe('Spanish');
+    expect((await patch(agent.token, source, { preferred_language: 'German' })).status).toBe(409);
+    expect((await as(admin.token, `${url(source)}/unmerge`, { method: 'POST' })).status).toBe(200);
+    expect((await rowOf(primary)).preferred_language).toBeNull();
+    const { eraseCustomer } = await import('./lib/gdpr-erasure.js');
+    const erased = await eraseCustomer({ workspaceId: ctx.ws, customerId: source, requestedByUserId: admin.userId });
+    expect(erased?.fieldsErased).toContain('preferred_language');
+    expect((await rowOf(source)).preferred_language).toBeNull();
+    const [journal] = await sql`select backfilled_fields from customer_merges where source_customer_id=${source}`;
+    expect(journal.backfilled_fields).not.toHaveProperty('preferred_language');
+    expect((await patch(agent.token, source, { preferred_language: 'Spanish' })).status).toBe(409);
+    await expect(sql`update customers set preferred_language='Spanish' where id=${source}`.execute()).rejects.toMatchObject({ constraint_name: 'customers_erased_language' });
+    await expect(sql`update customers set preferred_language='Klingon' where id=${primary}`.execute()).rejects.toMatchObject({ constraint_name: 'customers_preferred_language_supported' });
+    const { SUPPORTED_LANGUAGES } = await import('./lib/language-detection.js');
+    for (const language of SUPPORTED_LANGUAGES) await sql`update customers set preferred_language=${language} where id=${primary}`;
   });
 
   it('merge interaction: editing a field the merge backfilled keeps the edit on unmerge (fields_kept_due_to_edit)', async () => {
