@@ -75,6 +75,14 @@ export default async function checkTemplateFavourites(page) {
   await page.reload(); await initialise();
   await page.waitForSelector('.template-favourites-links button');
   assert(await strip.locator('button').count() === 2, 'Server favourites survive a fresh page session');
+  await strip.getByRole('button', { name: 'Refund update', exact: true }).focus();
+  await page.evaluate(async () => (await import('/js/tickets/template-favourites.js')).loadTemplateFavourites());
+  assert(await strip.getByRole('button', { name: 'Refund update', exact: true }).evaluate(el => document.activeElement === el), 'Refreshing favourites preserves focus on a composer shortcut');
+  server.get('fixture-a|workspace-a').delete(first);
+  await page.evaluate(async () => (await import('/js/tickets/template-favourites.js')).loadTemplateFavourites());
+  assert(await page.getByRole('button', { name: 'Insert template', exact: true }).evaluate(el => document.activeElement === el), 'A remotely removed favourite returns focus to the template picker button');
+  server.get('fixture-a|workspace-a').add(first);
+  await page.evaluate(async () => (await import('/js/tickets/template-favourites.js')).loadTemplateFavourites());
   await page.locator('[data-action="td.setComposeTab"][data-tab="note"]').last().click();
   assert(await page.locator('.template-favourites').count() === 0, 'Reply favourites are hidden on internal notes');
   await page.locator('[data-action="td.setComposeTab"][data-tab="reply"]').last().click();

@@ -908,7 +908,15 @@ function toggleWatch(id) {
 
 globalThis.window?.addEventListener?.('respovia:template-favourites', () => {
   const row = document.getElementById('template-favourites-' + CURRENT_TICKET);
-  if (row) row.innerHTML = favouritesRow(CURRENT_TICKET);
+  if (!row) return;
+  const focusedKey = row.contains(document.activeElement) ? document.activeElement.dataset.templateKey : null;
+  const scrollLeft = row.querySelector('.template-favourites-links')?.scrollLeft || 0;
+  row.innerHTML = favouritesRow(CURRENT_TICKET);
+  row.querySelector('.template-favourites-links').scrollLeft = scrollLeft;
+  if (focusedKey) {
+    const next = [...row.querySelectorAll('button')].find(button => button.dataset.templateKey === focusedKey);
+    (next || document.querySelector('[data-action="td.macroPanel"]'))?.focus();
+  }
 });
 
 export async function insertMacro(ticketId, idx) {
