@@ -13,9 +13,18 @@ export default async page => {
       const row={id,display_id:'TK-NEW',customer_id:customerId,subject:'Account update',status_key:'open',status_option_key:'open',status_survey_enabled:false,priority_key:'normal'};
       const messages=[],bodies=[],drafts={};let creates=0,closes=0,ai=0;
       p.on('dialog',dialog=>dialog.accept());
+      const reminders=new Map(); let generation=0;
       await p.route('**/api/**',async route=>{
         const req=route.request(),path=new URL(req.url()).pathname,body=req.postDataJSON();let json={},status=200;
-        if(path.endsWith('/ticket-statuses'))json={statuses};
+        if(path.endsWith('/close-reminder')) {
+          const key=req.headers()['authorization']+':'+req.headers()['x-workspace-id'];
+          let reminder=reminders.get(key)||{pending:false,version:0};
+          if(req.method()==='PUT') {
+            if(body.version!==reminder.version||body.generation!==generation)status=409;
+            else {reminder={pending:body.pending&&row.status_key!=='closed',version:reminder.version+1};reminders.set(key,reminder);}
+          }
+          json={reminder:{...reminder,generation}};
+        } else if(path.endsWith('/ticket-statuses'))json={statuses};
         else if(path.endsWith('/customers/'+customerId)&&req.method()==='PATCH')json={customer:{preferred_language:body.preferred_language}};
         else if(path.endsWith('/ai/messages')) {
           ai++;
@@ -35,7 +44,7 @@ export default async page => {
         } else if(path.endsWith('/close')) {
           closes++;
           if(scenario==='close-failed'&&closes===1){status=503;json={error:'Fixture close unavailable'};}
-          else {Object.assign(row,{status_key:'closed',status_option_key:'closed',closure_reason:body.reason,status_reason_label:body.reason?'Other':null,closed_at:new Date().toISOString()});json={ticket:row,activity:[]};}
+          else {generation++;for(const reminder of reminders.values()){reminder.pending=false;reminder.version++;}Object.assign(row,{status_key:'closed',status_option_key:'closed',closure_reason:body.reason,status_reason_label:body.reason?'Other':null,closed_at:new Date().toISOString()});json={ticket:row,activity:[]};}
         } else if(path.includes('/drafts/')) {
           const tab=path.split('/').at(-1);
           if(req.method()==='PUT')drafts[tab]={...body,version:(body.version||0)+1,attachments:[]};
@@ -101,7 +110,7 @@ export default async page => {
           continue;
         }
         if(scenario==='demo') {
-          await p.waitForFunction(async()=>{const {TICKETS}=await import('/js/core/data.js');return TICKETS[0].status==='closed';});
+          await p.waitForFunction(()=>document.querySelector('[aria-label="Ticket status"]')?.value==='closed');
           check(creates===0&&closes===0,'Demo creation and closure stay local');
           continue;
         }
@@ -118,9 +127,9 @@ export default async page => {
           check(creates===1&&bodies.length===1&&closes===0,'Sending failure opens the existing ticket without closing');
           if(scenario==='send-failed')check(await p.evaluate(async()=>!!(await import('/js/tickets/drafts.js')).loadDraft('TK-NEW','reply')),'Failed first message is kept on the created ticket');
         } else {
-          await p.waitForFunction(async()=>{const {TICKETS}=await import('/js/core/data.js');return TICKETS.find(t=>t.id==='TK-NEW')?.status==='closed';});
+          await p.waitForFunction(()=>document.querySelector('[aria-label="Ticket status"]')?.value==='closed');
           check(creates===1&&bodies.length===1,'Successful first-message flow creates and sends once');
-          check(row.status_survey_enabled===false&&row.status_key==='closed','Closed status has no survey');
+          check(row.status_survey_enabled===false&&row.status_key==='closed',`${scenario}: closed status has no survey (${row.status_key}/${row.status_survey_enabled}, ${closes} closes)`);
           check(await p.locator('.ticket-close-reminder').count()===0,'Confirmed first-message closure clears the reminder');
           check(bodies[0].reply_language==='Spanish'&&bodies[0].body.includes('Su cuenta'),'Normal translation and branding language are used');
         }

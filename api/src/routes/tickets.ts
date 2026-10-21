@@ -1,6 +1,7 @@
 import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
+import { closeReminders } from './close-reminders.js';
 import { ticketEmailForwards } from './ticket-email-forwards.js';
 import { ticketEmailDownloads } from './ticket-email-downloads.js';
 import { isExportableEmail } from '../lib/email-export.js';
@@ -73,13 +74,14 @@ tickets.use('*', async (c, next) => {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
   if (c.res.status >= 300) return;
   // Draft autosaves are working-state churn, not ticket activity.
-  if (c.req.path.endsWith('/ai-draft') || /\/drafts\/(reply|note)$/.test(c.req.path)) return;
+  if (c.req.path.endsWith('/ai-draft') || c.req.path.endsWith('/close-reminder') || /\/drafts\/(reply|note)$/.test(c.req.path)) return;
   const id = c.req.param('id');
   const workspaceId = c.get('workspaceId');
   if (id && workspaceId) void publishTicketChanged(workspaceId, id);
 });
 
 tickets.route('/', messageDrafts);
+tickets.route('/', closeReminders);
 tickets.route('/', ticketEmailDownloads);
 tickets.route('/', ticketEmailForwards);
 

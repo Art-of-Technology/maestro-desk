@@ -88,7 +88,7 @@ import {
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
-import { closeReminder, clearCloseReminder } from './close-reminder.js';
+import { closeReminder, clearCloseReminder, loadCloseReminder, dismissCloseReminder } from './close-reminder.js';
 import { chooseStatusReason } from './status-reasons.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
@@ -175,6 +175,7 @@ export function openTicket(id) {
   // pasted from chat, or external modules calling window.openTicket after
   // a delete/merge. Fall back to the list so the page doesn't blank out.
   if (!t) { setCurrentTicket(null); return renderPage('tickets'); }
+  void loadCloseReminder(t, { force: entering });
   initialiseReplyLanguage(t);
   setCurrentPage('tickets');
   document.body.dataset.currentPage = 'tickets';
@@ -1496,7 +1497,7 @@ registerActions({
   'td.dismissCloseReminder': ds => {
     const t = TICKETS.find(t => t.id === ds.ticketId);
     if (!t || CURRENT_TICKET !== t.id) return;
-    clearCloseReminder(t);
+    void dismissCloseReminder(t);
     document.getElementById('ticket-close-reminder')?.focus();
   },
   'td.retryCloseOnly': async (ds, el) => {

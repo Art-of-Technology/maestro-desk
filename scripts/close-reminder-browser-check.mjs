@@ -10,9 +10,18 @@ export default async page => {
       const row = {id:uuid,display_id:'TK-001',subject:'Account update',status_key:'open',status_option_key:'open',priority_key:'normal',status_survey_enabled:false};
       let closes=0, sends=0, ai=0, failStatus=false;
       p.on('dialog', d => d.accept());
+      const reminders=new Map(); let generation=0;
       await p.route('**/api/**', async route => {
-        const req=route.request(), path=new URL(req.url()).pathname; let json={}, status=200;
-        if(path.endsWith('/ticket-statuses'))json={statuses:['open','closed'].map(key=>({key,label:key,base_key:key,is_active:!(scenario==='inactive'&&key==='closed'),send_survey:false,reason_required:key==='closed',reasons:key==='closed'?[{key:'other',label:'Other',is_active:true}]:[]}))};
+        const req=route.request(), path=new URL(req.url()).pathname, body=req.postDataJSON(); let json={}, status=200;
+        if(path.endsWith('/close-reminder')) {
+          const key=req.headers()['authorization']+':'+req.headers()['x-workspace-id'];
+          let reminder=reminders.get(key)||{pending:false,version:0};
+          if(req.method()==='PUT') {
+            if(body.version!==reminder.version||body.generation!==generation)status=409;
+            else {reminder={pending:body.pending&&row.status_key!=='closed',version:reminder.version+1};reminders.set(key,reminder);}
+          }
+          json={reminder:{...reminder,generation}};
+        } else if(path.endsWith('/ticket-statuses'))json={statuses:['open','closed'].map(key=>({key,label:key,base_key:key,is_active:!(scenario==='inactive'&&key==='closed'),send_survey:false,reason_required:key==='closed',reasons:key==='closed'?[{key:'other',label:'Other',is_active:true}]:[]}))};
         else if(path.endsWith('/tickets/'+uuid)) {
           if(failStatus){status=503;json={error:'Fixture status unavailable'};}
           else json={ticket:{...row,messages:[],activity:[]}};
@@ -20,7 +29,7 @@ export default async page => {
         } else if(path.endsWith('/close')) {
           closes++;
           if(closes===1){status=503;json={error:'Fixture close unavailable'};}
-          else {Object.assign(row,{status_key:'closed',status_option_key:'closed',closure_reason:'other'});json={ticket:row,activity:[]};if(scenario==='refresh-failed')failStatus=true;}
+          else {generation++;for(const reminder of reminders.values()){reminder.pending=false;reminder.version++;}Object.assign(row,{status_key:'closed',status_option_key:'closed',closure_reason:'other'});json={ticket:row,activity:[]};if(scenario==='refresh-failed')failStatus=true;}
         } else if(path.endsWith('/messages')&&req.method()==='POST')sends++;
         else if(path.endsWith('/ai/messages'))ai++;
         else if(path.includes('/drafts/'))json={draft:{body:'',is_html:false,attachments:[],version:0}};
@@ -39,14 +48,14 @@ export default async page => {
         },{uuid,workspace});
       };
       await p.goto('http://localhost:5173'); await open();
-      await p.evaluate(async()=>{const {TICKETS}=await import('/js/core/data.js');(await import('/js/tickets/close-reminder.js')).markCloseReminder(TICKETS[0]);});
+      await p.evaluate(async()=>{const {TICKETS}=await import('/js/core/data.js');await (await import('/js/tickets/close-reminder.js')).markCloseReminder(TICKETS[0]);});
       await p.reload(); await open();
       const notice=p.locator('.ticket-close-reminder');
       check(await notice.count()===1,'Reminder survives a real page reload');
       check(sends===0&&ai===0&&closes===0,'Restoring a reminder triggers no send, AI or closure');
-      await p.evaluate(async()=>{const {SESSION}=await import('/js/core/state.js');SESSION.userId='another-agent';(await import('/js/ai/translate.js')).setCustomerLanguage('TK-001','English');(await import('/js/tickets/detail.js')).openTicket('TK-001');});
+      await p.evaluate(async()=>{const {SESSION}=await import('/js/core/state.js');SESSION.userId='another-agent';(await import('/js/core/api-client.js')).setJwt('other-agent');(await import('/js/ai/translate.js')).setCustomerLanguage('TK-001','English');(await import('/js/tickets/detail.js')).openTicket('TK-001');});
       check(await notice.count()===0,'Another agent cannot see the reminder');
-      await p.evaluate(async()=>{const api=await import('/js/core/api-client.js');const {SESSION}=await import('/js/core/state.js');SESSION.userId='reminder-agent';api.setWorkspaceId('other');(await import('/js/ai/translate.js')).setCustomerLanguage('TK-001','English');(await import('/js/tickets/detail.js')).openTicket('TK-001');});
+      await p.evaluate(async()=>{const api=await import('/js/core/api-client.js');const {SESSION}=await import('/js/core/state.js');SESSION.userId='reminder-agent';api.setJwt('fixture');api.setWorkspaceId('other');(await import('/js/ai/translate.js')).setCustomerLanguage('TK-001','English');(await import('/js/tickets/detail.js')).openTicket('TK-001');});
       check(await notice.count()===0,'Another workspace cannot see the reminder');
       await p.evaluate(async workspace=>{(await import('/js/core/api-client.js')).setWorkspaceId(workspace);(await import('/js/ai/translate.js')).setCustomerLanguage('TK-001','English');(await import('/js/tickets/detail.js')).openTicket('TK-001');},workspace);
       await p.screenshot({path:`close-reminder-${scenario}-${width}.png`});

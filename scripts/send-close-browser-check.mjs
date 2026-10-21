@@ -17,10 +17,19 @@ export default async page => {
     const drafts = {};
     let closes = 0;
     p.on('dialog', dialog => dialog.accept());
-    await p.route('**/api/**', async route => {
+    const reminders=new Map(); let generation=0;
+      await p.route('**/api/**', async route => {
       const req = route.request(), path = new URL(req.url()).pathname;
       const body = req.postDataJSON(); let json = {}, status = 200;
-      if (path.endsWith('/ticket-statuses')) json={statuses};
+      if(path.endsWith('/close-reminder')) {
+          const key=req.headers()['authorization']+':'+req.headers()['x-workspace-id'];
+          let reminder=reminders.get(key)||{pending:false,version:0};
+          if(req.method()==='PUT') {
+            if(body.version!==reminder.version||body.generation!==generation)status=409;
+            else {reminder={pending:body.pending&&serverTicket.status_key!=='closed',version:reminder.version+1};reminders.set(key,reminder);}
+          }
+          json={reminder:{...reminder,generation}};
+        } else if (path.endsWith('/ticket-statuses')) json={statuses};
       else if (path.endsWith('/ai/messages')) {
         ai.push(body); events.push('ai');
         if(scenario==='translation-failed') {status=503;json={error:'Fixture translation unavailable'};}
@@ -47,7 +56,7 @@ export default async page => {
       } else if(path.endsWith('/close')) {
         closes++; events.push('close');
         if(scenario==='close-failed'&&closes===1) {status=503;json={error:'Fixture close unavailable'};}
-        else {Object.assign(serverTicket,{status_key:'closed',status_option_key:'closed',closure_reason:body.reason,status_reason_label:body.reason?'Other':null,closed_at:new Date().toISOString()});json={ticket:serverTicket,activity:[]};}
+        else {generation++;for(const reminder of reminders.values()){reminder.pending=false;reminder.version++;}Object.assign(serverTicket,{status_key:'closed',status_option_key:'closed',closure_reason:body.reason,status_reason_label:body.reason?'Other':null,closed_at:new Date().toISOString()});json={ticket:serverTicket,activity:[]};}
       } else if(path.endsWith('/tickets/'+id)) json={ticket:{...serverTicket,messages,activity:[]}};
       await route.fulfill({status,json});
     });
