@@ -224,6 +224,7 @@ export function applyCustomerRow(target, c) {
   target.brand        = c.brand || '';
   target.vip          = c.vip_tier || '';
   target.jurisdiction = c.jurisdiction || '';
+  target.preferredLanguage = c.preferred_language || '';
   target.consent      = Boolean(c.consent);
   target.since        = isoDate(c.since);   // `date` column → YYYY-MM-DD whatever the wire form
   target.bo           = c.backoffice_url || '';

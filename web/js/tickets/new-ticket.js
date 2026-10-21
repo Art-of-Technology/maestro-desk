@@ -359,12 +359,15 @@ function clearCustomer() {
 function renderLanguageConfirmation() {
   const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
   const jurisdiction = String(customer?.jurisdiction || '').trim();
-  const suggested = jurisdictionLanguage(jurisdiction);
+  const saved = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : '';
+  const suggested = saved || jurisdictionLanguage(jurisdiction);
   showModal('Confirm conversation language', `
-    <p>${suggested
+    <p>${saved
+      ? `Saved preferred language: <strong>${window.escHtml(saved)}</strong>.`
+      : suggested
       ? `Suggested language: <strong>${window.escHtml(suggested)}</strong>, based on the customer's jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.`
       : `Choose a language for this conversation. ${jurisdiction ? `Jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.` : 'No jurisdiction is saved for this customer.'}`}</p>
-    <p id="nt-language-help">${suggested ? 'Confirm the suggestion or choose another language' : 'Choose a language'} before writing the first message.</p>
+    <p id="nt-language-help">${suggested ? 'Confirm the suggestion or choose another language' : 'Choose a language'} before writing the first message. Your confirmed choice is saved on the customer profile for future conversations.</p>
     <div class="form-row">
       <label class="form-label" for="nt-language">Conversation language</label>
       <select class="form-input" id="nt-language" data-change-action="nt.languageChoice" aria-describedby="nt-language-help nt-language-error" required>
@@ -373,7 +376,8 @@ function renderLanguageConfirmation() {
       </select>
       <p id="nt-language-error" role="alert" hidden>Choose a language to continue.</p>
     </div>
-  `, () => {
+  `, async () => {
+    if (NT.busy) return;
     const select = document.getElementById('nt-language');
     if (!TRANSLATOR_LANGS.includes(select?.value)) {
       document.getElementById('nt-language-error').hidden = false;
@@ -381,7 +385,36 @@ function renderLanguageConfirmation() {
       select?.focus();
       return;
     }
-    NT.replyLanguage = select.value;
+    const language = select.value;
+    const workspace = getWorkspaceId(), jwt = getJwt();
+    const modal = select.closest('.modal');
+    setBusy(true, 'Saving language…');
+    let saveError;
+    try {
+      if (isSessionApiBacked()) {
+        if (!customer?._uuid) throw new Error('Choose a saved customer before continuing.');
+        const res = await apiPatch(`/api/v1/customers/${customer._uuid}`, { preferred_language: language });
+        if (res?.customer?.preferred_language !== language) throw new Error('The language could not be confirmed as saved. Please try again.');
+      }
+    } catch (err) {
+      saveError = err;
+    }
+    if (!modal.isConnected) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) {
+      closeModal(); resetNT();
+      showToast('Your workspace or session changed. Reopen the ticket form to continue.');
+      return;
+    }
+    setBusy(false);
+    if (saveError) {
+      const error = document.getElementById('nt-language-error');
+      error.textContent = `Could not save the preferred language. ${saveError?.message || 'Try again.'}`;
+      error.hidden = false;
+      select.focus();
+      return;
+    }
+    if (customer) customer.preferredLanguage = language;
+    NT.replyLanguage = language;
     NT.languageConfirmed = true;
     closeModal();
     renderStep2();
@@ -396,6 +429,7 @@ function renderLanguageConfirmation() {
   back.textContent = 'Back';
   back.dataset.action = 'nt.languageBack';
   modal.addEventListener('keydown', event => {
+    if (NT.busy) { event.preventDefault(); return; }
     if (event.key === 'Escape') {
       event.preventDefault();
       closeModal();
@@ -480,7 +514,7 @@ function setBusy(on, label) {
   if (draft) draft.disabled = on;
   const manualSend = document.getElementById('nt2-without-ai-btn');
   if (manualSend) manualSend.disabled = on;
-  document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"]')
+  document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"], #modal-container [data-action="nt.languageBack"]')
     .forEach(el => {
       if (el.tagName === 'BUTTON') el.disabled = on;
       el.style.pointerEvents = on ? 'none' : '';
@@ -680,6 +714,7 @@ function createDemoTicket(snap, { message, send }) {
 
 registerActions({
   'nt.languageBack': () => {
+    if (NT.busy) return;
     closeModal(); renderStep1();
     document.querySelector('#modal-container [data-action="modal.confirm"]')?.focus();
   },

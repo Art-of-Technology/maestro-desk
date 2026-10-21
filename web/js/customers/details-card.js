@@ -41,6 +41,7 @@ import { apiPatch, apiPost, apiDelete } from '../core/api-client.js';
 import { applyCustomerRow } from '../core/bootstrap.js';
 import { contactArrays, applyContacts } from './contacts.js';
 import { showToast } from '../core/toast.js';
+import { TRANSLATOR_LANGS } from '../ai/languages.js';
 
 // ─── Field model ─────────────────────────────────────────────────────────────
 // Layout key → API column + input type. `vm` is the view-model key when it
@@ -53,6 +54,7 @@ const EDITABLE = {
   brand:          { col: 'brand',          label: 'Brand',             type: 'text' },
   vip:            { col: 'vip_tier',       label: 'VIP tier',          type: 'select', options: ['Platinum', 'Gold', 'Silver', 'Bronze'] },
   jurisdiction:   { col: 'jurisdiction',   label: 'Jurisdiction',      type: 'text',   placeholder: 'UK' },
+  preferredLanguage: { col: 'preferred_language', label: 'Preferred language', type: 'select', options: TRANSLATOR_LANGS },
   since:          { col: 'since',          label: 'Customer since',    type: 'date' },
   consent:        { col: 'consent',        label: 'Marketing consent', type: 'bool' },
   backoffice_url: { col: 'backoffice_url', label: 'Backoffice link',   type: 'url',    vm: 'bo', placeholder: 'https://' },
@@ -91,6 +93,7 @@ const ROW_RENDERERS = {
   brand:         (c) => c.brand ? esc(c.brand) : '<span class="muted">—</span>',
   vip:           (c) => c.vip ? `<span class="vip-badge vip-${attr((c.vip || '').toLowerCase())}">${esc(c.vip)}</span>` : '<span class="muted">—</span>',
   jurisdiction:  (c) => c.jurisdiction ? mono(c.jurisdiction) : '<span class="muted">—</span>',
+  preferredLanguage: (c) => c.preferredLanguage ? esc(c.preferredLanguage) : '<span class="muted">Not set</span>',
   since:         (c) => c.since ? esc(c.since) : '<span class="muted">—</span>',
   consent:       (c) => `<span style="color:${c.consent ? 'var(--green)' : 'var(--red)'}">${c.consent ? 'Yes' : 'No'}</span>`,
   // Same http(s) guard the old quick-action button had: a non-URL value is

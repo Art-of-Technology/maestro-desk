@@ -61,6 +61,7 @@ const FIELD_LAYOUTS = {
     { key:'brand',        label:'Brand',          locked:false, required:false, visible:true },
     { key:'vip',          label:'VIP tier',       locked:false, required:false, visible:true },
     { key:'jurisdiction', label:'Jurisdiction',   locked:false, required:false, visible:true },
+    { key:'preferredLanguage', label:'Preferred language', locked:false, required:false, visible:true, requiredNA:true, note:'confirmed conversation language' },
     { key:'since',        label:'Customer since', locked:false, required:false, visible:true },
     // Rows on the details card like the fields above (they moved in from the
     // Stats tiles / Quick actions with the pinned-card PR). `requiredNA` drops

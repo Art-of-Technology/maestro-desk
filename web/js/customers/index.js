@@ -805,7 +805,7 @@ async function mergeCustomers(srcId, primaryId) {
   // was instead of leaving it carrying the source's data forever.
   primary._mergeBackfilled = primary._mergeBackfilled || {};
   primary._mergeBackfilled[srcId] = { fields: [], custom: [] };
-  ['email','mobile','username','maestroUserId','memberId','brand','vip','jurisdiction','since','bo'].forEach(f => {
+  ['email','mobile','username','maestroUserId','memberId','brand','vip','jurisdiction','preferredLanguage','since','bo'].forEach(f => {
     if (!primary[f] && src[f]) {
       primary[f] = src[f];
       primary._mergeBackfilled[srcId].fields.push(f);
