@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { requirePlatformAdmin, writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import { readEmailUsage } from '../lib/email-usage.js';
+import { approveBrandWorkspace, workspaceRegistration, setWorkspaceRegistration } from '../lib/maestro-workspace.js';
 import { env } from '../lib/env.js';
 import { sendEmail, isPostmarkConfigured } from '../lib/postmark-outbound.js';
 import { auth, sendInvitationSetup } from '../lib/auth.js';
@@ -36,6 +37,19 @@ god.use('/brands/:id/*', async (c, next) => {
 });
 
 god.get('/email-usage', async c => c.json(await readEmailUsage()));
+
+god.get('/workspace-registration', async c => c.json(await workspaceRegistration()));
+god.patch('/workspace-registration', async c => {
+  const parsed = z.object({ automatic: z.boolean() }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Choose Approval required or Automatic.' }, 400);
+  await setWorkspaceRegistration(parsed.data.automatic, c.get('userId'));
+  return c.json({ automatic: parsed.data.automatic });
+});
+god.post('/workspace-requests/:brandId/approve', async c => {
+  const brandId = z.string().uuid().safeParse(c.req.param('brandId'));
+  if (!brandId.success) return c.json({ error: 'Invalid brand ID.' }, 400);
+  return c.json(await approveBrandWorkspace(brandId.data, c.get('userId')));
+});
 
 // Columns returned for a brand (workspace) — kept consistent across handlers.
 // Module-level constant, never caller-controlled, so sql.unsafe() interpolation

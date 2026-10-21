@@ -56,6 +56,9 @@ const STATE = {
   emailUsageLoading: false,
   emailUsageFetched: 0,
   emailUsageError: false,
+  registration: null,
+  registrationError: null,
+  registrationPending: false,
 };
 
 // Refresh the cached status while the admin panel is visible. Reads never
@@ -119,6 +122,7 @@ function renderHtml() {
       </div>
       <div class="page-scroll">
         ${renderEmailUsage()}
+        ${STATE.view === 'list' ? renderWorkspaceRegistration() : ''}
         ${STATE.view === 'list' ? renderList() : renderDetail()}
       </div>
     </div>`;
@@ -388,6 +392,7 @@ function dnsRow(label, rec) {
 
 async function refreshList() {
   void refreshEmailUsage();
+  void refreshWorkspaceRegistration();
   STATE.brandsLoading = true;
   STATE.brandsError = null;
   STATE.unroutedOutstanding = null;
@@ -405,6 +410,69 @@ async function refreshList() {
     STATE.brandsLoading = false;
     reRender();
   }
+}
+
+function renderWorkspaceRegistration() {
+  const data = STATE.registration;
+  return `<section class="card" aria-label="New workspace approvals" style="padding:16px;margin-bottom:16px">
+    <strong>New workspaces</strong>
+    ${STATE.registrationError ? `<p role="alert">${escAttr(STATE.registrationError)}</p>
+      <button class="btn" data-action="god.refreshRegistration">Retry</button>` : ''}
+    ${data ? `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px">
+      <label for="workspace-registration-mode">Workspace creation</label>
+      <select class="form-input" id="workspace-registration-mode" style="width:auto;max-width:100%;min-height:44px" ${STATE.registrationPending ? 'disabled' : ''}>
+        <option value="approval" ${!data.automatic ? 'selected' : ''}>Approval required</option>
+        <option value="automatic" ${data.automatic ? 'selected' : ''}>Automatic</option>
+      </select>
+      <button class="btn" style="min-height:44px" data-action="god.saveRegistration" ${STATE.registrationPending ? 'disabled' : ''}>Save setting</button>
+    </div>
+    <p style="font-size:13px;color:var(--ink2);margin:12px 0">${data.automatic
+      ? 'New Maestro brands can create workspaces at sign-in. Pending requests still need your approval.'
+      : 'Existing brands work as usual. You must approve requests before new workspaces are created.'}</p>
+    <h2 style="font-size:14px;margin:16px 0 12px">Pending requests (${data.requests.length})</h2>
+    ${data.requests.length ? data.requests.map(r => `<div style="display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;border-top:1px solid var(--rule);padding:12px 0">
+      <div style="min-width:0;overflow-wrap:anywhere"><strong>${escAttr(r.brand_name)}</strong>
+        <div style="font-size:13px;color:var(--ink2);margin-top:4px">${escAttr(r.organization_name)} · ${escAttr(r.requester_email)}</div>
+        <div style="font-size:12px;color:var(--ink2)">${fmtDate(r.requested_at)}</div></div>
+      <button class="btn" data-action="god.approveWorkspace" data-id="${escAttr(r.maestro_brand_id)}" style="min-height:44px" ${STATE.registrationPending ? 'disabled' : ''}>Approve workspace</button>
+    </div>`).join('') : '<p style="font-size:13px;color:var(--ink2)">No requests awaiting approval.</p>'}`
+    : !STATE.registrationError ? '<p role="status">Loading workspace approvals…</p>' : ''}
+  </section>`;
+}
+
+async function refreshWorkspaceRegistration() {
+  try {
+    STATE.registration = await apiGet('/api/v1/god/workspace-registration');
+    STATE.registrationError = null;
+  } catch (e) {
+    STATE.registration = null;
+    STATE.registrationError = e.message || 'Could not load workspace approvals.';
+  }
+  reRender();
+}
+
+async function saveWorkspaceRegistration() {
+  const automatic = document.getElementById('workspace-registration-mode')?.value === 'automatic';
+  if (automatic && !confirm('Allow new Maestro brands to create Respovia workspaces automatically? Pending requests will still need approval.')) return;
+  if (STATE.registrationPending) return;
+  STATE.registrationPending = true;
+  reRender();
+  try {
+    await apiPatch('/api/v1/god/workspace-registration', { automatic });
+    await refreshWorkspaceRegistration();
+  } catch (e) { STATE.registrationError = e.message || 'Could not save workspace setting.'; }
+  finally { STATE.registrationPending = false; reRender(); }
+}
+
+async function approveWorkspace(brandId) {
+  if (STATE.registrationPending) return;
+  STATE.registrationPending = true;
+  reRender();
+  try {
+    await apiPost(`/api/v1/god/workspace-requests/${brandId}/approve`);
+    await refreshList();
+  } catch (e) { STATE.registrationError = e.message || 'Could not approve workspace.'; }
+  finally { STATE.registrationPending = false; reRender(); }
 }
 
 async function refreshDetail(brandId) {
@@ -537,6 +605,9 @@ async function enterBrand(brandId) {
 // ─── Action handlers ──────────────────────────────────────────────────────
 
 registerActions({
+  'god.refreshRegistration': () => refreshWorkspaceRegistration(),
+  'god.saveRegistration': () => saveWorkspaceRegistration(),
+  'god.approveWorkspace': ds => approveWorkspace(ds.id),
   'god.inviteExistingOwner': async (_ds, el) => {
     const input = document.getElementById('brand-owner-email');
     const brandId = STATE.selectedId;

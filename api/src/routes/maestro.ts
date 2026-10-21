@@ -1,6 +1,7 @@
 import { safeError, requestDiagnostic } from '../lib/diagnostics.js';
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { z } from 'zod';
 import { auth, maestroSignInEnabled, MAESTRO_PROVIDER_ID } from '../lib/auth.js';
 import { requireAuthOnly } from '../middleware/auth.js';
 import { env } from '../lib/env.js';
@@ -17,7 +18,7 @@ import {
   memberNotFound,
   str,
 } from '../lib/maestro.js';
-import { resolveBrandWorkspace, agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
+import { resolveBrandWorkspace, agentBrandWorkspaceId, requestBrandWorkspace } from '../lib/maestro-workspace.js';
 import { getDb } from '../lib/db.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
 import { playerBackofficeUrl } from '../lib/player-backoffice.js';
@@ -189,14 +190,43 @@ maestro.get('/workspace', requireAuthOnly, async (c) => {
     // the brand fan-out (listUserBrands(token, organizations)).
     const organizations = await listUserOrganizations(token);
     const brands = await listUserBrands(token, organizations);
-    const archived = await getDb()`select w.maestro_brand_id from workspaces w
-      where w.deleted_at is not null and w.maestro_brand_id is not null
-      and not exists(select 1 from workspaces live where live.maestro_brand_id=w.maestro_brand_id and live.deleted_at is null)`;
-    const archivedIds = new Set(archived.map(w => w.maestro_brand_id));
-    return c.json({ organizations, brands: brands.filter(b => !archivedIds.has(b.id)) });
+    const sql = getDb();
+    const [settings] = await sql`select automatic from workspace_registration_settings where id=true`;
+    if (!settings) throw new Error('Workspace registration settings are missing');
+    const brandIds = brands.length ? brands.map(b => b.id) : [null];
+    const workspaces = await sql`select maestro_brand_id,deleted_at,suspended_at from workspaces
+      where maestro_brand_id in ${sql(brandIds)}
+      order by (deleted_at is null) desc,created_at asc`;
+    const pending = await sql`select maestro_brand_id from workspace_requests where approved_at is null
+      and maestro_brand_id in ${sql(brandIds)}`;
+    const pendingIds = new Set(pending.map(r => r.maestro_brand_id));
+    const visibleBrands = brands.flatMap(b => {
+      const ws = workspaces.find(w => w.maestro_brand_id === b.id);
+      if (ws?.deleted_at || ws?.suspended_at) return [];
+      return [{ ...b, workspace_status: ws ? 'ready' : pendingIds.has(b.id) ? 'pending'
+        : settings.automatic ? 'ready' : 'requestable' }];
+    });
+    return c.json({ organizations, brands: visibleBrands });
   } catch (err) {
     throw toHttp(err);
   }
+});
+
+maestro.post('/workspace-requests', requireAuthOnly, async c => {
+  ensureEnabled();
+  const body = z.object({ brandId: z.string().uuid() }).strict().safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: 'A valid brand ID is required.' }, 400);
+  const userId = c.get('userId');
+  const token = await getUserAccessToken(userId, c.req.raw.headers);
+  if (!token) throw new HTTPException(409, { message: 'No linked Maestro account for this user.' });
+  try {
+    const organizations = await listUserOrganizations(token);
+    const brands = await listUserBrands(token, organizations);
+    const brand = brands.find(b => b.id === body.data.brandId);
+    if (!brand) throw new HTTPException(403, { message: 'You do not have access to that brand.' });
+    const organization = organizations.find(o => o.id === brand.organizationId);
+    return c.json(await requestBrandWorkspace(userId, brand, organization?.name ?? 'Organisation unavailable'));
+  } catch (err) { throw toHttp(err); }
 });
 
 // ─── Brand selection → enter the brand's workspace ───────────────────────────
@@ -315,6 +345,7 @@ maestro.get('/players', requireAuthOnly, async (c) => {
 });
 
 function toHttp(err: unknown): HTTPException {
+  if (err instanceof HTTPException) return err;
   if (err instanceof MaestroError) {
     // 0 = couldn't reach the gateway; surface as 502. Otherwise mirror the
     // upstream status (403 = the agent lacks that brand/scope, etc.).
