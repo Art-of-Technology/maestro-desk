@@ -33,6 +33,7 @@ import { navTo } from '../core/keybindings.js';
 import { insertMacro, openTicket, onComposeInput, changeTicketStatus, changeTicketPriority, changeTicketAgent, addTicketTag } from './detail.js';
 import { apiPost, apiPut, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { appendTemplate } from './template-content.js';
+import { filterTemplates, templateCategories, templateCategory } from './template-search.js';
 import {
   registerActions, registerChangeActions,
   registerMousedownActions, registerInputActions,
@@ -75,16 +76,69 @@ function macActionSummary(a) {
 // ticket `id`. Rows carry data-action="macros.insert"; the handler calls
 // insertMacro (from detail.js). Labels go through escAttr/escHtml on the way in.
 export function showMacroPanel(id) {
-  const items = CANNED_RESPONSES.map((r, i) => {
-    const preview = r.text.replace(/\n+/g, ' ').slice(0, 100);
-    return `<div class="macro-item" data-action="macros.insert" data-id="${window.escAttr(id)}" data-idx="${i}">
-      <div style="display:flex;flex-direction:column;gap:3px;flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600;color:var(--ink)">${window.escHtml(r.name)}</div>
-        <div style="font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(preview)}</div>
-      </div>
-    </div>`;
-  }).join('');
-  showModal('Response templates', `<div style="font-size:12px;color:var(--ink3);margin-bottom:12px">{name} placeholders are auto-filled with the customer\'s first name.</div>${items}`, null, null);
+  const trigger = document.activeElement;
+  showModal('Response templates', `
+    <div class="template-filters">
+      <label>Search templates<input type="search" class="form-input" id="template-picker-search" placeholder="Name, category, or reply text" autocomplete="off"></label>
+      <label>Category<select class="form-input" id="template-picker-category" aria-label="Category">
+        <option value="">All categories</option>
+        ${templateCategories(CANNED_RESPONSES).map(cat => `<option value="${window.escAttr(cat)}">${window.escHtml(cat)}</option>`).join('')}
+      </select></label>
+    </div>
+    <p class="template-picker-hint">Use ↑ ↓ to choose, Enter to preview, Esc to close. Review customer details before inserting.</p>
+    <p id="template-picker-count" role="status"></p>
+    <div id="template-picker-results"></div>`, null, null);
+  const modal = document.querySelector('#modal-container .modal');
+  modal.classList.add('template-picker');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Response templates');
+  modal.querySelector('.modal-close').outerHTML = '<button type="button" class="modal-close" data-action="modal.close" aria-label="Close templates">×</button>';
+  const search = modal.querySelector('#template-picker-search');
+  const category = modal.querySelector('#template-picker-category');
+  const results = modal.querySelector('#template-picker-results');
+  const render = () => {
+    const matches = filterTemplates(CANNED_RESPONSES, search.value, category.value);
+    modal.querySelector('#template-picker-count').textContent = `${matches.length} of ${CANNED_RESPONSES.length} templates`;
+    results.innerHTML = matches.length ? matches.map(r => `<button type="button" class="macro-item template-result" data-action="macros.insert" data-id="${window.escAttr(id)}" data-template-id="${window.escAttr(r._uuid || r.id)}">
+      <strong title="${window.escAttr(r.name)}">${window.escHtml(r.name)}</strong>
+      <span class="template-result-category">${window.escHtml(templateCategory(r))}</span>
+      <span class="template-result-preview">${window.escHtml((r.text || '').replace(/\s+/g, ' ').slice(0, 160))}</span>
+    </button>`).join('') : `<p class="template-picker-empty">${CANNED_RESPONSES.length ? 'No templates match. Try another search or category.' : 'No response templates yet. Ask an admin to add one.'}</p>`;
+  };
+  search.addEventListener('input', render);
+  category.addEventListener('change', render);
+  modal.closest('.modal-bg').addEventListener('click', event => {
+    if (event.target.closest('[data-action]')?.dataset.action === 'modal.close') trigger?.focus();
+  });
+  modal.addEventListener('keydown', event => {
+    if (event.isComposing) return;
+    const buttons = [...results.querySelectorAll('button')];
+    const index = buttons.indexOf(document.activeElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeModal();
+      trigger?.focus();
+    } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.target === search || index >= 0)) {
+      event.preventDefault();
+      const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : buttons.length - 1) : index + (event.key === 'ArrowDown' ? 1 : -1);
+      if (next < 0 || next >= buttons.length) search.focus();
+      else buttons[next].focus();
+    } else if (event.key === 'Enter' && event.target === search) {
+      event.preventDefault();
+      buttons[0]?.click();
+    } else if (event.key === 'Tab') {
+      const controls = [...modal.querySelectorAll('button, input, select')];
+      if (event.shiftKey && event.target === controls[0]) {
+        event.preventDefault(); controls.at(-1).focus();
+      } else if (!event.shiftKey && event.target === controls.at(-1)) {
+        event.preventDefault(); controls[0].focus();
+      }
+    }
+  });
+  render();
+  search.focus();
 }
 
 async function runMacro(macroId, ticketId) {
@@ -404,7 +458,7 @@ export function renderMacros() {
 }
 
 registerActions({
-  'macros.insert':     (ds) => insertMacro(ds.id, parseInt(ds.idx, 10)),
+  'macros.insert':     (ds) => insertMacro(ds.id, CANNED_RESPONSES.findIndex(r => (r._uuid || r.id) === ds.templateId)),
   'macros.gotoManage': () => { closeModal(); navTo('macros'); },
   'macros.removeStep': (ds) => macRemoveStep(parseInt(ds.idx, 10)),
   'macros.addStep':    () => macAddStep(),

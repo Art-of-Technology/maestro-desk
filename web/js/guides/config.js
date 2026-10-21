@@ -97,9 +97,10 @@ export const GUIDE_STEPS = [
     id: 'templates', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Use templates and placeholders',
     body: 'Personalise a saved response and fill missing details before inserting it.',
-    highlights: ["Choose the Insert template icon below your reply and preview a saved response.","Fill every placeholder with verified customer details.","Insert, personalise and reread. Inserting does not send the reply."],
+    highlights: ["Search saved responses by name, category or reply text, then preview a match.","Fill every placeholder with verified customer details.","Insert, personalise and reread. Inserting does not send the reply."],
     instructions: [
-      'In the Reply composer, choose the Insert template icon below your reply to open “Response templates”, then select a response. Read the “Preview response” window before choosing Insert response.',
+      'In the Reply composer, choose the Insert template icon below your reply, or press Ctrl/Cmd+Shift+Space while typing, to open “Response templates”. Search by name, category or reply text and use Category to narrow the results. Use the arrow keys to choose and Enter to preview, or click a response. Escape closes the picker.',
+      'Read the “Preview response” window before choosing Insert response. The full Response Templates library also has search and category filters; choose Uncategorised to find responses without a category.',
       'Templates fill {name} with the customer’s first name, {ticket} with the ticket ID, and {brand} with the customer’s brand when available. {agent} uses the assigned agent, falling back to your session name when no agent is assigned. Check the signature.',
       'Fill each missing field with verified details. For example, replace {transaction_reference} with this customer’s actual reference. If you do not know a value, cancel and investigate or choose a different response.',
       'Insert response adds the template to your existing draft. Remove duplicate greetings or outdated text, then reread the whole reply. Inserting a response does not send it.',

@@ -634,7 +634,7 @@ export function openTicket(id) {
                 <span style="font-size:11px;color:var(--ink3)">Uploaded files sync with your draft.</span>
                 <div class="composer-actions" role="group" aria-label="Reply tools">
                   <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
-                  <button type="button" class="btn btn-sm composer-tool" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}" aria-label="Insert template" title="Insert template">
+                  <button type="button" class="btn btn-sm composer-tool" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}" aria-label="Insert template" aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space" title="Insert template (Ctrl/Cmd+Shift+Space)">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/></svg>
                   </button>
                   ${COMPOSE_TAB === 'reply' && t._uuid ? `<button type="button" class="btn btn-sm composer-tool" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar" aria-label="Similar replies" title="Similar replies">
