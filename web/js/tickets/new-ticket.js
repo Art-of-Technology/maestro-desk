@@ -19,7 +19,7 @@
 // External reaches (interim, via window): escAttr, escHtml — still in app.js.
 
 import { AGENTS, CATEGORIES, CUSTOMERS, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
-import { SESSION, setComposeTabValue } from '../core/state.js';
+import { SESSION, CURRENT_TICKET, setComposeTabValue } from '../core/state.js';
 import { updateNavBadges } from '../core/router.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
@@ -28,7 +28,7 @@ import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiPost, apiPatch, getJwt, getWorkspaceId } from '../core/api-client.js';
-import { updateOrInsertTicket } from '../core/bootstrap.js';
+import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
 import { saveDraft } from './drafts.js';
@@ -37,6 +37,7 @@ import { statusChoice, loadStatusOptions, statusOptionsState } from './status-op
 import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 import { jurisdictionLanguage } from './jurisdiction-language.js';
+import { showCloseTickets, applyClosedTicket } from './closure.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
@@ -56,6 +57,8 @@ const NT = {
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
   replyLanguage: '',
   languageConfirmed: false,
+  closeAfterSend: false,
+  closeReason: '',
 };
 
 function resetNT() {
@@ -73,6 +76,8 @@ function resetNT() {
   NT.messageTouched = false;
   NT.replyLanguage = '';
   NT.languageConfirmed = false;
+  NT.closeAfterSend = false;
+  NT.closeReason = '';
 }
 
 const visible = key => isFieldVisible('ticket', key);
@@ -477,11 +482,21 @@ function renderStep2() {
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
-      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn">Send without AI…</button>
+      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" ${NT.closeAfterSend ? 'disabled title="Choose Send only to send without AI."' : ''}>Send without AI…</button>
       ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
       <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span>` : ''}
     </div>
-  `, () => { void confirmSend(); }, 'Send', true);
+    <div class="form-row" style="margin-top:16px">
+      <label class="form-label" for="nt2-after-send">After sending</label>
+      <select class="form-input" id="nt2-after-send" data-change-action="nt.afterSend">
+        <option value="" ${NT.closeAfterSend ? '' : 'selected'}>Send only</option>
+        <option value="closed" ${NT.closeAfterSend ? 'selected' : ''}>Send and close — no survey</option>
+      </select>
+    </div>
+    ${NT.closeAfterSend ? `<p>Your first message uses the normal AI and translation checks. The ticket closes only after the email is sent.</p>
+      ${statusReasonField(statusChoice('closed'), 'nt2-close-reason', NT.closeReason)}
+      ${statusChoice('closed')?.reasons?.some(r => r.key === 'spam' && r.is_active) ? '<p>Choosing Spam also marks the customer as spam and closes future emails from their addresses in this workspace.</p>' : ''}` : ''}
+  `, () => { void confirmSend(); }, NT.closeAfterSend ? 'Send and close' : 'Send', true);
 
   // A stray backdrop click must not destroy the drafted message — only ×,
   // Cancel, Send, or Save-as-draft leave this step.
@@ -513,7 +528,7 @@ function setBusy(on, label) {
   const draft = document.getElementById('nt2-draft-btn');
   if (draft) draft.disabled = on;
   const manualSend = document.getElementById('nt2-without-ai-btn');
-  if (manualSend) manualSend.disabled = on;
+  if (manualSend) manualSend.disabled = on || NT.closeAfterSend;
   document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"], #modal-container [data-action="nt.languageBack"]')
     .forEach(el => {
       if (el.tagName === 'BUTTON') el.disabled = on;
@@ -524,11 +539,27 @@ function setBusy(on, label) {
 
 async function confirmSend(withoutAI = false) {
   if (NT.busy) return;
+  if (withoutAI && NT.closeAfterSend) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
-  if (required('message') && !msg) { alert('First message is required.'); return; }
+  if ((required('message') || NT.closeAfterSend) && !msg) { alert('First message is required.'); return; }
   if (withoutAI && msg && !window.confirm('Send without AI?\n\nYour message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.')) return;
   setBusy(true, msg ? 'Sending…' : 'Creating…');
-  await finishCreate({ message: msg, send: !!msg, withoutAI });
+  if (NT.closeAfterSend) {
+    const workspace = getWorkspaceId(), jwt = getJwt(), form = document.getElementById('nt2-msg');
+    await loadStatusOptions(true);
+    if (form?.isConnected === false) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
+    setBusy(false);
+    const choice = statusChoice('closed');
+    if (!statusOptionsState().ready || !choice?.is_active) { showToast('Closed status is unavailable. Refresh the status options before sending.'); return; }
+    const reason = document.getElementById('nt2-close-reason')?.value || '';
+    if ((choice.reason_required || reason) && !choice.reasons.some(r => r.key === reason && r.is_active)) {
+      alert('Choose a closure reason.'); document.getElementById('nt2-close-reason')?.focus(); return;
+    }
+    NT.closeReason = reason;
+    setBusy(true, 'Sending…');
+  }
+  await finishCreate({ message: msg, send: !!msg, withoutAI, closeAfterSend: NT.closeAfterSend, closeReason: NT.closeReason });
 }
 
 async function saveAsDraft() {
@@ -553,7 +584,7 @@ async function finishCreate(args) {
   }
 }
 
-async function runCreate({ message, send, withoutAI = false }) {
+async function runCreate({ message, send, withoutAI = false, closeAfterSend = false, closeReason = '' }) {
   // Which path applies is a property of the SESSION, not of the pick: a real
   // workspace whose layout HIDES the Customer field leaves NT.customer null,
   // and routing that to the demo mint would silently create a ghost ticket
@@ -561,6 +592,7 @@ async function runCreate({ message, send, withoutAI = false }) {
   // personas carry no JWT/workspace, so they still take the in-memory path.
   const isApiBacked = isSessionApiBacked();
   const workspace = getWorkspaceId(), jwt = getJwt();
+  const form = document.getElementById('nt2-msg') || document.getElementById('nt-subj');
   // Snapshot everything the async path needs BEFORE the first await — NT is
   // module state and must not be read across it.
   const snapshot = {
@@ -575,7 +607,7 @@ async function runCreate({ message, send, withoutAI = false }) {
     agentName: NT.agentName,
     replyLanguage: withoutAI ? '' : NT.replyLanguage,
   };
-  let displayId, keptDraft = false;
+  let displayId, keptDraft = false, emailed = false;
   if (isApiBacked) {
     if (send && message && !withoutAI) {
       const prepared = await prepareCustomerReply({ autoTranslateReplies: !!snapshot.replyLanguage,
@@ -585,16 +617,28 @@ async function runCreate({ message, send, withoutAI = false }) {
       message = prepared.translation;
       snapshot.replyLanguage = prepared.replyLanguage;
     }
+    if (form?.isConnected === false) return;
     const res = await createOnServer(snapshot, { message, send });
+    if (form?.isConnected === false) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
     // retry === true → nothing was created; keep the modal open so the agent
     // can fix and resubmit. Otherwise a ticket MAY exist server-side, so the
     // modal must close — a second Send would create a duplicate.
     if (!res) { setBusy(false); return; }
-    if (res.aborted) { setBusy(false); closeModal(); resetNT(); return; }
-    displayId = res.displayId; keptDraft = res.keptDraft;
+    if (res.aborted) {
+      setBusy(false); closeModal(); resetNT();
+      if (res.unsentMessage) showModal('Ticket created — first message not sent', `
+        <p>The ticket was created, but its ID could not be confirmed. Reload the ticket list to find it before continuing. Do not create another ticket.</p>
+        <label class="form-label" for="nt-recovery-message">Unsent first message — copy before closing</label>
+        <textarea class="form-input" id="nt-recovery-message" readonly rows="6">${window.escHtml(res.unsentMessage)}</textarea>
+      `, () => closeModal(), 'Close');
+      return;
+    }
+    displayId = res.displayId; keptDraft = res.keptDraft; emailed = res.emailed === true;
   } else {
     const res = createDemoTicket(snapshot, { message, send });
     displayId = res.displayId; keptDraft = res.keptDraft;
+    emailed = send && !!message;
   }
   // Only move the app-wide compose tab when there IS a reply draft to reveal
   // — silently switching an agent out of Internal-note mode otherwise.
@@ -603,9 +647,38 @@ async function runCreate({ message, send, withoutAI = false }) {
   resetNT();
   updateNavBadges();
   openTicket(displayId);         // lazy detail load paints the thread (incl. the sent message)
+  if (closeAfterSend && emailed) await closeCreatedTicket(displayId, closeReason, workspace, jwt);
+  else if (closeAfterSend) showToast('Ticket created and left open because the first email was not confirmed sent. Continue from this ticket; do not create it again.', 'warn', 10000);
+}
+
+async function closeCreatedTicket(id, reason, workspace, jwt) {
+  const ticket = TICKETS.find(t => t.id === id);
+  if (!ticket) return;
+  const current = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id;
+  try {
+    const result = ticket._uuid ? await apiPost(`/api/v1/tickets/${ticket._uuid}/close`, { reason: reason || null, status_option_key: 'closed' }) : null;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    applyClosedTicket(ticket, result, reason);
+    if (current()) { updateNavBadges(); openTicket(id); }
+  } catch (err) {
+    if (!current()) return;
+    showCloseTickets([id], async succeeded => {
+      if (!succeeded.length || !current()) return;
+      await loadTicketDetail(id, { force: true });
+      if (current()) { updateNavBadges(); openTicket(id); }
+    }, reason);
+    const error = document.getElementById('closure-error');
+    if (error) {
+      error.textContent = `The first email was sent. Retry closing only; the ticket and message will not be created again. ${err?.message || 'Could not close the ticket.'}`;
+      error.closest('.modal').querySelector('[data-action="modal.confirm"]').textContent = 'Retry close only';
+    }
+  }
 }
 
 async function createOnServer(snap, { message, send }) {
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const form = document.getElementById('nt2-msg') || document.getElementById('nt-subj');
+  const current = () => workspace === getWorkspaceId() && jwt === getJwt() && form?.isConnected !== false;
   // The API requires a customer. The only way to reach this without one is a
   // workspace whose layout hides the Customer field — say so plainly instead
   // of failing with a schema error.
@@ -620,6 +693,7 @@ async function createOnServer(snap, { message, send }) {
   let res;
   try { res = await apiPost('/api/v1/tickets', body); }
   catch (err) { showToast(`Couldn't create the ticket: ${err?.message || err}`, 'error', 6000); return null; }
+  if (!current()) return { aborted: true };
 
   // Deploy-skew-proof local row: an older API echoes only {id, display_id},
   // so fall back to what the agent entered for every other column.
@@ -635,7 +709,7 @@ async function createOnServer(snap, { message, send }) {
         : "The ticket was created but the server's response was incomplete — reload to see it.",
       'warn', 10000,
     );
-    return { aborted: true };
+    return { aborted: true, unsentMessage: message };
   }
   const row = {
     subject: snap.subject, status_key: 'open', priority_key: snap.priority,
@@ -658,8 +732,9 @@ async function createOnServer(snap, { message, send }) {
       if (t) t.agent = snap.agentName;
     } catch { /* rules' pick stands; visible on the ticket */ }
   }
+  if (!current()) return { aborted: true };
 
-  let keptDraft = false;
+  let keptDraft = false, emailed = false;
   if (send && message) {
     let mres;
     try {
@@ -668,12 +743,15 @@ async function createOnServer(snap, { message, send }) {
       // duplicate send.
       mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message, reply_language: snap.replyLanguage || undefined });
     } catch (err) {
+      if (!current()) return { aborted: true };
       // The ticket already exists — retrying in the modal would duplicate it.
       // Rescue the text as a composer draft and let the agent send from there.
       saveDraft(row.display_id, message, 'reply');
       showToast('Ticket created, but the message failed to send — it was kept as a draft on the ticket.', 'warn', 8000);
       return { displayId: row.display_id, keptDraft: true };
     }
+    if (!current()) return { aborted: true };
+    emailed = mres?.delivery?.emailed === true;
     if (mres?.delivery) notifyReplyDelivery(mres.delivery);
     if (mres?.subject) {
       const ticket = TICKETS.find(t => t._uuid === row.id);
@@ -683,7 +761,7 @@ async function createOnServer(snap, { message, send }) {
     saveDraft(row.display_id, message, 'reply');
     keptDraft = true;
   }
-  return { displayId: row.display_id, keptDraft };
+  return { displayId: row.display_id, keptDraft, emailed };
 }
 
 // Demo persona — the legacy in-memory mint, verbatim semantics.
@@ -724,6 +802,7 @@ registerActions({
   'nt.back':      () => {
     const ta = document.getElementById('nt2-msg');
     if (ta) { NT.message = ta.value; if (ta.value.trim()) NT.messageTouched = true; }
+    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
     closeModal();
     renderStep1();
   },
@@ -731,6 +810,13 @@ registerActions({
 });
 
 registerChangeActions({
+  'nt.afterSend': (ds, el) => {
+    if (NT.busy) return;
+    NT.message = document.getElementById('nt2-msg')?.value || '';
+    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+    NT.closeAfterSend = el.value === 'closed';
+    renderStep2();
+  },
   'nt.languageChoice': (ds, el) => {
     el.removeAttribute('aria-invalid');
     document.getElementById('nt-language-error').hidden = true;
