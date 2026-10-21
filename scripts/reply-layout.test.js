@@ -23,7 +23,9 @@ test('composer exposes the former Tools actions directly with accessible icon la
     expect(button).toContain('type="button"');
     expect(button).toContain('data-ticket-id="TK-1"');
     const label = button.match(/aria-label="([^"]+)"/)[1];
-    expect(button).toContain(`title="${label}"`);
+    const title = label === 'Insert template' ? `${label} (Ctrl/Cmd+Shift+Space)` : label;
+    expect(button).toContain(`title="${title}"`);
+    if (label === 'Insert template') expect(button).toContain('aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space"');
   }
   expect(html).toContain('data-action="td.macroPanel"');
   expect(html).toContain('data-verb="similar"');

@@ -52,7 +52,7 @@ function helpShortcuts() {
     {k:'↑ / ↓', d:'Navigate search results'},
     {k:'Enter', d:'Open the highlighted result'},
     {k:'Esc',   d:'Close the search dropdown'},
-    {k:'Ctrl/Cmd+Shift+Space', d:'Open response templates while typing in a ticket composer'},
+    {k:'Ctrl/Cmd<br>+Shift+Space', d:'Open response templates while typing in a ticket composer'},
   ];
   return `
     <div class="card">
