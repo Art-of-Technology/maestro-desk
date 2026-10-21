@@ -675,6 +675,7 @@ export function openTicket(id) {
                     <div id="send-menu-${id}" class="comp-menu">
                       ${statusOptions().filter(s => !STATUS_CATEGORIES.includes(s.key) && s.base_key !== 'closed').map(s => `<button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(s.key)}">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set ${window.escHtml(s.label)}</button>`).join('')}
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="closed">Send and close — no survey</button>` : ''}
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
                       <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
                       ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
@@ -1247,6 +1248,18 @@ async function sendComposeAnd(id, status) {
   await loadStatusOptions(true);
   if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   if (!statusOptionsState().ready || !statusChoice(status)?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
+  if (status === 'closed') {
+    if (COMPOSE_TAB !== 'reply') return;
+    showCloseTickets([id], async succeeded => {
+      if (!succeeded.length) return;
+      updateNavBadges();
+      const ticket = TICKETS.find(t => t.id === id);
+      if (ticket?._uuid) await loadTicketDetail(id);
+      if (CURRENT_TICKET === id) openTicket(id);
+    }, '', 'closed', () => COMPOSE_TAB === 'reply' && CURRENT_TICKET === id
+      ? sendCompose(id, false, { requireEmail: true }) : false);
+    return;
+  }
   const reason = await chooseStatusReason(statusChoice(status));
   if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   const sent = await sendCompose(id);
@@ -1264,11 +1277,11 @@ function showSentTextModal(ticketId, msgIdx) {
     null, null);
 }
 
-async function sendCompose(id, withoutAI = false) {
+async function sendCompose(id, withoutAI = false, { requireEmail = false } = {}) {
   if (sendingReplies.has(id)) return false;
   sendingReplies.add(id);
   try {
-    const result = await sendComposeOnce(id, withoutAI);
+    const result = await sendComposeOnce(id, withoutAI, requireEmail);
     if (result !== false) invalidateAgentReport();
     return result;
   }
@@ -1276,7 +1289,7 @@ async function sendCompose(id, withoutAI = false) {
 }
 const sendingReplies = new Set();
 
-async function sendComposeOnce(id, withoutAI = false) {
+async function sendComposeOnce(id, withoutAI = false, requireEmail = false) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
@@ -1360,6 +1373,7 @@ async function sendComposeOnce(id, withoutAI = false) {
   }
   const mentions = isNote ? parseMentions(outgoing) : null;
   let clearSentDraft = true;
+  let emailed = !t._uuid;
 
   // API-backed path. The server stamps the canonical author_label + ts;
   // we use its response so the row in t.msgs matches what /tickets/:id
@@ -1387,6 +1401,7 @@ async function sendComposeOnce(id, withoutAI = false) {
       });
       message = res.message;
       delivery = res.delivery;
+      emailed = delivery?.emailed === true;
       if (res.subject) t.subject = res.subject;
       try { clearSentDraft = finishDraftSend(id, tab, sentDraft, res.draft_version); }
       catch {
@@ -1442,7 +1457,7 @@ async function sendComposeOnce(id, withoutAI = false) {
     openTicket(id);
     if (!isNote && clearSentDraft) setComposerMode(id, 'read', true);
   }
-  return true;
+  return !requireEmail || isNote || emailed;
 }
 
 // Map the server's agent-reply delivery outcome to a transient toast. The
