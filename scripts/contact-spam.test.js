@@ -12,10 +12,12 @@ globalThis.localStorage = { getItem: key => storage.get(key) || null, setItem: (
 globalThis.document = { getElementById: id => ({ 'closure-reason': reason, 'closure-note': note, 'closure-error': error })[id] };
 globalThis.window = { escHtml: String, escAttr: String };
 mock.module('../web/js/core/data.js', () => ({ AGENTS: [], TICKETS: tickets, CUSTOMERS: contacts }));
-mock.module('../web/js/core/state.js', () => ({ SESSION: { userId: 'agent' } }));
+mock.module('../web/js/core/state.js', () => ({ SESSION: { userId: 'agent' }, CURRENT_TICKET: '1' }));
 mock.module('../web/js/core/api-client.js', () => ({
   getWorkspaceId: () => workspace,
   getJwt: () => jwt,
+  apiGet: async () => ({ reminder: { pending: false, version: 0, generation: 0 } }),
+  apiPut: async (path, data) => ({ reminder: { pending: data.pending, version: data.version + 1, generation: 0 } }),
   apiPost: async (path, data) => {
     requests.push({ path, data });
     if (path.includes(failId)) throw new Error('Temporary failure');
@@ -77,13 +79,13 @@ test('a failed close after sending offers only a closure retry', async () => {
   expect(sends).toBe(1); expect(tickets[0].status).toBe('open');
   expect(button.textContent).toBe('Retry close only');
   expect(error.textContent).toContain('Reply sent');
-  expect([...storage.values()]).toEqual(['1']);
+  expect([...storage.values()].map(JSON.parse)).toEqual([{pending:true,version:1,generation:0,dirty:false}]);
   expect(reason.disabled).toBe(true); expect(note.disabled).toBe(true);
   failId = 'never'; await confirm();
   expect(sends).toBe(1); expect(requests).toHaveLength(2);
   expect(requests[1].data).toMatchObject({reason:'other',note:'Internal context'});
   expect(tickets[0].status).toBe('closed'); expect(tickets[0].statusSurveyEnabled).toBe(false);
-  expect(storage.size).toBe(0);
+  expect([...storage.values()].map(JSON.parse).every(r=>!r.pending)).toBe(true);
 });
 
 test('double confirmation sends once and a workspace switch prevents closure', async () => {

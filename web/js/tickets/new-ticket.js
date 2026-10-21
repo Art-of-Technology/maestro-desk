@@ -655,7 +655,8 @@ async function runCreate({ message, send, withoutAI = false, closeAfterSend = fa
 async function closeCreatedTicket(id, reason, workspace, jwt) {
   const ticket = TICKETS.find(t => t.id === id);
   if (!ticket) return;
-  markCloseReminder(ticket);
+  await markCloseReminder(ticket);
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   const current = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id;
   try {
     const result = ticket._uuid ? await apiPost(`/api/v1/tickets/${ticket._uuid}/close`, { reason: reason || null, status_option_key: 'closed' }) : null;

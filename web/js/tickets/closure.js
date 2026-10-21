@@ -91,7 +91,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
         if (error.isConnected) closeModal();
         return;
       }
-      if (replySent) targets.forEach(markCloseReminder);
+      if (replySent) await Promise.all(targets.map(markCloseReminder));
       if (!error.isConnected) return;
       if (!replySent) {
         busy = false; setSendBusy(false);
