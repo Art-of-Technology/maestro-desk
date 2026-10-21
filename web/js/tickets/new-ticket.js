@@ -38,6 +38,7 @@ import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 import { jurisdictionLanguage } from './jurisdiction-language.js';
 import { showCloseTickets, applyClosedTicket } from './closure.js';
+import { markCloseReminder } from './close-reminder.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
@@ -654,6 +655,7 @@ async function runCreate({ message, send, withoutAI = false, closeAfterSend = fa
 async function closeCreatedTicket(id, reason, workspace, jwt) {
   const ticket = TICKETS.find(t => t.id === id);
   if (!ticket) return;
+  markCloseReminder(ticket);
   const current = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id;
   try {
     const result = ticket._uuid ? await apiPost(`/api/v1/tickets/${ticket._uuid}/close`, { reason: reason || null, status_option_key: 'closed' }) : null;

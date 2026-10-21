@@ -97,15 +97,17 @@ export default async page => {
       if(scenario!=='not-emailed') check(await p.evaluate(async()=> (await import('/js/tickets/composer.js')).getPlainText('TK-001').includes('Your account')),'Unsent draft is kept');
     } else {
       if(scenario==='close-failed') {
-        await p.getByRole('button',{name:'Retry close only',exact:true}).waitFor();
+        await p.locator('.closure-modal').getByRole('button',{name:'Retry close only',exact:true}).waitFor();
+        check(await p.locator('.ticket-close-reminder').count()===1,'Failed closure leaves a persistent reminder on the ticket');
         const calls=ai.length;
         check(requests.length===1&&closes===1,'First attempt sends once and attempts closure');
         check(await p.locator('#closure-reason').isDisabled(),'Sent reply freezes closure details');
-        await p.getByRole('button',{name:'Retry close only',exact:true}).click();
+        await p.locator('.closure-modal').getByRole('button',{name:'Retry close only',exact:true}).click();
         await p.locator('.closure-modal').waitFor({state:'detached'});
         check(ai.length===calls&&requests.length===1&&closes===2,'Retry closes only without another AI request or email');
       } else await p.locator('.closure-modal').waitFor({state:'detached'});
       check(serverTicket.status_key==='closed'&&serverTicket.status_survey_enabled===false,'Closed with surveys disabled');
+      check(await p.locator('.ticket-close-reminder').count()===0,'Confirmed closure clears the reminder');
       check(requests.length===1&&ai.length>0,'Normal AI flow sends once');
       check(requests[0].reply_language==='Spanish'&&requests[0].body.includes('Su cuenta'),'Translated body and branding language reach sender');
       check(requests[0].body_html.includes('<strong>'),'Rich formatting survives translation');

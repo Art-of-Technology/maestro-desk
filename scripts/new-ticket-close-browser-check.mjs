@@ -106,10 +106,11 @@ export default async page => {
           continue;
         }
         if(scenario==='close-failed') {
-          await p.getByRole('button',{name:'Retry close only',exact:true}).waitFor();
+          await p.locator('.closure-modal').getByRole('button',{name:'Retry close only',exact:true}).waitFor();
+          check(await p.locator('.ticket-close-reminder').count()===1,'Failed first-message closure leaves a reminder on the ticket');
           check((await p.locator('#closure-error').innerText()).includes('first email was sent'),'Closure failure explains the email already went out');
           const aiBefore=ai;
-          await p.getByRole('button',{name:'Retry close only',exact:true}).click();
+          await p.locator('.closure-modal').getByRole('button',{name:'Retry close only',exact:true}).click();
           await p.locator('.closure-modal').waitFor({state:'detached'});
           check(creates===1&&bodies.length===1&&closes===2&&ai===aiBefore,'Close retry does not recreate, regenerate or resend');
         }
@@ -120,6 +121,7 @@ export default async page => {
           await p.waitForFunction(async()=>{const {TICKETS}=await import('/js/core/data.js');return TICKETS.find(t=>t.id==='TK-NEW')?.status==='closed';});
           check(creates===1&&bodies.length===1,'Successful first-message flow creates and sends once');
           check(row.status_survey_enabled===false&&row.status_key==='closed','Closed status has no survey');
+          check(await p.locator('.ticket-close-reminder').count()===0,'Confirmed first-message closure clears the reminder');
           check(bodies[0].reply_language==='Spanish'&&bodies[0].body.includes('Su cuenta'),'Normal translation and branding language are used');
         }
       }
