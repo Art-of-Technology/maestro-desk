@@ -34,6 +34,7 @@ import { insertMacro, openTicket, onComposeInput, changeTicketStatus, changeTick
 import { apiPost, apiPut, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { appendTemplate } from './template-content.js';
 import { filterTemplates, templateCategories, templateCategory } from './template-search.js';
+import { templateFavourites, templateKey, favouriteButton, favouriteStatus, loadTemplateFavourites } from './template-favourites.js';
 import {
   registerActions, registerChangeActions,
   registerMousedownActions, registerInputActions,
@@ -77,6 +78,7 @@ function macActionSummary(a) {
 // insertMacro (from detail.js). Labels go through escAttr/escHtml on the way in.
 export function showMacroPanel(id) {
   const trigger = document.activeElement;
+  void loadTemplateFavourites();
   showModal('Response templates', `
     <div class="template-filters">
       <label>Search templates<input type="search" class="form-input" id="template-picker-search" placeholder="Name, category, or reply text" autocomplete="off"></label>
@@ -87,6 +89,7 @@ export function showMacroPanel(id) {
     </div>
     <p class="template-picker-hint">Use ↑ ↓ to choose, Enter to preview, Esc to close. Review customer details before inserting.</p>
     <p id="template-picker-count" role="status"></p>
+    <div id="template-picker-favourite-status"></div>
     <div id="template-picker-results"></div>`, null, null);
   const modal = document.querySelector('#modal-container .modal');
   modal.classList.add('template-picker');
@@ -98,13 +101,24 @@ export function showMacroPanel(id) {
   const category = modal.querySelector('#template-picker-category');
   const results = modal.querySelector('#template-picker-results');
   const render = () => {
-    const matches = filterTemplates(CANNED_RESPONSES, search.value, category.value);
+    const focused = results.contains(document.activeElement) ? document.activeElement : null;
+    const key = focused?.dataset.templateKey || focused?.dataset.templateId;
+    const state = templateFavourites();
+    const matches = filterTemplates(CANNED_RESPONSES, search.value, category.value)
+      .sort((a, b) => Number(state.pins.has(templateKey(b))) - Number(state.pins.has(templateKey(a))));
     modal.querySelector('#template-picker-count').textContent = `${matches.length} of ${CANNED_RESPONSES.length} templates`;
-    results.innerHTML = matches.length ? matches.map(r => `<button type="button" class="macro-item template-result" data-action="macros.insert" data-id="${window.escAttr(id)}" data-template-id="${window.escAttr(r._uuid || r.id)}">
+    modal.querySelector('#template-picker-favourite-status').innerHTML = favouriteStatus();
+    results.innerHTML = matches.length ? matches.map(r => `<div class="template-result-row"><button type="button" class="macro-item template-result" data-action="macros.insert" data-id="${window.escAttr(id)}" data-template-id="${window.escAttr(templateKey(r))}">
       <strong title="${window.escAttr(r.name)}">${window.escHtml(r.name)}</strong>
-      <span class="template-result-category">${window.escHtml(templateCategory(r))}</span>
+      <span class="template-result-category">${state.pins.has(templateKey(r)) ? 'Favourite · ' : ''}${window.escHtml(templateCategory(r))}</span>
       <span class="template-result-preview">${window.escHtml((r.text || '').replace(/\s+/g, ' ').slice(0, 160))}</span>
-    </button>`).join('') : `<p class="template-picker-empty">${CANNED_RESPONSES.length ? 'No templates match. Try another search or category.' : 'No response templates yet. Ask an admin to add one.'}</p>`;
+    </button>${favouriteButton(r)}</div>`).join('') : `<p class="template-picker-empty">${CANNED_RESPONSES.length ? 'No templates match. Try another search or category.' : 'No response templates yet. Ask an admin to add one.'}</p>`;
+    if (focused) {
+      const buttons = [...results.querySelectorAll('button')];
+      const pin = buttons.find(button => button.dataset.templateKey === key && !button.disabled);
+      const response = buttons.find(button => button.dataset.templateId === key);
+      (focused.dataset.templateKey ? pin || response : response)?.focus();
+    }
   };
   search.addEventListener('input', render);
   category.addEventListener('change', render);
@@ -113,7 +127,7 @@ export function showMacroPanel(id) {
   });
   modal.addEventListener('keydown', event => {
     if (event.isComposing) return;
-    const buttons = [...results.querySelectorAll('button')];
+    const buttons = [...results.querySelectorAll('.template-result')];
     const index = buttons.indexOf(document.activeElement);
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -129,7 +143,7 @@ export function showMacroPanel(id) {
       event.preventDefault();
       buttons[0]?.click();
     } else if (event.key === 'Tab') {
-      const controls = [...modal.querySelectorAll('button, input, select')];
+      const controls = [...modal.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')];
       if (event.shiftKey && event.target === controls[0]) {
         event.preventDefault(); controls.at(-1).focus();
       } else if (!event.shiftKey && event.target === controls.at(-1)) {
@@ -140,6 +154,10 @@ export function showMacroPanel(id) {
   render();
   search.focus();
 }
+
+globalThis.window?.addEventListener?.('respovia:template-favourites', () => {
+  document.getElementById('template-picker-search')?.dispatchEvent(new Event('input'));
+});
 
 async function runMacro(macroId, ticketId) {
   const macro = MACROS.find(m => m.id === macroId);

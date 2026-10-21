@@ -10,6 +10,40 @@ export const me = new Hono();
 
 me.use('*', requireAuth);
 
+export const TemplateFavouritePatch = z.object({ pinned: z.boolean() }).strict();
+const TemplateId = z.string().uuid();
+
+me.get('/template-favourites', async c => {
+  c.header('Cache-Control', 'no-store');
+  const sql = getDb();
+  const rows = await sql`select cr.id from canned_responses cr
+    join user_preferences up on up.workspace_id = cr.workspace_id
+    where up.workspace_id = ${c.get('workspaceId')} and up.user_id = ${c.get('userId')}
+      and up.template_favourites ? cr.id::text
+    order by cr.name, cr.id`;
+  return c.json({ favourites: rows.map(row => row.id) });
+});
+
+me.patch('/template-favourites/:id', async c => {
+  c.header('Cache-Control', 'no-store');
+  const id = TemplateId.safeParse(c.req.param('id'));
+  const parsed = TemplateFavouritePatch.safeParse(await c.req.json().catch(() => null));
+  if (!id.success || !parsed.success) return c.json({ error: 'Choose a template and whether to pin it.' }, 400);
+  const sql = getDb(), workspace = c.get('workspaceId'), user = c.get('userId');
+  const pinned = parsed.data.pinned;
+  if (pinned) {
+    const [template] = await sql`select id from canned_responses where workspace_id = ${workspace} and id = ${id.data}`;
+    if (!template) return c.json({ error: 'Template not found.' }, 404);
+  }
+  // One atomic key change preserves other pins and unrelated preferences.
+  await sql`insert into user_preferences(workspace_id, user_id, template_favourites)
+    values (${workspace}, ${user}, ${sql.json(pinned ? { [id.data]: true } : {})})
+    on conflict (workspace_id, user_id) do update set template_favourites =
+      case when ${pinned} then user_preferences.template_favourites || excluded.template_favourites
+      else user_preferences.template_favourites - ${id.data} end`;
+  return c.json({ template_id: id.data, pinned });
+});
+
 const widgetIds = {
   dash: ['today', 'recent', 'status', 'priority', 'sla', 'volume', 'csat', 'agent-load', 'personal', 'ai-tags', 'kb', 'top-customers'],
   report: ['r-status', 'r-sla', 'r-sentiment', 'r-sentiment-trend', 'r-priority', 'r-category', 'r-agents', 'r-csat', 'r-time', 'r-language-detection'],

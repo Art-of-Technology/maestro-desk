@@ -89,6 +89,7 @@ import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
 import { closeReminder, clearCloseReminder, loadCloseReminder, dismissCloseReminder } from './close-reminder.js';
+import { favouritesRow, templateFavourites, templateKey, loadTemplateFavourites } from './template-favourites.js';
 import { chooseStatusReason } from './status-reasons.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
@@ -176,6 +177,7 @@ export function openTicket(id) {
   // a delete/merge. Fall back to the list so the page doesn't blank out.
   if (!t) { setCurrentTicket(null); return renderPage('tickets'); }
   void loadCloseReminder(t, { force: entering });
+  if (entering) void loadTemplateFavourites();
   initialiseReplyLanguage(t);
   setCurrentPage('tickets');
   document.body.dataset.currentPage = 'tickets';
@@ -615,6 +617,7 @@ export function openTicket(id) {
               </span>
             </div>
             <div class="composer-body" id="composer-body-${id}">
+              ${COMPOSE_TAB === 'reply' ? `<div class="template-favourites" id="template-favourites-${window.escAttr(id)}" aria-label="Favourite response templates">${favouritesRow(id)}</div>` : ''}
               ${COMPOSE_TAB === 'reply' ? renderReplyRecipients(t) : ''}
               ${COMPOSE_TAB === 'reply'
                 // Rich editor host. Quill mounts into it after render
@@ -902,6 +905,19 @@ function toggleWatch(id) {
   else t.followers.push(SESSION.name);
   openTicket(id);
 }
+
+globalThis.window?.addEventListener?.('respovia:template-favourites', () => {
+  const row = document.getElementById('template-favourites-' + CURRENT_TICKET);
+  if (!row) return;
+  const focusedKey = row.contains(document.activeElement) ? document.activeElement.dataset.templateKey : null;
+  const scrollLeft = row.querySelector('.template-favourites-links')?.scrollLeft || 0;
+  row.innerHTML = favouritesRow(CURRENT_TICKET);
+  row.querySelector('.template-favourites-links').scrollLeft = scrollLeft;
+  if (focusedKey) {
+    const next = [...row.querySelectorAll('button')].find(button => button.dataset.templateKey === focusedKey);
+    (next || document.querySelector('[data-action="td.macroPanel"]'))?.focus();
+  }
+});
 
 export async function insertMacro(ticketId, idx) {
   const r = CANNED_RESPONSES[idx];
@@ -1494,6 +1510,11 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'templateFavourites.insert': ds => {
+    if (CURRENT_TICKET !== ds.ticketId || COMPOSE_TAB !== 'reply' || !personalDraftEditable(ds.ticketId) || document.querySelector('#modal-container .modal')) return;
+    if (!templateFavourites().pins.has(ds.templateKey)) return;
+    void insertMacro(ds.ticketId, CANNED_RESPONSES.findIndex(t => templateKey(t) === ds.templateKey));
+  },
   'td.dismissCloseReminder': ds => {
     const t = TICKETS.find(t => t.id === ds.ticketId);
     if (!t || CURRENT_TICKET !== t.id) return;
