@@ -1,7 +1,8 @@
 // ─── New Ticket flow (two-step) ──────────────────────────────────────────────
 // Step 1 collects the compulsory details — customer (typeahead over the
 // loaded CUSTOMERS array), category (KEYS as values), subject, priority,
-// assignee. Step 2 is the drafting window: templates append, Send emails the
+// assignee. The agent confirms the conversation language before step 2,
+// the drafting window: templates append, Send emails the
 // message to the customer exactly like a reply, Save-as-draft creates the
 // ticket and keeps the text as a local composer draft, Cancel discards
 // everything. THE TICKET IS ONLY CREATED AT THE END OF STEP 2 (or at step 1's
@@ -35,6 +36,7 @@ import { showToast } from '../core/toast.js';
 import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
 import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
+import { jurisdictionLanguage } from './jurisdiction-language.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
@@ -53,6 +55,7 @@ const NT = {
   message: '',
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
   replyLanguage: '',
+  languageConfirmed: false,
 };
 
 function resetNT() {
@@ -69,6 +72,7 @@ function resetNT() {
   NT.message = '';
   NT.messageTouched = false;
   NT.replyLanguage = '';
+  NT.languageConfirmed = false;
 }
 
 const visible = key => isFieldVisible('ticket', key);
@@ -226,7 +230,8 @@ function renderStep1() {
       return;
     }
     closeModal();
-    renderStep2();
+    if (NT.languageConfirmed) renderStep2();
+    else renderLanguageConfirmation();
   }, singleStep ? 'Create ticket' : 'Next — write the message');
 
   wireCustomerSearch();
@@ -332,6 +337,10 @@ function wireCustomerSearch() {
 function pickCustomer(displayId) {
   const c = CUSTOMERS.find(x => x.id === displayId);
   if (!c) return;
+  if (NT.customer?.displayId !== displayId) {
+    NT.replyLanguage = '';
+    NT.languageConfirmed = false;
+  }
   NT.customer = customerRef(c);
   const boxEl = document.getElementById('nt-cust-box');
   if (boxEl) boxEl.innerHTML = custBoxHtml();   // in-place swap — other fields keep their typed values
@@ -339,11 +348,68 @@ function pickCustomer(displayId) {
 
 function clearCustomer() {
   NT.customer = null;
+  NT.replyLanguage = '';
+  NT.languageConfirmed = false;
   const boxEl = document.getElementById('nt-cust-box');
   if (boxEl) { boxEl.innerHTML = custBoxHtml(); wireCustomerSearch(); }
 }
 
 // ─── Step 2 — drafting window ────────────────────────────────────────────────
+
+function renderLanguageConfirmation() {
+  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  const jurisdiction = String(customer?.jurisdiction || '').trim();
+  const suggested = jurisdictionLanguage(jurisdiction);
+  showModal('Confirm conversation language', `
+    <p>${suggested
+      ? `Suggested language: <strong>${window.escHtml(suggested)}</strong>, based on the customer's jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.`
+      : `Choose a language for this conversation. ${jurisdiction ? `Jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.` : 'No jurisdiction is saved for this customer.'}`}</p>
+    <p id="nt-language-help">${suggested ? 'Confirm the suggestion or choose another language' : 'Choose a language'} before writing the first message.</p>
+    <div class="form-row">
+      <label class="form-label" for="nt-language">Conversation language</label>
+      <select class="form-input" id="nt-language" data-change-action="nt.languageChoice" aria-describedby="nt-language-help nt-language-error" required>
+        <option value="" ${suggested ? '' : 'selected'} disabled>Choose a language…</option>
+        ${TRANSLATOR_LANGS.map(lang => `<option ${suggested === lang ? 'selected' : ''}>${lang}</option>`).join('')}
+      </select>
+      <p id="nt-language-error" role="alert" hidden>Choose a language to continue.</p>
+    </div>
+  `, () => {
+    const select = document.getElementById('nt-language');
+    if (!TRANSLATOR_LANGS.includes(select?.value)) {
+      document.getElementById('nt-language-error').hidden = false;
+      select?.setAttribute('aria-invalid', 'true');
+      select?.focus();
+      return;
+    }
+    NT.replyLanguage = select.value;
+    NT.languageConfirmed = true;
+    closeModal();
+    renderStep2();
+  }, 'Confirm and continue');
+  const modal = document.querySelector('#modal-container .modal');
+  modal.classList.add('conversation-language-modal');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Confirm conversation language');
+  modal.querySelector('.modal-close').outerHTML = '<button type="button" class="modal-close" data-action="nt.cancel" aria-label="Cancel new conversation">×</button>';
+  const back = modal.querySelector('.modal-foot [data-action="modal.close"]');
+  back.textContent = 'Back';
+  back.dataset.action = 'nt.languageBack';
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeModal();
+      renderStep1();
+      document.querySelector('#modal-container [data-action="modal.confirm"]')?.focus();
+    } else if (event.key === 'Tab') {
+      const controls = [...modal.querySelectorAll('button, select')];
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+  });
+  document.getElementById('nt-language')?.focus();
+}
 
 function renderStep2() {
   const canDraft = !required('message');   // a required message forbids draft-only creation
@@ -613,6 +679,10 @@ function createDemoTicket(snap, { message, send }) {
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
 registerActions({
+  'nt.languageBack': () => {
+    closeModal(); renderStep1();
+    document.querySelector('#modal-container [data-action="modal.confirm"]')?.focus();
+  },
   'nt.clearCust': () => clearCustomer(),
   'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
@@ -626,6 +696,10 @@ registerActions({
 });
 
 registerChangeActions({
+  'nt.languageChoice': (ds, el) => {
+    el.removeAttribute('aria-invalid');
+    document.getElementById('nt-language-error').hidden = true;
+  },
   'nt.replyLanguage': (ds, el) => { NT.replyLanguage = el.value; },
   'nt.applyTemplate': (ds, el) => {
     // Keep a message the agent already drafted on step 2 (step 1 has no

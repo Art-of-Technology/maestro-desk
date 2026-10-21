@@ -9,7 +9,8 @@ export default async(page) => {
     const path=new URL(route.request().url()).pathname;
     const data=route.request().postDataJSON();
     let body={}; let status=200;
-    if(path.endsWith('/ai/messages')) { aiCalls++; body=fail?{error:'Provider unavailable'}:{text:data.action==='detect_language'?'Spanish':'Su cuenta está lista.'};status=fail?502:200; }
+    if(path.endsWith('/ticket-statuses')) body={statuses:['open','pending','escalated','gdpr','resolved','closed'].map(key=>({key,label:key,base_key:key,is_active:true,send_survey:key==='resolved'}))};
+    else if(path.endsWith('/ai/messages')) { aiCalls++; body=fail?{error:'Provider unavailable'}:{text:data.action==='detect_language'?'Spanish':'Su cuenta está lista.'};status=fail?502:200; }
     else if(path.endsWith('/tickets')&&route.request().method()==='POST') {
       creates++;status=201;body={ticket:{id:ticketId,display_id:'TK-LANG',subject:data.subject,customer_id:customerId,status_key:'open',priority_key:'normal'}};
     } else if(path.endsWith('/messages')&&route.request().method()==='POST') {
@@ -41,6 +42,7 @@ export default async(page) => {
     await p.locator('#nt-subj').fill('Account update');
     await p.locator('#nt-cat').selectOption({index:1});
     await p.locator('[data-action="modal.confirm"]').click();
+    await p.getByRole('button',{name:'Confirm and continue',exact:true}).click();
     await p.locator('#nt2-msg').fill('Su cuenta está lista.');
     await p.getByLabel('Reply language',{exact:true}).selectOption('Spanish');
   };

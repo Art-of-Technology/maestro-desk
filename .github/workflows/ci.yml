@@ -180,6 +180,7 @@ jobs:
           bun test scripts/ticket-category.test.js
           bun test scripts/knowledge-gaps.test.js
           bun test scripts/reply-language.test.js
+          bun test scripts/jurisdiction-language.test.js
           bun test scripts/language-detection-report.test.js
           bun test scripts/translation-cache.test.js
           bun test scripts/ai-review-storage.test.js
