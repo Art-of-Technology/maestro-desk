@@ -658,6 +658,17 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .template-result strong{color:var(--ink)}
 .template-result strong,.template-result-preview{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .template-result-category{font-size:12px}
+.template-result-row{display:flex;gap:8px;align-items:flex-start;margin-bottom:8px}
+.template-result-row .template-result{flex:1;min-width:0;margin-bottom:0}
+.template-result-row .template-pin{flex-shrink:0;margin-top:4px}
+.template-favourites{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:4px 0 8px;flex-shrink:0;font-size:12px;color:var(--ink2)}
+.template-favourites-heading{font-weight:600;color:var(--ink)}
+.template-favourites-links{display:flex;align-items:center;gap:8px;overflow-x:auto;min-width:0;flex:1;padding:4px}
+.template-favourites-links button{flex-shrink:0;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.template-favourites-status,#template-picker-favourite-status{font-size:12px;color:var(--ink2);line-height:1.5}
+.template-favourites-status:empty,#template-picker-favourite-status:empty{display:none}
+.template-favourites button:focus-visible,.template-pin:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+@media(pointer:coarse){.template-favourites button,.template-pin{min-height:44px}}
 .template-picker .modal-close{border:0;background:transparent;min-width:32px;min-height:32px}
 .template-picker button:focus-visible,.template-picker input:focus-visible,.template-picker select:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .template-library-page .filter-bar{gap:12px}

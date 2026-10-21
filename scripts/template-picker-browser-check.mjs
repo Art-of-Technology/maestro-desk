@@ -49,7 +49,7 @@ export default async function checkTemplatePicker(page) {
   await page.keyboard.press('Shift+Tab');
   assert(await page.getByRole('button', { name: 'Close templates' }).evaluate(el => el === document.activeElement), 'Close button is keyboard accessible');
   await page.keyboard.press('Shift+Tab');
-  assert((await page.evaluate(() => document.activeElement.dataset.templateId)) === 'TPL-EXTRA-99', 'Tab is trapped inside dialog');
+  assert((await page.evaluate(() => document.activeElement.dataset.templateKey || document.activeElement.dataset.templateId)) === 'TPL-EXTRA-99', 'Tab is trapped inside dialog');
   await page.keyboard.press('Escape');
   assert(await page.locator('.template-picker').count() === 0, 'Escape closes picker');
   assert(await editor.evaluate(el => el === document.activeElement), 'Escape restores composer focus');

@@ -19,6 +19,7 @@ import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/ap
 import { showModal, closeModal } from '../core/modal.js';
 import { mountComposer, disposeComposer, getHtml, getPlainText, setText, insertAtCursor } from './composer.js';
 import { filterTemplates, templateCategories, templateCategory } from './template-search.js';
+import { favouriteButton, favouriteStatus } from './template-favourites.js';
 
 export function renderTemplates() {
   const admin = window.isAdmin();
@@ -33,6 +34,7 @@ export function renderTemplates() {
       <td style="font-weight:500;color:var(--ink)">${window.escHtml(t.name)}</td>
       <td><span class="tag tag-neutral" style="font-size:10px">${window.escHtml(templateCategory(t))}</span></td>
       <td style="font-size:12px;color:var(--ink2);max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(preview)}</td>
+      <td>${favouriteButton(t)}</td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-action="templates.edit" data-tpl-id="${window.escAttr(t.id)}">Edit</button>
         <button class="btn btn-sm" data-action="templates.duplicate" data-tpl-id="${window.escAttr(t.id)}">Copy</button>
@@ -47,7 +49,7 @@ export function renderTemplates() {
         <div class="tb-title">Response Templates</div>
         ${admin
           ? `<button class="btn btn-solid btn-sm" data-action="templates.new">+ New Template</button>`
-          : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
+          : `<span style="font-size:11px;color:var(--ink3)">You can pin favourites. Only admins can edit templates.</span>`}
       </div>
       <div class="kpi-bar">
         <div class="kpi"><div class="kpi-n">${total}</div><div class="kpi-l">Templates</div></div>
@@ -66,9 +68,10 @@ export function renderTemplates() {
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div class="page-scroll">
+        <div class="template-favourites-status">${favouriteStatus()}</div>
         <table class="tbl">
           <thead><tr>
-            <th>ID</th><th>Name</th><th>Category</th><th>Preview</th>
+            <th>ID</th><th>Name</th><th>Category</th><th>Preview</th><th>Favourite</th>
             ${admin?'<th style="text-align:right">Actions</th>':''}
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -78,6 +81,18 @@ export function renderTemplates() {
       </div>
     </div>`;
 }
+
+globalThis.window?.addEventListener?.('respovia:template-favourites', () => {
+  if (!document.querySelector('.template-library-page')) return;
+  const focused = document.activeElement, key = focused?.dataset.templateKey;
+  const id = focused?.id, position = focused?.selectionStart;
+  renderPage('templates');
+  const next = key ? [...document.querySelectorAll('.template-pin')].find(button => button.dataset.templateKey === key) : id ? document.getElementById(id) : null;
+  if (next && !next.disabled) {
+    next.focus();
+    if (position != null && next.type === 'search') next.setSelectionRange(position, position);
+  }
+});
 
 function tplSetQuery(q) {
   const previous = document.getElementById('tpl-search');
