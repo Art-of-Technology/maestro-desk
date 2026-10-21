@@ -45,6 +45,7 @@ process.env.MAESTRO_API_TOKEN ||= 'mh_live_test_token_placeholder';
 // real values must NOT win here.
 process.env.ALERT_EMAIL_TO = '';
 process.env.SLACK_ALERT_WEBHOOK_URL = '';
+delete process.env.EMAIL_USAGE_SLACK_WEBHOOK_URL;
 // cors.test.ts pins APP_BASE_URL to a prod-like origin to tell allow from deny.
 // It mock.module's env.js to do so, but mock.module is global and index.js gets
 // module-cached, so whether that mock "wins" depends on which file loads

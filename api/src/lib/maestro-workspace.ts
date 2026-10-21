@@ -10,6 +10,7 @@ import { getDb } from './db.js';
 import { HTTPException } from 'hono/http-exception';
 import type { MaestroBrand } from './maestro.js';
 import type { TransactionSql } from 'postgres';
+import { notifyWorkspaceRequest } from './workspace-request-alert.js';
 
 export interface BrandWorkspace {
   workspace_id: string;
@@ -200,15 +201,18 @@ async function lockBrand(tx: TransactionSql, brandId: string) {
 }
 
 export async function requestBrandWorkspace(userId: string, brand: MaestroBrand, organizationName: string) {
-  return getDb().begin(async tx => {
+  const created = await getDb().begin(async tx => {
     await lockBrand(tx, brand.id);
     const existing = await findByBrand(brand.id, tx);
     if (existing) throw new HTTPException(409, { message: 'This brand already has a Respovia workspace.' });
-    await tx`insert into workspace_requests(maestro_brand_id,brand_name,brand_slug,organization_id,organization_name,requester_id)
+    const inserted = await tx`insert into workspace_requests(maestro_brand_id,brand_name,brand_slug,organization_id,organization_name,requester_id)
       values(${brand.id},${brand.name},${brand.slug ?? null},${brand.organizationId ?? null},${organizationName},${userId})
-      on conflict(maestro_brand_id) do nothing`;
-    return { pending: true };
+      on conflict(maestro_brand_id) do nothing returning maestro_brand_id`;
+    return inserted.length > 0;
   });
+  // Notify only after commit; retries and concurrent requests share the same row.
+  if (created) await notifyWorkspaceRequest(brand.name, organizationName);
+  return { pending: true };
 }
 
 export async function approveBrandWorkspace(brandId: string, adminId: string) {

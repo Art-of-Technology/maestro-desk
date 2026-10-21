@@ -13,6 +13,17 @@ Platform administrators choose the policy under **Platform · Brands → New wor
 - **Automatic**: signing in can create a workspace for an accessible Maestro brand.
   Requests already pending still require explicit approval.
 
+The first request for a brand sends an **ACTION REQUIRED: Respovia workspace
+approval** Slack alert to the email-usage warning destination
+(`EMAIL_USAGE_SLACK_WEBHOOK_URL`, falling back to `SLACK_ALERT_WEBHOOK_URL`). It
+uses a prominent heading, amber accent, brand/organisation labels and an approval
+panel link. Requester emails and customer records are not included. Clicking the
+link opens the existing admin panel; it does not approve the request in Slack.
+Repeated or concurrent submissions do not send another alert. Delivery is
+best-effort with a five-second timeout: a Slack failure leaves the request safely
+pending, logs a fixed warning and is not retried automatically. Existing pending
+requests are not announced retroactively.
+
 Only platform administrators can change the policy or approve a request. Approval
 creates the workspace, records the decision and removes it from the pending list.
 The requester clicks **Refresh brands** or signs in again to enter it. Approval
