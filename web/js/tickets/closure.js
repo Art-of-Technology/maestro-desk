@@ -7,6 +7,7 @@ import { logTicketEvent } from '../core/activity-log.js';
 import { applySavedActivity } from '../core/ticket-history.js';
 import { refreshTicketSLA } from './sla.js';
 import { statusChoice, DEFAULT_CLOSURE_REASONS } from './status-options.js';
+import { markCloseReminder, clearCloseReminder } from './close-reminder.js';
 
 export const CLOSURE_REASONS = { spam: 'Spam', abuse: 'Abuse', duplicate: 'Duplicate', other: 'Other' };
 
@@ -43,6 +44,7 @@ export function applyClosedTicket(t, result, reason, note = '', statusOption = '
   t.closedByUserId = result?.ticket.closed_by_user_id || SESSION?.userId || null;
   t.resolvedAt = null; t.snoozedUntil = null; t.snoozedAt = null; t.snoozeReason = null;
   t._detailLoaded = false;
+  clearCloseReminder(t);
   refreshTicketSLA(t);
   if (!t._uuid) logTicketEvent(t.id, 'system', `Closed without resolution: ${selectedReason?.label || 'No reason given'}.${note ? '\n' + note : ''}`);
 }
@@ -89,6 +91,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
         if (error.isConnected) closeModal();
         return;
       }
+      if (replySent) targets.forEach(markCloseReminder);
       if (!error.isConnected) return;
       if (!replySent) {
         busy = false; setSendBusy(false);
@@ -118,6 +121,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
         error.textContent = (replySent ? 'Reply sent. The ticket is still open. Retry closing only; your reply will not be sent again.\n' : '') + failed.join('\n');
         if (sendReply) setSendBusy(false);
         button.disabled = false; button.textContent = replySent ? 'Retry close only' : 'Retry failed tickets';
+        button.focus();
         targets.splice(0, targets.length, ...targets.filter(t => !succeeded.includes(t.id)));
       }
     }

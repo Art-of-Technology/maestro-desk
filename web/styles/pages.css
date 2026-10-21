@@ -371,6 +371,10 @@ mark{background:rgba(255,226,40,0.55);color:var(--ink);padding:0 2px;border-radi
 .ticket-message-language{margin-top:6px;font-size:11px;color:var(--ink2)}
 .ticket-translation-notice{padding:6px 16px;font-size:12px;color:var(--ink2);border-bottom:1px solid var(--rule)}
 .ticket-translation-notice span{display:block}
+.ticket-close-reminder{padding:12px 16px;border-bottom:1px solid var(--amber-bd);background:var(--amber-lt);color:var(--ink);font-size:12px;line-height:1.5}
+.ticket-close-reminder p{margin:0 0 8px}
+.ticket-close-reminder>div{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:768px),(pointer:coarse){.ticket-page .ticket-close-reminder .btn{min-height:44px}}
 .ticket-translation-state{margin-left:auto;color:var(--ink2);font-size:12px;overflow-wrap:anywhere}
 .reply-language-choice{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--ink2)}
 .reply-language-choice select{min-height:44px;max-width:100%}

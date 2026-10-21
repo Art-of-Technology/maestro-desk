@@ -88,6 +88,7 @@ import {
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
 import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
+import { closeReminder, clearCloseReminder } from './close-reminder.js';
 import { chooseStatusReason } from './status-reasons.js';
 import { runAssignmentRulesOnTicket, isAgentOOO } from './assignment-rules.js';
 import { showGDPRModal, openCustomerModal } from '../customers/modals.js';
@@ -595,6 +596,7 @@ export function openTicket(id) {
       <div class="ticket-layout">
         <div class="ticket-main">
           ${threadBarHtml}
+          <div id="ticket-close-reminder" data-ticket-id="${window.escAttr(id)}" tabindex="-1" aria-label="Ticket close reminder">${closeReminder(t)}</div>
           <div class="thread" id="thread-${id}">${msgsHtml}</div>
           <div class="composer" data-compose-tab="${COMPOSE_TAB}">
             <div id="presence-banner"></div>
@@ -1491,6 +1493,32 @@ export function notifyReplyDelivery(delivery) {
 // through `window` (lifts when the Keybindings namespace retires).
 
 registerActions({
+  'td.dismissCloseReminder': ds => {
+    const t = TICKETS.find(t => t.id === ds.ticketId);
+    if (!t || CURRENT_TICKET !== t.id) return;
+    clearCloseReminder(t);
+    document.getElementById('ticket-close-reminder')?.focus();
+  },
+  'td.retryCloseOnly': async (ds, el) => {
+    const id = ds.ticketId, workspace = getWorkspaceId(), jwt = getJwt();
+    const current = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id;
+    el.disabled = true;
+    try {
+      const t = await loadTicketDetail(id, { force: true });
+      if (!current() || !t) return;
+      if (t.status === 'closed' || t.mergedInto) { clearCloseReminder(t); openTicket(id); return; }
+      await loadStatusOptions(true);
+      if (!current()) return;
+      if (!statusOptionsState().ready || !statusChoice('closed')?.is_active) { showToast('Closed status is unavailable. Refresh the status options before closing.'); return; }
+      showCloseTickets([id], async succeeded => {
+        if (!succeeded.length || !current()) return;
+        try { await loadTicketDetail(id, { force: true }); }
+        catch { if (current()) showToast('Ticket closed, but its details could not be refreshed. Reload to check the latest details.', 'warn'); }
+        if (current()) { updateNavBadges(); openTicket(id); }
+      });
+    } catch { if (current()) showToast('Could not check the ticket status. Try closing again when the connection is available.', 'error'); }
+    finally { if (el.isConnected) el.disabled = false; }
+  },
   'td.jumpToLatest': ds => {
     const thread = document.getElementById('thread-' + ds.ticketId);
     if (!thread?.lastElementChild) return;
