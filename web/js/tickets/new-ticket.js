@@ -389,24 +389,31 @@ function renderLanguageConfirmation() {
     const workspace = getWorkspaceId(), jwt = getJwt();
     const modal = select.closest('.modal');
     setBusy(true, 'Saving language…');
+    let saveError;
     try {
       if (isSessionApiBacked()) {
         if (!customer?._uuid) throw new Error('Choose a saved customer before continuing.');
         const res = await apiPatch(`/api/v1/customers/${customer._uuid}`, { preferred_language: language });
-        if (workspace !== getWorkspaceId() || jwt !== getJwt() || !modal.isConnected) return;
         if (res?.customer?.preferred_language !== language) throw new Error('The language could not be confirmed as saved. Please try again.');
       }
-      if (customer) customer.preferredLanguage = language;
     } catch (err) {
-      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !modal.isConnected) return;
-      setBusy(false);
+      saveError = err;
+    }
+    if (!modal.isConnected) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) {
+      closeModal(); resetNT();
+      showToast('Your workspace or session changed. Reopen the ticket form to continue.');
+      return;
+    }
+    setBusy(false);
+    if (saveError) {
       const error = document.getElementById('nt-language-error');
-      error.textContent = `Could not save the preferred language. ${err?.message || 'Try again.'}`;
+      error.textContent = `Could not save the preferred language. ${saveError?.message || 'Try again.'}`;
       error.hidden = false;
       select.focus();
       return;
     }
-    setBusy(false);
+    if (customer) customer.preferredLanguage = language;
     NT.replyLanguage = language;
     NT.languageConfirmed = true;
     closeModal();

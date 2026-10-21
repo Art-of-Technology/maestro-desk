@@ -96,6 +96,10 @@ export default async page => {
   release(); hold = null;
   await other.waitForTimeout(100);
   check(await other.locator('#nt2-msg').count() === 0, 'Late save cannot advance another workspace');
+  check(await other.locator('#modal-container .modal').count() === 0, 'Workspace change dismisses the old busy modal');
+  await other.evaluate(async () => { (await import('/js/core/api-client.js')).setWorkspaceId('33333333-3333-4333-8333-333333333333'); });
+  await open(other);
+  check(await other.getByRole('button',{name:'Confirm and continue',exact:true}).isEnabled(), 'Fresh conversation is usable after a workspace change');
   for (const context of contexts) await context.close();
   return {checks};
 };
