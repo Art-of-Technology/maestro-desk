@@ -25,3 +25,13 @@ test('category and search combine without changing source order or identity', ()
   expect(filterTemplates([])).toEqual([]);
   expect(filterTemplates([{ name: 'Example', category: 'all' }], '', 'all')).toHaveLength(1);
 });
+
+test('new-conversation templates search subject and body with the same rules', () => {
+  const starters = [
+    { id: 'a', name: 'Follow-up', category: ' Payments ', subject: 'Withdrawal status', body: 'Your bank transfer is pending.' },
+    { id: 'b', name: 'Account help', category: '', subject: 'Verification', body: 'Please upload proof of address.' },
+  ];
+  expect(filterTemplates(starters, 'WITHDRAWAL transfer', 'Payments')).toEqual([starters[0]]);
+  expect(filterTemplates(starters, 'proof address')).toEqual([starters[1]]);
+  expect(filterTemplates(starters, 'proof', 'Payments')).toEqual([]);
+});
