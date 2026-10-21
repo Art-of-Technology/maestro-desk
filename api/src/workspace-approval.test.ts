@@ -15,7 +15,11 @@ const app = (await import('./index.js')).default;
   const brand = { id: randomUUID(), name: 'Approval test brand', slug: 'approval-test', organizationId: org.id };
   const archived = { id: randomUUID(), name: 'Archived approval test', slug: 'archived-approval', organizationId: org.id };
   const unknown = { id: randomUUID(), name: 'Automatic test', slug: 'automatic-test', organizationId: org.id };
+  const failedAlertBrand = { id: randomUUID(), name: 'Failed alert test', slug: 'failed-alert-test', organizationId: org.id };
   let accessibleBrands = [brand, archived, unknown];
+  const slackWebhook = 'https://hooks.slack.com/services/approval-test';
+  let slackCalls = 0, slackOk = true, requestCommittedBeforeAlert = false;
+  const originalSlack = env.EMAIL_USAGE_SLACK_WEBHOOK_URL;
   const userIds: string[] = [];
   let admin: string, user: string, userToken: string, adminToken: string;
   let originalAutomatic: boolean;
@@ -44,11 +48,18 @@ const app = (await import('./index.js')).default;
     await setWorkspaceRegistration(false, admin);
     env.MAESTRO_CLIENT_ID = 'approval-test-client';
     env.MAESTRO_CLIENT_SECRET = 'approval-test-secret';
+    env.EMAIL_USAGE_SLACK_WEBHOOK_URL = slackWebhook;
     authApi.getAccessToken = (async () => ({ accessToken: 'approval-test-token' })) as typeof originalToken;
     globalThis.fetch = (async (input: any, init?: any) => {
       const url = String(input);
       if (url === `${env.MAESTRO_GATEWAY_URL}/api/v1/organizations`) return Response.json({ organizations: [org] });
       if (url === `${env.MAESTRO_GATEWAY_URL}/api/v1/organizations/${org.id}/brands`) return Response.json({ brands: accessibleBrands });
+      if (url === slackWebhook) {
+        slackCalls++;
+        const saved = await sql`select maestro_brand_id from workspace_requests where maestro_brand_id=${brand.id}`;
+        requestCommittedBeforeAlert = saved.length === 1;
+        return new Response(slackOk ? 'ok' : 'failed', { status: slackOk ? 200 : 503 });
+      }
       return originalFetch(input, init);
     }) as typeof fetch;
     const [ws] = await sql`select provision_brand('Archived approval test',${'archive-approval-' + archived.id.slice(0, 8)}) id`;
@@ -60,7 +71,8 @@ const app = (await import('./index.js')).default;
     authApi.getAccessToken = originalToken;
     env.MAESTRO_CLIENT_ID = originalClient;
     env.MAESTRO_CLIENT_SECRET = originalSecret;
-    await sql`delete from workspace_requests where maestro_brand_id in ${sql([brand.id, archived.id, unknown.id])}`;
+    env.EMAIL_USAGE_SLACK_WEBHOOK_URL = originalSlack;
+    await sql`delete from workspace_requests where maestro_brand_id in ${sql([brand.id, archived.id, unknown.id, failedAlertBrand.id])}`;
     await sql`delete from workspaces where maestro_brand_id in ${sql([brand.id, archived.id, unknown.id])}`;
     await sql`update workspace_registration_settings set automatic=${originalAutomatic},updated_by=null where id=true`;
     // Platform setting audit records retain their actor in this disposable database.
@@ -104,9 +116,28 @@ const app = (await import('./index.js')).default;
     expect(requests.length).toBe(1);
     expect(requests[0].requester_id).toBe(user);
     expect(requests[0].organization_name).toBe(org.name);
+    expect(slackCalls).toBe(1);
+    expect(requestCommittedBeforeAlert).toBe(true);
     expect((await sql`select id from workspaces where maestro_brand_id=${brand.id}`).length).toBe(0);
     const list = await (await app.request('/api/v1/maestro/workspace', { headers: headers(userToken) })).json() as any;
     expect(list.brands.find((b: any) => b.id === brand.id).workspace_status).toBe('pending');
+  });
+
+  it('keeps requests pending on Slack failure and does not resend on duplicate submissions', async () => {
+    accessibleBrands = [brand, archived, unknown, failedAlertBrand];
+    slackOk = false;
+    try {
+      expect((await post('/api/v1/maestro/workspace-requests', userToken, { brandId: failedAlertBrand.id })).status).toBe(200);
+      const [request] = await sql`select approved_at from workspace_requests where maestro_brand_id=${failedAlertBrand.id}`;
+      expect(request.approved_at).toBeNull();
+      expect((await sql`select id from workspaces where maestro_brand_id=${failedAlertBrand.id}`).length).toBe(0);
+      expect(slackCalls).toBe(2);
+      expect((await post('/api/v1/maestro/workspace-requests', userToken, { brandId: failedAlertBrand.id })).status).toBe(200);
+      expect(slackCalls).toBe(2);
+    } finally {
+      slackOk = true;
+      accessibleBrands = [brand, archived, unknown];
+    }
   });
 
   it('Automatic allows new brands but keeps existing requests pending and archives blocked', async () => {
