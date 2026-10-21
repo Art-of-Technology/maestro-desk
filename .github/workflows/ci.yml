@@ -81,6 +81,9 @@ jobs:
       - name: Agent invitation resend
         run: bun test scripts/agent-invite.test.js
 
+      - name: Maestro workspace approval screens
+        run: bun test scripts/workspace-approval.test.js
+
       - name: Slack credential settings
         run: bun test scripts/slack-settings.test.js
 

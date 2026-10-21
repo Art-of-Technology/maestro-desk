@@ -63,6 +63,8 @@ function startMaestroLogin() {
 registerActions({
   'maestro.login':     () => startMaestroLogin(),
   'maestro.pickBrand': (ds) => pickBrand(ds),
+  'maestro.refreshBrands': () => detectWorkspaceAndRoute().catch(e => showError(e.message || 'Could not refresh brands.')),
+  'maestro.signOut': () => { signOut(); showError('You have signed out.'); },
 });
 
 /**
@@ -144,10 +146,12 @@ async function detectWorkspaceAndRoute() {
 
   if (brands.length === 0) {
     signOut();
-    showError('Your Maestro account has no brand access yet — ask your operator to grant a brand.');
+    showError('No available Respovia brands. Ask your operator to check your Maestro brand access.');
     return;
   }
-  if (brands.length === 1) { await selectBrand(brands[0]); return; }
+  if (brands.length === 1 && (!brands[0].workspace_status || brands[0].workspace_status === 'ready')) {
+    await selectBrand(brands[0]); return;
+  }
   _brands = brands;
   renderBrandPicker(brands, me);
 }
@@ -183,21 +187,40 @@ function renderBrandPicker(brands, me) {
     <div class="auth-sub" style="margin:8px 0 14px;text-align:center">Choose a brand to work in.</div>
     <div class="auth-accounts" style="margin-top:0;border-top:none;padding-top:0">
       ${brands.map((b, i) => `
-        <div class="auth-account" data-action="maestro.pickBrand" data-idx="${i}">
-          <div class="auth-account-av">${escInitials(b.name)}</div>
-          <div>
+        <button type="button" class="auth-account" data-action="maestro.pickBrand" data-idx="${i}"
+          style="width:100%;text-align:left;color:inherit;font:inherit;min-height:64px"
+          ${b.workspace_status === 'pending' ? 'disabled' : ''}>
+          <div class="auth-account-av" style="flex-shrink:0">${escInitials(b.name)}</div>
+          <div style="min-width:0;overflow-wrap:anywhere">
             <div class="auth-account-name">${escText(b.name)}</div>
-            <div class="auth-account-role">${escText(b.slug || 'Brand')}</div>
+            <div class="auth-account-role">${b.workspace_status === 'pending' ? 'Awaiting approval'
+              : b.workspace_status === 'requestable' ? 'Request a Respovia workspace' : escText(b.slug || 'Brand')}</div>
           </div>
-        </div>
+        </button>
       `).join('')}
-    </div>`;
+    </div>
+    ${brands.some(b => b.workspace_status === 'requestable' || b.workspace_status === 'pending')
+      ? '<p class="auth-sub" role="status" style="font-size:13px">New workspaces need approval from a Respovia platform administrator.</p>' : ''}
+    <button type="button" class="btn" style="min-height:44px" data-action="maestro.refreshBrands">Refresh brands</button>
+    <button type="button" class="btn btn-ghost" style="min-height:44px" data-action="maestro.signOut">Sign out</button>`;
 }
 
-function pickBrand(ds) {
+async function pickBrand(ds) {
   const i = parseInt(ds.idx, 10);
   if (!_brands || isNaN(i) || !_brands[i]) return;
-  selectBrand(_brands[i]);
+  const brand = _brands[i];
+  if (brand.workspace_status === 'pending' || brand.requesting) return;
+  if (brand.workspace_status !== 'requestable') { await selectBrand(brand); return; }
+  brand.requesting = true;
+  setBusy('Sending workspace request…');
+  try {
+    await apiPost('/api/v1/maestro/workspace-requests', { brandId: brand.id }, { workspace: false });
+    brand.workspace_status = 'pending';
+    renderBrandPicker(_brands, _pendingMe);
+  } catch (e) {
+    setBusy(e.message || 'Could not send your request. Please try again.');
+    document.getElementById('login-error')?.classList.add('auth-error');
+  } finally { brand.requesting = false; }
 }
 
 function escInitials(name) {

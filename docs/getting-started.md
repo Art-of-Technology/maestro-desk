@@ -29,7 +29,10 @@ Respovia is **invite-only** — you can't self-register.
 
 **Signing in with Maestro:** if your organisation uses Maestro Connect, use **Sign in with
 Maestro** instead of a password — you'll be sent to Maestro to authorise, then returned to
-your Desk workspace.
+your Desk workspace. You must have access to the brand in Maestro. One available
+brand opens directly; multiple brands appear in a picker. When a new workspace
+needs approval, choose **Request a Respovia workspace**. After a platform operator
+approves the request, choose **Refresh brands** or sign in again.
 
 **Forgot your password?** Use the "Forgot password" link on the sign-in page. A Brand
 Owner can also trigger a reset for anyone on their team.
@@ -107,6 +110,12 @@ From the **Configuration hub** (top-bar cog) you can:
 The **Platform · Brands** panel is where you create brands, invite their Brand Owners, and
 manage platform-wide concerns. Destructive actions (e.g. suspending a brand) require
 type-to-confirm. Day-to-day brand administration belongs to each Brand Owner.
+
+Under **New workspaces**, keep **Approval required** to review requests before
+Respovia creates workspaces. Each request shows the Maestro brand, organisation
+and requester. Choose **Approve workspace** to accept it. Choose **Automatic** and
+**Save setting** to allow creation at Maestro sign-in; requests already pending
+still need your approval. Existing brands work under either setting.
 
 ## Getting help
 
