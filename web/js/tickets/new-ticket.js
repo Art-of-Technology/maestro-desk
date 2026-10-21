@@ -39,6 +39,7 @@ import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../
 import { jurisdictionLanguage } from './jurisdiction-language.js';
 import { showCloseTickets, applyClosedTicket } from './closure.js';
 import { markCloseReminder } from './close-reminder.js';
+import { filterTemplates, templateCategories } from './template-search.js';
 
 // ─── Wizard state ────────────────────────────────────────────────────────────
 // Survives the closeModal()+showModal() hop between steps; nothing here is
@@ -62,7 +63,10 @@ const NT = {
   closeReason: '',
 };
 
+const templateFilters = { nt: { query: '', category: '' }, nt2: { query: '', category: '' } };
+
 function resetNT() {
+  for (const filter of Object.values(templateFilters)) { filter.query = ''; filter.category = ''; }
   NT.busy = false;
   NT.templateId = null;
   NT.customer = null;
@@ -109,7 +113,7 @@ function isSessionApiBacked() { return Boolean(getJwt() && getWorkspaceId()); }
 // against both label and key; no match → '' (placeholder forces a pick).
 function matchTemplateCategory(tplCategory) {
   if (!tplCategory) return null;
-  const want = String(tplCategory).toLowerCase();
+  const want = String(tplCategory).trim().toLowerCase();
   return catOptions().find(o => o.value.toLowerCase() === want || o.label.toLowerCase() === want) || null;
 }
 
@@ -159,6 +163,44 @@ function applyTemplateToNT(id, { keepMessage = false } = {}) {
 
 // ─── Step 1 — details ────────────────────────────────────────────────────────
 
+function templateOptions(prefix, selected = '') {
+  const filter = templateFilters[prefix];
+  const matches = filterTemplates(TICKET_TEMPLATES, filter.query, filter.category);
+  const current = TICKET_TEMPLATES.find(t => t.id === selected);
+  const option = t => `<option value="${window.escAttr(t.id)}" ${t.id === selected ? 'selected' : ''}>${window.escHtml(t.name)}</option>`;
+  const retained = current && !matches.includes(current) ? `<optgroup label="Current selection (outside filters)">${option(current)}</optgroup>` : '';
+  return {
+    html: `<option value="" ${selected ? '' : 'selected'}>${prefix === 'nt' ? '— Blank ticket —' : '— Choose a template —'}</option>${retained}${matches.map(option).join('')}`,
+    status: `${matches.length} of ${TICKET_TEMPLATES.length} templates.${matches.length ? '' : ' No templates match. Try another search or category.'}${retained ? ' Your current selection is kept.' : ''}`,
+  };
+}
+
+function templateControls(prefix) {
+  if (!TICKET_TEMPLATES.length) return '';
+  const filter = templateFilters[prefix];
+  const options = templateOptions(prefix, prefix === 'nt' ? NT.templateId : '');
+  return `<div class="form-row nt-template-controls">
+    <div class="template-filters">
+      <label for="${prefix}-template-query">Search templates<input type="search" class="form-input" id="${prefix}-template-query" value="${window.escAttr(filter.query)}" placeholder="Name, subject, category, or message" data-input-action="nt.templateSearch" data-template-step="${prefix}" autocomplete="off"></label>
+      <label for="${prefix}-template-category">Template category<select class="form-input" id="${prefix}-template-category" aria-label="Template category" data-change-action="nt.templateCategory" data-template-step="${prefix}">
+        <option value="">All categories</option>
+        ${templateCategories(TICKET_TEMPLATES).map(category => `<option value="${window.escAttr(category)}" ${category === filter.category ? 'selected' : ''}>${window.escHtml(category)}</option>`).join('')}
+      </select></label>
+    </div>
+    <label class="form-label" for="${prefix}-template">${prefix === 'nt' ? 'Start from template (optional)' : 'Insert template (appends)'}</label>
+    <select class="form-input" id="${prefix}-template" aria-describedby="${prefix}-template-count" data-change-action="${prefix === 'nt' ? 'nt.applyTemplate' : 'nt.appendTemplate'}">${options.html}</select>
+    <p class="template-picker-hint" id="${prefix}-template-count" role="status">${window.escHtml(options.status)}</p>
+  </div>`;
+}
+
+function filterTemplateOptions(prefix) {
+  const select = document.getElementById(prefix + '-template');
+  if (!select) return;
+  const options = templateOptions(prefix, select.value);
+  select.innerHTML = options.html;
+  document.getElementById(prefix + '-template-count').textContent = options.status;
+}
+
 function custBoxHtml() {
   if (NT.customer) {
     return `
@@ -176,8 +218,6 @@ function custBoxHtml() {
 
 function renderStep1() {
   const cats = catOptions();
-  const tplOptions = TICKET_TEMPLATES.map(t =>
-    `<option value="${window.escAttr(t.id)}" ${NT.templateId === t.id ? 'selected' : ''}>${window.escHtml(t.name)}</option>`).join('');
   const singleStep = !visible('message');
 
   const customerRow = visible('customerId')
@@ -211,14 +251,7 @@ function renderStep1() {
     : '';
 
   showModal('New Ticket', `
-    ${TICKET_TEMPLATES.length ? `
-    <div class="form-row">
-      <label class="form-label">Start from template (optional)</label>
-      <select class="form-input" id="nt-template" data-change-action="nt.applyTemplate">
-        <option value="">— Blank ticket —</option>
-        ${tplOptions}
-      </select>
-    </div>` : ''}
+    ${templateControls('nt')}
     ${customerRow}
     ${visible('subject') ? `<div class="form-row"><label class="form-label">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
     ${categoryRow || priorityRow ? `<div class="form-grid">${categoryRow}${priorityRow}</div>` : ''}
@@ -453,7 +486,6 @@ function renderLanguageConfirmation() {
 
 function renderStep2() {
   const canDraft = !required('message');   // a required message forbids draft-only creation
-  const tplOptions = TICKET_TEMPLATES.map(t => `<option value="${window.escAttr(t.id)}">${window.escHtml(t.name)}</option>`).join('');
   showModal('New Ticket — first message', `
     <div style="display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--ink2);flex-wrap:wrap">
       <strong style="color:var(--ink)">${window.escHtml(NT.customer?.label || '—')}</strong>
@@ -463,14 +495,7 @@ function renderStep2() {
       ${NT.agentUserId ? `<span>·</span><span>→ ${window.escHtml(NT.agentName)}</span>` : ''}
       <span class="link" data-action="nt.back" style="margin-left:auto;font-size:11px">‹ Edit details</span>
     </div>
-    ${TICKET_TEMPLATES.length ? `
-    <div class="form-row">
-      <label class="form-label">Insert template (appends)</label>
-      <select class="form-input" id="nt2-template" data-change-action="nt.appendTemplate">
-        <option value="">— Choose a template —</option>
-        ${tplOptions}
-      </select>
-    </div>` : ''}
+    ${templateControls('nt2')}
     <div class="form-row">
       <label class="form-label">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
       <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
@@ -813,6 +838,11 @@ registerActions({
 });
 
 registerChangeActions({
+  'nt.templateCategory': (ds, el) => {
+    if (NT.busy) return;
+    templateFilters[ds.templateStep].category = el.value;
+    filterTemplateOptions(ds.templateStep);
+  },
   'nt.afterSend': (ds, el) => {
     if (NT.busy) return;
     NT.message = document.getElementById('nt2-msg')?.value || '';
@@ -849,6 +879,11 @@ registerChangeActions({
 });
 
 registerInputActions({
+  'nt.templateSearch': (ds, el) => {
+    if (NT.busy) return;
+    templateFilters[ds.templateStep].query = el.value;
+    filterTemplateOptions(ds.templateStep);
+  },
   'nt.custSearch': (ds, el) => renderSuggestions(el.value),
   // Typing in the drafting window marks the message as the agent's, so a
   // later template pick on a step-1 revisit won't overwrite it.
