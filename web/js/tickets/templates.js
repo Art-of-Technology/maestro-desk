@@ -18,24 +18,20 @@ import { registerActions, registerChangeActions, registerInputActions } from '..
 import { apiPost, apiPatch, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { mountComposer, disposeComposer, getHtml, getPlainText, setText, insertAtCursor } from './composer.js';
+import { filterTemplates, templateCategories, templateCategory } from './template-search.js';
 
 export function renderTemplates() {
   const admin = window.isAdmin();
-  let list = [...CANNED_RESPONSES];
-  if (TPL_FILTER_CAT !== 'all') list = list.filter(t => t.category === TPL_FILTER_CAT);
-  if (TPL_QUERY.trim()) {
-    const q = TPL_QUERY.toLowerCase();
-    list = list.filter(t => t.name.toLowerCase().includes(q) || t.text.toLowerCase().includes(q) || (t.category||'').toLowerCase().includes(q));
-  }
+  const list = filterTemplates(CANNED_RESPONSES, TPL_QUERY, TPL_FILTER_CAT);
   const total = CANNED_RESPONSES.length;
-  const cats = [...new Set(CANNED_RESPONSES.map(t => t.category || 'Uncategorised'))];
+  const cats = templateCategories(CANNED_RESPONSES);
 
   const rows = list.map(t => {
     const preview = (t.text || '').replace(/\n+/g, ' ').slice(0, 120);
     return `<tr>
       <td class="bold">${window.escHtml(t.id)}</td>
       <td style="font-weight:500;color:var(--ink)">${window.escHtml(t.name)}</td>
-      <td><span class="tag tag-neutral" style="font-size:10px">${window.escHtml(t.category||'—')}</span></td>
+      <td><span class="tag tag-neutral" style="font-size:10px">${window.escHtml(templateCategory(t))}</span></td>
       <td style="font-size:12px;color:var(--ink2);max-width:380px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(preview)}</td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-action="templates.edit" data-tpl-id="${window.escAttr(t.id)}">Edit</button>
@@ -46,7 +42,7 @@ export function renderTemplates() {
   }).join('');
 
   return `
-    <div class="page">
+    <div class="page template-library-page">
       <div class="topbar">
         <div class="tb-title">Response Templates</div>
         ${admin
@@ -60,12 +56,13 @@ export function renderTemplates() {
         <div class="kpi"><div class="kpi-n c-amber">${Math.round(CANNED_RESPONSES.reduce((s,t)=>s+(t.text||'').length,0)/(total||1))}</div><div class="kpi-l">Avg chars</div></div>
       </div>
       <div class="filter-bar">
-        <span class="filter-label">Filter</span>
-        <input class="filter-select" placeholder="Search templates…" style="width:240px" value="${window.escAttr(TPL_QUERY)}" data-input-action="templates.setQuery" id="tpl-search"/>
-        <select class="filter-select" data-change-action="templates.setFilterCat">
-          <option value="all" ${TPL_FILTER_CAT==='all'?'selected':''}>All categories</option>
+        <label class="template-library-search" for="tpl-search">Search templates
+        <input type="search" class="filter-select" placeholder="Name, category, or reply text" value="${window.escAttr(TPL_QUERY)}" data-input-action="templates.setQuery" id="tpl-search"/></label>
+        <label for="tpl-category">Category
+        <select class="filter-select" id="tpl-category" aria-label="Category" data-change-action="templates.setFilterCat">
+          <option value="" ${TPL_FILTER_CAT===''?'selected':''}>All categories</option>
           ${cats.map(c => `<option value="${window.escAttr(c)}" ${TPL_FILTER_CAT===c?'selected':''}>${window.escHtml(c)}</option>`).join('')}
-        </select>
+        </select></label>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);margin-left:auto">${list.length} of ${total}</span>
       </div>
       <div class="page-scroll">
@@ -83,10 +80,12 @@ export function renderTemplates() {
 }
 
 function tplSetQuery(q) {
+  const previous = document.getElementById('tpl-search');
+  const position = previous?.selectionStart ?? q.length;
   setTplQuery(q);
   renderPage('templates');
   const input = document.getElementById('tpl-search');
-  if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  if (input) { input.focus(); input.setSelectionRange(position, position); }
 }
 
 function tplFormBody(t) {
@@ -281,7 +280,7 @@ registerActions({
 });
 
 registerChangeActions({
-  'templates.setFilterCat': (ds, el) => { setTplFilterCat(el.value); renderPage('templates'); },
+  'templates.setFilterCat': (ds, el) => { setTplFilterCat(el.value); renderPage('templates'); document.getElementById('tpl-category')?.focus(); },
 });
 
 registerInputActions({

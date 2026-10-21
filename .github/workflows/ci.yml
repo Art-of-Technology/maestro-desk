@@ -175,6 +175,7 @@ jobs:
           bun test scripts/contact-spam.test.js
           bun test scripts/ai-reply-separation.test.js
           bun test scripts/template-tailoring.test.js
+          bun test scripts/template-search.test.js
           bun test scripts/reply-preflight.test.js
           bun test scripts/email-resilience.test.js
           bun test scripts/new-ticket-close.test.js
