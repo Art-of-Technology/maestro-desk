@@ -83,10 +83,16 @@ export default async function checkTemplatePicker(page) {
     assert(layout.left >= 0 && layout.right <= width && layout.top >= 0 && layout.bottom <= 900 && !layout.overflow, `Picker fits ${width}px viewport`);
     assert(layout.scrollable, 'Long list scrolls independently of filters');
     layouts.push({ width, ...layout });
-    await page.screenshot({ path: `C:/Users/Jodi/template-picker-${width}.png` });
+    await page.screenshot({ path: `template-picker-${width}.png` });
     await page.keyboard.press('Escape');
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(async () => {
+    (await import('/js/core/modal.js')).showModal('Unrelated dialog', '<input id="unrelated-input" aria-label="Unrelated input">', null);
+    document.getElementById('unrelated-input').focus();
+  });
+  await page.locator('#modal-container .modal-close').dispatchEvent('click');
+  assert(await page.evaluate(() => !document.activeElement.closest('[id^="compose-"]') && document.activeElement.dataset.action !== 'td.macroPanel'), 'Closed pickers must not steal focus when an unrelated modal closes');
   await page.evaluate(async () => (await import('/js/core/router.js')).nav('templates'));
   await page.getByLabel('Category', { exact: true }).selectOption('Uncategorised');
   assert(await page.getByLabel('Category', { exact: true }).evaluate(el => el === document.activeElement), 'Library category retains focus after filtering');

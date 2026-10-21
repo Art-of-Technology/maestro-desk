@@ -108,7 +108,7 @@ export function showMacroPanel(id) {
   };
   search.addEventListener('input', render);
   category.addEventListener('change', render);
-  modal.parentElement.addEventListener('click', event => {
+  modal.closest('.modal-bg').addEventListener('click', event => {
     if (event.target.closest('[data-action]')?.dataset.action === 'modal.close') trigger?.focus();
   });
   modal.addEventListener('keydown', event => {
