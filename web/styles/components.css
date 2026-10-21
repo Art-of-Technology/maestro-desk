@@ -53,6 +53,11 @@
 .closure-note{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere}
 #closure-error{white-space:pre-wrap;color:var(--red);font-size:13px}
 .closure-modal .modal-body>p{margin-bottom:16px}
+.closure-modal .modal-close{border:0;background:transparent;min-width:32px;min-height:32px}
+@media(pointer:coarse){
+  .closure-modal button,.closure-modal select{min-height:44px}
+  .closure-modal .modal-close{min-width:44px}
+}
 @media(max-width:768px){.closure-modal .btn,.closure-modal select{min-height:44px}}
 /* ── Table ── */
 .tbl{width:100%;border-collapse:collapse;background:var(--off)}

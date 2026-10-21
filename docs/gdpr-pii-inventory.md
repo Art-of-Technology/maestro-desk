@@ -13,6 +13,10 @@ redact the personal data** and stamp `customers.erased_at`.
 
 ## Surfaces
 
+New audit metadata can retain the erasure surface names `tickets.status_reason_label`,
+`ticket_messages.sent_email` and `forwarded_message_copies`, without retaining their
+values. Historical audit metadata and hashes are unchanged.
+
 `customers.preferred_language` stores an agent-confirmed conversation preference.
 It is included in customer exports and nulled on erasure, including merge-journal
 copies. Database constraints prevent a preference being written onto an erased

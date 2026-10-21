@@ -97,6 +97,8 @@ run('brand ticket status options', () => {
     expect((await request(`tickets/${id}/close`, 'POST', { status_option_key: closed.key })).status).toBe(400);
     const result = await json(await request(`tickets/${id}/close`, 'POST', { status_option_key: closed.key, reason: 'duplicate' }));
     expect(result.ticket.status_option_key).toBe(closed.key); expect(result.ticket.closure_reason).toBe('duplicate');
+    expect((await state(id)).status_survey_enabled).toBe(false);
+    expect(await sendCsatSurvey({ workspaceId: ws, ticketId: id })).toEqual({ sent: false, reason: 'not_resolved' });
     const foreign = (await json(await request('ticket-statuses', 'POST', { label: 'Foreign', base_key: 'pending', send_survey: false }, other), 201)).status;
     const fresh = await ticket();
     expect((await request(`tickets/${fresh}`, 'PATCH', { status_option_key: foreign.key })).status).toBe(400);

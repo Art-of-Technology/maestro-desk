@@ -33,6 +33,24 @@ run('audit minimisation and erasable activity',()=>{
   async function failure(operation:()=>PromiseLike<unknown>) {
     let error:any;try{await operation();}catch(e){error=e;}expect(error).toBeDefined();return error;
   }
+  it('records every current erasure surface name without retaining erased values',async()=>{
+    const s=await seed();
+    const result=await erase(s.customer);
+    if(!result)throw Error('Synthetic customer could not be erased');
+    const {writeAudit}=await import('./middleware/platform-admin.js');
+    await writeAudit({workspaceId:ws,actorUserId:null,action:'customer.erased',targetType:'customer',targetId:s.customer,
+      metadata:{fields_erased:[...result.fieldsErased,'unknown_surface'],
+        changed:{'tickets.status_reason_label':{from:'PRIVATE_REASON',to:null},'ticket_messages.sent_email':{from:'PRIVATE_EMAIL',to:null}},
+        forwarded_message_copies:'PRIVATE_FORWARD'}});
+    const [row]=await sql`select metadata from audit_events where workspace_id=${ws} and target_id=${s.customer} and action='customer.erased'`;
+    expect(row.metadata.fields_erased.toSorted()).toEqual(result.fieldsErased.toSorted());
+    for(const name of ['tickets.status_reason_label','ticket_messages.sent_email','forwarded_message_copies']) {
+      expect(row.metadata.fields_erased).toContain(name);
+    }
+    expect(JSON.stringify(row.metadata)).not.toContain('PRIVATE');
+    expect(row.metadata.fields_erased).not.toContain('unknown_surface');
+    expect((await sql`select ok from audit_events_verify(${ws})`)[0].ok).toBe(true);
+  });
   it('keeps useful private history erasable while direct and helper audit writes retain only facts',async()=>{
     const [facts]=await sql`select audit_metadata_facts('ticket.status.changed',
       '{"context":{"reason":"abuse","note":"PRIVATE"},"before":"open","after":"closed"}') value`;

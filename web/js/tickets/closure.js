@@ -25,19 +25,19 @@ export function closureDetails(t) {
     <div class="closure-date">No satisfaction survey.${contact?.isSpam ? '' : ' A new customer reply reopens the ticket.'}</div></div>`;
 }
 
-export function showCloseTickets(ids, onChanged, presetReason = '', statusOption = 'closed') {
+export function showCloseTickets(ids, onChanged, presetReason = '', statusOption = 'closed', sendReply = null) {
   const spam = presetReason === 'spam';
   const choice = statusChoice(statusOption);
   const reasons = choice?.reasons || DEFAULT_CLOSURE_REASONS;
   const required = spam || (choice?.reason_required ?? true);
   const targets = ids.map(id => TICKETS.find(t => t.id === id)).filter(t => t && !t.mergedInto && (spam || t.status !== 'closed'));
   if (!targets.length) { showToast('These tickets are already closed or merged.'); return; }
-  let busy = false;
-  const title = spam ? (targets.length === 1 ? 'Mark as spam' : `Mark ${targets.length} tickets as spam`) : (targets.length === 1 ? 'Close without resolution' : `Close ${targets.length} tickets without resolution`);
+  let busy = false, replySent = false;
+  const title = sendReply ? 'Send and close — no survey' : spam ? (targets.length === 1 ? 'Mark as spam' : `Mark ${targets.length} tickets as spam`) : (targets.length === 1 ? 'Close without resolution' : `Close ${targets.length} tickets without resolution`);
   const workspace = getWorkspaceId(), jwt = getJwt();
   showModal(title, `
-    <p>No customer email or satisfaction survey will be sent. You can reopen the tickets later.</p>
-    <p>Choosing Spam also marks linked contacts as spam. Future emails from their addresses in this workspace will be closed as spam. You can undo this from the contact or ticket.</p>
+    <p>${sendReply ? 'Your reply will use the normal AI and translation checks. After the email is sent, the ticket will close without a satisfaction survey.' : 'No customer email or satisfaction survey will be sent. You can reopen the tickets later.'}</p>
+    ${reasons.some(r => r.key === 'spam' && r.is_active) ? '<p>Choosing Spam also marks linked contacts as spam. Future emails from their addresses in this workspace will be closed as spam. You can undo this from the contact or ticket.</p>' : ''}
     <div class="form-row"><label class="form-label" for="closure-reason">Reason (${required ? 'required' : 'optional'})</label>
       <select class="form-input" id="closure-reason" ${required ? 'required' : ''}${spam ? ' disabled' : ''}>
         <option value="">${required ? 'Choose a reason' : 'No reason'}</option>
@@ -56,12 +56,35 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
     busy = true;
     const button = error.closest('.modal').querySelector('[data-action="modal.confirm"]');
     button.disabled = true; button.textContent = 'Closing…'; error.textContent = '';
+    if (sendReply) {
+      setSendBusy(true);
+      if (!replySent) {
+        button.textContent = 'Sending…';
+        try { replySent = await sendReply() === true; }
+        catch (err) { error.textContent = err?.message || 'Could not send the reply.'; }
+      }
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) {
+        if (error.isConnected) closeModal();
+        return;
+      }
+      if (!error.isConnected) return;
+      if (!replySent) {
+        busy = false; setSendBusy(false);
+        button.textContent = 'Send and close';
+        error.textContent = error.textContent || 'Reply was not confirmed sent. The ticket is still open. Check the reply and email delivery status before trying again.';
+        return;
+      }
+      button.textContent = 'Closing…';
+    }
     const succeeded = [], failed = [];
     for (const t of targets) {
       if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) break;
       try {
         const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason, note, status_option_key: statusOption }) : null;
-        if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+        if (workspace !== getWorkspaceId() || jwt !== getJwt()) {
+          if (sendReply && error.isConnected) closeModal();
+          return;
+        }
         if (reason === 'spam') {
           const contact = CUSTOMERS.find(c => c.id === t.customerId);
           if (contact && !contact.erased && !contact.mergedInto) contact.isSpam = true;
@@ -86,16 +109,26 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
     if (error.isConnected) {
       if (!failed.length) closeModal();
       else {
-        error.textContent = failed.join('\n');
-        button.disabled = false; button.textContent = 'Retry failed tickets';
+        error.textContent = (replySent ? 'Reply sent. The ticket is still open. Retry closing only; your reply will not be sent again.\n' : '') + failed.join('\n');
+        if (sendReply) setSendBusy(false);
+        button.disabled = false; button.textContent = replySent ? 'Retry close only' : 'Retry failed tickets';
         targets.splice(0, targets.length, ...targets.filter(t => !succeeded.includes(t.id)));
       }
     }
     busy = false;
     if (succeeded.length) showToast(`${succeeded.length} ticket${succeeded.length === 1 ? '' : 's'} ${reason === 'spam' ? 'marked as spam' : 'closed without resolution'}.`);
     await onChanged?.(succeeded);
-  }, spam ? 'Mark as spam' : 'Close without resolution');
+  }, sendReply ? 'Send and close' : spam ? 'Mark as spam' : 'Close without resolution');
   const modal = document.getElementById('closure-reason').closest('.modal');
+  function setSendBusy(on) {
+    modal.querySelectorAll('button, select, textarea').forEach(el => { el.disabled = on; });
+    document.getElementById('closure-reason').disabled = on || spam || replySent;
+    document.getElementById('closure-note').disabled = on || replySent;
+  }
+  if (sendReply) {
+    modal.querySelector('.modal-close').outerHTML = '<button type="button" class="modal-close" data-action="modal.close" aria-label="Cancel send and close">×</button>';
+    modal.closest('.modal-bg').dataset.action = '';
+  }
   modal.classList.add('closure-modal');
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
@@ -104,6 +137,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
   reasonInput.addEventListener('change', () => { document.getElementById('closure-error').textContent = ''; });
   (spam ? document.getElementById('closure-note') : reasonInput).focus();
   modal.addEventListener('keydown', event => {
+    if (sendReply && busy) { event.preventDefault(); return; }
     if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
     if (event.key !== 'Tab') return;
     const focusable = [...modal.querySelectorAll('button:not(:disabled), select:not(:disabled), textarea')];

@@ -3,7 +3,7 @@ import { beforeEach, expect, mock, test } from 'bun:test';
 const tickets = [], contacts = [], requests = [];
 let confirm, title, body, label, workspace, failId, failUndo, closed, changed, jwt, statusSettings;
 const button = { disabled: false, textContent: '' };
-const modal = { querySelector: () => button, classList: { add() {} }, setAttribute() {}, addEventListener() {} };
+const modal = { querySelector: () => button, querySelectorAll: () => [button, reason, note], closest: () => ({dataset:{}}), classList: { add() {} }, setAttribute() {}, addEventListener() {} };
 const reason = { value: '', focus() {}, addEventListener() {}, closest: () => modal };
 const note = { value: '', focus() {} };
 const error = { textContent: '', isConnected: true, closest: () => modal };
@@ -37,6 +37,7 @@ beforeEach(() => {
   workspace = 'one'; failId = 'never'; failUndo = false; closed = false; changed = [];
   jwt = 'session'; statusSettings = null;
   requests.length = 0; error.textContent = ''; reason.value = ''; note.value = '';
+  button.disabled = false; reason.disabled = false; note.disabled = false; error.isConnected = true;
   tickets.splice(0, tickets.length, ...['1', '2'].map(id => ({ id, _uuid: id, customerId: 'c' + id, status: 'open' })));
   contacts.splice(0, contacts.length, ...['1', '2'].map(id => ({ id: 'c' + id, _uuid: 'c' + id })));
 });
@@ -53,6 +54,53 @@ test('single spam action preselects the reason, marks its contact and exposes un
   expect(closureDetails(tickets[0])).not.toContain('A new customer reply reopens');
   await unmarkSpamContact('c1');
   expect(contacts[0].isSpam).toBe(false); expect(tickets[0].status).toBe('closed');
+});
+
+test('send and close validates the reason before sending and stays open on unconfirmed delivery', async () => {
+  let sends = 0;
+  showCloseTickets(['1'], null, '', 'closed', async () => { sends++; return false; });
+  await confirm(); expect(sends).toBe(0);
+  reason.value = 'other'; await confirm();
+  expect(sends).toBe(1); expect(requests).toHaveLength(0);
+  expect(tickets[0].status).toBe('open'); expect(closed).toBe(false);
+  expect(error.textContent).toContain('not confirmed sent'); expect(button.disabled).toBe(false);
+});
+
+test('a failed close after sending offers only a closure retry', async () => {
+  let sends = 0; failId = '/1/';
+  showCloseTickets(['1'], null, '', 'closed', async () => { sends++; return true; });
+  reason.value = 'other'; note.value = 'Internal context'; await confirm();
+  expect(sends).toBe(1); expect(tickets[0].status).toBe('open');
+  expect(button.textContent).toBe('Retry close only');
+  expect(error.textContent).toContain('Reply sent');
+  expect(reason.disabled).toBe(true); expect(note.disabled).toBe(true);
+  failId = 'never'; await confirm();
+  expect(sends).toBe(1); expect(requests).toHaveLength(2);
+  expect(requests[1].data).toMatchObject({reason:'other',note:'Internal context'});
+  expect(tickets[0].status).toBe('closed'); expect(tickets[0].statusSurveyEnabled).toBe(false);
+});
+
+test('double confirmation sends once and a workspace switch prevents closure', async () => {
+  let sends = 0, release;
+  const held = new Promise(resolve => { release = resolve; });
+  showCloseTickets(['1'], null, '', 'closed', async () => { sends++; await held; return true; });
+  reason.value = 'other'; const first = confirm(); await confirm();
+  expect(sends).toBe(1); expect(reason.disabled).toBe(true);
+  workspace = 'two'; release(); await first;
+  expect(requests).toHaveLength(0); expect(tickets[0].status).toBe('open'); expect(closed).toBe(true);
+});
+
+test('replacing the modal during a send prevents an unintended closure', async () => {
+  showCloseTickets(['1'], null, '', 'closed', async () => { error.isConnected = false; return true; });
+  reason.value = 'other'; await confirm();
+  expect(requests).toHaveLength(0); expect(tickets[0].status).toBe('open');
+});
+
+test('an unexpected send error keeps the close dialog usable', async () => {
+  showCloseTickets(['1'], null, '', 'closed', async () => { throw Error('Send unavailable'); });
+  reason.value = 'other'; await confirm();
+  expect(error.textContent).toBe('Send unavailable'); expect(button.disabled).toBe(false);
+  expect(requests).toHaveLength(0); expect(tickets[0].status).toBe('open');
 });
 
 test('bulk spam keeps failed tickets selected and retries only failures', async () => {
@@ -83,7 +131,7 @@ test('switching workspace before confirmation does not write to the new workspac
 
 test('optional closure accepts no reason, while required custom reasons reject missing and retired choices', async () => {
   statusSettings = { reason_required: false, reasons: [] };
-  showCloseTickets(['1']); expect(body).toContain('Reason (optional)'); await confirm();
+  showCloseTickets(['1']); expect(body).toContain('Reason (optional)'); expect(body).not.toContain('Choosing Spam'); await confirm();
   expect(tickets[0].closureReason).toBeNull(); expect(closed).toBe(true);
   statusSettings = { reason_required: true, reasons: [{ key: 'custom-review', label: 'Review complete', is_active: true }, { key: 'retired', label: 'Old', is_active: false }] };
   showCloseTickets(['2']); await confirm(); expect(error.textContent).toBe('Choose a closure reason.');
