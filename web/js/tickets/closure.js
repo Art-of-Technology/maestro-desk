@@ -25,6 +25,28 @@ export function closureDetails(t) {
     <div class="closure-date">No satisfaction survey.${contact?.isSpam ? '' : ' A new customer reply reopens the ticket.'}</div></div>`;
 }
 
+export function applyClosedTicket(t, result, reason, note = '', statusOption = 'closed') {
+  const reasons = statusChoice(statusOption)?.reasons || DEFAULT_CLOSURE_REASONS;
+  const selectedReason = reasons.find(r => r.key === reason);
+  if (reason === 'spam') {
+    const contact = CUSTOMERS.find(c => c.id === t.customerId);
+    if (contact && !contact.erased && !contact.mergedInto) contact.isSpam = true;
+  }
+  applySavedActivity(t, result);
+  t.status = 'closed';
+  t.statusOption = result?.ticket.status_option_key || statusOption;
+  t.statusSurveyEnabled = false;
+  t.closureReason = result?.ticket.closure_reason || reason || null;
+  t.statusReasonLabel = result?.ticket.status_reason_label || selectedReason?.label || null;
+  t.closureNote = result ? result.ticket.closure_note : note || null;
+  t.closedAt = result?.ticket.closed_at || new Date().toISOString();
+  t.closedByUserId = result?.ticket.closed_by_user_id || SESSION?.userId || null;
+  t.resolvedAt = null; t.snoozedUntil = null; t.snoozedAt = null; t.snoozeReason = null;
+  t._detailLoaded = false;
+  refreshTicketSLA(t);
+  if (!t._uuid) logTicketEvent(t.id, 'system', `Closed without resolution: ${selectedReason?.label || 'No reason given'}.${note ? '\n' + note : ''}`);
+}
+
 export function showCloseTickets(ids, onChanged, presetReason = '', statusOption = 'closed', sendReply = null) {
   const spam = presetReason === 'spam';
   const choice = statusChoice(statusOption);
@@ -85,23 +107,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
           if (sendReply && error.isConnected) closeModal();
           return;
         }
-        if (reason === 'spam') {
-          const contact = CUSTOMERS.find(c => c.id === t.customerId);
-          if (contact && !contact.erased && !contact.mergedInto) contact.isSpam = true;
-        }
-        applySavedActivity(t, result);
-        t.status = 'closed';
-        t.statusOption = result?.ticket.status_option_key || statusOption;
-        t.statusSurveyEnabled = false;
-        t.closureReason = result?.ticket.closure_reason || reason || null;
-        t.statusReasonLabel = result?.ticket.status_reason_label || selectedReason?.label || null;
-        t.closureNote = result ? result.ticket.closure_note : note || null;
-        t.closedAt = result?.ticket.closed_at || new Date().toISOString();
-        t.closedByUserId = result?.ticket.closed_by_user_id || SESSION?.userId || null;
-        t.resolvedAt = null; t.snoozedUntil = null; t.snoozedAt = null; t.snoozeReason = null;
-        t._detailLoaded = false;
-        refreshTicketSLA(t);
-        if (!t._uuid) logTicketEvent(t.id, 'system', `Closed without resolution: ${selectedReason?.label || 'No reason given'}.${note ? '\n' + note : ''}`);
+        applyClosedTicket(t, result, reason, note, statusOption);
         succeeded.push(t.id);
       } catch (err) { failed.push(`${t.id}: ${err?.message || 'Could not close ticket.'}`); }
     }
