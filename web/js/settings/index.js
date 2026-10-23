@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Settings groups personal preferences, brand settings and workspace tools.
 // The "Knowledge Base" tab configures the
@@ -69,11 +70,13 @@ export function renderSettings() {
     {k:'notifications', l:'Notifications'},
     {k:'language',      l:'Language'},
     {k:'appearance',    l:'Brand & portal', heading:'Brand settings'},
-    ...(window.isAdmin() ? [{k:'email', l:'Email branding'}, {k:'sender-domain', l:'Sender domain'}] : []),
+    ...(can('admin.settings') ? [{k:'email', l:'Email branding'}] : []),
+    ...(can('admin.integrations') ? [{k:'sender-domain', l:'Sender domain'}] : []),
     {k:'ai',            l:'AI Assistant', heading:'Workspace'},
     {k:'knowledge-base', l:'Knowledge Base'},
     {k:'integrations',  l:'Integrations'},
-    ...(window.isAdmin() ? [{k:'reply-feedback', l:'Reply feedback'}, {k:'categories', l:'Categories'}] : []),
+    ...(can('data.ai_reports') ? [{k:'reply-feedback', l:'Reply feedback'}] : []),
+    ...(can('admin.inboxes') ? [{k:'categories', l:'Categories'}] : []),
   ];
   const tabbar = tabs.map(t => {
     return `${t.heading ? `<h2 class="settings-nav-heading">${t.heading}</h2>` : ''}<button type="button" class="settings-tab ${SETTINGS_TAB===t.k?'active':''}" ${SETTINGS_TAB===t.k?'aria-current="page"':''} data-action="settings.setTab" data-tab="${window.escAttr(t.k)}">${t.l}</button>`;
@@ -163,7 +166,7 @@ function settingsWorkspaceBranding() {
       .catch((err) => { console.warn('[settings] workspace load failed:'); });
   }
   const ws = WORKSPACE_SETTINGS;
-  const isAdmin = window.isAdmin();
+  const isAdmin = can('admin.settings');
   const logoUrl = ws?.logo_url || '';
   const color   = ws?.primary_color || '';
   const preview = logoUrl
@@ -284,7 +287,7 @@ function settingsPortalDomain(ws, isAdmin) {
 }
 
 async function savePortalDomain() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.settings')) return;
   const domain = document.getElementById('brand-portal-domain').value.trim().toLowerCase();
   const msg = document.getElementById('portal-domain-msg');
   msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
@@ -303,7 +306,7 @@ async function savePortalDomain() {
 }
 
 async function verifyPortalDomain() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.settings')) return;
   const msg = document.getElementById('portal-domain-msg');
   msg.textContent = 'Looking up DNS...'; msg.style.color = 'var(--ink3)';
   try {
@@ -330,7 +333,7 @@ async function verifyPortalDomain() {
 }
 
 async function savePortalCopy() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.settings')) return;
   const tagline = document.getElementById('brand-portal-tagline').value.trim();
   const intro   = document.getElementById('brand-portal-intro').value.trim();
   const footer  = document.getElementById('brand-portal-footer').value.trim();
@@ -352,7 +355,7 @@ async function savePortalCopy() {
 }
 
 async function uploadWorkspaceLogo() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.settings')) return;
   const fileEl = document.getElementById('brand-logo-file');
   const file = fileEl?.files?.[0];
   const msg = document.getElementById('brand-msg');
@@ -405,7 +408,7 @@ async function uploadWorkspaceLogo() {
 }
 
 async function saveWorkspaceBranding() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.settings')) return;
   const logoUrl = document.getElementById('brand-logo-url').value.trim();
   const color   = document.getElementById('brand-primary-color').value.trim();
   const msg = document.getElementById('brand-msg');
@@ -561,7 +564,7 @@ async function refreshAIStatus() {
     node.textContent = (status.configured ? 'Server key configured.' : 'Server key needs configuration.')
       + ' Workspace credit: $' + (status.balance_micro / 1000000).toFixed(4)
       + '. Your platform administrator manages credit.';
-    if (toggle) { toggle.checked = status.player_enrichment; toggle.disabled = !window.isAdmin(); }
+    if (toggle) { toggle.checked = status.player_enrichment; toggle.disabled = !can('admin.settings'); }
   } catch (err) {
     if (node.isConnected && ws === getWorkspaceId() && jwt === getJwt()) node.textContent = err?.message || 'Could not load AI settings.';
   }
@@ -869,7 +872,7 @@ function settingsOutgoingWebhooksSection() {
 }
 
 async function createOutgoingWebhook() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const name   = document.getElementById('wh-name').value.trim();
   const url    = document.getElementById('wh-url').value.trim();
   const events = SLACK_EVENTS.filter((e) => document.getElementById(`wh-evt-${e.k}`)?.checked).map((e) => e.k);
@@ -892,7 +895,7 @@ async function createOutgoingWebhook() {
 }
 
 async function deleteOutgoingWebhook(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   if (!confirm('Delete this webhook? Events will stop firing immediately.')) return;
   try {
     await apiDelete(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`);
@@ -967,7 +970,7 @@ function settingsSuppressionListSection() {
 }
 
 async function resetSuppressedCustomer(customerId, contactId) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const scope = suppressionScope();
   if (!confirm('Reset the bounce status for this email address? Respovia will allow sends to it again.')) return;
   try {
@@ -1084,7 +1087,7 @@ async function retryWebhookDelivery(webhookId, deliveryId) {
 // the create flow uses.
 
 function editOutgoingWebhook(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const w = OUTGOING_WEBHOOKS.find((x) => x.id === id);
   if (!w) return;
   const eventCheckboxes = SLACK_EVENTS.map((e) => `
@@ -1177,7 +1180,7 @@ async function rotateOutgoingWebhookSecret() {
 }
 
 async function saveSlackIntegration() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const url           = document.getElementById('slack-url').value.trim();
   const channel       = document.getElementById('slack-channel').value.trim();
   const active        = document.getElementById('slack-active').checked;
@@ -1216,7 +1219,7 @@ async function saveSlackIntegration() {
 }
 
 async function deleteSlackIntegration() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   if (!confirm('Disconnect Slack? Future ticket events won\'t notify until you reconnect.')) return;
   try {
     await apiDelete('/api/v1/integrations/slack');
@@ -1249,7 +1252,7 @@ function settingsCategories() {
     CATEGORIES_LOADED = true;
     refreshCategories().catch((err) => console.warn('[settings] categories load failed:'));
   }
-  const isAdmin = window.isAdmin();
+  const isAdmin = can('admin.inboxes');
   const sorted   = [...CATEGORIES].sort((a, b) => (a.label || '').localeCompare(b.label || ''));
   const active   = sorted.filter((c) => c.is_active);
   const disabled = sorted.filter((c) => !c.is_active);
@@ -1311,7 +1314,7 @@ function setCatMsg(text, color) {
 }
 
 async function addCategory() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const input = document.getElementById('new-cat-label');
   const label = (input?.value || '').trim();
   if (!label) { setCatMsg('Enter a category name', 'var(--red)'); return; }
@@ -1329,7 +1332,7 @@ async function addCategory() {
 // nextActive is a real boolean here — the handler converts the stringy
 // data-next attribute ('true'/'false') to a boolean before calling this.
 async function toggleCategory(key, nextActive) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   try {
     await apiPatch(`/api/v1/categories/${encodeURIComponent(key)}`, { is_active: nextActive });
     await refreshCategories();

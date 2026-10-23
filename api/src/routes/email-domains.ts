@@ -12,7 +12,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb } from '../lib/db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { enforceRateLimit } from '../lib/rate-limit.js';
 import { env } from '../lib/env.js';
@@ -61,7 +61,7 @@ function publicRow(d: EmailDomainRow) {
 // "Check now" button, or the daily cron sweep — all of which re-snapshot
 // dns_records via checkEmailDomain.
 emailDomains.get('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
   const workspaceId = c.get('workspaceId');
 
@@ -90,7 +90,7 @@ emailDomains.get('/', async (c) => {
 // POST /api/v1/email-domains — claim a domain, provision at Postmark, return
 // the DNS records to publish.
 emailDomains.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
   const workspaceId = c.get('workspaceId');
 
@@ -183,7 +183,7 @@ emailDomains.post('/', async (c) => {
 // the automatic poll must not, or a persistent Postmark account issue would
 // flap degrade/recover every 45s (see checkEmailDomain).
 emailDomains.post('/:id/check', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
   const workspaceId = c.get('workspaceId');
 
@@ -233,7 +233,7 @@ emailDomains.post('/:id/check', async (c) => {
 // DELETE /api/v1/email-domains/:id — offboard a sender domain (soft-delete;
 // the domain string frees up for re-use).
 emailDomains.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
   const workspaceId = c.get('workspaceId');
 

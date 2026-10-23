@@ -1,3 +1,5 @@
+import { requirePermission } from '../lib/role-permissions.js';
+import { ticketAssigneeScope } from '../lib/role-permissions.js';
 import { safeError } from '../lib/diagnostics.js';
 import { EmailRecipients, ticketReplyRecipients } from '../lib/email-recipients.js';
 import { messageDrafts, consumeDraft, DraftConflict } from './message-drafts.js';
@@ -109,6 +111,7 @@ tickets.get('/', async (c) => {
            ${withCount ? sql`, count(*) over() ::int as total_count` : sql``}
     from tickets
     where workspace_id = ${workspaceId} and deleted_at is null
+      and (${ticketAssigneeScope(c) === null} or assigned_user_id::text = ${ticketAssigneeScope(c)})
     order by updated_at desc
     limit ${limit} offset ${offset}
   `;
@@ -149,6 +152,7 @@ tickets.get('/work-index', async (c) => {
           where fc.ticket_id = tickets.id and fc.workspace_id = ${workspaceId}
           and fc.role = 'customer' and fc.deleted_at is null and fc.merged_from_id is null)) as first_agent_reply_at
     from tickets where workspace_id = ${workspaceId} and deleted_at is null and merged_into_id is null
+      and (${ticketAssigneeScope(c) === null} or assigned_user_id::text = ${ticketAssigneeScope(c)})
       ${scope === 'history' ? sql`and status_key in ('resolved', 'closed')` : sql`and status_key not in ('resolved', 'closed')`}
       ${after ? sql`and id > ${after}::uuid` : sql``}
     order by id limit 201`;
@@ -219,6 +223,7 @@ tickets.get('/sync', async (c) => {
               order by tm.created_at desc limit 1) as last_message_role
     from tickets
     where workspace_id = ${workspaceId} ${cursorClause}
+      and (${ticketAssigneeScope(c) === null} or assigned_user_id::text = ${ticketAssigneeScope(c)})
     order by updated_at asc, id asc
     limit ${limit}
   `];
@@ -247,7 +252,8 @@ tickets.get('/by-number/:displayId', async (c) => {
   if (!/^[a-z0-9_-]{1,80}$/i.test(displayId)) return c.json({ error: 'Ticket not found' }, 404);
   const sql = getDb();
   const [ticket] = await sql`select ${ticketListCols(sql)} from tickets
-    where workspace_id = ${c.get('workspaceId')} and display_id = ${displayId} and deleted_at is null`;
+    where workspace_id = ${c.get('workspaceId')} and display_id = ${displayId} and deleted_at is null
+      and (${ticketAssigneeScope(c) === null} or assigned_user_id::text = ${ticketAssigneeScope(c)})`;
   if (!ticket) return c.json({ error: 'Ticket not found' }, 404);
   return c.json({ ticket });
 });
@@ -761,7 +767,7 @@ tickets.delete('/:id/attachments/:attId', async (c) => {
 });
 
 tickets.get('/:id/messages/:noteId/history', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.edit_history');
   if (denied) return denied;
   const parentId = c.req.param('id'), noteId = c.req.param('noteId'), workspaceId = c.get('workspaceId');
   if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {

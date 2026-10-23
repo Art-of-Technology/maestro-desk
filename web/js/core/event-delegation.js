@@ -1,3 +1,4 @@
+import { can, actionPermission } from './permissions.js';
 // ─── data-action event dispatcher ────────────────────────────────────────────
 // Document-level event listeners that route DOM events on elements carrying
 // `data-action="ns.fnName"` (or `data-change-action="..."`) to handlers
@@ -60,6 +61,8 @@ export function registerInputActions(map)      { registerInto(INPUT_ACTIONS,    
 function dispatch(registry, attr, e) {
   const el = e.target.closest(`[${attr}]`);
   if (!el) return;
+  const permission = actionPermission(el);
+  if (permission && !permission.split(' ').every(can)) { e.preventDefault(); return; }
   const fn = registry[el.getAttribute(attr)];
   if (!fn) return;
   fn(el.dataset, el, e);

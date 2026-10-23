@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 import { activeTicketStatus } from '../lib/ticket-status.js';
 import type { TransactionSql } from 'postgres';
@@ -46,7 +46,7 @@ async function referencesExist(sql: TransactionSql, workspaceId: string, actions
 }
 
 macros.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   const parsed = Body.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Invalid macro', issues: parsed.error.issues }, 400);
@@ -60,7 +60,7 @@ macros.post('/', async (c) => {
 });
 
 macros.put('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Invalid macro ID' }, 400);
   const parsed = Body.safeParse(await c.req.json().catch(() => null));
@@ -79,7 +79,7 @@ macros.put('/:id', async (c) => {
 });
 
 macros.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   if (!z.string().uuid().safeParse(c.req.param('id')).success) return c.json({ error: 'Invalid macro ID' }, 400);
   const sql = getDb();

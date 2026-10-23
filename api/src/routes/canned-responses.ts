@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { templateBody } from '../lib/template-body.js';
 import { MAX_HTML_CHARS } from '../lib/html-text.js';
 
@@ -37,7 +37,7 @@ cannedResponses.get('/', async (c) => {
 });
 
 cannedResponses.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -67,7 +67,7 @@ const PatchTemplate = z.object({
 }).strict();
 
 cannedResponses.patch('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -100,7 +100,7 @@ cannedResponses.patch('/:id', async (c) => {
 });
 
 cannedResponses.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.templates');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');

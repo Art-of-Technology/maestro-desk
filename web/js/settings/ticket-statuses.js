@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { statusOptions, statusOptionsState, STATUS_CATEGORIES, DEFAULT_CLOSURE_REASONS, loadStatusOptions } from '../tickets/status-options.js';
 import { apiPost, apiPut, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { renderPage } from '../core/router.js';
@@ -7,7 +8,7 @@ import { registerActions, registerChangeActions } from '../core/event-delegation
 
 let categoryDrafts, previousCategory;
 export function renderTicketStatuses() {
-  if (!window.isAdmin()) return '<div class="page ticket-status-settings"><div class="topbar"><h1 class="tb-title">Ticket statuses</h1></div><p class="report-note">Brand admin permission is required to manage ticket statuses.</p></div>';
+  if (!can('admin.inboxes')) return '<div class="page ticket-status-settings"><div class="topbar"><h1 class="tb-title">Ticket statuses</h1></div><p class="report-note">Brand admin permission is required to manage ticket statuses.</p></div>';
   const state = statusOptionsState();
   if (!state.ready && !state.error) queueMicrotask(async () => { await loadStatusOptions(); if (document.body.dataset.currentPage === 'ticket-statuses') renderPage('ticket-statuses'); });
   return `<div class="page ticket-status-settings"><div class="topbar"><h1 class="tb-title">Ticket statuses</h1><div class="status-settings-actions"><button class="btn" data-action="statuses.reload">Refresh</button><button class="btn btn-solid" data-action="statuses.new" ${!state.ready || !getWorkspaceId() ? 'disabled' : ''}>Add status</button></div></div>
@@ -16,7 +17,7 @@ export function renderTicketStatuses() {
     <p class="report-note">Built-in statuses stay available. Retired statuses remain on existing tickets. Changing a status cannot recall a survey that has already been sent.</p></div>`;
 }
 function edit(key) {
-  if (!window.isAdmin() || !getWorkspaceId()) return;
+  if (!can('admin.inboxes') || !getWorkspaceId()) return;
   const old = key ? statusOptions({ includeRetired: true }).find(s => s.key === key) : null;
   if (key && !old) return;
   const workspace = getWorkspaceId(), jwt = getJwt();

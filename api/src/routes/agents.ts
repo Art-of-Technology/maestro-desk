@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { allowed, effectivePermissions, requirePermission, type Permission } from '../lib/role-permissions.js';
 import { auth, sendInvitationSetup } from '../lib/auth.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { deriveNameFromEmail, initialsFromName, randomPassword } from '../lib/invite.js';
@@ -17,6 +17,14 @@ import { revokeSessionsIfNoAccess } from '../lib/sessions.js';
 export const agents = new Hono();
 
 agents.use('*', requireAuth);
+
+async function assignableRole(c: import('hono').Context, roleId: string) {
+  const [role] = await getDb()`select * from roles where id=${roleId} and workspace_id=${c.get('workspaceId')}`;
+  if (!role) return c.json({ error: 'Role not found in this workspace' }, 400);
+  if (!c.get('workspaceAdmin') && (role.is_admin || Object.entries(effectivePermissions(role)).some(([key, grant]) => grant && !allowed(c, key as Permission))))
+    return c.json({ error: 'You cannot grant access beyond your own permissions.' }, 403);
+  return null;
+}
 
 // Joined membership shape (users + roles nested, matching the old PostgREST
 // embed the SPA consumes). Soft-deleted users are excluded.
@@ -52,7 +60,7 @@ const InviteAgent = z.object({
 }).strict();
 
 agents.post('/invite', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.agents');
   if (denied) return denied;
 
   const sql = getDb();
@@ -62,6 +70,8 @@ agents.post('/invite', async (c) => {
   const parsed = InviteAgent.safeParse(body);
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   const email = parsed.data.email.toLowerCase();
+  const roleDenied = await assignableRole(c, parsed.data.role_id);
+  if (roleDenied) return roleDenied;
 
   // The role must belong to THIS workspace (no cross-tenant FK).
   const [role] = await sql<{ id: string }[]>`
@@ -106,12 +116,16 @@ agents.post('/invite', async (c) => {
   `;
 
   // Upsert membership at the chosen role (composite PK → idempotent).
-  await sql`
+  const [membership] = await sql`
     insert into workspace_members (workspace_id, user_id, role_id, active, invitation_pending)
     values (${workspaceId}, ${authUserId}, ${role.id}, false, true)
     on conflict (workspace_id, user_id) do update
       set role_id = excluded.role_id
+      where not exists(select 1 from roles r where r.id=workspace_members.role_id and r.is_admin)
+        or exists(select 1 from roles r where r.id=excluded.role_id and r.is_admin)
+    returning user_id
   `;
+  if (!membership) return c.json({ error: 'Brand Admin access is protected.' }, 409);
 
   // Email the set-password link (best-effort — membership already exists, so a
   // transient mail failure shouldn't 500; the admin can re-invite to re-send).
@@ -146,9 +160,6 @@ const PatchAgent = z.object({
 }).strict();
 
 agents.patch('/:userId', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
-  if (denied) return denied;
-
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
   const targetUserId = c.req.param('userId');
@@ -157,6 +168,16 @@ agents.patch('/:userId', async (c) => {
   const parsed = PatchAgent.safeParse(reqBody);
   if (!parsed.success) return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   if (Object.keys(parsed.data).length === 0) return c.json({ error: 'No fields to update' }, 400);
+  if (parsed.data.role_id !== undefined) {
+    const denied = await requirePermission(c, 'admin.assign_roles');
+    if (denied) return denied;
+    const roleDenied = await assignableRole(c, parsed.data.role_id);
+    if (roleDenied) return roleDenied;
+  }
+  if (Object.keys(parsed.data).some(key => key !== 'role_id')) {
+    const denied = await requirePermission(c, 'admin.agents');
+    if (denied) return denied;
+  }
 
   // Confirm the target role belongs to this workspace (no cross-tenant FK).
   if (parsed.data.role_id !== undefined) {
@@ -169,6 +190,7 @@ agents.patch('/:userId', async (c) => {
   const [updated] = await sql`
     update workspace_members set ${sql(changes)}
     where workspace_id = ${workspaceId} and user_id = ${targetUserId}
+      and (${c.get('platformAdmin')} or not exists(select 1 from roles r where r.id=workspace_members.role_id and r.is_admin))
       and (${parsed.data.active === true} = false or invitation_pending = false)
     returning user_id
   `;
@@ -196,7 +218,7 @@ agents.patch('/:userId', async (c) => {
 // exists). Best-effort send: a transient mail failure reports email_sent:false
 // rather than 500ing, matching the /invite contract.
 agents.post('/:userId/reset-password', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.agents');
   if (denied) return denied;
 
   const sql = getDb();
@@ -235,7 +257,7 @@ agents.post('/:userId/reset-password', async (c) => {
 // Hard-delete from workspace_members; the users row stays so historical
 // references (ticket_messages.author_user_id) keep resolving.
 agents.delete('/:userId', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.agents');
   if (denied) return denied;
 
   const sql = getDb();
@@ -245,6 +267,7 @@ agents.delete('/:userId', async (c) => {
   const [deleted] = await sql`
     delete from workspace_members
     where workspace_id = ${workspaceId} and user_id = ${targetUserId}
+      and (${c.get('platformAdmin')} or not exists(select 1 from roles r where r.id=workspace_members.role_id and r.is_admin))
     returning user_id
   `;
   if (!deleted) return c.json({ error: 'Membership not found' }, 404);

@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // Workspace-wide Reports; chart preferences remain independent of report data.
 import { CURRENT_PAGE } from '../core/state.js';
 import { renderPage } from '../core/router.js';
@@ -127,7 +128,7 @@ async function exportReport() {
 }
 
 export function renderReports() {
-  if (AI_REPORT && window.isAdmin()) return renderReplyPerformance();
+  if (AI_REPORT && can('data.ai_reports')) return renderReplyPerformance();
   const tf = REPORT_TF;
   const authenticated = !!getJwt();
   if (authenticated && reportState?.key !== requestKey()) void loadReport(requestKey());
@@ -146,7 +147,7 @@ export function renderReports() {
         </select>
         <button class="btn btn-sm" data-action="reports.refresh">Refresh</button>
         <button class="btn btn-sm" data-action="reports.export" ${!s || reportState.exporting ? 'disabled' : ''}>${reportState?.exporting ? 'Exporting…' : 'Export CSV'}</button>
-        ${window.isAdmin() ? '<button type="button" class="btn btn-sm" data-action="reports.openAi">AI reply performance</button>' : ''}
+        ${can('data.ai_reports') ? '<button type="button" class="btn btn-sm" data-action="reports.openAi">AI reply performance</button>' : ''}
       </div>
       ${!s ? `<p class="report-note" role="${reportState?.error ? 'alert' : 'status'}">${esc(message)}</p>` : `
       ${reportState.exportError ? `<p class="report-note" role="alert">${esc(reportState.exportError)}</p>` : ''}

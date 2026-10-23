@@ -20,6 +20,7 @@ import {
 } from '../lib/maestro.js';
 import { resolveBrandWorkspace, agentBrandWorkspaceId, requestBrandWorkspace } from '../lib/maestro-workspace.js';
 import { getDb } from '../lib/db.js';
+import { effectivePermissions } from '../lib/role-permissions.js';
 import { summarizePlayerAccess, stripRemovedPlayerFields } from '../lib/player-audit.js';
 import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { writeAudit } from '../middleware/platform-admin.js';
@@ -297,6 +298,13 @@ maestro.get('/players', requireAuthOnly, async (c) => {
   if (!workspaceId) {
     throw new HTTPException(403, { message: 'You do not have access to this brand.' });
   }
+
+  const [role] = await getDb()`select r.is_admin,r.can_delete,r.can_manage_custom_fields,r.permissions,u.is_platform_admin
+    from users u left join workspace_members wm on wm.user_id=u.id and wm.workspace_id=${workspaceId} and wm.active
+    left join roles r on r.id=wm.role_id and r.workspace_id=wm.workspace_id
+    where u.id=${userId} and (wm.user_id is not null or u.is_platform_admin)`;
+  if (!role || !effectivePermissions(role, role.is_platform_admin)['customers.view'])
+    throw new HTTPException(403, { message: 'Your role does not allow player lookups.' });
 
   // Exactly one key. `email` is forwarded as-is (the gateway accepts an email
   // OR a username on that param); numeric member id and Maestro id are distinct.

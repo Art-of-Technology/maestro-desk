@@ -19,6 +19,7 @@
 // External reaches (interim, via window): escAttr, escHtml — still in app.js.
 
 import { AGENTS, CATEGORIES, CUSTOMERS, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
+import { can } from '../core/permissions.js';
 import { SESSION, CURRENT_TICKET, setComposeTabValue } from '../core/state.js';
 import { updateNavBadges } from '../core/router.js';
 import { showModal, closeModal } from '../core/modal.js';
@@ -121,6 +122,7 @@ function matchTemplateCategory(tplCategory) {
 // templateId: prefill from a ticket template (ticket-templates page "Use").
 // custDisplayId: prefill the customer (customer-profile "New ticket" button).
 export async function showNewTicketModal(templateId, custDisplayId) {
+  if (!can('tickets.create')) { showToast('Your role does not allow ticket creation.'); return; }
   const workspace = getWorkspaceId(), jwt = getJwt();
   if (workspace) await loadStatusOptions();
   if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;

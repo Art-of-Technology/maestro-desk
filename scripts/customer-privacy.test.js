@@ -6,7 +6,7 @@ function harness(){
   const control={jwt:'session',workspace:'workspace',admin:true,hold:null,error:null};
   const calls=[],downloads=[],alerts=[],cleared=[],nodes=new Map(),actions={},listeners={};let confirm,reloads=0;
   function show(body){for(const node of nodes.values())node.isConnected=false;nodes.clear();for(const [,id] of body.matchAll(/id="([^"]+)"/g))nodes.set(id,{isConnected:true,value:'',textContent:''});}
-  const context={getJwt:()=>control.jwt,getWorkspaceId:()=>control.workspace,CUSTOMERS:[{id:'M-1',_uuid:'customer-uuid',first:'<Customer>',last:'Test'}],TICKETS:[{id:'TK-1',_uuid:'ticket-uuid',customerId:'M-1'}],
+  const context={can:()=>control.admin,getJwt:()=>control.jwt,getWorkspaceId:()=>control.workspace,CUSTOMERS:[{id:'M-1',_uuid:'customer-uuid',first:'<Customer>',last:'Test'}],TICKETS:[{id:'TK-1',_uuid:'ticket-uuid',customerId:'M-1'}],
     showModal:(_title,body)=>show(body),showDangerConfirm:opts=>{show(opts.bodyHtml);confirm=opts;},showToast:message=>alerts.push(message),
     registerActions:map=>Object.assign(actions,map),invalidateDraftTicket:(...args)=>cleared.push(args),
     apiGet:async path=>{calls.push({path});if(control.hold)await control.hold;if(control.error)throw control.error;return {review_required:true};},

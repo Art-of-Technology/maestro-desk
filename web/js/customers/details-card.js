@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { copyButton } from '../core/copy.js';
 // ─── Customer details card — pinned, editable ────────────────────────────────
 // The profile's first block (Phase 4, PR 6): identity strip + every profile
@@ -126,15 +127,15 @@ function renderAddressRow(c, kind, locked) {
   const noun = kind === 'email' ? 'email' : 'mobile';
   const pills = list.map((x) => {
     const controls = (!x.is_primary && !locked) ? `
-        <button type="button" class="cust-addr-ctl" data-action="cust.setPrimaryContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Make primary" aria-label="Make ${attr(x.value)} the primary ${noun}">☆</button>
-        <button type="button" class="cust-addr-ctl" data-action="cust.removeContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Remove" aria-label="Remove ${attr(x.value)}">×</button>` : '';
+        <button type="button" class="cust-addr-ctl" data-permission="customers.contact_primary" data-action="cust.setPrimaryContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Make primary" aria-label="Make ${attr(x.value)} the primary ${noun}">☆</button>
+        <button type="button" class="cust-addr-ctl" data-permission="customers.contact_remove" data-action="cust.removeContact" data-cust-id="${attr(c.id)}" data-kind="${kind}" data-contact-id="${attr(x.id || '')}" data-value="${attr(x.value)}" title="Remove" aria-label="Remove ${attr(x.value)}">×</button>` : '';
     return `<span class="cust-addr-pill${x.is_primary ? ' is-primary' : ''}">
         <span class="cust-addr-val">${esc(x.value)}</span>${copyButton(x.value, noun)}
         ${x.is_primary ? '<span class="cust-addr-primary">PRIMARY</span>' : ''}
         ${kind === 'email' ? bounceBadge(x, c) : ''}${controls}
       </span>`;
   }).join('\n      ');
-  const add = locked ? '' : `<button type="button" class="cust-addr-add" data-action="cust.addContact" data-cust-id="${attr(c.id)}" data-kind="${kind}">+ Add ${noun}</button>`;
+  const add = locked || !can('customers.contact_add') ? '' : `<button type="button" class="cust-addr-add" data-action="cust.addContact" data-cust-id="${attr(c.id)}" data-kind="${kind}">+ Add ${noun}</button>`;
   const empty = (!list.length && locked) ? '<span class="muted" style="font-size:12px;color:var(--ink3)">—</span>' : '';
   return `<div class="cust-pin-k">${kind === 'email' ? 'Emails' : 'Mobiles'}</div>
     <div class="cust-addr">${pills}${empty}${add}</div>`;
@@ -160,7 +161,7 @@ function identityMeta(c) {
 export function renderDetailsCard(c) {
   const locked = Boolean(c.mergedInto || c.erased);
   const initials = `${(c.first || '').charAt(0)}${(c.last || '').charAt(0)}`;
-  const editBtn = locked ? '' : `<button type="button" class="btn btn-sm" data-action="cust.editDetails" data-cust-id="${attr(c.id)}">✎ Edit details</button>`;
+  const editBtn = locked || !can('customers.edit') ? '' : `<button type="button" class="btn btn-sm" data-action="cust.editDetails" data-cust-id="${attr(c.id)}">✎ Edit details</button>`;
 
   const fields = getLayoutFields('customer')
     .filter((f) => !f.headerOwned && isFieldVisible('customer', f.key) && Object.hasOwn(ROW_RENDERERS, f.key))
@@ -460,13 +461,14 @@ function findDemo(list, ds) {
 function contactsUrl(c) { return `/api/v1/customers/${c._uuid}/contacts`; }
 
 function showAddContactModal(custId, kind) {
+  if (!can('customers.contact_add')) return;
   const c = CUSTOMERS.find((x) => x.id === custId);
   if (!c || c.mergedInto || c.erased) return;
   const noun = kind === 'email' ? 'email' : 'mobile';
   showModal(`Add ${noun} — ${c.first} ${c.last}`.trim(), `
     <div class="form-row"><label class="form-label" for="ac-value">${kind === 'email' ? 'Email address' : 'Mobile number'}</label>
       <input class="form-input" id="ac-value" type="${kind === 'email' ? 'email' : 'tel'}" autocomplete="off" placeholder="${kind === 'email' ? 'name@example.com' : '+44 7700 900000'}"/></div>
-    <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ac-primary"/> Make this the primary ${noun}</label>
+    <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;cursor:pointer"><input type="checkbox" id="ac-primary" ${can('customers.contact_primary') ? '' : 'disabled'}/> Make this the primary ${noun}</label>
     <div id="ac-error" style="color:var(--red);font-size:12px;min-height:16px;margin-top:6px"></div>
     <div style="font-size:11.5px;color:var(--ink3);margin-top:2px">Replies go to the address the customer's message arrived on, then to the primary.</div>
   `, async () => {
@@ -505,6 +507,7 @@ function showAddContactModal(custId, kind) {
 }
 
 function confirmRemoveContact(ds) {
+  if (!can('customers.contact_remove')) return;
   const c = CUSTOMERS.find((x) => x.id === ds.custId);
   if (!c || c.mergedInto || c.erased) return;
   const kind = ds.kind === 'mobile' ? 'mobile' : 'email';
@@ -542,6 +545,7 @@ function confirmRemoveContact(ds) {
 }
 
 async function setPrimaryContact(ds) {
+  if (!can('customers.contact_primary')) return;
   const c = CUSTOMERS.find((x) => x.id === ds.custId);
   if (!c || c.mergedInto || c.erased) return;
   const kind = ds.kind === 'mobile' ? 'mobile' : 'email';

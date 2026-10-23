@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Knowledge Base ──────────────────────────────────────────────────────────
 // Article library page with category sidebar + search + sortable cards
 // (featured first, then by updated date). The article view tracks per-id
@@ -219,7 +220,7 @@ let bulkMessage = '';
 let bulkContext = '';
 
 function bulkScope() {
-  return JSON.stringify([getWorkspaceId(), getJwt(), window.isAdmin(), KB_FILTER_CAT, KB_FILTER_MARKET, KB_FILTER_STATUS, KB_QUERY]);
+  return JSON.stringify([getWorkspaceId(), getJwt(), can('tools.kb'), KB_FILTER_CAT, KB_FILTER_MARKET, KB_FILTER_STATUS, KB_QUERY]);
 }
 function matchingKB(status = KB_FILTER_STATUS) {
   return matchingArticles(KB_ARTICLES, { market: KB_FILTER_MARKET, status })
@@ -336,7 +337,7 @@ async function voteKB(id, dir) {
 }
 
 function toggleKBFeatured(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const a = KB_ARTICLES.find(x => x.id === id);
   if (!a) return;
   a.featured = !a.featured;
@@ -412,7 +413,7 @@ export function renderKB() {
   if(!document.querySelector?.('.kb-library-page'))queueMicrotask(refreshOnReturn);
   const scope = bulkScope();
   if (scope !== pageScope) { KB_PAGE = 0; pageScope = scope; }
-  const admin = window.isAdmin();
+  const admin = can('tools.kb');
   const ql = KB_QUERY.toLowerCase().trim();
 
   let list = matchingKB('all');
@@ -520,7 +521,7 @@ function renderKBArticle(id) {
   // No #presence-banner slot here — banner is the typing-indicator
   // strip that pairs with a composer; KB-article view has no composer.
   if (a._uuid && SESSION?.userId) startPresence('kb_article', a._uuid);
-  const admin = window.isAdmin();
+  const admin = can('tools.kb');
   const views = getKBViews(id);
   const votes = getKBNetVote(id);
   const userVote = getKBUserVote(id);
@@ -619,7 +620,7 @@ function openKBArticle(id) { incrementKBView(id); setKbSelected(id); renderPage(
 function closeKBArticle()  { setKbSelected(null); renderPage('kb'); }
 
 async function kbManageReview(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const article = KB_ARTICLES.find(a => a.id === id);
   if (!article?._uuid) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
@@ -640,7 +641,7 @@ async function kbManageReview(id) {
     <label class="kb-review-confirm"><input type="checkbox" id="kb-reviewed"/> I have reviewed this article</label>
     <p class="kb-form-note">Recording a review does not change its publication status. Set the next review date to schedule another review.</p>
     <p id="kb-review-message" role="status"></p>`, async () => {
-      if (saving || !active() || !window.isAdmin()) return;
+      if (saving || !active() || !can('tools.kb')) return;
       const message = document.getElementById('kb-review-message');
       const owner = document.getElementById('kb-owner').value;
       const date = document.getElementById('kb-review-date');
@@ -675,7 +676,7 @@ function kbArticleForm(initial) {
 }
 
 function kbNewArticle() {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const workspace = getWorkspaceId();
   const jwt = getJwt();
   let saving = false;
@@ -702,7 +703,7 @@ function kbNewArticle() {
 }
 
 function kbEditArticle(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
   const workspace = getWorkspaceId();
   const jwt = getJwt();
@@ -728,13 +729,13 @@ function kbEditArticle(id) {
 }
 
 function kbPublishArticle(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const a = KB_ARTICLES.find(x => x.id === id);
   if (!a || articleStatus(a) !== 'draft') return;
   const workspace = getWorkspaceId(), jwt = getJwt();
   let saving = false;
   showModal('Publish article', `<p>Publish <strong>${window.escHtml(a.title)}</strong>?</p><p>AI will be able to use this content in customer replies.</p>`, async () => {
-    if (saving || !window.isAdmin() || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    if (saving || !can('tools.kb') || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
     saving = true;
     const button = document.querySelector?.('#modal-container [data-action="modal.confirm"]');
     if (button) { button.disabled = true; button.textContent = 'Publishing…'; }
@@ -759,14 +760,14 @@ function kbPublishArticle(id) {
 }
 
 function kbPublishSelected() {
-  if (bulkRunning || !window.isAdmin() || !kbApiBacked()) return;
+  if (bulkRunning || !can('tools.kb') || !kbApiBacked()) return;
   syncBulkSelection();
   const selected = bulkSelection.selected(matchingKB());
   if (!selected.length) return;
   const countLabel = `${selected.length} article${selected.length === 1 ? '' : 's'}`;
   const scope = bulkScope();
   const workspace = getWorkspaceId(), jwt = getJwt();
-  const sameSession = () => workspace === getWorkspaceId() && jwt === getJwt() && window.isAdmin()
+  const sameSession = () => workspace === getWorkspaceId() && jwt === getJwt() && can('tools.kb')
     && selected.every(a => KB_ARTICLES.includes(a));
   const markets = {};
   selected.forEach(a => { const m = articleMarket(a); markets[m] = (markets[m] || 0) + 1; });
@@ -815,7 +816,7 @@ function kbPublishSelected() {
 }
 
 function kbDeleteArticle(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.kb')) return;
   const a = KB_ARTICLES.find(x => x.id === id); if (!a) return;
   showModal('Delete article', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(a.title)}</strong>? This cannot be undone.</div>`, async () => {
     if (a._uuid) {
@@ -842,7 +843,7 @@ registerActions({
   'kb.deleteFilter':()=>editSavedFilter('delete'),
   'kb.page': (ds) => { touchFilters();KB_PAGE = Number(ds.page); renderPage('kb'); document.querySelector('.kb-pagination')?.focus(); },
   'kb.selectDirectory': ds => {
-    if (bulkRunning || !window.isAdmin()) return;
+    if (bulkRunning || !can('tools.kb')) return;
     touchFilters();
     syncBulkSelection();
     const drafts = matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft' && gameDirectory(a)?.key === ds.directory);
@@ -851,7 +852,7 @@ registerActions({
     renderSelection();
   },
   'kb.selectDraft': (ds, el) => {
-    if (bulkRunning || !window.isAdmin()) return;
+    if (bulkRunning || !can('tools.kb')) return;
     touchFilters();
     syncBulkSelection();
     const a = matchingKB().find(a => a._uuid === ds.uuid && articleStatus(a) === 'draft');
@@ -860,7 +861,7 @@ registerActions({
     renderSelection(a._uuid);
   },
   'kb.selectMatching': () => {
-    if (bulkRunning || !window.isAdmin()) return;
+    if (bulkRunning || !can('tools.kb')) return;
     touchFilters();
     syncBulkSelection();
     matchingKB().filter(a => a._uuid && articleStatus(a) === 'draft').forEach(a => bulkSelection.ids.add(a._uuid));

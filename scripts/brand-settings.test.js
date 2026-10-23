@@ -7,7 +7,7 @@ test('brand navigation groups existing panels and preserves admin visibility', (
   const render = source.slice(source.indexOf('export function renderSettings'), source.indexOf('export function setSettingsTab')).replace('export ', '');
   const hub = readFileSync('web/js/config-hub/index.js', 'utf8').replace('export function', 'function');
   for (const admin of [true, false]) {
-    const context = { window: { isAdmin: () => admin, escAttr: String, escHtml: String }, SETTINGS_TAB: 'appearance', settingsAppearance: () => 'BRAND PANEL' };
+    const context = { can: () => admin, window: { isAdmin: () => admin, escAttr: String, escHtml: String }, SETTINGS_TAB: 'appearance', settingsAppearance: () => 'BRAND PANEL' };
     const html = runInNewContext(`${render}; renderSettings()`, context);
     expect(html).toContain('BRAND PANEL');
     expect(html).toContain('aria-current="page"');

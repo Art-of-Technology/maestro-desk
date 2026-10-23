@@ -143,7 +143,8 @@ me.get('/', async (c) => {
     select id, name, slug, logo_url, primary_color from workspaces where id = ${workspaceId}
   `;
 
-  return c.json({ user, workspace_id: workspaceId, workspace: workspace ?? null, membership: membership ?? null });
+  return c.json({ user, workspace_id: workspaceId, workspace: workspace ?? null, membership: membership ?? null,
+    permissions: c.get('rolePermissions') });
 });
 
 // Self-PATCH for the small set of fields a user can edit on their own row.

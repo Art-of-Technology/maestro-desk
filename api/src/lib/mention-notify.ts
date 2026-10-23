@@ -12,6 +12,7 @@ import { safeError } from './diagnostics.js';
 import { env } from './env.js';
 import { isPostmarkConfigured } from './postmark-outbound.js';
 import { sendBrandedEmail } from './send-branded-email.js';
+import { userCanViewTicket } from './role-permissions.js';
 import { availableTicketPrivacy } from './ticket-privacy.js';
 import { composeEmail } from './email-branding.js';
 import { getDb } from './db.js';
@@ -68,6 +69,7 @@ export async function notifyMentionedAgents(args: {
   let sent = 0;
   let skipped = 0;
   for (const u of usersRows) {
+    if (!(await userCanViewTicket(workspaceId, u.id, ticketId))) { skipped++; continue; }
     if (!u.email) { skipped++; continue; }
     // Per-user opt-out. The default-true column means absence of the
     // preference (legacy rows pre-migration) gets the emails.

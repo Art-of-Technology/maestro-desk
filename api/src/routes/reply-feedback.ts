@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { getDb } from '../lib/db.js';
 import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 
 // Mounted inside the authenticated, rate-limited AI router.
 export const replyFeedback = new Hono();
@@ -85,7 +86,7 @@ replyFeedback.post('/:id', async c => {
 });
 
 replyFeedback.get('/', async c => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.ai_reports');
   if (denied) return denied;
   const parsed = z.object({ offset: z.coerce.number().int().min(0).max(10000).default(0),
     status: z.enum(['open','in_progress','resolved','all']).default('open'),

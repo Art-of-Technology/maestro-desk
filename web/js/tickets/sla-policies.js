@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── SLA Policies config page ────────────────────────────────────────────────
 // The SLA evaluator (computeTicketSLA, findMatchingSLAPolicy,
 // fmtSLAMinutes, business-hours math) lives in tickets/sla.js — this module
@@ -33,7 +34,7 @@ function slaToApiBody(data) {
 }
 
 export function renderSLA() {
-  const admin = window.isAdmin();
+  const admin = can('admin.inboxes');
   let list = [...SLA_POLICIES];
   if (SLA_FILTER === 'active')   list = list.filter(p => p.status === 'active');
   if (SLA_FILTER === 'inactive') list = list.filter(p => p.status === 'inactive');
@@ -113,7 +114,7 @@ export function renderSLA() {
 }
 
 async function slaToggle(id, active) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const p = SLA_POLICIES.find(x => x.id === id);
   if (!p) return;
   const next = active ? 'active' : 'inactive';
@@ -181,7 +182,7 @@ function slaReadAndValidate() {
 }
 
 function slaNew() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   showModal('New SLA policy', slaFormBody(null), async () => {
     const data = slaReadAndValidate(); if (!data) return;
     // API-backed if any existing row carries a _uuid (loaded from the server).
@@ -209,7 +210,7 @@ function slaNew() {
 }
 
 function slaEdit(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
   showModal(`Edit ${p.id}`, slaFormBody(p), async () => {
     const data = slaReadAndValidate(); if (!data) return;
@@ -223,7 +224,7 @@ function slaEdit(id) {
 }
 
 function slaDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const p = SLA_POLICIES.find(x => x.id === id); if (!p) return;
   showModal('Delete policy', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${p.name}</strong>?</div>`, async () => {
     if (p._uuid) {

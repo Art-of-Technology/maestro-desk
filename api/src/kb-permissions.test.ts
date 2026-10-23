@@ -55,7 +55,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
     for (const payload of [content, { ...content, status: 'draft' }, { ...content, status: 'published' }]) {
       const response = await request('POST', '', payload, 1);
       expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ error: 'Admin permission required' });
+      expect(await response.json()).toEqual({ error: 'Your role does not allow this action.', permission: 'tools.kb' });
     }
     for (const article of [draft, published]) {
       for (const payload of [{ status: 'published' }, { status: 'archived' }, { status: 'draft' }, { body: 'Bypass' }, { title: 'Bypass', category: 'Changed' }]) {

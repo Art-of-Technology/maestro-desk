@@ -43,6 +43,11 @@ jobs:
       - name: Bridge collision check
         run: bun scripts/bridge-collision-check.mjs
 
+      - name: Permission matrix save and new-role flow
+        run: |
+          bun test scripts/role-permissions.test.js
+          bun test scripts/permission-controls.test.js
+
       - name: Admin note editing
         run: bun scripts/admin-note-edit-check.mjs
 

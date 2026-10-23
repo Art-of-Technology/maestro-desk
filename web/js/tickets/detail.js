@@ -1,3 +1,4 @@
+import { can, applyPermissionControls } from '../core/permissions.js';
 import { statusChoice, statusLabel, selectedStatus, statusSelectOptions, statusOptions, loadStatusOptions, statusOptionsState, STATUS_CATEGORIES } from './status-options.js';
 import { invalidateAgentReport } from '../agents/statistics.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
@@ -251,7 +252,7 @@ export function openTicket(id) {
       <div class="ts-row"><span class="ts-key">Age</span><span class="ts-val">${times.age}</span></div>
       <div class="ts-row"><span class="ts-key">First response</span><span class="ts-val">${times.firstResp}</span></div>
       <div class="ts-row"><span class="ts-key">Last update</span><span class="ts-val">${times.lastUpdate}</span></div>
-      ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">${t.attachments.length}</span></span></div>` : ''}
+      ${t.attachments && t.attachments.length ? `<div class="ts-row"><span class="ts-key">Attachments</span><span class="ts-val"><span class="link" data-permission="tickets.attach" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">${t.attachments.length}</span></span></div>` : ''}
     </div>`;
 
   // SLA evaluation block — computed live from policies + ticket timing.
@@ -530,7 +531,7 @@ export function openTicket(id) {
   const sentimentBackfillBar = unscoredCount > 0 ? `
     <div style="padding:6px 14px;border-bottom:1px solid var(--rule);background:var(--off2);display:flex;align-items:center;gap:10px;font-size:11px;color:var(--ink3)">
       <span>${unscoredCount} customer message${unscoredCount === 1 ? '' : 's'} not yet scored for sentiment.</span>
-      <button class="btn btn-sm" data-action="td.backfillSentiment" data-ticket-id="${window.escAttr(id)}" style="margin-left:auto">Score now</button>
+      <button class="btn btn-sm" data-permission="tools.ai" data-action="td.backfillSentiment" data-ticket-id="${window.escAttr(id)}" style="margin-left:auto">Score now</button>
     </div>` : '';
 
   const main = document.getElementById('main-area');
@@ -564,7 +565,7 @@ export function openTicket(id) {
               ? `<button class="btn btn-sm" data-action="td.unsnooze" data-ticket-id="${window.escAttr(id)}" title="Wake the ticket up now">💤 Wake up</button>`
               : `<button class="btn btn-sm" data-action="td.snooze" data-ticket-id="${window.escAttr(id)}" title="Pause SLA until a chosen time">💤 Snooze</button>`) : ''}
                 <button class="btn btn-sm" data-action="td.gdprModal" data-ticket-id="${window.escAttr(id)}">Privacy / GDPR</button>
-                ${(window.canDeleteRecords() || isTicketBlank(t)) ? `<button class="btn btn-sm btn-danger" data-action="td.deleteTicket" data-ticket-id="${window.escAttr(id)}">Delete ticket</button>` : ''}
+                ${(can('tickets.delete') || (SESSION?.permissionsLegacy || !SESSION?.permissions) && isTicketBlank(t)) ? `<button class="btn btn-sm btn-danger" data-action="td.deleteTicket" data-blank-ticket="${isTicketBlank(t)}" data-ticket-id="${window.escAttr(id)}">Delete ticket</button>` : ''}
               </div>
             </details>
             ${!['resolved', 'closed'].includes(t.status)
@@ -581,11 +582,11 @@ export function openTicket(id) {
           ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
             <span class="ticket-status-dot" aria-hidden="true"></span>
-            <select aria-label="Ticket status" title="${statusOptionsState().ready ? 'Choose a ticket status' : 'Status options unavailable. Reload to try again.'}" ${!statusOptionsState().ready ? 'disabled' : ''} data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">${statusSelectOptions(selectedStatus(t))}</select>
+            <select aria-label="Ticket status" title="${statusOptionsState().ready ? 'Choose a ticket status' : 'Status options unavailable. Reload to try again.'}" ${!statusOptionsState().ready ? 'disabled' : ''} data-permission="${['closed','resolved'].includes(t.status) ? 'tickets.edit tickets.close' : 'tickets.edit'}" data-change-action="td.setStatus" data-ticket-id="${window.escAttr(id)}">${statusSelectOptions(selectedStatus(t))}</select>
           </label>
           <label class="ticket-inline-property ticket-inline-priority" data-priority="${window.escAttr(t.priority)}">
             <span aria-hidden="true">⚑</span>
-            <select aria-label="Ticket priority" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
+            <select aria-label="Ticket priority" data-permission="tickets.edit" data-change-action="td.setPriority" data-ticket-id="${window.escAttr(id)}">
               ${['low','normal','high','urgent'].map(p => `<option value="${p}"${t.priority === p ? ' selected' : ''}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('')}
             </select>
           </label>
@@ -636,11 +637,11 @@ export function openTicket(id) {
                 <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
                 <span style="font-size:11px;color:var(--ink3)">Uploaded files sync with your draft.</span>
                 <div class="composer-actions" role="group" aria-label="Reply tools">
-                  <button class="btn btn-sm" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
+                  <button class="btn btn-sm" data-permission="tickets.attach" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <button type="button" class="btn btn-sm composer-tool" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}" aria-label="Insert template" aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space" title="Insert template (Ctrl/Cmd+Shift+Space)">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/></svg>
                   </button>
-                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button type="button" class="btn btn-sm composer-tool" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar" aria-label="Similar replies" title="Similar replies">
+                  ${COMPOSE_TAB === 'reply' && t._uuid ? `<button type="button" class="btn btn-sm composer-tool" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="similar" aria-label="Similar replies" title="Similar replies">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h14v11H8l-5 4zM10 17h6l5 4V10h-1"/></svg>
                   </button>${window.isAdmin() ? `<button type="button" class="btn btn-sm composer-tool" data-action="td.saveTemplate" data-ticket-id="${window.escAttr(id)}" aria-label="Save as template" title="Save as template">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h9M14 3v5h5V3zM8 12h5M18 13v8M14 17h8"/></svg>
@@ -663,28 +664,28 @@ export function openTicket(id) {
                 <div class="composer-send-actions">
                   ${COMPOSE_TAB==='reply' ? `
                   <div style="position:relative;display:inline-block">
-                    <button class="btn btn-sm" data-action="td.toggleAIMenu" data-ticket-id="${window.escAttr(id)}">AI ▾</button>
+                    <button class="btn btn-sm" data-permission="tools.ai" data-action="td.toggleAIMenu" data-ticket-id="${window.escAttr(id)}">AI ▾</button>
                     <div id="ai-menu-${id}" class="comp-menu">
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="draft">Draft reply</button>
-                      ${KB_INTEGRATION.enabled ? `<button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="kb-reply" title="Draft a reply grounded in your external KB">Draft reply with KB</button>` : ''}
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="improve">Improve writing</button>
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="shorten">Shorten</button>
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="lengthen">Add detail</button>
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="friendly">Friendlier tone</button>
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="formal">More formal</button>
-                      <button type="button" class="comp-menu-item" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="translate">Translate to English</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="draft">Draft reply</button>
+                      ${KB_INTEGRATION.enabled ? `<button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="kb-reply" title="Draft a reply grounded in your external KB">Draft reply with KB</button>` : ''}
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="improve">Improve writing</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="shorten">Shorten</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="lengthen">Add detail</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="friendly">Friendlier tone</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="formal">More formal</button>
+                      <button type="button" class="comp-menu-item" data-permission="tools.ai" data-action="td.aiAction" data-ticket-id="${window.escAttr(id)}" data-verb="translate">Translate to English</button>
                     </div>
                   </div>` : ''}
                   <div style="position:relative;display:inline-flex">
-                    <button class="btn btn-sm btn-solid composer-send" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
-                    <button class="btn btn-sm btn-solid composer-send-more" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
+                    <button class="btn btn-sm btn-solid composer-send" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
+                    <button class="btn btn-sm btn-solid composer-send-more" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
-                      ${statusOptions().filter(s => !STATUS_CATEGORIES.includes(s.key) && s.base_key !== 'closed').map(s => `<button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(s.key)}">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set ${window.escHtml(s.label)}</button>`).join('')}
-                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
-                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="closed">Send and close — no survey</button>` : ''}
-                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
-                      <button type="button" class="comp-menu-item" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
-                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
+                      ${statusOptions().filter(s => !STATUS_CATEGORIES.includes(s.key) && s.base_key !== 'closed').map(s => `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(s.key)}">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set ${window.escHtml(s.label)}</button>`).join('')}
+                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="closed">Send and close — no survey</button>` : ''}
+                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
+                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
                     </div>
                   </div>
                 </div>
@@ -699,8 +700,8 @@ export function openTicket(id) {
             <div class="ts-heading">Properties</div>
             ${renderTicketCategory(t)}
             <label class="ticket-assignee-label" for="ticket-agent-${window.escAttr(id)}">Assigned to</label>
-            <select class="ts-select" id="ticket-agent-${window.escAttr(id)}" aria-label="Assigned agent" data-change-action="td.setAgent" data-ticket-id="${window.escAttr(id)}">
-              ${AGENTS.map(a=>`<option value="${window.escAttr(a.name)}" ${t.agent===a.name?'selected':''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
+            <select class="ts-select" id="ticket-agent-${window.escAttr(id)}" aria-label="Assigned agent" data-permission="${can('tickets.assign') ? 'tickets.assign' : 'tickets.assign_self'}" data-change-action="td.setAgent" data-ticket-id="${window.escAttr(id)}">
+              ${AGENTS.filter(a => can('tickets.assign') || a.userId === SESSION?.userId || a.name === t.agent).map(a=>`<option value="${window.escAttr(a.name)}" ${t.agent===a.name?'selected':''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
             </select>
           </div>
           ${unscoredCount > 0 ? `<details class="ts-section ticket-secondary"><summary>Sentiment · ${unscoredCount} unscored</summary>${sentimentBackfillBar}</details>` : ''}
@@ -729,8 +730,8 @@ export function openTicket(id) {
           ${t.status==='gdpr'||t.category==='GDPR'?`
           <div class="ts-section">
             <div class="ts-heading">GDPR Actions</div>
-            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" data-action="td.gdprErasure">Erase customer data</button>
-            <button class="btn btn-sm" style="width:100%;justify-content:center" data-action="td.gdprExport">Export for review</button>
+            <button class="btn btn-sm btn-danger" style="width:100%;margin-bottom:5px;justify-content:center" data-permission="data.erase" data-action="td.gdprErasure">Erase customer data</button>
+            <button class="btn btn-sm" style="width:100%;justify-content:center" data-permission="data.export" data-action="td.gdprExport">Export for review</button>
           </div>`:''}
           ${mergedFromBlock}
           ${linkedBlock}
@@ -752,11 +753,12 @@ export function openTicket(id) {
           <div class="ts-section">
             <div class="ts-heading">Danger zone</div>
             <button class="btn btn-sm btn-danger" style="width:100%;justify-content:center" data-action="td.deleteTicket" data-ticket-id="${window.escAttr(id)}">Delete ticket</button>
-            ${!window.canDeleteRecords() ? `<div style="font-size:10.5px;color:var(--ink3);margin-top:6px;line-height:1.4">Deletable because this ticket has no messages or notes yet.</div>` : ''}
+            ${!can('tickets.delete') ? `<div style="font-size:10.5px;color:var(--ink3);margin-top:6px;line-height:1.4">Deletable because this ticket has no messages or notes yet.</div>` : ''}
           </div>` : ''}
         </aside>
       </div>
     </div>`;
+  applyPermissionControls(main);
   syncTicketLayout(id);
   syncRoute('tickets', id);
   if (cust && !cust.maestroUserId) {

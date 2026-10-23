@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { copyButton } from '../core/copy.js';
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -240,7 +241,7 @@ function bulkSetCustConsent(v) {
 // never orphan tickets; those rows stay and the result modal says why. Demo
 // rows (no _uuid) keep the in-memory splice.
 function bulkDeleteCustomers() {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.delete')) return;
   const n = CUSTOMER_SELECTED_IDS.size;
   if (n === 0) return;
   showDangerConfirm({
@@ -280,6 +281,7 @@ function bulkDeleteCustomers() {
 }
 
 function exportCustomerList() {
+  if (!can('data.export_lists')) return;
   const list = applyCustFilters();
   const headers = ['ID','First','Last','Username','Member ID','Global ID','Email','Mobile','Brand','VIP','Jurisdiction','Consent','Since'];
   const rows = list.map(c => [c.id, c.first, c.last, c.username, c.maestroUserId, c.memberId, c.email, c.mobile, c.brand, c.vip, c.jurisdiction, c.consent ? 'Yes' : 'No', c.since]);
@@ -435,7 +437,7 @@ export function renderCustomers() {
         <option value="yes">Consent: Yes</option>
         <option value="no">Consent: No</option>
       </select>
-      ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" data-action="cust.bulkDelete">Delete</button>` : ''}
+      ${can('customers.delete') ? `<button class="btn btn-sm btn-danger" data-action="cust.bulkDelete">Delete</button>` : ''}
       <button class="btn btn-sm" data-action="cust.clearSelection" style="margin-left:auto">Clear selection</button>
     </div>` : '';
 
@@ -625,7 +627,7 @@ function editCustomerNote(custId, noteId, idx) {
 // first. Notes are addressed by id for API rows; demo rows (no _uuid on the
 // customer, no id on the note) fall back to the array index.
 function deleteCustomerNote(custId, noteId, idx) {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.delete')) return;
   const c = CUSTOMERS.find(x => x.id === custId);
   if (!c || !c.notes) return;
   const note = (noteId && c.notes.find(n => n.id === noteId)) || c.notes[idx];
@@ -658,7 +660,7 @@ function closeCustomerProfile()  { setCustomerSelected(null); renderPage('custom
 // the source if the primary's value was empty. Each affected ticket is tagged
 // with `preMergeCustomerId` so unmergeCustomer can reliably restore them.
 function showMergeCustomerModal(custId) {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.merge')) return;
   const src = CUSTOMERS.find(x => x.id === custId);
   if (!src) return;
   if (src.mergedInto) { alert(`Already merged into ${src.mergedInto}.`); return; }
@@ -694,7 +696,7 @@ const MERGE_COL_MAP = { vip_tier: 'vip', backoffice_url: 'bo', maestro_user_id: 
 // Cancel closes outright; re-opening the picker is one click on ↩ Merge
 // (one-modal-at-a-time constraint, same trade-off as the saved-search flow).
 function showMergeConfirm(srcId, primaryId) {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.merge')) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   const primary = CUSTOMERS.find(x => x.id === primaryId);
   if (!src || !primary) return;
@@ -739,7 +741,7 @@ function showMergeConfirm(srcId, primaryId) {
 // emails/mobiles arrays. Server truth beats local bookkeeping here — the
 // source's addresses physically move to the survivor as secondaries.
 async function mergeCustomers(srcId, primaryId) {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.merge')) return;
   if (srcId === primaryId) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   const primary = CUSTOMERS.find(x => x.id === primaryId);
@@ -830,7 +832,7 @@ async function mergeCustomers(srcId, primaryId) {
 }
 
 async function unmergeCustomer(srcId) {
-  if (!window.canDeleteRecords()) return;
+  if (!can('customers.merge')) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   if (!src || !src.mergedInto) return;
   const primaryId = src.mergedInto;
@@ -1018,7 +1020,7 @@ function renderCustomerDetail(custId) {
             <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(n.author)}</span>
             <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${n.ts}</span>
             ${window.isAdmin() && !c.erased && !c.mergedInto ? `<button type="button" class="btn btn-sm" data-action="cust.editNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}">Edit note</button><button type="button" class="btn btn-sm" data-action="cust.noteHistory" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}">View edit history</button>` : ''}
-            ${window.canDeleteRecords() ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
+            ${can('customers.delete') ? `<button class="btn btn-sm btn-danger" style="margin-left:auto;padding:2px 8px;font-size:10px;border:none;background:transparent;color:var(--ink3)" data-action="cust.deleteNote" data-cust-id="${window.escAttr(c.id)}" data-note-id="${window.escAttr(n.id || '')}" data-note-idx="${i}" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--ink3)'" title="Delete note">×</button>` : ''}
           </div>
           <div id="customer-note-${window.escAttr(c.id)}-${i}" style="font-size:12.5px;color:var(--ink2);line-height:1.55;white-space:pre-wrap">${window.escHtml(n.text)}</div>
         </div>
@@ -1161,7 +1163,7 @@ function renderCustomerDetail(custId) {
           <span style="color:var(--ink2)">→</span>
           <span class="link" data-action="cust.selectAndRender" data-cust-id="${window.escAttr(c.mergedInto)}" style="color:var(--purple);font-weight:500">${window.escHtml(c.mergedInto)}</span>
           <span style="color:var(--ink3);font-family:'DM Mono',monospace;font-size:10px">on ${window.escHtml(c.mergedAt || '—')}</span>
-          ${window.canDeleteRecords() ? `<button class="btn btn-sm" style="margin-left:auto" data-action="cust.unmerge" data-cust-id="${window.escAttr(c.id)}">Un-merge</button>` : ''}
+          ${can('customers.merge') ? `<button class="btn btn-sm" style="margin-left:auto" data-action="cust.unmerge" data-cust-id="${window.escAttr(c.id)}">Un-merge</button>` : ''}
         </div>` : ''}
         ${(c.mergedFrom || []).length ? `<div class="card" style="margin-bottom:16px">
           <div class="card-title">Merged duplicates (${c.mergedFrom.length})</div>
@@ -1180,7 +1182,7 @@ function renderCustomerDetail(custId) {
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
           ${!c.mergedInto ? `<button class="btn btn-sm" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}">✉ New ticket</button>` : ''}
-          ${window.canDeleteRecords() && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
+          ${can('customers.merge') && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
         ${areasHtml}

@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { CUSTOMERS, TICKETS } from '../core/data.js';
 import { apiGet, apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showModal, showDangerConfirm } from '../core/modal.js';
@@ -13,7 +14,7 @@ const current = ctx => active === ctx && sameScope(ctx) && ctx.panel?.isConnecte
 export function showGDPRModal(ticketId, action) {
   const ticket = TICKETS.find(t => t.id === ticketId);
   const customer = CUSTOMERS.find(c => c.id === ticket?.customerId);
-  if (!window.isAdmin()) { showToast('An administrator must handle this request.', 'warn'); return; }
+  if (!(can('data.export') || can('data.erase'))) { showToast('An administrator must handle this request.', 'warn'); return; }
   if (!customer?._uuid || !getJwt() || !getWorkspaceId()) { showToast('Open a saved ticket with a customer first.', 'warn'); return; }
   if (busy) { showToast('A privacy action is still running. Wait for its result.', 'info'); return; }
   const ctx = { id:customer._uuid, displayId:customer.id, jwt:getJwt(), workspace:getWorkspaceId(), tickets:TICKETS.filter(t=>t.customerId===customer.id).map(t=>t.id) };
@@ -38,7 +39,7 @@ export function showGDPRModal(ticketId, action) {
 
 async function downloadExport() {
   const ctx = active;
-  if (!ctx || !current(ctx) || busy || !window.isAdmin()) return;
+  if (!ctx || !current(ctx) || busy || !can('data.export')) return;
   const error = document.getElementById('privacy-error');
   busy = true; error.textContent = 'Preparing export…';
   try {
@@ -56,7 +57,7 @@ async function downloadExport() {
 
 function confirmErasure() {
   const ctx = active;
-  if (!ctx || !current(ctx) || busy || !window.isAdmin()) return;
+  if (!ctx || !current(ctx) || busy || !can('data.erase')) return;
   showDangerConfirm({ title:'Erase customer data', confirmLabel:'Erase customer data', typeToConfirm:ctx.displayId,
     bodyHtml:`<div id="privacy-erasure">
       <p>This erases customer <strong>${window.escHtml(ctx.displayId)}</strong> and personal data on their tickets, including saved drafts and uploaded files.</p>
@@ -66,7 +67,7 @@ function confirmErasure() {
       <select class="form-input" id="privacy-reason"><option value="subject_request">Customer request</option><option value="retention_expired">Retention period ended</option><option value="consent_withdrawn">Consent withdrawn</option><option value="other">Other approved reason</option></select>
       <p id="privacy-error" role="alert"></p></div>`,
     onConfirm:async () => {
-      if (!current(ctx) || busy || !window.isAdmin()) return;
+      if (!current(ctx) || busy || !can('data.erase')) return;
       const error = document.getElementById('privacy-error');
       const reason = document.getElementById('privacy-reason').value.trim();
       busy = true; error.textContent = 'Erasing customer data…';

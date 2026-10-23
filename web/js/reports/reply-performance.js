@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { apiGet, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { downloadCSV } from '../core/csv.js';
@@ -14,7 +15,7 @@ let current = null, sequence = 0;
 
 export function renderReplyPerformance() {
   current = null;
-  if (!window.isAdmin()) return '<div class="page"><p>Admin permission is required to view AI reply performance.</p></div>';
+  if (!can('data.ai_reports')) return '<div class="page"><p>Admin permission is required to view AI reply performance.</p></div>';
   const end = new Date(), start = new Date(end); start.setUTCDate(start.getUTCDate()-29);
   setTimeout(() => loadPerformance(),0);
   return `<div class="page ai-performance-page"><div class="topbar"><button type="button" class="btn" data-action="reports.closeAi">← Reports</button><h1 class="tb-title">AI reply performance</h1></div>
@@ -87,10 +88,10 @@ export function renderPerformanceData(data,workspace,offset=0) {
 
 export async function loadPerformance(offset=0) {
   const host=document.getElementById('ai-performance');
-  if (!host || !window.isAdmin()) return;
+  if (!host || !can('data.ai_reports')) return;
   const workspace=getWorkspaceId(),jwt=getJwt(),request=++sequence;
   const active=()=>host===document.getElementById('ai-performance') && host.isConnected && request===sequence
-    && workspace===getWorkspaceId() && jwt===getJwt() && window.isAdmin();
+    && workspace===getWorkspaceId() && jwt===getJwt() && can('data.ai_reports');
   const status=document.getElementById('reply-report-status'),result=document.getElementById('reply-report-result');
   try {
     const filters=readFilters();
@@ -131,7 +132,7 @@ export async function exportPerformance(detail=false) {
   const snapshot=current,status=document.getElementById('reply-report-status');
   if(!status)return;
   const active=()=>snapshot && snapshot===current && snapshot.host===document.getElementById('ai-performance')
-    && snapshot.workspace===getWorkspaceId() && snapshot.jwt===getJwt() && window.isAdmin();
+    && snapshot.workspace===getWorkspaceId() && snapshot.jwt===getJwt() && can('data.ai_reports');
   try {
     if(!active() || queryString(readFilters())!==queryString(snapshot.filters)) throw Error('Apply filters before exporting.');
     status.textContent='Preparing CSV…';

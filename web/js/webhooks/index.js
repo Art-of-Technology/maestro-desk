@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Webhooks ───────────────────────────────────────────────────────────────
 // Outbound HTTP notifications fired on key ticket events. Each webhook
 // targets a URL, subscribes to one or more events, and keeps a short delivery
@@ -130,11 +131,11 @@ export function ticketPayload(t) {
 }
 
 function whNew() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   whFormModal(null);
 }
 function whEdit(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const h = WEBHOOKS.find(x => x.id === id);
   if (h) whFormModal(h);
 }
@@ -251,12 +252,12 @@ function whFormModal(h) {
   }, h ? 'Save' : 'Create');
 }
 function whToggle(id, active) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const h = WEBHOOKS.find(x => x.id === id);
   if (h) { h.active = !!active; saveWebhooks(); }
 }
 function whDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.integrations')) return;
   const h = WEBHOOKS.find(x => x.id === id); if (!h) return;
   showModal('Delete webhook', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(h.name)}</strong>? Past deliveries will be lost.</div>`, () => {
     const i = WEBHOOKS.findIndex(x => x.id === id);
@@ -280,7 +281,7 @@ async function whTestFire(id) {
 }
 
 export function renderWebhooks() {
-  const admin = window.isAdmin();
+  const admin = can('admin.integrations');
   const total = WEBHOOKS.length;
   const activeN = WEBHOOKS.filter(h => h.active).length;
   const recentDeliveries = WEBHOOKS.flatMap(h => (h.deliveries || []).map(d => ({...d, hook: h.name, hookId: h.id})))

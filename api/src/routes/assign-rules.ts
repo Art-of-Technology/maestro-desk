@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 
 // Migration to Neon — Step 3. Reads are member-level; create/edit/delete are
@@ -54,7 +54,7 @@ assignRules.get('/', async (c) => {
 });
 
 assignRules.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
 
   const sql = getDb();
@@ -85,7 +85,7 @@ const PatchRule = z.object({
 }).strict();
 
 assignRules.patch('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
 
   const sql = getDb();
@@ -113,7 +113,7 @@ assignRules.patch('/:id', async (c) => {
 });
 
 assignRules.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
 
   const sql = getDb();
