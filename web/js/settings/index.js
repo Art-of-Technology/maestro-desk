@@ -510,13 +510,13 @@ function settingsNotifications() {
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <div id="mention-email-msg" role="status" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
+      <div id="email-notification-msg" role="status" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
     </div>
     ${settingsPushSection()}`;
 }
 
 async function setEmailPref(key, enabled) {
-  const msg = document.getElementById('mention-email-msg');
+  const msg = document.getElementById('email-notification-msg');
   if (msg) { msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)'; }
   try {
     const res = await apiPatch('/api/v1/me', { [key]: enabled });
