@@ -93,6 +93,8 @@ export default async (browser, screenshotsDir) => {
       check(JSON.stringify(text.slice(0, 5)) === JSON.stringify(labels), 'Reply menu uses the same five labels and order');
       check(await menu.locator('[data-status="custom-review"]').count() === 1, 'Custom status action stays available');
       check(await menu.getByText('Keeps the current status. No survey.', { exact: true }).count() === 1, 'Send explains current-status preservation');
+      const described = await menu.getByRole('button', { name: 'Send & resolve', exact: true }).getAttribute('aria-describedby');
+      check(await page.locator('[id="' + described + '"]').textContent() === 'Marks resolved. Surveys follow the brand’s rules.', 'Action hint is exposed as the screen-reader description');
       const bounds = await menu.boundingBox();
       check(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= page.viewportSize().width && bounds.y + bounds.height <= page.viewportSize().height, 'Send menu stays within the viewport');
       const targets = await menu.locator('button').evaluateAll(items => items.map(el => el.getBoundingClientRect().height));
