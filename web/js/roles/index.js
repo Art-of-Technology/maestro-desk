@@ -46,7 +46,7 @@ export function renderRoles() {
     </tr>`;
   }).join('');
   return `
-    <div class="page">
+    <div class="page" data-guide="roles">
       <div class="topbar">
         <div class="tb-title">Roles</div>
         ${admin

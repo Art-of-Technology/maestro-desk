@@ -94,7 +94,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
   else if (SETTINGS_TAB === 'reply-feedback') panel = settingsReplyFeedback();
   return `
-    <div class="page">
+    <div class="page" data-guide="preferences">
       <div class="topbar"><div class="tb-title">Settings</div></div>
       <div class="page-scroll">
         <div class="settings-shell ${['ai','reply-feedback'].includes(SETTINGS_TAB) ? 'ai-settings-shell' : ''}">

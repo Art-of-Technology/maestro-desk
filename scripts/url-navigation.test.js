@@ -45,6 +45,7 @@ mock.module('../web/js/core/auth-client.js', () => ({
   signOut: () => { jwt = null; workspaceId = null; },
 }));
 mock.module('../web/js/core/event-delegation.js', () => ({ registerActions() {} }));
+mock.module('../web/js/guides/index.js', () => ({ maybeStartGuides() {} }));
 mock.module('../web/js/auth/platform-admin.js', () => ({ enterGod() {} }));
 mock.module('../web/js/core/bootstrap.js', () => ({
   loadWorkspaceData: async () => { bootCount++; },

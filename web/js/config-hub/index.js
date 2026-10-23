@@ -102,7 +102,7 @@ export function renderConfigHub() {
   }).join('');
 
   return `
-    <div class="page">
+    <div class="page" data-guide="configuration">
       <div class="topbar">
         <div class="tb-title">Configuration</div>
         <span class="confighub-subtitle">Everything that shapes how this workspace handles tickets, customers, and channels.</span>

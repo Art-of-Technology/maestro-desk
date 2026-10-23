@@ -35,7 +35,7 @@ function helpQuickStart() {
     {t:'AI-assisted replies',d:'Check your workspace AI connection, model and credit in Settings',        a:'help.gotoSettingsAi'},
     {t:'Roles & permissions',d:'Review roles and the capabilities managed by your workspace admin',       a:'help.gotoRoles'},
     {t:'Global search',      d:"Press / from anywhere to search tickets, customers, agents, and pages",   a:'help.focusSearch'},
-    {t:'Guided tours',       d:'Learn to review, reply, use placeholders and handle your first ticket',    a:'guides.open'},
+    {t:'Guided tours',       d:'Learn your permitted workflows, resume modules and confirm practice',    a:'guides.open'},
   ];
   return `
     <div class="card">
@@ -65,7 +65,7 @@ function helpShortcuts() {
 
 function helpFAQ() {
   const faqs = [
-    {q:'Where should a new agent start?', a:'Select <strong>Guides</strong> in the top bar, or <strong>Guided tours</strong> above. The tour covers reviewing tickets, customer replies, AI suggestions, placeholders, statuses and handovers. Ask your lead which queue to work and which escalation procedures to follow.'},
+    {q:'Where should a new agent start?', a:'Select <strong>Guides</strong> in the top bar, or <strong>Guided tours</strong> above. Choose the full onboarding or an individual module. Topics follow your saved permissions. Exit to practise on approved work, then reopen Guides to confirm the checklist. Viewed and practice confirmed are separate; progress stays in this browser for your account and workspace. Ask your lead which queue to work and which escalation procedures to follow.'},
     {q:'What should I check before replying?', a:'Read the latest customer message, earlier replies and internal notes. Open <strong>Details</strong> to check the customer, brand, assigned agent, priority and status. Verify account facts and policy claims against current guidance. Check AI suggestions and their <strong>References</strong> before sending.'},
     {q:'What is the difference between Reply and Internal note?', a:'<strong>Reply</strong> sends a customer-facing message. <strong>Internal note</strong> is for colleagues; type <strong>@</strong> and select an agent to mention them, then choose <strong>Add note</strong>. Check the selected tab before submitting. A saved draft has not been sent.'},
     {q:'How do I use placeholders in a response?', a:'In the Reply composer, choose the <strong>Insert template</strong> icon below your reply, or press <strong>Ctrl/Cmd+Shift+Space</strong> while typing. Search by name, category or reply text, and filter by <strong>Category</strong>. Select a response to preview it. In <strong>Preview response</strong>, check the automatically filled {name}, {ticket}, {brand} and {agent} values. Fill any missing fields, such as {transaction_reference}, with verified customer details. Choose <strong>Insert response</strong>, then review the whole draft. Inserting does not send it; replies with unfilled placeholders are blocked.'},
