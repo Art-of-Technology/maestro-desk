@@ -8,12 +8,12 @@ const functions = source.slice(source.indexOf('async function confirmSend('), so
 test('new-ticket closure requires a message, a valid reason and confirmed sending', async () => {
   for (const scenario of ['sent','empty','reason-missing','creation-failed','send-failed','unconfirmed','close-failed','switched']) {
     let workspace='one', created=0, closed=0, wizardClosed=false, opened=0, retry=0, reminders=0;
-    const state={busy:false,closeAfterSend:true,closeReason:'',replyLanguage:'Spanish',customer:{uuid:'customer',displayId:'M1'},files:[]};
+    const state={busy:false,statusAfterSend:'closed',closeReason:'',replyLanguage:'Spanish',customer:{uuid:'customer',displayId:'M1'},files:[]};
     const form={value:scenario==='empty'?'':'Hello',isConnected:true};
     const button={textContent:''}, error={textContent:'',closest:()=>({querySelector:()=>button})};
     const ticket={id:'TK-NEW',_uuid:'ticket'};
     const context={
-      NT:state,TICKETS:[ticket],CURRENT_TICKET:null,
+      can:()=>true,NT:state,TICKETS:[ticket],CURRENT_TICKET:null,
       document:{getElementById:id=>id==='nt2-msg'?form:id==='closure-error'?error:{value:scenario==='reason-missing'?'':'other',focus(){}}},
       required:()=>false,alert(){},window:{confirm:()=>true},setBusy:v=>{state.busy=v;},
       getWorkspaceId:()=>workspace,getJwt:()=> 'session',isSessionApiBacked:()=>true,

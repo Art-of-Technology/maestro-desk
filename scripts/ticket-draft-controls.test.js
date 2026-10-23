@@ -15,7 +15,7 @@ test('send and set status collects the reason before sending and cancellation ke
       chooseStatusReason: async () => { calls.push('reason'); return reason; },
       sendCompose: async () => { calls.push('send'); return true; },
       changeTicketStatus: async (id, status, selectedReason) => calls.push({ id, status, selectedReason }),
-      CURRENT_TICKET: null,
+      CURRENT_TICKET: 'TK-5', COMPOSE_TAB: 'reply', openTicket() {},
     });
     expect(calls).toEqual(reason === undefined ? ['reason'] : ['reason', 'send', { id: 'TK-5', status: 'pending', selectedReason: reason }]);
   }

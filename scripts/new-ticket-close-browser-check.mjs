@@ -8,10 +8,10 @@ export default async page => {
       await p.setViewportSize({width:scenario==='close-failed'?390:1280,height:900});
       const id='11111111-1111-4111-8111-111111111111',customerId='22222222-2222-4222-8222-222222222222';
       const statuses=['open','pending','resolved','escalated','gdpr','closed'].map(key=>({key,label:key,base_key:key,
-        is_active:!(key==='closed'&&scenario==='inactive'),send_survey:key==='resolved',reason_required:key==='closed'&&scenario!=='optional',
+        is_active:true,send_survey:key==='resolved',reason_required:key==='closed'&&scenario!=='optional',
         reasons:key==='closed'&&scenario!=='optional'?[{key:'other',label:'Other',is_active:true}]:[]}));
       const row={id,display_id:'TK-NEW',customer_id:customerId,subject:'Account update',status_key:'open',status_option_key:'open',status_survey_enabled:false,priority_key:'normal'};
-      const messages=[],bodies=[],drafts={};let creates=0,closes=0,ai=0;
+      const messages=[],bodies=[],drafts={};let creates=0,closes=0,ai=0,statusLoads=0;
       p.on('dialog',dialog=>dialog.accept());
       const reminders=new Map(); let generation=0;
       await p.route('**/api/**',async route=>{
@@ -24,7 +24,7 @@ export default async page => {
             else {reminder={pending:body.pending&&row.status_key!=='closed',version:reminder.version+1};reminders.set(key,reminder);}
           }
           json={reminder:{...reminder,generation}};
-        } else if(path.endsWith('/ticket-statuses'))json={statuses};
+        } else if(path.endsWith('/ticket-statuses')){statusLoads++;json={statuses:statuses.map(s=>({...s,is_active:!(s.key==='closed'&&scenario==='inactive'&&statusLoads>1)}))};}
         else if(path.endsWith('/customers/'+customerId)&&req.method()==='PATCH')json={customer:{preferred_language:body.preferred_language}};
         else if(path.endsWith('/ai/messages')) {
           ai++;
@@ -71,7 +71,7 @@ export default async page => {
       await p.locator('#nt2-msg').fill(scenario==='empty'?'':'Your account is ready.');
       await p.locator('#nt2-after-send').selectOption('closed');
       check(await p.locator('#nt2-msg').inputValue()===(scenario==='empty'?'':'Your account is ready.'),'Changing the option preserves the first message');
-      check(await p.getByRole('button',{name:'Send and close',exact:true}).count()===1,'Footer names the selected action');
+      check(await p.getByRole('button',{name:'Send & close',exact:true}).count()===1,'Footer names the selected action');
       check(creates===0&&bodies.length===0&&closes===0,'Selecting the option creates and sends nothing');
       if(scenario==='cancel') {
         await p.locator('#nt2-close-reason').selectOption('other');

@@ -92,11 +92,11 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
       pendingAttachmentIds: () => [], renderPendingAttachments() {}, attachmentsUploading:()=>false, parseMentions: () => [],
       apiPost: async () => {
         if (scenario === 'failed') throw new Error('Offline');
-        return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text } };
+        return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text }, delivery: { emailed: true } };
       },
       clearComposer() { text = ''; }, clearDraft() {}, onComposeInput() {},
       prepareDraftSend: async () => ({ version: 1 }), finishDraftSend: () => true, refreshPersonalDraft: async () => {},
-      openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, alert() {},
+      openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, notifyReplyDelivery() {}, alert() {},
       changeTicketStatus: async (_id, value) => { status = value; },
       chooseStatusReason: async () => null,
     };

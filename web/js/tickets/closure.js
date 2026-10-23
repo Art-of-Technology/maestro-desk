@@ -57,7 +57,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
   const targets = ids.map(id => TICKETS.find(t => t.id === id)).filter(t => t && !t.mergedInto && (spam || t.status !== 'closed'));
   if (!targets.length) { showToast('These tickets are already closed or merged.'); return; }
   let busy = false, replySent = false;
-  const title = sendReply ? 'Send and close — no survey' : spam ? (targets.length === 1 ? 'Mark as spam' : `Mark ${targets.length} tickets as spam`) : (targets.length === 1 ? 'Close without resolution' : `Close ${targets.length} tickets without resolution`);
+  const title = sendReply ? 'Send & close' : spam ? (targets.length === 1 ? 'Mark as spam' : `Mark ${targets.length} tickets as spam`) : (targets.length === 1 ? 'Close without resolution' : `Close ${targets.length} tickets without resolution`);
   const workspace = getWorkspaceId(), jwt = getJwt();
   showModal(title, `
     <p>${sendReply ? 'Your reply will use the normal AI and translation checks. After the email is sent, the ticket will close without a satisfaction survey.' : 'No customer email or satisfaction survey will be sent. You can reopen the tickets later.'}</p>
@@ -95,7 +95,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
       if (!error.isConnected) return;
       if (!replySent) {
         busy = false; setSendBusy(false);
-        button.textContent = 'Send and close';
+        button.textContent = 'Send & close';
         error.textContent = error.textContent || 'Reply was not confirmed sent. The ticket is still open. Check the reply and email delivery status before trying again.';
         return;
       }
@@ -128,7 +128,7 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
     busy = false;
     if (succeeded.length) showToast(`${succeeded.length} ticket${succeeded.length === 1 ? '' : 's'} ${reason === 'spam' ? 'marked as spam' : 'closed without resolution'}.`);
     await onChanged?.(succeeded);
-  }, sendReply ? 'Send and close' : spam ? 'Mark as spam' : 'Close without resolution');
+  }, sendReply ? 'Send & close' : spam ? 'Mark as spam' : 'Close without resolution');
   const modal = document.getElementById('closure-reason').closest('.modal');
   function setSendBusy(on) {
     modal.querySelectorAll('button, select, textarea').forEach(el => { el.disabled = on; });
