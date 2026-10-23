@@ -27,3 +27,12 @@ test('allows internal-only review results without manufacturing an email', () =>
   expect(parseCustomerReply({ ...valid, customerReply: '' }, sources).text).toBe('');
   expect(() => parseCustomerReply({ customerReply: '', internalNotes: [], referenceIds: [] }, [])).toThrow();
 });
+
+
+test('rejects an oversized reference list before accumulating per-item errors', () => {
+  let failure: any;
+  try { parseCustomerReply({ customerReply: 'Hello', referenceIds: Array(10000).fill(123), internalNotes: [] }, []); }
+  catch (error) { failure = error; }
+  expect(failure?.issues).toHaveLength(1);
+  expect(failure.issues[0]).toMatchObject({ code: 'too_big', path: ['referenceIds'] });
+});

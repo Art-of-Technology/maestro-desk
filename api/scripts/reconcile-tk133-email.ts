@@ -24,7 +24,7 @@ const Envelope = z.object({
   from: z.string().email(), to: z.array(z.string().email()).min(1), cc: z.array(z.string().email()),
   status: z.string(), delivery_state: z.string().optional(),
   postmark_message_id: z.string().optional(), delivery_repair: z.object({ marker: z.string() }).optional(),
-  delivered_recipients: z.record(z.string()).optional(),
+  delivered_recipients: z.record(z.string(), z.string()).optional(),
 });
 type Message = { body: string; body_html: string | null; external_message_id: string | null;
   email_metadata: unknown; sent_email: { subject: string; text: string; html: string | null } | null };

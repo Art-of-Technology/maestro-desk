@@ -31,7 +31,7 @@ function readProgress() {
   try {
     const raw = localStorage.getItem(key);
     storageAvailable = true;
-    if (raw === null) return memory.get(key) || emptyProgress();
+    if (raw === null) return emptyProgress();
     let data;
     try { data = JSON.parse(raw); } catch { return emptyProgress(); }
     if (data?.version === GUIDE_VERSION && Array.isArray(data.viewed) && Array.isArray(data.checked)
@@ -45,7 +45,7 @@ function readProgress() {
     }
     return emptyProgress();
   } catch { storageAvailable = false; }
-  return memory.get(key) || emptyProgress();
+  return emptyProgress();
 }
 
 function validResume(value) {

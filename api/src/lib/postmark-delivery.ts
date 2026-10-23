@@ -8,7 +8,7 @@ export const PostmarkDelivery = z.object({
   Recipient: z.string().email().max(320),
   DeliveredAt: z.string().datetime({ offset: true }),
   // Other callers and historical sends have no correlation metadata.
-  Metadata: z.record(z.string()).default({}),
+  Metadata: z.record(z.string(), z.string()).default({}),
 });
 
 const Reference = z.object({
