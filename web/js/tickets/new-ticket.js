@@ -28,11 +28,12 @@ import { isFieldRequired, isFieldVisible } from '../layouts/index.js';
 import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
-import { apiPost, apiPatch, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiPost, apiPatch, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
-import { saveDraft } from './drafts.js';
+import { saveDraft, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, finishDraftSend } from './drafts.js';
+import { fmtBytes } from './attachment-chips.js';
 import { showToast } from '../core/toast.js';
 import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
 import { statusReasonField } from './status-reasons.js';
@@ -62,6 +63,8 @@ const NT = {
   languageConfirmed: false,
   closeAfterSend: false,
   closeReason: '',
+  files: [],
+  createdTicket: null,
 };
 
 const templateFilters = { nt: { query: '', category: '' }, nt2: { query: '', category: '' } };
@@ -84,6 +87,8 @@ function resetNT() {
   NT.languageConfirmed = false;
   NT.closeAfterSend = false;
   NT.closeReason = '';
+  NT.files = [];
+  NT.createdTicket = null;
 }
 
 const visible = key => isFieldVisible('ticket', key);
@@ -486,6 +491,19 @@ function renderLanguageConfirmation() {
   document.getElementById('nt-language')?.focus();
 }
 
+function renderNewTicketFiles() {
+  if (!isSessionApiBacked() || !can('tickets.attach') || !can('tickets.reply')) return '';
+  return `<div class="form-row">
+    <label class="form-label" for="nt2-files">Attachments (${NT.files.length ? `${NT.files.length} selected` : 'optional'})</label>
+    <input class="form-input" type="file" id="nt2-files" multiple data-change-action="nt.files" aria-describedby="nt2-files-hint" style="min-height:44px">
+    <p id="nt2-files-hint" style="font-size:12px;color:var(--ink3)">Up to 20 files, 10 MB each. Sending allows 7 MB total. Files upload when you send or save as draft.</p>
+    <ul style="list-style:none;padding:0;margin:0">${NT.files.map((entry, index) => `<li style="display:flex;align-items:center;gap:8px;overflow-wrap:anywhere">
+      <span style="flex:1;min-width:0">${window.escHtml(entry.file.name)} <span style="color:var(--ink3)">${fmtBytes(entry.file.size)}${entry.attachment ? ' · Uploaded' : ''}</span></span>
+      <button type="button" class="btn btn-sm" style="min-width:44px;min-height:44px" data-action="nt.removeFile" data-index="${index}" aria-label="Remove ${window.escAttr(entry.file.name)}">Remove</button>
+    </li>`).join('')}</ul>
+  </div>`;
+}
+
 function renderStep2() {
   const canDraft = !required('message');   // a required message forbids draft-only creation
   showModal('New Ticket — first message', `
@@ -495,13 +513,14 @@ function renderStep2() {
       <span>·</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px">${window.escHtml(NT.subject)}</span>
       ${NT.categoryLabel ? `<span>·</span><span>${window.escHtml(NT.categoryLabel)}</span>` : ''}
       ${NT.agentUserId ? `<span>·</span><span>→ ${window.escHtml(NT.agentName)}</span>` : ''}
-      <span class="link" data-action="nt.back" style="margin-left:auto;font-size:11px">‹ Edit details</span>
+      ${NT.createdTicket ? '' : '<span class="link" data-action="nt.back" style="margin-left:auto;font-size:11px">‹ Edit details</span>'}
     </div>
-    ${templateControls('nt2')}
+    ${NT.createdTicket ? `<p role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is already created. Retry the remaining uploads here, or cancel to open its draft. No message has been sent.</p>` : templateControls('nt2')}
     <div class="form-row">
       <label class="form-label">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
       <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
     </div>
+    ${renderNewTicketFiles()}
     <div class="form-row">
       <label class="form-label" for="nt2-language">Reply language</label>
       <select class="form-input" id="nt2-language" data-change-action="nt.replyLanguage">
@@ -533,6 +552,8 @@ function renderStep2() {
   // Retarget the footer Cancel to the explicit-discard action (resets NT).
   const cancelBtn = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
   if (cancelBtn) cancelBtn.dataset.action = 'nt.cancel';
+  const close = document.querySelector('#modal-container .modal-close');
+  if (close) close.outerHTML = '<button type="button" class="modal-close" data-action="nt.cancel" aria-label="Cancel new ticket" style="border:0;background:transparent;min-width:44px;min-height:44px">×</button>';
   document.getElementById('nt2-msg')?.focus();
 }
 
@@ -557,6 +578,7 @@ function setBusy(on, label) {
   if (draft) draft.disabled = on;
   const manualSend = document.getElementById('nt2-without-ai-btn');
   if (manualSend) manualSend.disabled = on || NT.closeAfterSend;
+  document.querySelectorAll('#modal-container [data-action="nt.removeFile"]').forEach(el => { el.disabled = on; });
   document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"], #modal-container [data-action="nt.languageBack"]')
     .forEach(el => {
       if (el.tagName === 'BUTTON') el.disabled = on;
@@ -569,6 +591,9 @@ async function confirmSend(withoutAI = false) {
   if (NT.busy) return;
   if (withoutAI && NT.closeAfterSend) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
+  NT.message = msg;
+  if (NT.files.length && !msg) { alert('Write a message to send attachments, or choose Save as draft.'); return; }
+  if (NT.files.reduce((size, entry) => size + entry.file.size, 0) > 7 * 1024 * 1024) { alert('Attachments are too large to email (max 7 MB in total). Remove some files or save as draft.'); return; }
   if ((required('message') || NT.closeAfterSend) && !msg) { alert('First message is required.'); return; }
   if (withoutAI && msg && !window.confirm('Send without AI?\n\nYour message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.')) return;
   setBusy(true, msg ? 'Sending…' : 'Creating…');
@@ -593,6 +618,7 @@ async function confirmSend(withoutAI = false) {
 async function saveAsDraft() {
   if (NT.busy) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
+  NT.message = msg;
   setBusy(true, 'Creating…');
   await finishCreate({ message: msg, send: false });
 }
@@ -634,6 +660,7 @@ async function runCreate({ message, send, withoutAI = false, closeAfterSend = fa
     agentUserId: NT.agentUserId,
     agentName: NT.agentName,
     replyLanguage: withoutAI ? '' : NT.replyLanguage,
+    files: [...NT.files],
   };
   let displayId, keptDraft = false, emailed = false;
   if (isApiBacked) {
@@ -649,10 +676,9 @@ async function runCreate({ message, send, withoutAI = false, closeAfterSend = fa
     const res = await createOnServer(snapshot, { message, send });
     if (form?.isConnected === false) return;
     if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
-    // retry === true → nothing was created; keep the modal open so the agent
-    // can fix and resubmit. Otherwise a ticket MAY exist server-side, so the
-    // modal must close — a second Send would create a duplicate.
+    // Upload retries retain the created ticket; other failures open its draft.
     if (!res) { setBusy(false); return; }
+    if (res.retry) { setBusy(false); renderStep2(); return; }
     if (res.aborted) {
       setBusy(false); closeModal(); resetNT();
       if (res.unsentMessage) showModal('Ticket created — first message not sent', `
@@ -709,6 +735,10 @@ async function createOnServer(snap, { message, send }) {
   const workspace = getWorkspaceId(), jwt = getJwt();
   const form = document.getElementById('nt2-msg') || document.getElementById('nt-subj');
   const current = () => workspace === getWorkspaceId() && jwt === getJwt() && form?.isConnected !== false;
+  if (snap.files?.length && (!can('tickets.attach') || !can('tickets.reply'))) {
+    showToast('Your role does not allow reply attachments.', 'error'); return null;
+  }
+  if (NT.createdTicket && (workspace !== NT.createdTicket.workspace || jwt !== NT.createdTicket.jwt)) return { aborted: true };
   // The API requires a customer. The only way to reach this without one is a
   // workspace whose layout hides the Customer field — say so plainly instead
   // of failing with a schema error.
@@ -721,7 +751,7 @@ async function createOnServer(snap, { message, send }) {
   if (snap.agentUserId) body.assigned_user_id = snap.agentUserId;
 
   let res;
-  try { res = await apiPost('/api/v1/tickets', body); }
+  try { res = NT.createdTicket ? { ticket: NT.createdTicket.row } : await apiPost('/api/v1/tickets', body); }
   catch (err) { showToast(`Couldn't create the ticket: ${err?.message || err}`, 'error', 6000); return null; }
   if (!current()) return { aborted: true };
 
@@ -750,6 +780,7 @@ async function createOnServer(snap, { message, send }) {
     latest_customer_sentiment: null, last_message_role: null,
     ...srv,
   };
+  if (snap.files?.length) NT.createdTicket = { row, workspace, jwt };
   updateOrInsertTicket(row);
   if (snap.replyLanguage) setCustomerLanguage(row.display_id, snap.replyLanguage);
 
@@ -763,6 +794,8 @@ async function createOnServer(snap, { message, send }) {
     } catch { /* rules' pick stands; visible on the ticket */ }
   }
   if (!current()) return { aborted: true };
+
+  if (snap.files?.length || NT.createdTicket) return createWithFiles(row, snap, { message, send }, current);
 
   let keptDraft = false, emailed = false;
   if (send && message) {
@@ -792,6 +825,56 @@ async function createOnServer(snap, { message, send }) {
     keptDraft = true;
   }
   return { displayId: row.display_id, keptDraft, emailed };
+}
+
+async function createWithFiles(row, snap, { message, send }, current) {
+  try {
+    saveDraft(row.display_id, message, 'reply');
+    saveDraftAttachments(row.display_id, snap.files.filter(entry => entry.attachment).map(entry => entry.attachment));
+    await flushPersonalDraft(row.display_id, 'reply');
+    for (const entry of snap.files) {
+      if (!current()) return { aborted: true };
+      if (entry.attachment) continue;
+      setBusy(true, `Attaching ${entry.file.name}…`);
+      const form = new FormData(); form.append('file', entry.file, entry.file.name);
+      const response = await apiUpload(`/api/v1/tickets/${row.id}/attachments`, form);
+      if (!current()) return { aborted: true };
+      if (!response?.attachment?.id) throw new Error('The upload could not be confirmed. Retry this file.');
+      entry.attachment = response.attachment;
+      saveDraftAttachments(row.display_id, snap.files.filter(file => file.attachment).map(file => file.attachment));
+      await flushPersonalDraft(row.display_id, 'reply');
+    }
+  } catch (error) {
+    if (!current()) return { aborted: true };
+    showToast(`Ticket ${row.display_id} is saved, but its attachments are not ready. No message was sent. Retry here. ${error.message}`, 'warn', 10000);
+    return { retry: true };
+  }
+  if (!current()) return { aborted: true };
+  if (!send) return { displayId: row.display_id, keptDraft: true };
+  let sent;
+  try { sent = await prepareDraftSend(row.display_id, 'reply'); }
+  catch (error) { showToast(error.message, 'error'); return { retry: true }; }
+  if (!current()) { finishDraftSend(row.display_id, 'reply', sent); return { aborted: true }; }
+  let response;
+  try {
+    response = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message,
+      reply_language: snap.replyLanguage || undefined, draft_version: sent.version,
+      attachment_ids: snap.files.map(entry => entry.attachment.id) });
+  } catch {
+    try { finishDraftSend(row.display_id, 'reply', sent); } catch { /* Continue on the existing ticket, never resend from the wizard. */ }
+    if (!current()) return { aborted: true };
+    showToast('Ticket created, but sending could not be confirmed. Check the ticket before retrying. Your draft has been kept.', 'warn', 10000);
+    return { displayId: row.display_id, keptDraft: true };
+  }
+  try { finishDraftSend(row.display_id, 'reply', sent, response.draft_version); }
+  catch { showToast('Message saved. The local draft cache could not be updated. Reopen the ticket before continuing.', 'error'); }
+  if (!current()) return { aborted: true };
+  if (response.delivery) notifyReplyDelivery(response.delivery);
+  if (response.subject) {
+    const ticket = TICKETS.find(t => t._uuid === row.id);
+    if (ticket) ticket.subject = response.subject;
+  }
+  return { displayId: row.display_id, keptDraft: false, emailed: response.delivery?.emailed === true };
 }
 
 // Demo persona — the legacy in-memory mint, verbatim semantics.
@@ -830,16 +913,47 @@ registerActions({
   'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
   'nt.back':      () => {
+    if (NT.busy || NT.createdTicket) return;
     const ta = document.getElementById('nt2-msg');
     if (ta) { NT.message = ta.value; if (ta.value.trim()) NT.messageTouched = true; }
     NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
     closeModal();
     renderStep1();
   },
-  'nt.cancel':    () => { resetNT(); closeModal(); },
+  'nt.removeFile': ds => {
+    if (NT.busy) return;
+    NT.message = document.getElementById('nt2-msg')?.value || '';
+    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+    NT.files.splice(Number(ds.index), 1);
+    if (NT.createdTicket) saveDraftAttachments(NT.createdTicket.row.display_id, NT.files.filter(entry => entry.attachment).map(entry => entry.attachment));
+    renderStep2();
+    document.getElementById('nt2-files')?.focus();
+  },
+  'nt.cancel':    () => {
+    if (NT.busy) return;
+    const created = NT.createdTicket;
+    if (created && NT.files.some(entry => !entry.attachment) && !window.confirm('Open the saved ticket draft? Files that have not uploaded will need to be selected again.')) return;
+    if (created && created.workspace === getWorkspaceId() && created.jwt === getJwt()) {
+      saveDraft(created.row.display_id, document.getElementById('nt2-msg')?.value || NT.message, 'reply');
+      setComposeTabValue('reply'); openTicket(created.row.display_id);
+    }
+    resetNT(); closeModal();
+  },
 });
 
 registerChangeActions({
+  'nt.files': (ds, input) => {
+    if (NT.busy || !can('tickets.attach') || !can('tickets.reply')) return;
+    NT.message = document.getElementById('nt2-msg')?.value || '';
+    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+    for (const file of input.files || []) {
+      if (NT.files.length >= 20) { showToast('A reply can have up to 20 attached files.', 'warn'); break; }
+      if (!file.size || file.size > 10 * 1024 * 1024) { showToast(`${file.name}: choose a non-empty file up to 10 MB.`, 'warn'); continue; }
+      NT.files.push({ file, attachment: null });
+    }
+    renderStep2();
+    document.getElementById('nt2-files')?.focus();
+  },
   'nt.templateCategory': (ds, el) => {
     if (NT.busy) return;
     templateFilters[ds.templateStep].category = el.value;
