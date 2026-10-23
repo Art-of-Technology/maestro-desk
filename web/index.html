@@ -31,16 +31,16 @@
       <div class="auth-title" style="text-align:center">Respovia</div>
       <div class="auth-sub" style="text-align:center">Support that runs itself</div>
 
-      <div id="login-form" style="margin-top:24px">
+      <form id="login-form" method="post" autocomplete="on" novalidate style="margin-top:24px">
         <div id="owner-invitation-hint" hidden class="auth-sub" style="margin-bottom:16px">Sign in with the email address that received your invitation. New to Respovia? Check your email to set a password, or <button type="button" class="btn btn-sm" data-action="auth.showPanel" data-panel="forgot">Request a setup link</button>.</div>
         <div class="form-row">
-          <label class="form-label">Email</label>
-          <input class="form-input" id="login-email" type="email" placeholder="you@company.com" autocomplete="username"/>
+          <label class="form-label" for="login-email">Email</label>
+          <input class="form-input" id="login-email" name="email" type="email" placeholder="you@company.com" autocomplete="username"/>
         </div>
         <div class="form-row">
-          <label class="form-label">Password</label>
+          <label class="form-label" for="login-password">Password</label>
           <div class="pw-input-wrap">
-            <input class="form-input" id="login-password" type="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:38px"/>
+            <input class="form-input" id="login-password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:38px"/>
             <button type="button" class="pw-toggle" data-action="auth.togglePw" data-target="login-password" tabindex="-1" aria-label="Toggle password visibility">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4z" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="7" r="2" stroke="currentColor" stroke-width="1.2"/></svg>
             </button>
@@ -50,7 +50,7 @@
           <label class="auth-check"><input type="checkbox" id="remember-me"/><span>Remember me</span></label>
           <span class="auth-link" style="margin:0;font-size:12px" data-action="auth.showPanel" data-panel="forgot">Forgot password?</span>
         </div>
-        <button class="btn btn-solid" id="login-submit" data-action="auth.submitLogin" style="width:100%;justify-content:center;margin-top:12px;padding:10px 16px">Sign in</button>
+        <button type="submit" class="btn btn-solid" id="login-submit" style="width:100%;justify-content:center;margin-top:12px;padding:10px 16px">Sign in</button>
         <div id="login-error" class="auth-error" style="display:none;margin-top:12px"></div>
 
         <!-- "Sign in with Maestro" — revealed by js/auth/maestro-login.js only
@@ -59,9 +59,9 @@
           <div style="display:flex;align-items:center;gap:10px;color:var(--ink3);font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;text-transform:uppercase">
             <span style="flex:1;height:1px;background:currentColor;opacity:.25"></span>or<span style="flex:1;height:1px;background:currentColor;opacity:.25"></span>
           </div>
-          <button class="btn" id="maestro-login-btn" data-action="maestro.login" style="width:100%;justify-content:center;margin-top:14px;padding:10px 16px">Continue with Maestro</button>
+          <button type="button" class="btn" id="maestro-login-btn" data-action="maestro.login" style="width:100%;justify-content:center;margin-top:14px;padding:10px 16px">Continue with Maestro</button>
         </div>
-      </div>
+      </form>
       <div id="login-picker" style="display:none"></div>
       <!-- Brand auto-detect / picker shown after a successful Maestro sign-in. -->
       <div id="maestro-brand-picker" style="display:none"></div>

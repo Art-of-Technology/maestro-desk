@@ -96,7 +96,9 @@ jobs:
         run: bun test scripts/ai-credit-notification.test.js
 
       - name: Password confirmation
-        run: bun test scripts/password-confirmation.test.js
+        run: |
+          bun test scripts/password-confirmation.test.js
+          bun test scripts/login-form.test.js
 
       - name: Agent session expiry and warning
         run: |

@@ -36,6 +36,7 @@ async function submitLogin() {
   const pw    = document.getElementById('login-password')?.value || '';
   const errEl = document.getElementById('login-error');
   const btn   = document.getElementById('login-submit');
+  if (btn?.disabled) return;
   if (errEl) errEl.style.display = 'none';
   if (!email || !pw) return showError('Please enter your email and password.');
 
@@ -109,13 +110,13 @@ function pickAgentWorkspace(ds) {
 }
 
 registerActions({
-  'auth.submitLogin':    () => submitLogin(),
   'agent.pickWorkspace': (ds) => pickAgentWorkspace(ds),
 });
 
-// Enter-to-submit on the (static) login password field.
-document.getElementById('login-password')
-  ?.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitLogin(); });
+document.getElementById('login-form')?.addEventListener('submit', e => {
+  e.preventDefault();
+  return submitLogin();
+});
 
 async function enterWorkspace(m) {
   if (m.suspended) { showError(`${m.workspace_name} is suspended. Contact your platform admin.`); return false; }
