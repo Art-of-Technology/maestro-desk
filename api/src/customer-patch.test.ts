@@ -239,7 +239,11 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
   it('preferred language is validated, shared with other agents, clearable and audited without values', async () => {
     const cid = await mkCustomer('LANG', { jurisdiction: 'CL' });
     for (const invalid of ['Klingon', 'es', '<script>', 123, true, {}]) {
-      expect((await patch(agent.token, cid, { preferred_language: invalid })).status).toBe(400);
+      const response = await patch(agent.token, cid, { preferred_language: invalid });
+      expect(response.status).toBe(400);
+      const body = await response.json() as { issues: { path: string[]; message: string }[] };
+      expect(body.issues[0].path).toEqual(['preferred_language']);
+      expect(typeof body.issues[0].message).toBe('string');
     }
     const saved = await patch(agent.token, cid, { preferred_language: 'French' });
     expect(saved.status).toBe(200);
