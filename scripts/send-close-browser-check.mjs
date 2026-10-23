@@ -68,6 +68,7 @@ export default async page => {
       const {setComposeTabValue}=await import('/js/core/state.js');setComposeTabValue('reply');
       const {TICKETS}=await import('/js/core/data.js');
       const t=TICKETS[0];Object.assign(t,{_uuid:id,_detailLoaded:true,status:'open',statusOption:'open',subject:'Account update',msgs:[],translateThread:false,replyRecipients:recipient});
+      await (await import('/js/tickets/status-options.js')).loadStatusOptions();
       const {openTicket}=await import('/js/tickets/detail.js');openTicket(t.id);
       (await import('/js/ai/translate.js')).setCustomerLanguage(t.id,'Spanish');
       const composer=await import('/js/tickets/composer.js');await composer.mountComposer(t.id);
@@ -78,7 +79,7 @@ export default async page => {
       (await import('/js/tickets/detail.js')).onComposeInput('TK-001');
     });
     await p.getByRole('button',{name:'More send options',exact:true}).click();
-    await p.getByRole('button',{name:'Send and close — no survey',exact:true}).click();
+    await p.getByRole('button',{name:'Send & close',exact:true}).click();
     await p.locator('#closure-reason').waitFor();
     check(requests.length===0&&closes===0,'Opening does not send or close');
     if(scenario==='cancel') {

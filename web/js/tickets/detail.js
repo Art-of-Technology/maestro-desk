@@ -1,5 +1,7 @@
+export { applySentStatus };
 import { can, applyPermissionControls } from '../core/permissions.js';
-import { statusChoice, statusLabel, selectedStatus, statusSelectOptions, statusOptions, loadStatusOptions, statusOptionsState, STATUS_CATEGORIES } from './status-options.js';
+import { statusChoice, statusLabel, selectedStatus, statusSelectOptions, loadStatusOptions, statusOptionsState } from './status-options.js';
+import { sendActions } from './send-actions.js';
 import { invalidateAgentReport } from '../agents/statistics.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
@@ -680,11 +682,7 @@ export function openTicket(id) {
                     <button class="btn btn-sm btn-solid composer-send" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.send" data-ticket-id="${window.escAttr(id)}">${COMPOSE_TAB==='reply'?'Send':'Add note'}</button>
                     <button class="btn btn-sm btn-solid composer-send-more" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
-                      ${statusOptions().filter(s => !STATUS_CATEGORIES.includes(s.key) && s.base_key !== 'closed').map(s => `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(s.key)}">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set ${window.escHtml(s.label)}</button>`).join('')}
-                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="resolved">${COMPOSE_TAB==='reply'?'Send':'Add note'} and resolve</button>
-                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="closed">Send and close — no survey</button>` : ''}
-                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="pending">${COMPOSE_TAB==='reply'?'Send':'Add note'} and set pending</button>
-                      <button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note tickets.close tickets.edit' : 'tickets.reply tickets.close tickets.edit'}" data-action="td.sendAnd" data-ticket-id="${window.escAttr(id)}" data-status="escalated">${COMPOSE_TAB==='reply'?'Send':'Add note'} and escalate</button>
+                      ${sendActions().filter(a => COMPOSE_TAB === 'reply' || a.status !== 'closed').map(a => `<button type="button" class="comp-menu-item" aria-label="${window.escAttr(COMPOSE_TAB === 'reply' ? a.label : a.label.replace('Send', 'Add note'))}" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}${a.status ? ' tickets.close tickets.edit' : ''}" data-action="${a.status ? 'td.sendAnd' : 'td.send'}" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(a.status)}"><span>${window.escHtml(COMPOSE_TAB === 'reply' ? a.label : a.label.replace('Send', 'Add note'))}</span>${COMPOSE_TAB === 'reply' ? `<small style="display:block;color:var(--ink3);white-space:normal">${window.escHtml(a.hint)}</small>` : ''}</button>`).join('')}
                       ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
                     </div>
                   </div>
@@ -929,34 +927,35 @@ export async function insertMacro(ticketId, idx) {
   if (t && await appendTemplate(t, r)) onComposeInput(ticketId);
 }
 
-export async function changeTicketStatus(id, val, reasonKey) {
+export async function changeTicketStatus(id, val, reasonKey, { silent = false } = {}) {
   const t = TICKETS.find(x => x.id === id);
-  if (!t || selectedStatus(t) === val) return;
+  if (!t) return false;
+  if (selectedStatus(t) === val) return true;
   const workspace = getWorkspaceId(), jwt = getJwt();
   await loadStatusOptions();
-  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
+  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return false;
   const choice = statusChoice(val);
-  if (val !== 'spam' && (!choice || !choice.is_active)) { showToast('This status is unavailable. Refresh the status options.'); return; }
+  if (val !== 'spam' && (!choice || !choice.is_active)) { showToast('This status is unavailable. Refresh the status options.'); return false; }
   const category = choice?.base_key || 'closed';
   if (category === 'closed' || val === 'spam') {
     const select = document.querySelector('[aria-label="Ticket status"]');
     if (select) select.value = selectedStatus(t);
     showCloseTickets([id], async (succeeded) => {
-      if (!succeeded.length) return;
+      if (!succeeded.length) return false;
       updateNavBadges();
       if (t._uuid) await loadTicketDetail(id);
       if (CURRENT_TICKET === id) openTicket(id);
     }, val === 'spam' ? 'spam' : '', val === 'spam' ? 'closed' : val);
-    return;
+    return false;
   }
-  if (t.status === 'closed' && category !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return; }
+  if (t.status === 'closed' && category !== 'open') { showToast('Reopen the ticket before changing its status.'); openTicket(id); return false; }
   if (reasonKey === undefined) {
     const select = document.querySelector('[aria-label="Ticket status"]');
     if (select) select.value = selectedStatus(t);
     reasonKey = await chooseStatusReason(choice);
-    if (reasonKey === undefined) return;
+    if (reasonKey === undefined) return false;
   }
-  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
+  if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return false;
   // Demo state is local; live survey timestamps belong to the mailer.
   const stampCsat = !t._uuid && category === 'resolved' && choice.send_survey && !t.csatRequestedAt && !t.csat
     ? new Date().toISOString().slice(0, 10)
@@ -964,14 +963,14 @@ export async function changeTicketStatus(id, val, reasonKey) {
   if (t._uuid) {
     try {
       const res = await apiPatch(`/api/v1/tickets/${t._uuid}`, { status_option_key: val, status_reason: reasonKey });
-      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return;
+      if (workspace !== getWorkspaceId() || jwt !== getJwt() || !TICKETS.includes(t)) return false;
       applySavedActivity(t, res);
       t.statusOption = res.ticket.status_option_key;
       t.statusSurveyEnabled = res.ticket.status_survey_enabled;
       t.csatRequestedAt = res.ticket?.csat_requested_at?.slice(0, 10) || null;
       if (res.survey) notifySurveyResult(res.survey);
     }
-    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } alert(`Couldn't change status: ${err?.message || err}`); return; }
+    catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } if (!silent) alert(`Couldn't change status: ${err?.message || err}`); return false; }
   }
   const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}${reasonKey ? ' · Reason: ' + choice.reasons.find(r => r.key === reasonKey)?.label : ''}`);
@@ -990,6 +989,7 @@ export async function changeTicketStatus(id, val, reasonKey) {
   if (val === 'resolved')   fireWebhook('ticket.resolved',  ticketPayload(t));
   if (val === 'escalated')  fireWebhook('ticket.escalated', ticketPayload(t));
   if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
+  return true;
 }
 function quickStatus(id, val) { changeTicketStatus(id, val); }
 
@@ -1265,9 +1265,11 @@ function hideSendMenu(id) { const m = document.getElementById('send-menu-' + id)
 
 async function sendComposeAnd(id, status) {
   hideSendMenu(id);
+  const composeTab = COMPOSE_TAB;
+  if (CURRENT_TICKET !== id) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
   await loadStatusOptions(true);
-  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  if (workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== id || COMPOSE_TAB !== composeTab) return;
   if (!statusOptionsState().ready || !statusChoice(status)?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
   if (status === 'closed') {
     if (COMPOSE_TAB !== 'reply') return;
@@ -1282,11 +1284,53 @@ async function sendComposeAnd(id, status) {
     return;
   }
   const reason = await chooseStatusReason(statusChoice(status));
-  if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
-  const sent = await sendCompose(id);
-  if (sent === false || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
-  await changeTicketStatus(id, status, reason);
+  if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== id || COMPOSE_TAB !== composeTab) return;
+  const sent = await sendCompose(id, false, { requireEmail: COMPOSE_TAB === 'reply' });
+  if (sent === false || workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== id || COMPOSE_TAB !== composeTab) return;
+  if (COMPOSE_TAB === 'reply') await applySentStatus(id, status, reason);
+  else await changeTicketStatus(id, status, reason);
   if (CURRENT_TICKET === id) openTicket(id);
+}
+
+// Retry only the status update after confirmed sending; never consume another draft.
+async function applySentStatus(id, status, reason) {
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  const current = () => workspace === getWorkspaceId() && jwt === getJwt() && CURRENT_TICKET === id;
+  let busy = false;
+  const update = async () => {
+    if (!current()) return false;
+    try { return await changeTicketStatus(id, status, reason, { silent: true }); }
+    catch { return false; }
+  };
+  if (await update() !== false || !current()) return;
+  showModal('Message sent. Status not updated.', '<p>Your message was sent. Retry the status update only; this will not send another message.</p><p id="sent-status-error" role="alert"></p>', async () => {
+    if (busy || !current()) return;
+    busy = true;
+    const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
+    if (button) button.disabled = true;
+    const saved = await update();
+    busy = false;
+    if (!current() || button?.isConnected === false) return;
+    if (saved !== false) { closeModal(); return; }
+    if (button?.isConnected) button.disabled = false;
+    const error = document.getElementById('sent-status-error');
+    if (error) error.textContent = 'The status could not be updated. Try again or update it from the ticket.';
+  }, 'Retry status only');
+  const modal = document.getElementById('sent-status-error')?.closest?.('.modal');
+  if (!modal) return;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', 'Message sent. Status not updated.');
+  modal.querySelector('.modal-close').outerHTML = '<button type="button" class="modal-close" data-action="modal.close" aria-label="Close dialog" style="border:0;background:transparent;min-width:44px;min-height:44px">×</button>';
+  modal.querySelectorAll('button').forEach(button => { button.style.minHeight = '44px'; });
+  modal.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); closeModal(); }
+    if (event.key !== 'Tab') return;
+    const buttons = [...modal.querySelectorAll('button:not(:disabled)')], first = buttons[0], last = buttons.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  modal.querySelector('[data-action="modal.confirm"]').focus();
 }
 
 function showSentTextModal(ticketId, msgIdx) {

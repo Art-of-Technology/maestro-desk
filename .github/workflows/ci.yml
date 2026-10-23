@@ -189,6 +189,7 @@ jobs:
           bun test scripts/template-favourites.test.js
           bun test scripts/reply-preflight.test.js
           bun test scripts/email-resilience.test.js
+          bun test scripts/send-actions.test.js
           bun test scripts/new-ticket-close.test.js
           bun test scripts/new-ticket-attachments.test.js
           bun test scripts/close-reminder.test.js

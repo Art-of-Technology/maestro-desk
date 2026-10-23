@@ -30,12 +30,13 @@ import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiPost, apiPatch, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
-import { openTicket, notifyReplyDelivery } from './detail.js';
+import { openTicket, notifyReplyDelivery, applySentStatus } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
 import { saveDraft, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, finishDraftSend } from './drafts.js';
 import { fmtBytes } from './attachment-chips.js';
 import { showToast } from '../core/toast.js';
 import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
+import { sendActions, SEND_ACTIONS } from './send-actions.js';
 import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 import { jurisdictionLanguage } from './jurisdiction-language.js';
@@ -61,7 +62,7 @@ const NT = {
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
   replyLanguage: '',
   languageConfirmed: false,
-  closeAfterSend: false,
+  statusAfterSend: '',
   closeReason: '',
   files: [],
   createdTicket: null,
@@ -85,7 +86,7 @@ function resetNT() {
   NT.messageTouched = false;
   NT.replyLanguage = '';
   NT.languageConfirmed = false;
-  NT.closeAfterSend = false;
+  NT.statusAfterSend = '';
   NT.closeReason = '';
   NT.files = [];
   NT.createdTicket = null;
@@ -505,7 +506,9 @@ function renderNewTicketFiles() {
 }
 
 function renderStep2() {
-  const canDraft = !required('message');   // a required message forbids draft-only creation
+  const canDraft = !required('message');
+  const actions = sendActions();
+  const action = actions.find(a => a.status === NT.statusAfterSend) || SEND_ACTIONS[0];
   showModal('New Ticket — first message', `
     <div style="display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--ink2);flex-wrap:wrap">
       <strong style="color:var(--ink)">${window.escHtml(NT.customer?.label || '—')}</strong>
@@ -517,7 +520,7 @@ function renderStep2() {
     </div>
     ${NT.createdTicket ? `<p role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is already created. Retry the remaining uploads here, or cancel to open its draft. No message has been sent.</p>` : templateControls('nt2')}
     <div class="form-row">
-      <label class="form-label">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
+      <label class="form-label" for="nt2-msg">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
       <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
     </div>
     ${renderNewTicketFiles()}
@@ -529,21 +532,21 @@ function renderStep2() {
       </select>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
-      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" ${NT.closeAfterSend ? 'disabled title="Choose Send only to send without AI."' : ''}>Send without AI…</button>
+      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" ${NT.statusAfterSend ? 'disabled title="Choose Send to send without AI."' : ''}>Send without AI…</button>
       ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
       <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span>` : ''}
     </div>
     <div class="form-row" style="margin-top:16px">
-      <label class="form-label" for="nt2-after-send">After sending</label>
-      <select class="form-input" id="nt2-after-send" data-change-action="nt.afterSend">
-        <option value="" ${NT.closeAfterSend ? '' : 'selected'}>Send only</option>
-        <option value="closed" ${NT.closeAfterSend ? 'selected' : ''}>Send and close — no survey</option>
+      <label class="form-label" for="nt2-after-send">Send action</label>
+      <select class="form-input" id="nt2-after-send" aria-describedby="nt2-action-hint" data-change-action="nt.afterSend">
+        ${actions.map(a => `<option value="${window.escAttr(a.status)}" ${a.status === NT.statusAfterSend ? 'selected' : ''}>${window.escHtml(a.label)}</option>`).join('')}
       </select>
     </div>
-    ${NT.closeAfterSend ? `<p>Your first message uses the normal AI and translation checks. The ticket closes only after the email is sent.</p>
-      ${statusReasonField(statusChoice('closed'), 'nt2-close-reason', NT.closeReason)}
-      ${statusChoice('closed')?.reasons?.some(r => r.key === 'spam' && r.is_active) ? '<p>Choosing Spam also marks the customer as spam and closes future emails from their addresses in this workspace.</p>' : ''}` : ''}
-  `, () => { void confirmSend(); }, NT.closeAfterSend ? 'Send and close' : 'Send', true);
+    <p id="nt2-action-hint">${NT.statusAfterSend ? window.escHtml(action.hint) : 'Leaves the new ticket open. No survey.'} Status changes happen only after the email is sent.</p>
+    ${NT.statusAfterSend ? `<p>Your first message uses the normal AI and translation checks.</p>
+      ${statusReasonField(statusChoice(NT.statusAfterSend), 'nt2-close-reason', NT.closeReason)}
+      ${NT.statusAfterSend === 'closed' && statusChoice('closed')?.reasons?.some(r => r.key === 'spam' && r.is_active) ? '<p>Choosing Spam also marks the customer as spam and closes future emails from their addresses in this workspace.</p>' : ''}` : ''}
+  `, () => { void confirmSend(); }, action.label, true);
 
   // A stray backdrop click must not destroy the drafted message — only ×,
   // Cancel, Send, or Save-as-draft leave this step.
@@ -577,7 +580,7 @@ function setBusy(on, label) {
   const draft = document.getElementById('nt2-draft-btn');
   if (draft) draft.disabled = on;
   const manualSend = document.getElementById('nt2-without-ai-btn');
-  if (manualSend) manualSend.disabled = on || NT.closeAfterSend;
+  if (manualSend) manualSend.disabled = on || NT.statusAfterSend;
   document.querySelectorAll('#modal-container [data-action="nt.removeFile"]').forEach(el => { el.disabled = on; });
   document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"], #modal-container [data-action="nt.languageBack"]')
     .forEach(el => {
@@ -589,30 +592,31 @@ function setBusy(on, label) {
 
 async function confirmSend(withoutAI = false) {
   if (NT.busy) return;
-  if (withoutAI && NT.closeAfterSend) return;
+  if (withoutAI && NT.statusAfterSend) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
   NT.message = msg;
   if (NT.files.length && !msg) { alert('Write a message to send attachments, or choose Save as draft.'); return; }
   if (NT.files.reduce((size, entry) => size + entry.file.size, 0) > 7 * 1024 * 1024) { alert('Attachments are too large to email (max 7 MB in total). Remove some files or save as draft.'); return; }
-  if ((required('message') || NT.closeAfterSend) && !msg) { alert('First message is required.'); return; }
+  if ((required('message') || NT.statusAfterSend) && !msg) { alert('First message is required.'); return; }
   if (withoutAI && msg && !window.confirm('Send without AI?\n\nYour message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.')) return;
   setBusy(true, msg ? 'Sending…' : 'Creating…');
-  if (NT.closeAfterSend) {
+  if (NT.statusAfterSend) {
+    if (!can('tickets.edit') || !can('tickets.close')) { setBusy(false); showToast('Your role does not allow changing ticket status.', 'error'); return; }
     const workspace = getWorkspaceId(), jwt = getJwt(), form = document.getElementById('nt2-msg');
     await loadStatusOptions(true);
     if (form?.isConnected === false) return;
     if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
     setBusy(false);
-    const choice = statusChoice('closed');
-    if (!statusOptionsState().ready || !choice?.is_active) { showToast('Closed status is unavailable. Refresh the status options before sending.'); return; }
+    const choice = statusChoice(NT.statusAfterSend);
+    if (!statusOptionsState().ready || !choice?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
     const reason = document.getElementById('nt2-close-reason')?.value || '';
     if ((choice.reason_required || reason) && !choice.reasons.some(r => r.key === reason && r.is_active)) {
-      alert('Choose a closure reason.'); document.getElementById('nt2-close-reason')?.focus(); return;
+      alert('Choose a status reason.'); document.getElementById('nt2-close-reason')?.focus(); return;
     }
     NT.closeReason = reason;
     setBusy(true, 'Sending…');
   }
-  await finishCreate({ message: msg, send: !!msg, withoutAI, closeAfterSend: NT.closeAfterSend, closeReason: NT.closeReason });
+  await finishCreate({ message: msg, send: !!msg, withoutAI, statusAfterSend: NT.statusAfterSend, closeReason: NT.closeReason });
 }
 
 async function saveAsDraft() {
@@ -638,7 +642,7 @@ async function finishCreate(args) {
   }
 }
 
-async function runCreate({ message, send, withoutAI = false, closeAfterSend = false, closeReason = '' }) {
+async function runCreate({ message, send, withoutAI = false, statusAfterSend = '', closeReason = '' }) {
   // Which path applies is a property of the SESSION, not of the pick: a real
   // workspace whose layout HIDES the Customer field leaves NT.customer null,
   // and routing that to the demo mint would silently create a ghost ticket
@@ -701,8 +705,11 @@ async function runCreate({ message, send, withoutAI = false, closeAfterSend = fa
   resetNT();
   updateNavBadges();
   openTicket(displayId);         // lazy detail load paints the thread (incl. the sent message)
-  if (closeAfterSend && emailed) await closeCreatedTicket(displayId, closeReason, workspace, jwt);
-  else if (closeAfterSend) showToast('Ticket created and left open because the first email was not confirmed sent. Continue from this ticket; do not create it again.', 'warn', 10000);
+  if (statusAfterSend && emailed) {
+    if (statusAfterSend === 'closed') await closeCreatedTicket(displayId, closeReason, workspace, jwt);
+    else await applySentStatus(displayId, statusAfterSend, closeReason || null);
+  }
+  else if (statusAfterSend) showToast('Ticket created and left open because the first email was not confirmed sent. Continue from this ticket; do not create it again.', 'warn', 10000);
 }
 
 async function closeCreatedTicket(id, reason, workspace, jwt) {
@@ -963,7 +970,8 @@ registerChangeActions({
     if (NT.busy) return;
     NT.message = document.getElementById('nt2-msg')?.value || '';
     NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
-    NT.closeAfterSend = el.value === 'closed';
+    NT.statusAfterSend = el.value;
+    NT.closeReason = '';
     renderStep2();
   },
   'nt.languageChoice': (ds, el) => {
