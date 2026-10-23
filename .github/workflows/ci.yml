@@ -96,7 +96,9 @@ jobs:
         run: bun test scripts/ai-credit-notification.test.js
 
       - name: Password confirmation
-        run: bun test scripts/password-confirmation.test.js
+        run: |
+          bun test scripts/password-confirmation.test.js
+          bun test scripts/login-form.test.js
 
       - name: Agent session expiry and warning
         run: |
@@ -288,7 +290,24 @@ jobs:
       - name: Maestro identity validation (Node production runtime, synthetic provider)
         run: node --import tsx --test scripts/maestro-oidc.node.ts
 
+      - name: Configure package download failover
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\tpriority:%s\n' \
+              'https://archive.ubuntu.com/ubuntu/' 1 \
+              'https://security.ubuntu.com/ubuntu/' 2 \
+              'http://azure.archive.ubuntu.com/ubuntu/' 3 \
+              | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          fi
+          printf '%s\n' \
+            'Acquire::Retries "1";' \
+            'Acquire::http::Timeout "15";' \
+            'Acquire::https::Timeout "15";' \
+            | sudo tee /etc/apt/apt.conf.d/zz-respovia-downloads > /dev/null
+          apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+
       - name: Install the PDF browser and fonts
+        timeout-minutes: 10
         run: |
           bunx playwright-core install --with-deps chromium
           sudo apt-get install -y --no-install-recommends poppler-utils fonts-liberation fonts-noto-core fonts-noto-cjk fonts-noto-color-emoji
