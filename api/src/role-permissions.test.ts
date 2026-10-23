@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { effectivePermissions, permissionKeys, userCanViewTicket } from './lib/role-permissions.js';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { Hono } from 'hono';
+import { authorizeRoleRequest, effectivePermissions, permissionKeys, userCanViewTicket } from './lib/role-permissions.js';
 
 describe('role permission defaults', () => {
   it('preserves legacy access, denies missing explicit grants, and protects admin access', () => {
@@ -9,6 +10,21 @@ describe('role permission defaults', () => {
     expect(effectivePermissions({ can_delete: true, permissions: {} })['customers.merge']).toBe(false);
     expect(Object.values(effectivePermissions({ is_admin: true, permissions: {} })).every(Boolean)).toBe(true);
     expect(Object.values(effectivePermissions({ permissions: {} }, true)).every(Boolean)).toBe(true);
+  });
+  it('preserves multipart bytes while checking attachment permissions', async () => {
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('rolePermissions', effectivePermissions({ is_admin: true }));
+      await authorizeRoleRequest(c); await next();
+    });
+    app.post('/api/v1/tickets/:id/attachments', async c => {
+      const file = (await c.req.formData()).get('file') as File;
+      return c.json([...new Uint8Array(await file.arrayBuffer())]);
+    });
+    const bytes = [0xff, 0x00, 0xfe, 0x80, 0x41];
+    const form = new FormData(); form.set('file', new File([new Uint8Array(bytes)], 'synthetic.bin'));
+    const response = await app.request('/api/v1/tickets/12345678-1234-1234-1234-123456789abc/attachments', { method: 'POST', body: form });
+    expect(response.status).toBe(200); expect(await response.json()).toEqual(bytes);
   });
 });
 
@@ -145,6 +161,14 @@ run('saved role permissions (isolated database)', () => {
     const key = (await created.json() as any).status.key;
     expect((await request(agent.token, `tickets/${ownTicket}`, 'PATCH', { status_option_key: key })).status).toBe(403);
     expect((await request(agent.token, 'tickets', 'POST', { subject: 'Synthetic', customer_id: customer, status_option_key: key })).status).toBe(403);
+    const resolved = await request(admin.token, 'ticket-statuses', 'POST', { label: 'Synthetic resolved', base_key: 'resolved', send_survey: false });
+    expect(resolved.status).toBe(201);
+    const resolvedKey = (await resolved.json() as any).status.key;
+    const closed = await request(admin.token, `tickets/${ownTicket}`, 'PATCH', { status_option_key: resolvedKey });
+    expect(closed.status).toBe(200);
+    expect((await closed.json() as any).ticket.status_key).toBe('resolved');
+    expect((await request(agent.token, `tickets/${ownTicket}`, 'PATCH', { status_option_key: 'open' })).status).toBe(403);
+    expect((await request(admin.token, `tickets/${ownTicket}`, 'PATCH', { status_option_key: 'pending' })).status).toBe(200);
   });
   it('audit sanitisation keeps known grants and discards arbitrary text', async () => {
     const [row] = await sql`select audit_metadata_facts('role.permissions_saved', ${sql.json({
@@ -152,5 +176,43 @@ run('saved role permissions (isolated database)', () => {
       created: [roleId, 'private text'], name: 'private text',
     })}::jsonb) as facts`;
     expect(row.facts).toEqual({ changes: [{ role_id: roleId, granted: permissionKeys, revoked: ['customers.contact_remove'] }], created: [roleId] });
+  });
+  it('does not trust Content-Type for JSON permission checks', async () => {
+    expect((await save(grants(['tickets.view_assigned', 'tickets.create', 'tickets.reply', 'customers.view', 'customers.contact_add', 'tools.ai']))).status).toBe(200);
+    const { anthropic } = await import('./lib/anthropic.js');
+    const provider = spyOn(anthropic.messages, 'create').mockRejectedValue(new Error('Synthetic provider guard'));
+    try {
+      for (const type of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data', null]) {
+        const headers = new Headers({ Authorization: 'Bearer ' + agent.token, 'X-Workspace-Id': ws });
+        if (type) headers.set('Content-Type', type);
+        for (const [path, method, body, expected] of [
+          [`tickets/${ownTicket}`, 'PATCH', { assigned_user_id: admin.id }, 403],
+          [`tickets/${ownTicket}`, 'PATCH', { priority_key: 'urgent' }, 403],
+          [`tickets/${ownTicket}`, 'PATCH', { status_option_key: 'resolved' }, 403],
+          [`tickets/${ownTicket}/messages`, 'POST', { role: 'note', body: 'Synthetic note' }, 403],
+          ['tickets', 'POST', { subject: 'Synthetic', customer_id: customer, assigned_user_id: admin.id }, 403],
+          ['tickets', 'POST', { subject: 'Synthetic', customer_id: customer, status_option_key: 'gdpr' }, 403],
+          [`customers/${customer}/contacts`, 'POST', { kind: 'email', value: `spoof-${stamp}@test.test`, primary: true }, 403],
+          ['ai/messages', 'POST', { action: 'draft', ticketId: otherTicket, model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Synthetic' }] }, 404],
+          ['ai/messages', 'POST', { action: 'similar_reply', ticketId: ownTicket, model: 'claude-sonnet-4-6', messages: [{ role: 'user', content: 'Synthetic' }] }, 403],
+        ] as const) {
+          const response = await app.request('/api/v1/' + path, { method, headers, body: JSON.stringify(body) });
+          expect(response.status).toBe(expected);
+        }
+      }
+      expect(provider).not.toHaveBeenCalled();
+    } finally { provider.mockRestore(); }
+  });
+  it('requires a real role and fails closed for a role from another brand', async () => {
+    for (const [role, expected] of [[null, '23502'], [crypto.randomUUID(), '23503']] as const) {
+      let code: string | undefined;
+      try { await sql`update workspace_members set role_id=${role} where workspace_id=${ws} and user_id=${agent.id}`; }
+      catch (err) { code = (err as { code?: string }).code; }
+      expect(code).toBe(expected);
+    }
+    await sql`update workspace_members set role_id=${foreignRole} where workspace_id=${ws} and user_id=${agent.id}`;
+    try {
+      expect((await request(agent.token, 'tickets')).status).toBe(403);
+    } finally { await sql`update workspace_members set role_id=${roleId} where workspace_id=${ws} and user_id=${agent.id}`; }
   });
 });

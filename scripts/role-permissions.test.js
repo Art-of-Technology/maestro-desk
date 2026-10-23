@@ -30,7 +30,7 @@ beforeEach(() => { workspace = 'brand-a'; failSave = false; failLoad = false; hy
 
 test('checkbox changes stay local until Save, then are sent as a versioned snapshot', async () => {
   await openPermissions();
-  changes['roles.editPermission']({ roleId: 'senior', permission: 'customers.contact_remove' }, { checked: false });
+  changes['roles.editPermission']({ roleId: 'senior', rolePermission: 'customers.contact_remove' }, { checked: false });
   expect(requests).toHaveLength(0);
   expect(hydrated.find(row => row.id === 'senior').permissions['customers.contact_remove']).toBe(true);
   expect(saveButton.disabled).toBe(false);
@@ -45,16 +45,16 @@ test('new roles open in the matrix and are not created until permissions are sav
   expect(renderPermissions()).toContain('permission-new-role');
   expect(requests).toHaveLength(0);
   expect(hydrated.some(row => row.name === 'Compliance')).toBe(false);
-  changes['roles.editPermission']({ roleId: 'new-role', permission: 'customers.view' }, { checked: true });
+  changes['roles.editPermission']({ roleId: 'new-role', rolePermission: 'customers.view' }, { checked: true });
   await actions['roles.savePermissions']();
   expect(requests[0].body.new_roles).toEqual([{ name: 'Compliance', permissions: { 'customers.view': true, 'customers.contact_remove': false } }]);
   expect(hydrated.some(row => row.name === 'Compliance')).toBe(true);
 });
 test('failed saves retain edits; protected access cannot be toggled', async () => {
   await openPermissions(); failSave = true;
-  changes['roles.editPermission']({ roleId: 'admin', permission: 'customers.view' }, { checked: false });
+  changes['roles.editPermission']({ roleId: 'admin', rolePermission: 'customers.view' }, { checked: false });
   expect(saveButton.disabled).toBe(true);
-  changes['roles.editPermission']({ roleId: 'senior', permission: 'customers.view' }, { checked: false });
+  changes['roles.editPermission']({ roleId: 'senior', rolePermission: 'customers.view' }, { checked: false });
   await actions['roles.savePermissions']();
   expect(renderPermissions()).toContain('Reload before saving');
   expect(renderPermissions()).toContain('Unsaved changes');
@@ -65,6 +65,8 @@ test('many roles remain inside a labelled scroll region and drafts cannot cross 
   const html = renderPermissions();
   expect(html).toContain('class="permission-scroll" role="region"');
   expect(html).toContain('scope="col"');
+  expect(html).toContain('data-role-permission="customers.contact_remove"');
+  expect(html).not.toContain('data-permission="customers.contact_remove"');
   expect(html).toContain('Always allowed; protected');
   workspace = 'brand-b';
   expect(permissionsOpen()).toBe(false);

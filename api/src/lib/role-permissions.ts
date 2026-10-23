@@ -94,7 +94,8 @@ export async function authorizeRoleRequest(c: Context) {
   const path = decoded.replace(/^\/api\/v1\//, '').split('/');
   const [area, id, action, child, last] = path;
   const method = c.req.method, write = !['GET', 'HEAD', 'OPTIONS'].includes(method);
-  const parsedBody = write && ['tickets', 'customers', 'ai', 'custom-values'].includes(area) && c.req.header('content-type')?.includes('application/json')
+  // JSON handlers parse regardless of Content-Type; leave binary upload bodies untouched.
+  const parsedBody = write && ['tickets', 'customers', 'ai', 'custom-values'].includes(area) && !(area === 'tickets' && action === 'attachments')
     ? await c.req.json().catch(() => ({})) : {};
   const body = parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody) ? parsedBody : {};
   const need = (key: Permission) => {
@@ -126,6 +127,7 @@ export async function authorizeRoleRequest(c: Context) {
       if (Object.keys(body).some(key => key !== 'assigned_user_id')) need('tickets.edit');
       if (body.status_key !== undefined || body.status_option_key !== undefined) {
         const sql = getDb();
+        // The database normalises status_key to a base category, including custom options.
         const [status] = await sql`select t.status_key as before, s.base_key as after from tickets t
           left join ticket_statuses s on s.workspace_id=t.workspace_id and s.key=${body.status_option_key || body.status_key}
           where t.workspace_id=${c.get('workspaceId')} and t.id=${id}`;
