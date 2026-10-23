@@ -125,7 +125,7 @@ agents.post('/invite', async (c) => {
         or exists(select 1 from roles r where r.id=excluded.role_id and r.is_admin)
     returning user_id
   `;
-  if (!membership) return c.json({ error: 'Brand Admin access is protected.' }, 409);
+  if (!membership) return c.json({ error: 'This email already belongs to a Brand Admin in this workspace. Use a different email to create a separate agent account.' }, 409);
 
   // Email the set-password link (best-effort — membership already exists, so a
   // transient mail failure shouldn't 500; the admin can re-invite to re-send).
