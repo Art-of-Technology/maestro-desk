@@ -469,6 +469,7 @@ function settingsNotifications() {
       .catch((err) => { console.warn('[settings] me load failed:'); });
   }
   const mentionEmailOn = ME_PREFS ? ME_PREFS.mention_email_enabled !== false : true;
+  const assignmentEmailOn = ME_PREFS ? ME_PREFS.assignment_email_enabled !== false : true;
   return `
     <div class="settings-section">
       <div class="settings-h">Notification types</div>
@@ -486,7 +487,7 @@ function settingsNotifications() {
         </div>`).join('')}
     </div>
 
-    <div class="settings-section">
+    <div class="settings-section email-notification-settings">
       <div class="settings-h">Email notifications</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Choose when we email you outside the app. Saved to your account, applies across devices.</div>
       <div class="settings-row">
@@ -495,20 +496,30 @@ function settingsNotifications() {
           <div style="font-size:11px;color:var(--ink3);margin-top:2px">A teammate @-mentions you in an internal note.</div>
         </div>
         <label class="toggle">
-          <input type="checkbox" ${mentionEmailOn ? 'checked' : ''} data-change-action="settings.setMentionEmail">
+          <input type="checkbox" aria-label="Mention emails" ${mentionEmailOn ? 'checked' : ''} data-change-action="settings.setMentionEmail">
           <span class="toggle-slider"></span>
         </label>
       </div>
-      <div id="mention-email-msg" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
+      <div class="settings-row">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--ink)">Assignment emails</div>
+          <div style="font-size:11px;color:var(--ink3);margin-top:2px">A ticket is assigned to you by a teammate or an assignment rule.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" aria-label="Assignment emails" ${assignmentEmailOn ? 'checked' : ''} data-change-action="settings.setAssignmentEmail">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="mention-email-msg" role="status" style="font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace;margin-top:8px;min-height:14px"></div>
     </div>
     ${settingsPushSection()}`;
 }
 
-async function setMentionEmailPref(enabled) {
+async function setEmailPref(key, enabled) {
   const msg = document.getElementById('mention-email-msg');
   if (msg) { msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)'; }
   try {
-    const res = await apiPatch('/api/v1/me', { mention_email_enabled: enabled });
+    const res = await apiPatch('/api/v1/me', { [key]: enabled });
     ME_PREFS = res.user;
     if (msg) { msg.textContent = enabled ? '✓ Enabled' : '✓ Disabled'; msg.style.color = 'var(--green)'; }
   } catch (err) {
@@ -1375,7 +1386,8 @@ registerActions({
 registerChangeActions({
   'settings.setAiEnrichment': (ds, el) => setAIEnrichment(el),
   'settings.toggleNotif':   (ds, el) => toggleNotifPref(ds.key, el.checked),
-  'settings.setMentionEmail':(ds, el) => setMentionEmailPref(el.checked),
+  'settings.setMentionEmail':(ds, el) => setEmailPref('mention_email_enabled', el.checked),
+  'settings.setAssignmentEmail':(ds, el) => setEmailPref('assignment_email_enabled', el.checked),
   'settings.setAiModel':    (ds, el) => { setAIModel(el.value); const node = document.getElementById('ai-connection-result'); if (node) node.textContent = ''; },
   'settings.setLang':       (ds, el) => setAgentPreferredLang(el.value),
   'settings.setKbCfg':      setKbCfgHandler,

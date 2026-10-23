@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import type { TransactionSql } from 'postgres';
 import { recordTicketActivity } from './ticket-activity.js';
+import { notifyAssignedAgent } from './assignment-notify.js';
 
 // Migration to Neon — Step 3 (tickets megabatch). DB via getDb().
 //
@@ -159,7 +160,8 @@ export async function applyAssignmentRules(args: {
   actorId?:     string;
 }): Promise<AssignResult | null> {
   const { workspaceId, ticketId } = args;
-  return getDb().begin(async sql => {
+  let previousAssigneeId: string | null = null;
+  const result = await getDb().begin(async sql => {
     const [workspace] = await sql`select id from workspaces where id=${workspaceId}
       and suspended_at is null and deleted_at is null for share`;
     if (!workspace) return null;
@@ -169,6 +171,7 @@ export async function applyAssignmentRules(args: {
       where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
     `;
     if (!ticket) return null;
+    previousAssigneeId = ticket.assigned_user_id;
 
     // VIP tier is a per-customer attribute used by some rules.
     let customerVip: string | null = null;
@@ -217,4 +220,7 @@ export async function applyAssignmentRules(args: {
     }
     return null;
   });
+  if (result) await notifyAssignedAgent({ workspaceId, ticketId, previousAssigneeId,
+    assigneeId: result.assigned_user_id, actorId: args.actorId });
+  return result;
 }

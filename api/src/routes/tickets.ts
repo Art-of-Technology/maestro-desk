@@ -23,6 +23,7 @@ import { activeTicketStatus, statusCategories, validateStatusReason } from '../l
 import { sendCsatSurvey, surveyErrorContext, type CsatSurveyResult } from '../lib/csat-survey.js';
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
+import { notifyAssignedAgent } from '../lib/assignment-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
 import { composeEmail, type ComposedEmail } from '../lib/email-branding.js';
 import { emailTranslator } from '../lib/email-translation.js';
@@ -581,6 +582,8 @@ tickets.patch('/:id', async (c) => {
   });
   if (result instanceof Response) return result;
   const { existing, updated, activity } = result;
+  await notifyAssignedAgent({ workspaceId, ticketId, previousAssigneeId: existing.assigned_user_id,
+    assigneeId: updated.assigned_user_id, actorId: c.get('userId') });
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
@@ -1783,8 +1786,11 @@ tickets.post('/', async (c) => {
   // insert stamps assigned_user_id=userId (the creating agent) and the
   // engine may override that with a rule's pick.
   if (input.assigned_user_id == null) {
-    try { await applyAssignmentRules({ workspaceId, ticketId: created.id }); }
+    try { await applyAssignmentRules({ workspaceId, ticketId: created.id, actorId: userId }); }
     catch (err) { console.error('[assign-rules-engine] post-create failure:', safeError(err)); }
+  } else {
+    await notifyAssignedAgent({ workspaceId, ticketId: created.id, previousAssigneeId: null,
+      assigneeId: input.assigned_user_id, actorId: userId });
   }
 
   // Slack notification on creation. AWAITED deliberately: an unawaited
