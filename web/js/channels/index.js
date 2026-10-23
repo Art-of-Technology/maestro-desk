@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Channels ────────────────────────────────────────────────────────────────
 // Where tickets enter the workspace — email inboxes, web forms, chat widgets,
 // raw API endpoints. Each channel carries default routing (category + agent)
@@ -81,7 +82,7 @@ function chCatLabel(key) {
 }
 
 export function renderChannels() {
-  const admin = window.isAdmin();
+  const admin = can('admin.inboxes');
   let list = [...CHANNELS];
   if (CH_FILTER === 'active')   list = list.filter(c => c.status === 'active');
   if (CH_FILTER === 'inactive') list = list.filter(c => c.status === 'inactive');
@@ -168,7 +169,7 @@ function openChannel(id) {
 }
 
 function chToggle(id, active) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const c = CHANNELS.find(x => x.id === id);
   if (!c) return;
   const prev = c.status;
@@ -262,7 +263,7 @@ function chFormLocal(payload) {
 }
 
 function chNew() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   showModal('New channel', chFormBody(null), async () => {
     const payload = chFormPayload();
     if (!payload.name || !payload.address) return;
@@ -283,7 +284,7 @@ function chNew() {
 }
 
 function chEdit(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
   showModal(`Edit ${c.id}`, chFormBody(c), async () => {
     const payload = chFormPayload();
@@ -305,7 +306,7 @@ function chEdit(id) {
 }
 
 function chDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const c = CHANNELS.find(x => x.id === id); if (!c) return;
   showModal('Delete channel', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Delete <strong style="color:var(--ink)">${window.escHtml(c.name)}</strong>? Incoming email to its address will stop matching it and arrive with no channel defaults. Past tickets and their email history are kept.</div>`, async () => {
     if (chBusy) return;

@@ -22,6 +22,7 @@ import { scoreMessageSentiment } from './sentiment.js';
 import { publishTicketChanged } from './pubby.js';
 import { isUserActive } from './activity.js';
 import { isPushConfigured, sendPushToUser } from './push.js';
+import { userCanViewTicket } from './role-permissions.js';
 import { sanitizeEmailHtml } from './email-html.js';
 import { insertAttachmentRows, uploadInboundAttachments, type StoreDeps } from './message-attachments.js';
 
@@ -646,6 +647,7 @@ async function pushOfflineAssignee(workspaceId: string, ticketId: string): Promi
     where t.id = ${ticketId} and t.workspace_id = ${workspaceId}
   `;
   if (!t?.assigned_user_id) return;                       // unassigned — nobody to notify
+  if (!(await userCanViewTicket(workspaceId, t.assigned_user_id, ticketId))) return;
   if (t.notified) return;                                 // already pushed this turn; wait for the agent to act
   if (await isUserActive(t.assigned_user_id)) return;     // in the app — the in-app toast/bell covers it
 

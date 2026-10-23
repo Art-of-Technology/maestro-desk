@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { brandAssetsStore, publicUrl } from '../lib/r2.js';
 import { sniffImageMime } from '../lib/image-sniff.js';
 
@@ -53,7 +53,7 @@ const extByMime: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'j
 const MAX_BYTES = 2 * 1024 * 1024;
 
 workspace.post('/branding/logo', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -107,7 +107,7 @@ workspace.post('/branding/logo', async (c) => {
 
 // ─── PATCH /settings — admin ────────────────────────────────────────────
 workspace.patch('/settings', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -145,7 +145,7 @@ workspace.patch('/settings', async (c) => {
 
 // ─── POST /domain/verify — admin; resolve TXT record + flip verified ──────
 workspace.post('/domain/verify', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -239,7 +239,7 @@ workspace.get('/layouts', async (c) => {
 });
 
 workspace.put('/layouts/:scope', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const scopeParam = c.req.param('scope');

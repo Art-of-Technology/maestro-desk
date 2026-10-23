@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 
 // Email branding: brand header/footer templates (workspace-scoped, admin-
 // managed) + per-sender signatures (each agent manages their own). Consumed by
@@ -60,7 +60,7 @@ emailBranding.get('/templates', async (c) => {
 
 // POST /templates — admin create. If is_default, clears the previous default.
 emailBranding.post('/templates', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -89,7 +89,7 @@ emailBranding.post('/templates', async (c) => {
 
 // PATCH /templates/:id — admin edit (not is_default; use /default for that).
 emailBranding.patch('/templates/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -110,7 +110,7 @@ emailBranding.patch('/templates/:id', async (c) => {
 
 // POST /templates/:id/default — admin; make this the workspace default.
 emailBranding.post('/templates/:id/default', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();
@@ -135,7 +135,7 @@ emailBranding.post('/templates/:id/default', async (c) => {
 
 // DELETE /templates/:id — admin soft-delete.
 emailBranding.delete('/templates/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.settings');
   if (denied) return denied;
 
   const sql = getDb();

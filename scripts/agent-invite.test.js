@@ -13,6 +13,7 @@ test('resend confirms the correct agent, sends once, and reports failures withou
       { userId:'second', name:'Same name', email:'second@example.test', invited:result !== 'active', role:'Agent', active:false }];
     const before = JSON.stringify(agents);
     const context = {
+      can: () => result !== 'non-admin',
       AGENTS:agents, window:{isAdmin:()=>result !== 'non-admin', escHtml:s=>s},
       getWorkspaceId:()=>workspace, getJwt:()=> 'session',
       showModal:(t,b,fn)=>{ title=t; body=b; confirm=fn; }, closeModal() {}, alert:s=>messages.push(s),

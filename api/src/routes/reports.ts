@@ -3,7 +3,7 @@ import { Hono } from 'hono';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { dashboardReport, parseReportPeriod } from '../lib/dashboard-report.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { ReplyPerformanceQuery, replyPerformance } from '../lib/reply-performance.js';
 import { LanguageDetectionRange, languageDetectionReport } from '../lib/language-detection-report.js';
 import { InsightsQuery, insightsReport } from '../lib/insights-report.js';
@@ -28,7 +28,7 @@ reports.get('/insights', async c => {
 
 reports.get('/reply-performance', async c => {
   c.header('Cache-Control','no-store');
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.ai_reports');
   if (denied) return denied;
   const parsed = ReplyPerformanceQuery.safeParse(c.req.query());
   if (!parsed.success) return c.json({error:'Choose valid filters and a date range of up to 366 days.'},400);

@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Assignment rules ────────────────────────────────────────────────────────
 // Evaluates an ordered list of rules against a ticket and assigns an agent
 // based on the first matching rule's policy (specific-agent / round-robin /
@@ -157,7 +158,7 @@ export function isAgentOOO(name, atDate) {
 // Surface buttons gate this too, but checking on the mutators keeps it safe
 // against console / macro / future automation callers.
 function canEditAgentOOO(name) {
-  return SESSION && (SESSION.name === name || window.isAdmin());
+  return SESSION && (SESSION.name === name || can('admin.inboxes'));
 }
 
 async function setAgentOOO(name, from, to, note) {
@@ -303,7 +304,7 @@ async function bulkApplyAssignmentRules() {
 }
 
 async function arToggle(id, active) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const r = ASSIGN_RULES.find(x => x.id === id);
   if (!r) return;
   const next = active ? 'active' : 'inactive';
@@ -409,7 +410,7 @@ function arReadForm() {
 }
 
 function arNew() {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   showModal('New assignment rule', arFormBody(null), async () => {
     const data = arReadForm();
     if (!data.name) { alert('Name is required.'); return; }
@@ -437,7 +438,7 @@ function arNew() {
 }
 
 function arEdit(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
   showModal('Edit rule · ' + r.id, arFormBody(r), async () => {
     const data = arReadForm();
@@ -464,7 +465,7 @@ function arEdit(id) {
 }
 
 function arDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.inboxes')) return;
   const r = ASSIGN_RULES.find(x => x.id === id); if (!r) return;
   showModal('Delete rule', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(r.name)}</strong>?</div>`, async () => {
     if (r._uuid) {
@@ -479,7 +480,7 @@ function arDelete(id) {
 }
 
 export function renderAssignmentRules() {
-  const admin = window.isAdmin();
+  const admin = can('admin.inboxes');
   let list = [...ASSIGN_RULES].sort((a, b) => (a.priority || 99) - (b.priority || 99));
   if (AR_FILTER === 'active')   list = list.filter(r => r.status === 'active');
   if (AR_FILTER === 'inactive') list = list.filter(r => r.status === 'inactive');

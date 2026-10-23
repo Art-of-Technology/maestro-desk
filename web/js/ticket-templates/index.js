@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Ticket Templates ────────────────────────────────────────────────────────
 // Config-section page for the per-category ticket starter templates that
 // the New Ticket modal can prefill from. CRUD only — the template picker
@@ -40,7 +41,7 @@ function ttMapResponse(r) {
 let TT_QUERY = '';
 
 export function renderTicketTemplates() {
-  const admin = window.isAdmin();
+  const admin = can('tools.ticket_templates');
   let list = [...TICKET_TEMPLATES];
   if (TT_FILTER_CAT !== 'all') list = list.filter(t => t.category === TT_FILTER_CAT);
   if (TT_QUERY.trim()) {
@@ -129,7 +130,7 @@ function ttNextId() {
 }
 
 function ttNew() {
-  if (!window.isAdmin()) return;
+  if (!can('tools.ticket_templates')) return;
   showModal('New ticket template', ttFormBody(null), async () => {
     const name = document.getElementById('tt-name').value.trim();
     const category = document.getElementById('tt-cat').value.trim() || 'General';
@@ -150,7 +151,7 @@ function ttNew() {
 }
 
 function ttEdit(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.ticket_templates')) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
   showModal(`Edit ${t.id}`, ttFormBody(t), async () => {
     const name = document.getElementById('tt-name').value.trim();
@@ -169,7 +170,7 @@ function ttEdit(id) {
 }
 
 function ttDuplicate(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.ticket_templates')) return;
   const orig = TICKET_TEMPLATES.find(x => x.id === id); if (!orig) return;
   (async () => {
     if (orig._uuid) {
@@ -185,7 +186,7 @@ function ttDuplicate(id) {
 }
 
 function ttDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.ticket_templates')) return;
   const t = TICKET_TEMPLATES.find(x => x.id === id); if (!t) return;
   showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, async () => {
     if (t._uuid) {

@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 import { statusCategories, closureReasons, type StatusReason } from '../lib/ticket-status.js';
 
@@ -26,7 +26,7 @@ ticketStatuses.get('/', async c => {
 });
 
 ticketStatuses.post('/', async c => {
-  const denied = await requireWorkspaceAdmin(c); if (denied) return denied;
+  const denied = await requirePermission(c, 'admin.inboxes'); if (denied) return denied;
   const parsed = Create.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success || (parsed.data.send_survey && parsed.data.base_key !== 'resolved')) return c.json({ error: 'Choose a name, category and valid survey behaviour.' }, 400);
   const d = parsed.data, key = `custom-${crypto.randomUUID()}`, ws = c.get('workspaceId');
@@ -43,7 +43,7 @@ ticketStatuses.post('/', async c => {
 });
 
 ticketStatuses.put('/:key', async c => {
-  const denied = await requireWorkspaceAdmin(c); if (denied) return denied;
+  const denied = await requirePermission(c, 'admin.inboxes'); if (denied) return denied;
   const key = c.req.param('key'), ws = c.get('workspaceId');
   if (!keyPattern.test(key)) return c.json({ error: 'Status not found.' }, 404);
   const parsed = Fields.safeParse(await c.req.json().catch(() => null));

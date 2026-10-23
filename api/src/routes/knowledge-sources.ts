@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 import { privateFileUrl } from '../lib/private-file-links.js';
 import {
@@ -25,7 +25,7 @@ knowledgeSources.use('*', async (c, next) => {
   await next();
 });
 knowledgeSources.use('*', async (c, next) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   await next();
 });

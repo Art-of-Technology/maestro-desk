@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
@@ -105,7 +105,7 @@ async function validateRefs(
 
 // POST /api/v1/channels — create. Admin-only.
 channels.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -148,7 +148,7 @@ channels.post('/', async (c) => {
 
 // PATCH /api/v1/channels/:id — partial update. Admin-only.
 channels.patch('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -192,7 +192,7 @@ channels.patch('/:id', async (c) => {
 // resolver filters deleted_at) and disappear from the list; display_ids are
 // never reused (atomic allocator) so the unique constraint stays safe.
 channels.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');

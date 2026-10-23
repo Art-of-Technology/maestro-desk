@@ -105,9 +105,12 @@ runDbTests('roles.can_delete (DB-backed)', () => {
     expect(mb.can_manage_custom_fields).toBe(true);
     expect(mb.can_delete).toBe(true);
 
-    await as(admin.token, ctx.ws, `/api/v1/roles/${demotable.id}`, {
+    const demotion = await as(admin.token, ctx.ws, `/api/v1/roles/${demotable.id}`, {
       method: 'PATCH', body: JSON.stringify({ is_admin: false }),
     });
+    expect(demotion.status).toBe(409); // Brand Admin roles are protected in the role editor/API.
+    // An operator-level demotion must still revoke implicit grants.
+    await sql`update roles set is_admin=false where id=${demotable.id} and workspace_id=${ctx.ws}`;
     const after = await as(agent.token, ctx.ws, '/api/v1/whoami');
     const ma = (await after.json() as any).memberships.find((m: any) => m.workspace_id === ctx.ws);
     expect(ma.can_manage_custom_fields).toBe(false);

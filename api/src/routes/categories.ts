@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 
 // Admin-managed ticket categories. (Migration to Neon — Step 3, PR 3.1: this
 // is the template route. Data access is raw SQL on Neon via getDb(); the
@@ -53,7 +53,7 @@ const PostCategory = z.object({
 }).strict();
 
 categories.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
 
   const sql = getDb();
@@ -109,7 +109,7 @@ const PatchCategory = z.object({
 }).strict();
 
 categories.patch('/:key', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.inboxes');
   if (denied) return denied;
 
   const sql = getDb();

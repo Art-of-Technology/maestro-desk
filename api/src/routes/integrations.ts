@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 import { assertSafeWebhookUrl } from '../lib/ssrf.js';
 import { resetContactSuppression } from '../lib/contact-suppression.js';
@@ -55,7 +55,7 @@ integrations.get('/slack', async (c) => {
 });
 
 integrations.put('/slack', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -89,7 +89,7 @@ integrations.put('/slack', async (c) => {
 });
 
 integrations.delete('/slack', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -120,7 +120,7 @@ integrations.get('/webhooks', async (c) => {
 });
 
 integrations.post('/webhooks', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -154,7 +154,7 @@ const PatchWebhookBody = z.object({
 }).strict();
 
 integrations.patch('/webhooks/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -192,7 +192,7 @@ integrations.patch('/webhooks/:id', async (c) => {
 });
 
 integrations.delete('/webhooks/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -217,7 +217,7 @@ integrations.get('/webhooks/:id/deliveries', async (c) => {
 });
 
 integrations.post('/webhooks/:id/deliveries/:deliveryId/retry', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const sql = getDb();
@@ -282,7 +282,7 @@ integrations.get('/postmark/suppressed/contacts', async (c) => {
 });
 
 integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
 
   const workspaceId = c.get('workspaceId');
@@ -294,7 +294,7 @@ integrations.post('/postmark/suppressed/:customerId/reset', async (c) => {
 });
 
 integrations.post('/postmark/suppressed/:customerId/contacts/:contactId/reset', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'admin.integrations');
   if (denied) return denied;
   const { customerId, contactId } = c.req.param();
   if (!z.string().uuid().safeParse(customerId).success || !z.string().uuid().safeParse(contactId).success) {

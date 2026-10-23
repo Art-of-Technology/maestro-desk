@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { workspaceAccessGeneration, requireAvailableWorkspace } from '../lib/workspace-access.js';
 import { bodyLimit } from 'hono/body-limit';
+import { authorizeRoleRequest, requirePermission } from '../lib/role-permissions.js';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { anthropic, computeCostMicro } from '../lib/anthropic.js';
@@ -17,7 +18,6 @@ import { ticketPrivacy, requireTicketPrivacy } from '../lib/ticket-privacy.js';
 import { recordReplySuggestion } from '../lib/reply-feedback.js';
 import { replyFeedback } from './reply-feedback.js';
 import { aiCreditAlerts } from './ai-credit-alerts.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
 import { ReplySource, CUSTOMER_REPLY_INSTRUCTIONS, CUSTOMER_REPLY_TOOL, parseCustomerReply } from '../lib/customer-reply.js';
 import { classifyLanguageDetection, SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
 
@@ -69,6 +69,7 @@ ai.use(
   }),
 );
 ai.use('*', async (c, next) => {
+  await authorizeRoleRequest(c);
   c.header('Cache-Control', 'no-store');
   if (c.req.method === 'POST') {
     const limited = await enforceRateLimit(c, {
@@ -155,7 +156,7 @@ async function generate(c: Context, input: z.infer<typeof RequestBody>, connecti
   const historical = input.action === 'similar_reply';
   const generic = input.action === 'generic_template';
   if (generic) {
-    const denied = await requireWorkspaceAdmin(c);
+    const denied = await requirePermission(c, 'tools.templates');
     if (denied) return denied;
   }
   if ((historical || generic) && !input.ticketId) return c.json({ error: 'Choose a ticket first.' }, 400);

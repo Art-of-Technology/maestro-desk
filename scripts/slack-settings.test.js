@@ -11,7 +11,7 @@ test('Slack settings omit an unchanged secret and clear a replacement after savi
     const replacement = 'https://hooks.slack.com/services/test/replacement';
     if (['replacement', 'failed'].includes(mode)) elements['slack-url'].value = replacement;
     const calls = [];
-    const context = { window: { isAdmin: () => mode !== 'member' }, document: { getElementById: id => elements[id] },
+    const context = { can: () => mode !== 'member', window: { isAdmin: () => mode !== 'member' }, document: { getElementById: id => elements[id] },
       SLACK_INTEGRATION: mode === 'new' ? null : { has_webhook: true }, SLACK_EVENTS: [{ k: 'ticket.created' }],
       apiPut: async (_path, body) => { calls.push(body); if (mode === 'failed') throw new Error('Offline'); },
       apiGet: async () => ({ integration: { has_webhook: true } }), renderPage() {},

@@ -1,6 +1,7 @@
 // Run separately so module mocks cannot affect other suites.
 import { test, expect, mock } from 'bun:test';
 
+mock.module('../web/js/core/permissions.js', () => ({ can: () => true }));
 const actions = {};
 let modal,
   uploaded,

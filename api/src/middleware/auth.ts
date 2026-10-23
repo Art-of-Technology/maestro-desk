@@ -2,12 +2,17 @@ import type { MiddlewareHandler } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { auth } from '../lib/auth.js';
 import { getDb } from '../lib/db.js';
+import { authorizeRoleRequest, effectivePermissions, type Permissions } from '../lib/role-permissions.js';
 
 declare module 'hono' {
   interface ContextVariableMap {
     userId: string;
     workspaceId: string;
     sessionExpiresAt: string;
+    rolePermissions: Permissions;
+    workspaceAdmin: boolean;
+    platformAdmin: boolean;
+    legacyPermissions: boolean;
   }
 }
 
@@ -34,7 +39,9 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
   const sql = getDb();
   const [[workspace], member, [user]] = await Promise.all([
     sql`select id,is_unrouted_bucket from workspaces where id = ${workspaceId} and deleted_at is null and suspended_at is null`,
-    sql`select 1 from workspace_members where user_id = ${userId} and workspace_id = ${workspaceId} and active = true`,
+    sql`select r.is_admin, r.can_manage_custom_fields, r.can_delete, r.permissions
+      from workspace_members wm join roles r on r.id=wm.role_id and r.workspace_id=wm.workspace_id
+      where wm.user_id = ${userId} and wm.workspace_id = ${workspaceId} and wm.active = true`,
     sql<{ is_platform_admin: boolean | null }[]>`select is_platform_admin from users where id = ${userId}`,
   ]);
   if (!workspace) throw new HTTPException(403, { message: 'This workspace is unavailable.' });
@@ -47,6 +54,12 @@ export const requireAuth: MiddlewareHandler = async (c, next) => {
 
   c.set('userId', userId);
   c.set('workspaceId', workspaceId);
+  c.set('platformAdmin', Boolean(user?.is_platform_admin));
+  c.set('workspaceAdmin', Boolean(user?.is_platform_admin || member[0]?.is_admin));
+  c.set('rolePermissions', effectivePermissions(member[0] || {}, Boolean(user?.is_platform_admin)));
+  c.set('legacyPermissions', member[0]?.permissions == null);
+  // AI checks run after its streaming body-size limit.
+  if (!c.req.path.startsWith('/api/v1/ai/')) await authorizeRoleRequest(c);
   await next();
 };
 

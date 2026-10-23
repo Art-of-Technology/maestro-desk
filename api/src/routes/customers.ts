@@ -9,7 +9,8 @@ import { workerFetch, workerMaestroConfigured, MaestroError, memberNotFound, str
 import { agentBrandWorkspaceId } from '../lib/maestro-workspace.js';
 import { playerBackofficeUrl } from '../lib/player-backoffice.js';
 import { applyPlayerToCustomer, linkedCategories, scheduleLink, linkCustomerToPlayer, playerProfileFields } from '../lib/player-identity.js';
-import { requireWorkspaceAdmin, requireDeletePermission } from '../lib/authz.js';
+import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
@@ -335,7 +336,7 @@ customers.post('/:id/notes', async (c) => {
 });
 
 customers.get('/:id/notes/:noteId/history', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.edit_history');
   if (denied) return denied;
   const parentId = c.req.param('id'), noteId = c.req.param('noteId'), workspaceId = c.get('workspaceId');
   if (!z.string().uuid().safeParse(parentId).success || !z.string().uuid().safeParse(noteId).success) {
@@ -392,7 +393,7 @@ customers.patch('/:id/notes/:noteId', async (c) => {
 // The two deliberate hard-delete paths for notes live elsewhere: GDPR
 // erasure, and the profile-delete purge in DELETE /:id below.
 customers.delete('/:id/notes/:noteId', async (c) => {
-  const denied = await requireDeletePermission(c);
+  const denied = await requirePermission(c, 'customers.delete');
   if (denied) return denied;
 
   const sql = getDb();
@@ -432,7 +433,7 @@ customers.delete('/:id/notes/:noteId', async (c) => {
 // unique index on (workspace_id, email) where deleted_at is null frees the
 // address for reuse automatically.
 customers.delete('/:id', async (c) => {
-  const denied = await requireDeletePermission(c);
+  const denied = await requirePermission(c, 'customers.delete');
   if (denied) return denied;
 
   const sql = getDb();
@@ -561,7 +562,7 @@ const BACKFILL_COLS = [
 ] as const;
 
 customers.post('/:id/merge', async (c) => {
-  const denied = await requireDeletePermission(c);
+  const denied = await requirePermission(c, 'customers.merge');
   if (denied) return denied;
 
   const sql = getDb();
@@ -920,7 +921,7 @@ async function performUnmerge(workspaceId: string, userId: string, sourceId: str
 // POST /:id/unmerge — :id is the merged SOURCE. Thin wrapper over
 // performUnmerge (shared with the erase route) + the audit row.
 customers.post('/:id/unmerge', async (c) => {
-  const denied = await requireDeletePermission(c);
+  const denied = await requirePermission(c, 'customers.merge');
   if (denied) return denied;
 
   const workspaceId = c.get('workspaceId');
@@ -1218,7 +1219,7 @@ customers.get('/:id/tickets', async (c) => {
 
 customers.get('/:id/export', async (c) => {
   c.header('Cache-Control', 'no-store');
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.export');
   if (denied) return denied;
 
   const workspaceId = c.get('workspaceId');
@@ -1255,7 +1256,7 @@ customers.get('/:id/export', async (c) => {
 // Nulls/redacts the customer's PII across all surfaces + writes the audit row.
 customers.post('/:id/erase', async (c) => {
   c.header('Cache-Control', 'no-store');
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'data.erase');
   if (denied) return denied;
 
   const workspaceId = c.get('workspaceId');

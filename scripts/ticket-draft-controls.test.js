@@ -130,5 +130,6 @@ test('a draft-only ticket is deletable, but unloaded or nonblank tickets need de
     [{ msgs: [{ r: 'note' }] }, false],
     [{ msgs: [{ r: 'customer' }] }, false],
   ]) expect(runInNewContext(blank + 'isTicketBlank(ticket)', { ticket })).toBe(expected);
-  expect(source).toContain('${(window.canDeleteRecords() || isTicketBlank(t)) ? `<button class="btn btn-sm btn-danger" data-action="td.deleteTicket"');
+  expect(source).toContain("${(can('tickets.delete') || (SESSION?.permissionsLegacy || !SESSION?.permissions) && isTicketBlank(t)) ? `<button");
+  expect(source).toContain('data-blank-ticket="${isTicketBlank(t)}"');
 });

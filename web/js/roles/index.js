@@ -1,12 +1,11 @@
+import { can } from '../core/permissions.js';
 // ─── Roles ─────────────────────────────────────────────────────────────────
 // Config-section page with two views:
 //   1. The roles list (default) — each role with its agent count.
 //   2. The per-role agents page (when ROLES_VIEW_AGENTS is set) — workload
 //      bars and member CRUD.
 //
-// Authorization is the binary is_admin flag enforced server-side; there is no
-// granular per-permission grid. The Admin role is protected: it can't be
-// deleted or renamed.
+// Brand Admins edit the permission matrix; their own access stays protected.
 //
 // Click/change handlers route through core/event-delegation.js.
 // renderRoles is the only export consumed by app.js; reassignAgent,
@@ -23,16 +22,13 @@ import { AGENT_SELECTED, CURRENT_PAGE, ROLES_VIEW_AGENTS, setAgentSelected, setR
 import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { openAgentFromDash } from '../dashboard/index.js';
-import { apiPost, apiPatch, apiDelete } from '../core/api-client.js';
-import { getRoleUuid, setRoleUuid, clearRoleUuid, renameRoleUuid, getRoleIsAdmin, getRoleCanManageCF, setRoleCanManageCF, getRoleCanDelete, setRoleCanDelete } from '../core/bootstrap.js';
+import { apiPatch, apiDelete } from '../core/api-client.js';
+import { getRoleUuid, clearRoleUuid, renameRoleUuid, getRoleIsAdmin } from '../core/bootstrap.js';
+import { openPermissions, permissionsOpen, renderPermissions } from './permissions.js';
 import { showModal, closeModal } from '../core/modal.js';
 
-function rolesApiBacked() {
-  // If any role carries a UUID lookup, the workspace is API-backed.
-  return ROLES.some((name) => getRoleUuid(name));
-}
-
 export function renderRoles() {
+  if (permissionsOpen()) return renderPermissions();
   if (ROLES_VIEW_AGENTS) return renderRoleAgentsPage(ROLES_VIEW_AGENTS);
   const admin = window.isAdmin();
   const rows = ROLES.map(r => {
@@ -42,21 +38,10 @@ export function renderRoles() {
     // admin role created with another name locks correctly too. The name
     // check keeps demo personas working (no API → empty role map).
     const isAdminRole = r === 'Admin' || getRoleIsAdmin(r);
-    // One capability column cell: "always" for admin roles, an admin-editable
-    // toggle otherwise, a plain check/dash for read-only viewers.
-    const capCell = (on, action, lockTitle) => admin
-      ? `<td style="text-align:center">${isAdminRole
-          ? `<span class="tag" style="font-size:10px;color:var(--green);background:transparent;border-color:var(--green)" title="${lockTitle}">always</span>`
-          : `<label class="toggle"><input type="checkbox" ${on?'checked':''} data-change-action="${action}" data-role="${window.escAttr(r)}"><span class="toggle-slider"></span></label>`}</td>`
-      : `<td style="text-align:center;color:${on?'var(--green)':'var(--ink4)'};font-weight:500">${on?'✓':'—'}</td>`;
-    const cfCell  = capCell(isAdminRole || getRoleCanManageCF(r), 'roles.toggleCustomFields', 'Admins always manage custom fields');
-    const delCell = capCell(isAdminRole || getRoleCanDelete(r),   'roles.toggleCanDelete',    'Admins can always delete and merge');
     const actions = admin ? `<td style="text-align:right;white-space:nowrap">${isAdminRole ? '<span style="font-size:11px;color:var(--ink3)">protected</span>' : `<button class="btn btn-sm btn-danger" data-action="roles.deleteRole" data-role="${window.escAttr(r)}">Delete</button>`}</td>` : '';
     return `<tr>
-      <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${r}</span></td>
+      <td class="bold"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${window.escHtml(r)}</span></td>
       <td style="text-align:center"><span class="link" data-action="roles.openAgents" data-role="${window.escAttr(r)}">${count}</span></td>
-      ${cfCell}
-      ${delCell}
       ${actions}
     </tr>`;
   }).join('');
@@ -65,19 +50,17 @@ export function renderRoles() {
       <div class="topbar">
         <div class="tb-title">Roles</div>
         ${admin
-          ? `<button class="btn btn-sm btn-solid" data-action="roles.addRole">+ Role</button>`
+          ? `<span style="display:flex;gap:8px"><button class="btn btn-sm" data-action="roles.showPermissions">Permissions</button><button class="btn btn-sm btn-solid" data-action="roles.addRole">+ Role</button></span>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="page-scroll">
         <div class="card">
           <div class="card-title">Roles</div>
-          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role name or agent count to see who's in that role. The Admin role has full access; every other role is non-admin. "Manage custom fields" lets a role create and remove custom-field definitions (all agents can fill in values regardless). "Delete &amp; merge" lets a role delete tickets, customers and notes, and merge customer profiles (anyone can always delete a blank ticket started in error).</div>
+          <div style="font-size:12px;color:var(--ink3);margin-bottom:12px">Click a role to see its agents. Open Permissions to tailor access, then save your changes. New roles are created after their permissions are saved.</div>
           <table class="tbl">
             <thead><tr>
               <th style="text-align:left">Role</th>
               <th style="text-align:center">Agents</th>
-              <th style="text-align:center">Manage custom fields</th>
-              <th style="text-align:center">Delete &amp; merge</th>
               ${admin?'<th></th>':''}
             </tr></thead>
             <tbody>${rows}</tbody>
@@ -109,7 +92,7 @@ function renderRoleAgentsPage(role) {
   const maxLoad = Math.max(...memberLoad.map(m => m.open), 1);
 
   const memberRows = list.map(a => {
-    const otherRoleOpts = allRoles.map(r => `<option value="${r}" ${a.role===r?'selected':''}>${r}</option>`).join('');
+    const otherRoleOpts = allRoles.map(r => `<option value="${window.escAttr(r)}" ${a.role===r?'selected':''}>${window.escHtml(r)}</option>`).join('');
     const open = TICKETS.filter(t => t.agent === a.name && (t.status === 'open' || t.status === 'escalated')).length;
     return `<tr>
       <td>
@@ -120,15 +103,15 @@ function renderRoleAgentsPage(role) {
       </td>
       <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--ink2)">${open}</td>
       <td>${admin
-        ? `<select class="filter-select" data-change-action="roles.reassign" data-name="${window.escAttr(a.name)}">${otherRoleOpts}</select>`
+        ? `<select class="filter-select" data-permission="admin.assign_roles" data-change-action="roles.reassign" data-name="${window.escAttr(a.name)}">${otherRoleOpts}</select>`
         : a.role}
       </td>
       <td><span class="tag ${a.active?'tag-resolved':'tag-gdpr'}">${a.invited?'Invited':a.active?'Active':'Deactivated'}</span></td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
         ${a.invited ? '' : a.active
-          ? `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
+          ? `<button class="btn btn-sm" data-permission="admin.agents" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="false">Deactivate</button>`
           : `<button class="btn btn-sm" data-action="roles.setActive" data-name="${window.escAttr(a.name)}" data-active="true">Activate</button>`}
-        <button class="btn btn-sm btn-danger" data-action="roles.deleteAgent" data-name="${window.escAttr(a.name)}">Delete</button>
+        <button class="btn btn-sm btn-danger" data-permission="admin.agents" data-action="roles.deleteAgent" data-name="${window.escAttr(a.name)}">Delete</button>
       </td>` : ''}
     </tr>`;
   }).join('');
@@ -139,7 +122,7 @@ function renderRoleAgentsPage(role) {
         <div class="tb-breadcrumb">
           <span data-action="roles.closeAgents">Roles</span>
           <span class="tb-sep">/</span>
-          <span style="color:var(--ink);font-weight:500">${role}</span>
+          <span style="color:var(--ink);font-weight:500">${window.escHtml(role)}</span>
           ${admin ? `<span style="margin-left:auto;display:flex;gap:6px">
             ${role !== 'Admin' ? `<button class="btn btn-sm" data-action="roles.rename" data-role="${window.escAttr(role)}">Rename</button>` : ''}
             <button class="btn btn-sm btn-solid" data-action="roles.addAgent" data-role="${window.escAttr(role)}">+ Agent</button>
@@ -153,7 +136,7 @@ function renderRoleAgentsPage(role) {
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>
           </div>
           <div style="flex:1;min-width:0">
-            <div style="font-size:20px;font-weight:700;color:var(--ink);letter-spacing:-.02em">${role}</div>
+            <div style="font-size:20px;font-weight:700;color:var(--ink);letter-spacing:-.02em">${window.escHtml(role)}</div>
             <div style="font-size:13px;color:var(--ink3);margin-top:6px">${list.length} member${list.length===1?'':'s'}${role==='Admin'?' · Protected role':''}</div>
           </div>
         </div>
@@ -229,7 +212,7 @@ function openRoleAgents(role) { setRolesViewAgents(role); renderPage('roles'); }
 function closeRoleAgents()    { setRolesViewAgents(null); renderPage('roles'); }
 
 export async function reassignAgent(name, newRole) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.assign_roles')) return;
   const a = AGENTS.find(x => x.name === name);
   if (!a || !ROLES.includes(newRole)) return;
   if (a.userId) {
@@ -243,7 +226,7 @@ export async function reassignAgent(name, newRole) {
 }
 
 export async function setAgentActive(name, active) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.agents')) return;
   const a = AGENTS.find(x => x.name === name);
   if (!a) return;
   if (a.userId) {
@@ -255,7 +238,7 @@ export async function setAgentActive(name, active) {
 }
 
 export function deleteAgentPrompt(name) {
-  if (!window.isAdmin()) return;
+  if (!can('admin.agents')) return;
   showModal('Delete agent', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently remove <strong style="color:var(--ink)">${name}</strong>? Tickets currently assigned to them will keep the historical assignment.</div>`, async () => {
     const a = AGENTS.find(x => x.name === name);
     if (a?.userId) {
@@ -289,39 +272,13 @@ function addAgentToRolePrompt(role) {
 function addRolePrompt() {
   if (!window.isAdmin()) return;
   showModal('New role', `
-    <div class="form-row"><label class="form-label">Role name</label><input class="form-input" id="nr-name" placeholder="e.g. Compliance Officer"/></div>
+    <div class="form-row"><label class="form-label" for="nr-name">Role name</label><input class="form-input" id="nr-name" placeholder="e.g. Compliance Officer" maxlength="100"/></div>
   `, async () => {
     const name = document.getElementById('nr-name').value.trim();
     if (!name || ROLES.includes(name)) return;
-    if (rolesApiBacked()) {
-      let resp;
-      try { resp = await apiPost('/api/v1/roles', { name }); }
-      catch (err) { alert(`Couldn't create role: ${err?.message || err}`); return; }
-      setRoleUuid(resp.role.name, resp.role.id);
-      setRoleCanManageCF(resp.role.name, resp.role.can_manage_custom_fields);
-    }
-    ROLES.push(name);
-    closeModal(); renderPage('roles');
-  }, 'Create');
-}
-
-// Toggle one capability flag on a role. Admin-only; admin roles are locked on
-// (the grant is implicit via is_admin). Optimistic with rollback — one shared
-// contract for every capability column so the rollback/alert flow can't drift
-// between them.
-async function toggleRoleFlag(role, val, { get, set, patchKey }) {
-  if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
-  const prev = get(role);
-  set(role, val);
-  const uuid = getRoleUuid(role);
-  if (uuid) {
-    try { await apiPatch(`/api/v1/roles/${uuid}`, { [patchKey]: val }); }
-    catch (err) {
-      set(role, prev);
-      alert(`Couldn't update: ${err?.message || err}`);
-      renderPage('roles');
-    }
-  }
+    closeModal();
+    await openPermissions(name);
+  }, 'Set permissions');
 }
 
 function deleteRolePrompt(role) {
@@ -329,10 +286,10 @@ function deleteRolePrompt(role) {
   if (!window.isAdmin() || role === 'Admin' || getRoleIsAdmin(role)) return;
   const inUse = AGENTS.filter(a => a.role === role).length;
   if (inUse > 0) {
-    showModal('Cannot delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6"><strong style="color:var(--ink)">${inUse}</strong> agent${inUse===1?' is':'s are'} still assigned to <strong style="color:var(--ink)">${role}</strong>. Reassign them to another role first.</div>`, null, null);
+    showModal('Cannot delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6"><strong style="color:var(--ink)">${inUse}</strong> agent${inUse===1?' is':'s are'} still assigned to <strong style="color:var(--ink)">${window.escHtml(role)}</strong>. Reassign them to another role first.</div>`, null, null);
     return;
   }
-  showModal('Delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete the <strong style="color:var(--ink)">${role}</strong> role?</div>`, async () => {
+  showModal('Delete role', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete the <strong style="color:var(--ink)">${window.escHtml(role)}</strong> role?</div>`, async () => {
     const uuid = getRoleUuid(role);
     if (uuid) {
       try { await apiDelete(`/api/v1/roles/${uuid}`); }
@@ -358,7 +315,5 @@ registerActions({
 });
 
 registerChangeActions({
-  'roles.toggleCustomFields':  (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanManageCF, set: setRoleCanManageCF, patchKey: 'can_manage_custom_fields' }),
-  'roles.toggleCanDelete':     (ds, el) => toggleRoleFlag(ds.role, el.checked, { get: getRoleCanDelete,   set: setRoleCanDelete,   patchKey: 'can_delete' }),
   'roles.reassign':            (ds, el) => reassignAgent(ds.name, el.value),
 });

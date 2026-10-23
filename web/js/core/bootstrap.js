@@ -255,8 +255,8 @@ export async function loadWorkspaceData() {
     // First page only. Subsequent pages load via loadMoreTickets() when
     // the user clicks "Load more" on the tickets list. Total comes back
     // in ticketsRes.total so the UI can show "showing N of M".
-    apiGet(`/api/v1/tickets?limit=${TICKETS_PAGE_SIZE}&offset=0`),
-    apiGet('/api/v1/customers'),
+    apiGet(`/api/v1/tickets?limit=${TICKETS_PAGE_SIZE}&offset=0`).catch(err => { if (err.status === 403) return { tickets: [], total: 0 }; throw err; }),
+    apiGet('/api/v1/customers').catch(err => { if (err.status === 403) return { customers: [] }; throw err; }),
     apiGet('/api/v1/agents'),
     apiGet('/api/v1/channels'),
     apiGet('/api/v1/sla-policies'),
@@ -267,7 +267,7 @@ export async function loadWorkspaceData() {
     apiGet('/api/v1/custom-fields'),
     apiGet('/api/v1/assign-rules'),
     apiGet('/api/v1/roles'),
-    apiGet('/api/v1/custom-values?entity_type=customer'),
+    apiGet('/api/v1/custom-values?entity_type=customer').catch(err => { if (err.status === 403) return { values: [] }; throw err; }),
     apiGet('/api/v1/categories'),
     // Notes are a nice-to-have sidebar payload — never let them take the
     // whole all-or-nothing bootstrap down (e.g. web deployed ahead of api,
@@ -530,18 +530,7 @@ export async function loadWorkspaceData() {
   // flag (server-enforced); the finer capabilities (can_manage_custom_fields,
   // can_delete) ride alongside it in ONE module-scope record map keyed by
   // role name (_rolesByName below) so the roles module can address/mutate rows.
-  _rolesByName = {};
-  for (const r of rolesRaw) {
-    _rolesByName[r.name] = {
-      id:          r.id,
-      isAdmin:     Boolean(r.is_admin),
-      // Capabilities are shaped with the implicit-admin OR (like whoami) so
-      // the Roles page renders effective rights, not raw column values.
-      canManageCF: Boolean(r.is_admin) || Boolean(r.can_manage_custom_fields),
-      canDelete:   Boolean(r.is_admin) || Boolean(r.can_delete),
-    };
-  }
-  replaceInPlace(ROLES, rolesRaw.map((r) => r.name));
+  hydrateRoleRows(rolesRaw);
 
   // ─── ASSIGN_RULES ──────────────────────────────────────────────────────
   // The DB stores assignee references as user UUIDs (agent_user_id or
@@ -582,6 +571,14 @@ export async function loadWorkspaceData() {
 // accessors below are the module's public surface — callers never touch
 // the map directly.
 let _rolesByName = {};
+export function hydrateRoleRows(rows) {
+  _rolesByName = Object.fromEntries(rows.map(row => [row.name, {
+    id: row.id, isAdmin: Boolean(row.is_admin),
+    canManageCF: Boolean(row.is_admin || (row.permissions ? row.permissions['tools.custom_fields'] : row.can_manage_custom_fields)),
+    canDelete: Boolean(row.is_admin || row.can_delete),
+  }]));
+  replaceInPlace(ROLES, rows.map(row => row.name));
+}
 function roleEntry(name) { return (_rolesByName[name] ||= { id: null, isAdmin: false, canManageCF: false, canDelete: false }); }
 export function getRoleUuid(name) { return _rolesByName[name]?.id || null; }
 export function setRoleUuid(name, uuid) { roleEntry(name).id = uuid; }

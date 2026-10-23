@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 // ─── Response templates ──────────────────────────────────────────────────────
 // Admin-managed library of canned reply texts. Agents pick one from the
 // composer's "Response templates" panel; macros (tickets/macros.js)
@@ -22,7 +23,7 @@ import { filterTemplates, templateCategories, templateCategory } from './templat
 import { favouriteButton, favouriteStatus } from './template-favourites.js';
 
 export function renderTemplates() {
-  const admin = window.isAdmin();
+  const admin = can('tools.templates');
   const list = filterTemplates(CANNED_RESPONSES, TPL_QUERY, TPL_FILTER_CAT);
   const total = CANNED_RESPONSES.length;
   const cats = templateCategories(CANNED_RESPONSES);
@@ -154,7 +155,7 @@ function tplEdit(id) {
 }
 
 function tplOpen(t, seed = null) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.templates')) return;
   const editorId = 'template-editor';
   const workspace = getWorkspaceId();
   const jwt = getJwt();
@@ -228,7 +229,7 @@ function tplOpen(t, seed = null) {
 
 let generatingTemplate = false;
 export async function saveReplyAsTemplate(ticketId, messageIndex) {
-  if (!window.isAdmin() || generatingTemplate) return;
+  if (!can('tools.templates') || generatingTemplate) return;
   const ticket = TICKETS.find(t => t.id === ticketId);
   const message = messageIndex === undefined ? null : ticket?.msgs?.[messageIndex];
   if (!ticket?._uuid || (messageIndex !== undefined && message?.r !== 'agent')) return;
@@ -255,7 +256,7 @@ export async function saveReplyAsTemplate(ticketId, messageIndex) {
 }
 
 function tplDuplicate(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.templates')) return;
   const orig = CANNED_RESPONSES.find(x => x.id === id); if (!orig) return;
   (async () => {
     if (orig._uuid) {
@@ -271,7 +272,7 @@ function tplDuplicate(id) {
 }
 
 function tplDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.templates')) return;
   const t = CANNED_RESPONSES.find(x => x.id === id); if (!t) return;
   showModal('Delete template', `<div style="font-size:13px;color:var(--ink2);line-height:1.6">Permanently delete <strong style="color:var(--ink)">${window.escHtml(t.name)}</strong>?</div>`, async () => {
     if (t._uuid) {

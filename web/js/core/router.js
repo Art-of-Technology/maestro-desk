@@ -17,6 +17,7 @@
 // bindings. TICKETS is imported from core/data.js for updateNavBadges.
 
 import { TICKETS } from './data.js';
+import { can, canViewTickets, applyPermissionControls } from './permissions.js';
 import { getJwt, getWorkspaceId } from './api-client.js';
 import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
 import { renderDashboard } from '../dashboard/index.js';
@@ -169,7 +170,13 @@ export function renderPage(page) {
     syncRoute(page, null);
     return;
   }
+  const pagePermission = { customers: 'customers.view', reports: 'data.reports', 'sla-breach': 'data.reports', activity: 'data.audit', ai: 'tools.ai' }[page];
+  if (pagePermission && !can(pagePermission) || page === 'tickets' && !canViewTickets()) {
+    main.innerHTML = '<div class="page"><div class="topbar"><div class="tb-title">Access restricted</div></div><div class="page-scroll"><p>Your role does not have access to this page. Ask your Brand Admin if you need it.</p></div></div>';
+    return;
+  }
   main.innerHTML = pages[page]();
+  applyPermissionControls(main);
   if (page === 'ai') initAI();
   if (page === 'tickets') initTicketsPage();
   applyCollapsibleHeaders();
@@ -198,7 +205,7 @@ function paintTicketBadge() {
 export function updateNavBadges() {
   const state = workQueueState();
   paintTicketBadge();
-  if ((!getJwt() || getWorkspaceId()) && !state.ready && !state.error) {
+  if (canViewTickets() && (!getJwt() || getWorkspaceId()) && !state.ready && !state.error) {
     // Shared promise also covers a load started by the Tickets page. Paint
     // only the badge when it finishes, and ignore a discarded workspace load.
     void loadWorkQueue().then(() => {

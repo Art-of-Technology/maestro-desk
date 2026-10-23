@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { statusChoice, selectedStatus, statusSelectOptions, loadStatusOptions, statusOptionsState } from './status-options.js';
 // ─── Macros ──────────────────────────────────────────────────────────────────
 // A macro is an agent-triggered, ordered sequence of mutations applied to a
@@ -367,7 +368,7 @@ function macNew() { macOpen(null); }
 function macEdit(id) { const m = MACROS.find(x => x.id === id); if (m) macOpen(m); }
 
 function macOpen(m) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.templates')) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
   let saving = false;
   showModal(m ? 'Edit macro' : 'New macro', macFormBody(m || { actions: [{ kind:'status', value:'pending' }] }) +
@@ -396,7 +397,7 @@ function macOpen(m) {
 }
 
 function macDelete(id) {
-  if (!window.isAdmin()) return;
+  if (!can('tools.templates')) return;
   const m = MACROS.find(x => x.id === id); if (!m) return;
   const workspace = getWorkspaceId(), jwt = getJwt();
   let saving = false;
@@ -414,7 +415,7 @@ function macDelete(id) {
 }
 
 export function renderMacros() {
-  const admin = window.isAdmin();
+  const admin = can('tools.templates');
   const ql = MACRO_FILTER_QUERY.trim().toLowerCase();
   let list = [...MACROS];
   if (ql) list = list.filter(m =>

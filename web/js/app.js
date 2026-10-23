@@ -1,3 +1,4 @@
+import { can } from './core/permissions.js';
 // app.js is the bootstrap entry: it owns login/logout, the workspace-brand
 // swap, layout hydration, the window bridge, the static-shell action wiring,
 // and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
@@ -53,8 +54,8 @@ function login(role, name, initials, optsOrUserId = {}, legacyCanManageCF = fals
   const opts = (optsOrUserId !== null && typeof optsOrUserId === 'object')
     ? optsOrUserId
     : { userId: optsOrUserId, canManageCustomFields: legacyCanManageCF, canDelete: legacyCanDelete };
-  const { userId = null, canManageCustomFields = false, canDelete = false } = opts;
-  setSession({ role, name, initials, userId, canManageCustomFields, canDelete });
+  const { userId = null, canManageCustomFields = false, canDelete = false, permissions = null, permissionsLegacy = false, isAdmin: adminAccess = null } = opts;
+  setSession({ role, name, initials, userId, canManageCustomFields, canDelete, permissions, permissionsLegacy, isAdmin: adminAccess ?? (role === 'Admin' || role === 'Platform Admin') });
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   document.getElementById('pf-av-sm').textContent = initials;
@@ -256,18 +257,18 @@ function escHtml(s) {
 // must too. SESSION.role is the literal 'Platform Admin' set at login
 // (auth/platform-admin.js); without this branch the invite/edit controls hide
 // for platform admins even though the server would accept the call.
-function isAdmin() { return SESSION?.role === 'Admin' || SESSION?.role === 'Platform Admin'; }
+function isAdmin() { return SESSION?.isAdmin ?? (SESSION?.role === 'Admin' || SESSION?.role === 'Platform Admin'); }
 // "Senior Agent and above" — admins always qualify; other roles qualify when
 // their can_manage_custom_fields flag is set (carried in SESSION from whoami).
 // Gates create/remove of custom-field DEFINITIONS; editing field values is
 // open to all agents and is not gated by this.
-function canManageCustomFields() { return isAdmin() || SESSION?.canManageCustomFields === true; }
+function canManageCustomFields() { return can('tools.custom_fields'); }
 // Gates every delete surface (tickets, customers, notes) and customer-profile
 // merge. Admins always qualify; other roles qualify when their can_delete
 // flag is set (carried in SESSION from whoami). The one exception — any
 // member may delete a BLANK ticket — is applied at the call sites, and the
 // server re-verifies both the flag and the exception.
-function canDeleteRecords() { return isAdmin() || SESSION?.canDelete === true; }
+function canDeleteRecords() { return can('tickets.delete') || can('customers.delete') || can('customers.merge'); }
 // HTML-attribute escaper. Was a JS-string escaper (\' only) which gave NO
 // breakout protection in the double-quoted attributes it's used in — now a
 // true HTML escaper. The app has no inline on*= handlers relying on the old

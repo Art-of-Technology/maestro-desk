@@ -162,6 +162,9 @@ async function bootShell(user, membership) {
     userId: user.id,
     canManageCustomFields: membership.can_manage_custom_fields === true,
     canDelete: membership.can_delete === true,
+    permissions: membership.permissions || null,
+    permissionsLegacy: membership.permissions_legacy === true,
+    isAdmin: membership.is_admin === true,
   });
   window.applyWorkspaceBrand?.({
     name:         membership.workspace_name,

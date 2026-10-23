@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { requireAuthOnly } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { effectivePermissions, type Permissions } from '../lib/role-permissions.js';
 
 // Identity + workspace memberships, read from Neon. Auth is verified by
 // requireAuthOnly (Better Auth session). The old /claims diagnostic that
@@ -38,10 +39,11 @@ whoami.get('/', async (c) => {
     maestro_brand_id: string | null;
     role_name: string | null; is_admin: boolean | null; can_manage_custom_fields: boolean | null;
     can_delete: boolean | null;
+    permissions: Partial<Permissions> | null;
   }[]>`
     select wm.role_id, w.id as ws_id, w.name as ws_name, w.slug, w.logo_url, w.primary_color,
            w.suspended_at, w.maestro_brand_id, r.name as role_name, r.is_admin, r.can_manage_custom_fields,
-           r.can_delete
+           r.can_delete, r.permissions
     from workspace_members wm
     join workspaces w on w.id = wm.workspace_id
     left join roles r on r.id = wm.role_id
@@ -71,6 +73,8 @@ whoami.get('/', async (c) => {
     // The frontend gates delete surfaces and customer merge on this (wired
     // up by the delete/merge PRs that follow this plumbing in the stack).
     can_delete:               Boolean(m.is_admin) || Boolean(m.can_delete),
+    permissions: effectivePermissions(m, Boolean(user.is_platform_admin)),
+    permissions_legacy: m.permissions == null,
   }));
 
   return c.json({ user, memberships: shaped, session: {

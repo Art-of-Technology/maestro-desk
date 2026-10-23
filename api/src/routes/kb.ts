@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
-import { requireWorkspaceAdmin } from '../lib/authz.js';
+import { requirePermission } from '../lib/role-permissions.js';
 import { knowledgeMarketBlocked, UNSUPPORTED_KNOWLEDGE_MARKET } from '../lib/knowledge-market-policy.js';
 
 // Members can read and vote; article management requires workspace admin access.
@@ -45,7 +45,7 @@ kb.get('/', async (c) => {
 });
 
 kb.get('/review-owners', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   const sql = getDb(), workspaceId = c.get('workspaceId');
   const owners = await sql`select u.id, u.name from workspace_members wm
@@ -61,7 +61,7 @@ const ReviewBody = z.object({
 }).strict();
 
 kb.patch('/:id/review', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   const id = z.string().uuid().safeParse(c.req.param('id'));
   const parsed = ReviewBody.safeParse(await c.req.json().catch(() => null));
@@ -91,7 +91,7 @@ kb.patch('/:id/review', async (c) => {
 
 // ─── POST / — create ──────────────────────────────────────────────────────
 kb.post('/', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -130,7 +130,7 @@ const PatchKb = z.object({
 }).strict();
 
 kb.patch('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -166,7 +166,7 @@ kb.patch('/:id', async (c) => {
 
 // ─── DELETE /:id ─────────────────────────────────────────────────────────
 kb.delete('/:id', async (c) => {
-  const denied = await requireWorkspaceAdmin(c);
+  const denied = await requirePermission(c, 'tools.kb');
   if (denied) return denied;
   const sql = getDb();
   const workspaceId = c.get('workspaceId');

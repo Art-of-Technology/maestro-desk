@@ -1,3 +1,4 @@
+import { can } from '../core/permissions.js';
 import { getAgentReport, invalidateAgentReport } from './statistics.js';
 // ─── Agents ──────────────────────────────────────────────────────────────────
 // Agents config page: roster list with filter bar + KPIs, and per-agent
@@ -72,7 +73,7 @@ export function renderAgents() {
   });
   if (liveReport && !liveReport.data) return `<div class="page"><div class="topbar"><div class="tb-title">Agents</div></div>${periodControls()}<div class="page-scroll" role="status">${liveReport.error ? window.escHtml(liveReport.error) : 'Loading agent statistics…'}</div></div>`;
   if (AGENT_SELECTED) return renderAgentDetail(AGENT_SELECTED);
-  const admin = window.isAdmin();
+  const admin = (can('admin.agents') || can('admin.assign_roles'));
   const allRoles = ROLES;
 
   let list = [...AGENTS];
@@ -235,7 +236,7 @@ function renderAgentDetail(name) {
   if (!a) { setAgentSelected(null); return renderAgents(); }
   const s = getAgentStats(a);
   const d = getAgentDeepStats(a);
-  const admin = window.isAdmin();
+  const admin = (can('admin.agents') || can('admin.assign_roles'));
   const allRoles = ROLES;
 
   const statusItems = Object.entries(d.byStatus).sort((a, b) => b[1] - a[1]);
@@ -406,7 +407,7 @@ function agentSetQuery(v) {
 }
 
 function agentNew() {
-  if (!window.isAdmin()) return;
+  if (!(can('admin.agents') || can('admin.assign_roles'))) return;
   const allRoles = ROLES;
   showModal('Invite agent', `
     <div class="form-row"><label class="form-label">Full name</label><input class="form-input" id="ag-name" placeholder="Jane Doe"/></div>
@@ -440,7 +441,7 @@ function agentNew() {
 // link (the admin counterpart to the self-serve "forgot password" flow). The
 // agent's current password keeps working until they follow the link.
 function sendAgentPasswordReset(userId) {
-  if (!window.isAdmin()) return;
+  if (!(can('admin.agents') || can('admin.assign_roles'))) return;
   if (!userId) {
     alert('This agent does not have an account yet, so there is no invitation or password link to send.');
     return;
@@ -451,7 +452,7 @@ function sendAgentPasswordReset(userId) {
   const workspace = getWorkspaceId(), token = getJwt();
   let sending = false;
   showModal(invited ? 'Resend invite' : 'Send password reset', `<div style="font-size:13px;color:var(--ink2);line-height:1.6;overflow-wrap:anywhere">Email <strong style="color:var(--ink)">${window.escHtml(a.name)} (${window.escHtml(a.email || 'Email not available')})</strong> ${invited ? 'a new invitation link to finish setting up their account?' : 'a link to set a new password? Their current password keeps working until they use the link.'}</div>`, async () => {
-    if (sending || !window.isAdmin() || workspace !== getWorkspaceId() || token !== getJwt()) return;
+    if (sending || !(can('admin.agents') || can('admin.assign_roles')) || workspace !== getWorkspaceId() || token !== getJwt()) return;
     sending = true;
     closeModal();
     let res;
