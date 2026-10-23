@@ -52,7 +52,7 @@ test('new-ticket manual sends require confirmation and omit translation while ke
   const source = readFileSync(new URL('../web/js/tickets/new-ticket.js', import.meta.url), 'utf8');
   const functions = source.slice(source.indexOf('async function confirmSend('), source.indexOf('async function createOnServer('));
   for (const scenario of ['sent', 'cancelled', 'failed', 'normal']) {
-    const state = { busy: false, replyLanguage: 'Spanish' };
+    const state = { busy: false, replyLanguage: 'Spanish', files: [] };
     let posted = [], closed = false, aiCalls = 0, notices = [];
     const context = {
       NT: state, document: { getElementById: () => ({ value: 'Hello' }) },

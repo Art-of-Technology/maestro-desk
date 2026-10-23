@@ -81,7 +81,7 @@ export default async page => {
         await p.locator('#nt2-after-send').selectOption('');
         check(await p.getByRole('button',{name:'Send',exact:true}).count()===1,'Can return to normal Send');
         check(await p.locator('#nt2-without-ai-btn').isEnabled(),'Normal manual send remains available');
-        await p.locator('[data-action="nt.cancel"]').click();
+        await p.getByRole('button',{name:'Cancel',exact:true}).click();
         check(creates===0&&bodies.length===0&&closes===0,'Cancellation does not create, send or close');
         continue;
       }
