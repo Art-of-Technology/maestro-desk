@@ -15,6 +15,9 @@
 .ai-settings .toggle{width:44px;height:44px}
 .ai-settings .toggle-slider{inset:13px 6px}
 .ai-settings .toggle input:focus-visible+.toggle-slider{outline:2px solid var(--ink);outline-offset:3px}
+.email-notification-settings .toggle{width:44px;height:44px}
+.email-notification-settings .toggle-slider{inset:13px 6px}
+.email-notification-settings .toggle input:focus-visible+.toggle-slider{outline:2px solid var(--ink);outline-offset:3px}
 #ai-settings-status{min-height:40px}
 #ai-connection-result{min-height:20px}
 .ai-settings{overflow-wrap:anywhere}

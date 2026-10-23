@@ -100,6 +100,7 @@ dbTests('customer content erasure and late work', () => {
     const {postAutoReply}=await import('./lib/auto-reply.js');
     const {sendCsatSurvey}=await import('./lib/csat-survey.js');
     const {notifyMentionedAgents}=await import('./lib/mention-notify.js');
+    const {notifyAssignedAgent}=await import('./lib/assignment-notify.js');
     const original=globalThis.fetch;let calls=0;
     globalThis.fetch=Object.assign(async()=>{calls++;throw new Error('External calls forbidden');},{preconnect:original.preconnect});
     try {
@@ -109,6 +110,7 @@ dbTests('customer content erasure and late work', () => {
         expect(await postAutoReply({...common,draftReply:'STALE',confidence:90,model:'synthetic',workspaceName:'Test'})).toMatchObject({posted:false,reason:'send_failed'});
         expect(await sendCsatSurvey(common)).toMatchObject({sent:false,reason:'send_failed'});
         expect(await notifyMentionedAgents({...common,authorUserId:null,authorLabel:'Test',mentions:[user],body:'STALE'})).toEqual({sent:0,skipped:1});
+        await notifyAssignedAgent({...common,assigneeId:user,previousAssigneeId:null});
       }
       expect(calls).toBe(0);
     } finally {globalThis.fetch=original;}

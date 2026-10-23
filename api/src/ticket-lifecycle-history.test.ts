@@ -30,6 +30,7 @@ run('ticket lifecycle history', () => {
     user = signed.user.id; token = signed.token;
     const another: any = await auth.api.signUpEmail({ body: { email: `lifecycle-other-${suffix}@t.test`, password: 'password-12345', name: 'Second Agent' } });
     second = another.user.id;
+    await sql`update users set assignment_email_enabled=false where id in (${user},${second})`;
     [ws, other] = await Promise.all(['a', 'b'].map(async part => {
       const [r] = await sql`select provision_brand(${'Lifecycle ' + part}, ${'lifecycle-' + part + '-' + suffix}) as id`;
       const [role] = await sql`select id from roles where workspace_id = ${r.id} and is_admin limit 1`;

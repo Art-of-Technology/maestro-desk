@@ -24,6 +24,7 @@ runDbTests('ticket assignee tenant check (DB-backed)', () => {
     const { auth } = await import('./lib/auth.js');
     const r: any = await auth.api.signUpEmail({ body: { email, password: 'password-12345', name: 'A' }, returnHeaders: true });
     createdUserIds.push(r.response.user.id);
+    await sql`update users set assignment_email_enabled=false where id=${r.response.user.id}`;
     return { id: r.response.user.id, token: r.response.token };
   }
   function patchAssignee(assigned_user_id: string | null) {

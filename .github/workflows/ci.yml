@@ -100,6 +100,9 @@ jobs:
           bun test scripts/password-confirmation.test.js
           bun test scripts/login-form.test.js
 
+      - name: Assignment email preferences
+        run: bun test scripts/assignment-email-settings.test.js
+
       - name: Agent session expiry and warning
         run: |
           bun test scripts/session-lifetime.test.js

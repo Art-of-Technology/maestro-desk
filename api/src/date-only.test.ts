@@ -26,6 +26,7 @@ runDbTests('date-only values (DB-backed)', () => {
       body: { email: `date-${run}@t.test`, password: 'password-12345', name: 'Date test' },
     });
     userId = signup.user.id;
+    await sql`update users set assignment_email_enabled=false where id=${userId}`;
     token = signup.token!;
     const [ws] = await sql`select provision_brand(${'date-' + run}, ${'date-' + run}) as id`;
     workspaceId = ws.id;

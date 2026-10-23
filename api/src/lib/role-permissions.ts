@@ -80,7 +80,7 @@ export async function userCanViewTicket(workspaceId: string, userId: string, tic
     join tickets t on t.workspace_id=${workspaceId} and t.id=${ticketId} and t.deleted_at is null
     left join workspace_members wm on wm.user_id=u.id and wm.workspace_id=t.workspace_id and wm.active
     left join roles r on r.id=wm.role_id and r.workspace_id=wm.workspace_id
-    where u.id=${userId} and u.deleted_at is null and (wm.user_id is not null or u.is_platform_admin)`;
+    where u.id=${userId} and u.deleted_at is null and ((wm.user_id is not null and r.id is not null) or u.is_platform_admin)`;
   if (!row) return false;
   const grants = effectivePermissions(row, row.is_platform_admin);
   return grants['tickets.view_all'] || grants['tickets.view_assigned'] && row.assigned_user_id === userId;

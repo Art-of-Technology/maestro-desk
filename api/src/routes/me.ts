@@ -127,7 +127,7 @@ me.get('/', async (c) => {
   const workspaceId = c.get('workspaceId');
 
   const [user] = await sql`
-    select id, email, name, initials, is_platform_admin, mention_email_enabled
+    select id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled
     from users where id = ${userId}
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
@@ -151,6 +151,7 @@ me.get('/', async (c) => {
 // Scoped to id = userId — a user can only ever update their own row.
 const MePatch = z.object({
   mention_email_enabled: z.boolean().optional(),
+  assignment_email_enabled: z.boolean().optional(),
 }).strict();
 
 me.patch('/', async (c) => {
@@ -165,7 +166,7 @@ me.patch('/', async (c) => {
   const [user] = await sql`
     update users set ${sql(parsed.data)}
     where id = ${userId}
-    returning id, email, name, initials, is_platform_admin, mention_email_enabled
+    returning id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
   return c.json({ user });
