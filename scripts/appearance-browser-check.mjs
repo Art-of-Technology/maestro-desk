@@ -3,7 +3,8 @@ export default async (browser, screenshotsDir) => {
   let checks = 0;
   const check = (ok, message) => { checks++; if (!ok) throw Error(message); };
   for (const width of [320, 390, 768, 1280, 1920]) {
-    const context = await browser.newContext({ viewport: { width, height: 1000 } });
+    const height = width === 320 ? 568 : width === 390 ? 844 : 900;
+    const context = await browser.newContext({ viewport: { width, height } });
     context.setDefaultTimeout(10000);
     const page = await context.newPage();
     const errors = [], writes = [];
