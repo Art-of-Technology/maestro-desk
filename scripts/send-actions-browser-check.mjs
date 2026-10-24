@@ -60,12 +60,18 @@ export default async (browser, screenshotsDir) => {
       await page.locator('[data-action="modal.confirm"]').click();
       await page.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
       await page.locator('#nt2-after-send').waitFor();
+      const withoutAIHint = 'Sends your message as written, without AI translation. The subject, header, signature and footer keep their saved wording. Check the language before sending.';
+      check(await page.locator('#nt2-without-ai-hint').textContent() === withoutAIHint, 'New-ticket form explains sending without AI');
+      check(await page.locator('#nt2-without-ai-btn').getAttribute('aria-describedby') === 'nt2-without-ai-hint', 'New-ticket button exposes its explanation to screen readers');
+      const withoutAIButtonBounds = await page.locator('#nt2-without-ai-btn').boundingBox();
+      const withoutAIHintBounds = await page.locator('#nt2-without-ai-hint').boundingBox();
+      check(withoutAIHintBounds.y >= withoutAIButtonBounds.y + withoutAIButtonBounds.height, 'New-ticket explanation sits below its button');
       const choices = await page.locator('#nt2-after-send option').allTextContents();
       check(JSON.stringify(choices.slice(0, 5)) === JSON.stringify(labels), 'New-ticket actions have the agreed labels and order: '+JSON.stringify(choices));
       await page.locator('#nt2-msg').fill('Synthetic message'); await page.locator('#nt2-after-send').selectOption(target);
       if (target === 'custom-review') await page.locator('#nt2-close-reason').selectOption('review');
       check(await page.locator('#nt2-msg').inputValue() === 'Synthetic message', 'Changing action preserves message');
-      if (screenshotsDir && scenario === 'pending') await page.screenshot({ path: `${screenshotsDir}/new-ticket-send-actions-1280.png` });
+      if (screenshotsDir && scenario === 'pending') { await page.locator('#nt2-without-ai-hint').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${screenshotsDir}/new-ticket-send-actions-1280.png` }); }
       await page.locator('[data-action="modal.confirm"]').click();
       await page.locator('#nt2-msg').waitFor({ state: 'detached' });
       if (scenario === 'retry') {
@@ -95,6 +101,10 @@ export default async (browser, screenshotsDir) => {
       check(await menu.getByText('Keeps the current status. No survey.', { exact: true }).count() === 1, 'Send explains current-status preservation');
       const described = await menu.getByRole('button', { name: 'Send & resolve', exact: true }).getAttribute('aria-describedby');
       check(await page.locator('[id="' + described + '"]').textContent() === 'Marks resolved. Surveys follow the brand’s rules.', 'Action hint is exposed as the screen-reader description');
+      const withoutAI = menu.locator('[data-action="td.sendWithoutAI"]');
+      check(await withoutAI.locator('small').textContent() === withoutAIHint, 'Reply menu uses the same explanation');
+      const withoutAIDescription = await withoutAI.getAttribute('aria-describedby');
+      check(await page.locator('[id="' + withoutAIDescription + '"]').textContent() === withoutAIHint, 'Reply option exposes the explanation to screen readers');
       const bounds = await menu.boundingBox();
       check(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= page.viewportSize().width && bounds.y + bounds.height <= page.viewportSize().height, 'Send menu stays within the viewport');
       const targets = await menu.locator('button').evaluateAll(items => items.map(el => el.getBoundingClientRect().height));

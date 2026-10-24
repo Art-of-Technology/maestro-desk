@@ -1,7 +1,7 @@
 export { applySentStatus };
 import { can, applyPermissionControls } from '../core/permissions.js';
 import { statusChoice, statusLabel, selectedStatus, statusSelectOptions, loadStatusOptions, statusOptionsState } from './status-options.js';
-import { sendActions } from './send-actions.js';
+import { sendActions, SEND_WITHOUT_AI_HINT } from './send-actions.js';
 import { invalidateAgentReport } from '../agents/statistics.js';
 import { showNoteEditor, showNoteHistory, recordDemoNoteRevision } from '../core/note-editor.js';
 import { applySavedActivity } from '../core/ticket-history.js';
@@ -683,7 +683,7 @@ export function openTicket(id) {
                     <button class="btn btn-sm btn-solid composer-send-more" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.toggleSendMenu" data-ticket-id="${window.escAttr(id)}" aria-label="More send options" title="More send options">▾</button>
                     <div id="send-menu-${id}" class="comp-menu">
                       ${sendActions().filter(a => COMPOSE_TAB === 'reply' || a.status !== 'closed').map(a => `<button type="button" class="comp-menu-item" aria-label="${window.escAttr(COMPOSE_TAB === 'reply' ? a.label : a.label.replace('Send', 'Add note'))}" ${COMPOSE_TAB === 'reply' ? `aria-describedby="send-action-hint-${window.escAttr(id)}-${window.escAttr(a.status || 'send')}"` : ''} data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}${a.status ? ' tickets.close tickets.edit' : ''}" data-action="${a.status ? 'td.sendAnd' : 'td.send'}" data-ticket-id="${window.escAttr(id)}" data-status="${window.escAttr(a.status)}"><span>${window.escHtml(COMPOSE_TAB === 'reply' ? a.label : a.label.replace('Send', 'Add note'))}</span>${COMPOSE_TAB === 'reply' ? `<small id="send-action-hint-${window.escAttr(id)}-${window.escAttr(a.status || 'send')}" style="display:block;color:var(--ink3);white-space:normal">${window.escHtml(a.hint)}</small>` : ''}</button>`).join('')}
-                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}">Send without AI…</button>` : ''}
+                      ${COMPOSE_TAB==='reply' ? `<button type="button" class="comp-menu-item" data-permission="${COMPOSE_TAB === 'note' ? 'tickets.note' : 'tickets.reply'}" data-action="td.sendWithoutAI" data-ticket-id="${window.escAttr(id)}" aria-label="Send without AI…" aria-describedby="send-without-ai-hint-${window.escAttr(id)}"><span>Send without AI…</span><small id="send-without-ai-hint-${window.escAttr(id)}" style="display:block;color:var(--ink3);white-space:normal">${window.escHtml(SEND_WITHOUT_AI_HINT)}</small></button>` : ''}
                     </div>
                   </div>
                 </div>

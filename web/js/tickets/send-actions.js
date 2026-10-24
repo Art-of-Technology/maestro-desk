@@ -1,6 +1,8 @@
 import { can } from '../core/permissions.js';
 import { statusOptions, STATUS_CATEGORIES } from './status-options.js';
 
+export const SEND_WITHOUT_AI_HINT = 'Sends your message as written, without AI translation. The subject, header, signature and footer keep their saved wording. Check the language before sending.';
+
 export const SEND_ACTIONS = [
   { status: '', label: 'Send', hint: 'Keeps the current status. No survey.' },
   { status: 'resolved', label: 'Send & resolve', hint: 'Marks resolved. Surveys follow the brand’s rules.' },

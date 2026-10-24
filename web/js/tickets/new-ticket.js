@@ -36,7 +36,7 @@ import { saveDraft, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, 
 import { fmtBytes } from './attachment-chips.js';
 import { showToast } from '../core/toast.js';
 import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
-import { sendActions, SEND_ACTIONS } from './send-actions.js';
+import { sendActions, SEND_ACTIONS, SEND_WITHOUT_AI_HINT } from './send-actions.js';
 import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
 import { jurisdictionLanguage } from './jurisdiction-language.js';
@@ -531,10 +531,11 @@ function renderStep2() {
         ${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}
       </select>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
-      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" ${NT.statusAfterSend ? 'disabled title="Choose Send to send without AI."' : ''}>Send without AI…</button>
-      ${canDraft ? `<button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
-      <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span>` : ''}
+    <div style="margin-top:4px">
+      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" aria-describedby="nt2-without-ai-hint" ${NT.statusAfterSend ? 'disabled title="Choose Send to send without AI."' : ''}>Send without AI…</button>
+      <p id="nt2-without-ai-hint" style="font-size:12px;color:var(--ink3);line-height:1.5;margin:6px 0 12px">${window.escHtml(SEND_WITHOUT_AI_HINT)}</p>
+      ${canDraft ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
+      <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span></div>` : ''}
     </div>
     <div class="form-row" style="margin-top:16px">
       <label class="form-label" for="nt2-after-send">Send action</label>
