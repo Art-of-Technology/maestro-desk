@@ -122,12 +122,13 @@ me.patch('/stat-views', async c => {
 });
 
 me.get('/', async (c) => {
+  c.header('Cache-Control', 'no-store');
   const sql = getDb();
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
 
   const [user] = await sql`
-    select id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled
+    select id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme
     from users where id = ${userId}
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
@@ -149,12 +150,15 @@ me.get('/', async (c) => {
 
 // Self-PATCH for the small set of fields a user can edit on their own row.
 // Scoped to id = userId — a user can only ever update their own row.
-const MePatch = z.object({
+export const MePatch = z.object({
   mention_email_enabled: z.boolean().optional(),
   assignment_email_enabled: z.boolean().optional(),
+  navigation_position: z.enum(['left', 'top']).optional(),
+  colour_scheme: z.enum(['violet', 'blue', 'teal']).optional(),
 }).strict();
 
 me.patch('/', async (c) => {
+  c.header('Cache-Control', 'no-store');
   const sql = getDb();
   const userId = c.get('userId');
 
@@ -166,7 +170,7 @@ me.patch('/', async (c) => {
   const [user] = await sql`
     update users set ${sql(parsed.data)}
     where id = ${userId}
-    returning id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled
+    returning id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
   return c.json({ user });

@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="styles/components.css"/>
 <link rel="stylesheet" href="styles/pages.css"/>
 <link rel="stylesheet" href="styles/permissions.css"/>
+<link rel="stylesheet" href="styles/appearance.css"/>
 <!-- Runtime API-base selection, extracted to an external classic script so this
      page can ship a strict CSP (no inline script; script-src is 'self' plus the
      path-scoped Tagline SDK, injected post-login by js/tagline-sdk/). Runs
@@ -113,7 +114,7 @@
     <button class="sb-collapse" id="sb-collapse" data-action="app.toggleSidebar"
             aria-controls="app-sidebar"
             title="Collapse menu" aria-label="Collapse menu" aria-expanded="true">‹</button>
-    <nav class="sb-nav">
+    <nav class="sb-nav" aria-label="Main navigation">
       <div class="sb-section">
         <div class="sb-item active" role="button" tabindex="0" data-action="app.nav" data-page="dashboard">
           <svg class="sb-icon" viewBox="0 0 13 13" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="7" y="1" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="1" y="7" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="7" y="7" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>

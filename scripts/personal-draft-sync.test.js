@@ -227,7 +227,7 @@ function logoutHarness(flush,confirm=true){
   const context={SESSION:{userId:'agent'},flushBrowserDrafts:flush,window:{confirm:()=>{calls.push('confirm');return confirm;}},setTimeout,clearTimeout,
     document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{style:{}});return elements.get(id);}},
     authSignOut:()=>{calls.push('signout');},setSession:value=>{context.SESSION=value;}};
-  for(const name of ['closeModal','closeGuides','suspendUrlRouting','discardRequestedRoute','stopPresence','stopListSync','stopRealtime','resetTaglineSdk','resetWorkspaceBrand','hydrateLayouts'])context[name]=()=>{};
+  for(const name of ['closeModal','closeGuides','suspendUrlRouting','discardRequestedRoute','stopPresence','stopListSync','stopRealtime','resetTaglineSdk','resetWorkspaceBrand','resetPersonalAppearance','hydrateLayouts'])context[name]=()=>{};
   const logout=runInNewContext(logoutSource+'\nlogout',context);return {logout,calls,context};
 }
 test('manual logout waits for saving; failure allows staying signed in or discarding; expiry skips saving',async()=>{

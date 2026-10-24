@@ -28,6 +28,7 @@ function persist(collapsed) {
 // Paint the current state. Called at load and after every toggle; the button
 // label/aria flips with it so a screen reader and a sighted user agree.
 function apply(collapsed) {
+  if (document.getElementById('app')?.dataset.navigation === 'top') collapsed = false;
   const bar = document.querySelector('.sidebar');
   if (bar) bar.classList.toggle('collapsed', collapsed);
   const btn = document.getElementById('sb-collapse');
@@ -67,9 +68,14 @@ export function isSidebarCollapsed() {
 }
 
 export function toggleSidebar() {
+  if (document.getElementById('app')?.dataset.navigation === 'top') return;
   const next = !document.querySelector('.sidebar')?.classList.contains('collapsed');
   apply(next);
   if (!narrow?.matches) persist(next);
+}
+
+export function refreshSidebar() {
+  apply(narrow?.matches ? true : read());
 }
 
 registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
@@ -82,6 +88,7 @@ registerActions({ 'app.toggleSidebar': () => toggleSidebar() });
 // sidebar and to elements that actually claim role="button".
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !e.defaultPrevented && e.target.closest?.('.sidebar')
+      && document.getElementById('app')?.dataset.navigation !== 'top'
       && narrow?.matches && !isSidebarCollapsed()) {
     apply(true);
     document.getElementById('sb-collapse')?.focus();

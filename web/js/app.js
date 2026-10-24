@@ -1,4 +1,5 @@
 import { can } from './core/permissions.js';
+import { resetPersonalAppearance } from './settings/personal-appearance.js';
 // app.js is the bootstrap entry: it owns login/logout, the workspace-brand
 // swap, layout hydration, the window bridge, the static-shell action wiring,
 // and the auto-resume startup. Page routing (nav/renderPage/updateNavBadges)
@@ -179,6 +180,7 @@ async function logout({force=false,broadcast=true}={}) {
   // auth users (so the next page-load doesn't auto-resume).
   const clearedTranslations = authSignOut(signedOutUserId,broadcast);
   setSession(null);
+  resetPersonalAppearance();
   resetWorkspaceBrand();
   // Drop the workspace's hydrated field layouts back to code defaults and
   // block persistence — a demo persona (or the next login, before its own

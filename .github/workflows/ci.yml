@@ -103,6 +103,9 @@ jobs:
       - name: Assignment email preferences
         run: bun test scripts/assignment-email-settings.test.js
 
+      - name: Personal appearance preferences
+        run: bun test scripts/personal-appearance.test.js
+
       - name: Agent session expiry and warning
         run: |
           bun test scripts/session-lifetime.test.js
