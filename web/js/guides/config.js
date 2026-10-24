@@ -5,12 +5,12 @@ export const GUIDE_STEPS = [
     title: 'See what needs attention',
     body: 'Use the dashboard for today’s workload, replies, and team activity.',
     source: 'web/js/dashboard/index.js',
-    highlights: ["Check your workspace and ask your lead which queue to use.","Use the sidebar to open Tickets, Customers or Knowledge Base.","This tour changes nothing. Exit whenever you are ready to try it."],
+    highlights: ["Check your workspace and ask your lead which queue to use.","Use the navigation menu to open Tickets, Customers or Knowledge Base.","This tour changes nothing. Exit whenever you are ready to try it."],
     instructions: [
       'Sign in with the account your team provided and check that you are in the right workspace. Ask your lead for access if you cannot see the tickets you need.',
       'Maestro sign-in uses brands you can access in Maestro Connect. If a brand needs a new Respovia workspace, choose Request a Respovia workspace. After a platform administrator approves it, choose Refresh brands or sign in again.',
       'Your session ends eight hours after login. A warning appears 30 minutes before expiry while you are active in the app. Wait for drafts to show Synced before expiry. When the session ends, browser draft copies are cleared, including unsynced edits. Sign in again to restore server-saved drafts; staying active does not extend the session.',
-      'Use the sidebar to move between Tickets, Customers and Knowledge Base. The dashboard gives you an overview of workload and team activity.',
+      'Use the navigation menu to move between Tickets, Customers and Knowledge Base. It appears on the left or at the top, depending on your Appearance settings. The dashboard gives you an overview of workload and team activity.',
       'On Dashboard and Insights, use View as on a statistic to choose a table, chart or graph where available. Each choice syncs privately for your account and workspace. Wait for Synced before continuing on another device, then refresh or sign in there to load it. Saved in this browser means the choice has not synced yet; it retries when you reconnect or return to that statistic. Existing browser choices are imported only where no synced choice exists. If devices change the same statistic, the last successful save wins. Demo choices stay in this browser.',
       'Manage widgets controls which cards appear on Dashboard and Insights. Drag card headers to change their order. Order and visibility sync separately for each page, account and workspace. Wait for Layout synced, then refresh or sign in on another device. Retry saves a change that could not sync; pending changes also retry after reconnecting or refreshing. Reset layout restores that page’s default order and shows all widgets. Import browser layout replaces the current page’s layout with an old browser-only layout; import it only if it is yours. If devices edit the same page, the last successful save wins. New widgets appear at the end.',
       'Guides explain controls without sending replies or changing records. Exit to practise on work approved by your team. Reopen Guides to resume and confirm your practice checklist. Viewed and practice confirmed are recorded separately in this browser.',
@@ -298,6 +298,7 @@ export const GUIDE_STEPS = [
     ],
     instructions: [
       'Review your profile and language preferences under Settings. Check the displayed save result when changing a preference.',
+      'Under Settings → Appearance, choose Left or Top for the menu and Violet, Blue or Teal for your colour scheme. Choices preview immediately. Select Save changes to keep them across workspaces and devices. Cancel or leave Appearance to discard an unsaved preview. Restore defaults also needs Save changes. These choices affect only your account, not brand colours, the portal or emails.',
       'Under Notifications, Assignment emails controls emails when a teammate or assignment rule assigns a ticket to you. Self-assignment and an unchanged assignee do not send these emails.',
       'This guide does not change preferences. For practice you can inspect the current value without changing it.',
     ],

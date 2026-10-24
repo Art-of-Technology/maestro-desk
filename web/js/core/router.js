@@ -17,6 +17,7 @@
 // bindings. TICKETS is imported from core/data.js for updateNavBadges.
 
 import { TICKETS } from './data.js';
+import { ensurePersonalAppearance, cancelAppearancePreview } from '../settings/personal-appearance.js';
 import { can, canViewTickets, applyPermissionControls } from './permissions.js';
 import { getJwt, getWorkspaceId } from './api-client.js';
 import { CUSTOMER_SELECTED_IDS, TAG_SELECTED_NAMES, TICKET_SELECTED_IDS, setAgentSelected, setCurrentPage, setCurrentTicket, setCustomerSelected, setKbSelected, setRolesViewAgents, setTagSelected } from './state.js';
@@ -89,6 +90,8 @@ export function highlightNav(page, el) {
 }
 
 export function renderPage(page) {
+  ensurePersonalAppearance();
+  if (page !== 'settings') cancelAppearancePreview();
   resetAttachmentThumbnails();
   if (page !== 'roles')     setRolesViewAgents(null);
   if (page !== 'kb')        setKbSelected(null);

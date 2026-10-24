@@ -1,4 +1,5 @@
 import { can } from '../core/permissions.js';
+import { renderPersonalAppearance, cancelAppearancePreview } from './personal-appearance.js';
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Settings groups personal preferences, brand settings and workspace tools.
 // The "Knowledge Base" tab configures the
@@ -65,10 +66,12 @@ const SLACK_EVENTS = [
 let KB_TEST_STATE = null;
 
 export function renderSettings() {
+  if (SETTINGS_TAB !== 'display') cancelAppearancePreview();
   const tabs = [
     {k:'profile',       l:'Profile'},
     {k:'notifications', l:'Notifications'},
     {k:'language',      l:'Language'},
+    {k:'display',       l:'Appearance'},
     {k:'appearance',    l:'Brand & portal', heading:'Brand settings'},
     ...(can('admin.settings') ? [{k:'email', l:'Email branding'}] : []),
     ...(can('admin.integrations') ? [{k:'sender-domain', l:'Sender domain'}] : []),
@@ -83,6 +86,7 @@ export function renderSettings() {
   }).join('');
   let panel = '';
   if      (SETTINGS_TAB === 'profile')       panel = settingsProfile();
+  else if (SETTINGS_TAB === 'display')       panel = renderPersonalAppearance();
   else if (SETTINGS_TAB === 'appearance')    panel = settingsAppearance();
   else if (SETTINGS_TAB === 'notifications') panel = settingsNotifications();
   else if (SETTINGS_TAB === 'ai')            panel = settingsAI();
