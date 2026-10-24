@@ -46,6 +46,12 @@ describe('sanitizeEmailHtml — removes executable content', () => {
     const out = clean('<style>x</style><style>a{}</style><img src=x onerror=alert(1)>');
     expect(out).not.toMatch(/onerror/);
   });
+  it('does not release hidden noscript content after an implied ancestor close', () => {
+    const out = clean('<div><noscript></div><img src="https://hidden.example.test/beacon.png">Hidden message</noscript><p>Visible message</p>');
+    expect(out).not.toContain('hidden.example.test');
+    expect(out).not.toContain('Hidden message');
+    expect(out).toContain('<p>Visible message</p>');
+  });
   it('drops srcset / background / ping and other URL-bearing attributes', () => {
     const out = clean('<img src="https://x/a.png" srcset="https://evil 1x"><td background="https://evil">c</td><a href="https://ok" ping="https://evil">a</a>');
     expect(out).not.toContain('evil');
