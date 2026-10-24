@@ -7,11 +7,12 @@ test('brand navigation groups existing panels and preserves admin visibility', (
   const render = source.slice(source.indexOf('export function renderSettings'), source.indexOf('export function setSettingsTab')).replace('export ', '');
   const hub = readFileSync('web/js/config-hub/index.js', 'utf8').replace('export function', 'function');
   for (const admin of [true, false]) {
-    const context = { can: () => admin, window: { isAdmin: () => admin, escAttr: String, escHtml: String }, SETTINGS_TAB: 'appearance', settingsAppearance: () => 'BRAND PANEL' };
+    const context = { can: () => admin, window: { isAdmin: () => admin, escAttr: String, escHtml: String }, SETTINGS_TAB: 'appearance', settingsAppearance: () => 'BRAND PANEL', cancelAppearancePreview() {} };
     const html = runInNewContext(`${render}; renderSettings()`, context);
     expect(html).toContain('BRAND PANEL');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain('Brand & portal');
+    expect(html).toContain('data-tab="display"');
     expect(html.indexOf('Brand settings')).toBeLessThan(html.indexOf('data-tab="appearance"'));
     expect(html.includes('data-tab="email"')).toBe(admin);
     expect(html.includes('data-tab="sender-domain"')).toBe(admin);
