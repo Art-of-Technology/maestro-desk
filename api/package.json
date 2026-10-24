@@ -32,7 +32,7 @@
     "tsx": "^4.23.12",
     "undici": "^8.9.0",
     "web-push": "^3.6.7",
-    "zod": "^3.23.0"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/bun": "^1.1.10",
@@ -42,5 +42,8 @@
     "@types/web-push": "^3.6.4",
     "postal-mime": "^4.0.5",
     "typescript": "^5.6.0"
+  },
+  "overrides": {
+    "zod": "4.6.6"
   }
 }

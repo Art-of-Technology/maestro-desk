@@ -13,8 +13,7 @@ export const GUIDE_STEPS = [
       'Use the sidebar to move between Tickets, Customers and Knowledge Base. The dashboard gives you an overview of workload and team activity.',
       'On Dashboard and Insights, use View as on a statistic to choose a table, chart or graph where available. Each choice syncs privately for your account and workspace. Wait for Synced before continuing on another device, then refresh or sign in there to load it. Saved in this browser means the choice has not synced yet; it retries when you reconnect or return to that statistic. Existing browser choices are imported only where no synced choice exists. If devices change the same statistic, the last successful save wins. Demo choices stay in this browser.',
       'Manage widgets controls which cards appear on Dashboard and Insights. Drag card headers to change their order. Order and visibility sync separately for each page, account and workspace. Wait for Layout synced, then refresh or sign in on another device. Retry saves a change that could not sync; pending changes also retry after reconnecting or refreshing. Reset layout restores that page’s default order and shows all widgets. Import browser layout replaces the current page’s layout with an old browser-only layout; import it only if it is yours. If devices edit the same page, the last successful save wins. New widgets appear at the end.',
-      'Insights Reports includes every matching workspace ticket, even if you have not loaded or opened it. Date ranges use ticket creation dates in UTC and include today. Ratings and logged time belong to those tickets. Use Refresh for updated totals. CSV exports use the same dates and allow up to 10,000 tickets; choose a shorter range for larger reports.',
-      'This tour explains the controls without sending replies or changing tickets. Choose Exit to practise, then select Guides in the top bar and choose a topic. You can also open Guided tours from Help & Support.',
+      'Guides explain controls without sending replies or changing records. Exit to practise on work approved by your team. Reopen Guides to resume and confirm your practice checklist. Viewed and practice confirmed are recorded separately in this browser.',
       'Ask your lead which queue you own, how to verify a customer, and who handles payment, privacy and safer-gambling escalations. Follow your team’s procedures for those decisions.',
     ],
   },
@@ -30,8 +29,6 @@ export const GUIDE_STEPS = [
       'Use search and filters to narrow the list by agent, priority or category. Under More filters, use Inbox to choose a mailbox or find tickets with no inbox assigned. Remove the Inbox chip to show all inboxes again. Saved searches remember the inbox selection. Clear filters if a ticket seems to be missing; check Snoozed and the resolved or closed status views too.',
       'Check priority and SLA indicators before choosing a ticket. SLA shows response or resolution timing; follow your team’s order of work when something is overdue.',
       'Select a ticket to open its conversation. Check the assigned agent and any indicators that someone else is composing before starting a second reply.',
-      'Choose Edit subject beside the ticket heading to rename it. To delete a ticket started by mistake, choose More → Delete ticket and confirm. This option appears when the ticket has no messages or notes, or your role allows deletion.',
-      'Inbox below the subject shows where the ticket sits. Open the Inbox dropdown to see its email address or choose Move to inbox. Choose the appropriate inbox and select Move; the confirmation offers Undo. Future replies default to the new inbox when its sender is verified. Received via on earlier messages keeps the original receiving address.',
     ],
   },
   {
@@ -42,11 +39,8 @@ export const GUIDE_STEPS = [
     instructions: [
       'Read the latest customer message, then earlier replies and internal notes. Use Jump to latest above the conversation to return to the beginning of the newest email or note. Identify the question, any promises already made, and what is still unanswered.',
       'Private file links expire after five minutes. If a link expires, refresh the ticket and open the file again. Files are unavailable while the brand is suspended.',
-      'Use Forward below a sent or received email to choose recipients, add a message and select attachments. Review the original email before sending. Forwards stay in the agent ticket history; replies to forwards open separate tickets. Choose Download email below a saved email, or More → Download thread for all sent and received emails in date order. Choose PDF to keep the saved email layout, colours, headers, footers and inline images. Include remote images is optional and may notify the sender when images load. Choose Email for an .eml file with attachments (a ZIP of .eml files for a thread). Downloads exclude internal notes, drafts and status changes. Older emails may lack saved headers or branding, and unavailable fonts use a similar font.',
       'Open Details if the ticket sidebar is hidden. Check the customer, email, brand, jurisdiction, category and assigned agent. Use the copy button beside the email address to copy it. Other tickets shows ticket IDs and creation dates; times use your local timezone when available. Use Copy link beside the current ticket ID in the header to share it. Under Other tickets, copy an ID with its copy button, use Copy link to share a direct link, or select the subject to open the ticket. If copying a link fails, right-click Copy link and copy the link address. Review relevant attachments and linked tickets.',
       'Use More → Summarize for an AI summary, then verify it against the conversation. Refresh a summary marked stale before relying on it for a handover.',
-      'Change status and priority using the compact controls below the subject. Tags sit beside them. To change the category, open Details and use Category under Properties. Category is separate from tags.',
-      'In Details, use Generate tags under AI Tag Suggestions, then accept the relevant tags. This uses workspace AI credit without sending a reply or changing your draft. If it fails, follow the error message and use Retry. Accepted tags are kept.',
       'Check account facts and current guidance before promising a payment, refund, bonus or deadline. If evidence is missing, ask for it or escalate through your team’s process.',
     ],
   },
@@ -61,7 +55,6 @@ export const GUIDE_STEPS = [
       'Open Customers and select the customer, or choose a customer result in the search bar. From a ticket’s Details sidebar, select the Customer section, then View full profile.',
       'Check that the record belongs to the person and brand you are supporting. Review the Tickets section for related problems and commitments. Use Load more to see older tickets. If history could not be loaded, select Try again.',
       'Follow your team’s identity checks before disclosing account information or acting on a request. Include only the customer information needed in replies and notes.',
-      'Administrators can open Privacy / GDPR on a ticket to download customer records, linked activity and audit history for review, including after erasure. Attachment files are separate. Check for other people’s information before sharing; records without a reliable customer link need a separate search. To erase supported content, check retention requirements, choose a reason and type the customer ID. Audit history remains and may contain older personal text requiring separate review. The workspace reloads to clear old data. An erasure confirmation does not close the whole privacy request.',
     ],
   },
   {
@@ -81,7 +74,7 @@ export const GUIDE_STEPS = [
     id: 'reply', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Write a customer reply',
     body: 'Choose Reply, answer the question and check what the customer will receive.',
-    highlights: ["Choose Reply for the customer, or Internal note for colleagues.","Answer the question and explain the next action.","Check To, CC, language, facts and attachments before sending."],
+    highlights: ['Choose Reply and check who will receive your message.', 'Answer the question and explain the next action.', 'Check To, CC, language, facts and attachments before sending.'],
     instructions: [
       'Open the ticket and choose Reply. On phones, the composer fills the screen below the ticket breadcrumb; Minimise returns to the conversation and keeps your draft. Swipe the bottom icon row to reach more tools. On larger screens, Expand gives you more writing space and temporarily hides ticket details; Restore returns to the previous layout. Use Internal note only for information intended for colleagues; check the selected tab before writing.',
       'Acknowledge the issue, answer each question and explain the next action. Use the editor for formatting and Attach for relevant files. Check the attachments belong to this customer.',
@@ -93,6 +86,7 @@ export const GUIDE_STEPS = [
       'If AI is unavailable, choose Send without AI in the Send menu, or below the message on a new ticket. Confirm that the customer can understand the message, subject and saved header, signature and footer. None will be translated for that send. This does not change your language preference.',
       'Choose Save draft and exit below the editor to sync your draft and return to Tickets without sending. Reply and Internal note drafts are private to your account and workspace. Wait for Synced before continuing on another device. Saved locally means the draft is only in this browser until sync succeeds. Signing out saves pending drafts first, then clears your browser copies across tabs and workspaces. If saving fails or other unsaved copies remain, you can stay signed in or explicitly discard them. If two devices have different edits, choose Review draft copies before continuing. Uploaded files sync with your reply draft. Wait for uploads and draft sync to finish before leaving. Image attachments show thumbnails; PDFs and other files show a type badge. Select an attachment to preview images and PDFs here; other file types can be downloaded.',
     ],
+    permissions: ['tickets.reply'],
   },
   {
     id: 'templates', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
@@ -108,8 +102,9 @@ export const GUIDE_STEPS = [
       'Fill each missing field with verified details. For example, replace {transaction_reference} with this customer’s actual reference. If you do not know a value, cancel and investigate or choose a different response.',
       'Insert response adds the template to your existing draft. Remove duplicate greetings or outdated text, then reread the whole reply. Inserting a response does not send it.',
       'The person, number sign, building and headset icons below the editor insert Customer name, Ticket ID, Brand and Agent name at the cursor. Hover over a button to see its label. These insert available values directly; typing a token yourself does not automatically fill it. Replies containing unfilled placeholders are blocked.',
-      'If a preview reports an unfilled field in formatting or links, ask a template editor to fix it. Admins can use Save as template; remove personal details and one-off promises before saving reusable wording.',
+      'If a preview reports an unfilled field in formatting or links, ask a template editor to fix it.',
     ],
+    permissions: ['tickets.reply'],
   },
   {
     id: 'ai-review', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
@@ -124,6 +119,7 @@ export const GUIDE_STEPS = [
       'Edit incorrect or irrelevant wording. If the suggestion is unsuitable, Discard clears it from the composer. Give feedback lets you choose Helpful or Not helpful and a reason; feedback alone does not change the draft.',
       'If a shared draft is available, review your current text before choosing Load shared draft because it replaces the local reply. Recheck a suggestion marked Needs review against the latest conversation.',
     ],
+    permissions: ['tickets.reply', 'tools.ai'],
   },
   {
     id: 'send', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
@@ -132,11 +128,11 @@ export const GUIDE_STEPS = [
     highlights: ["Check the customer, language, attachments and any remaining placeholders.","Read any warnings, then send once.","Check the saved message and delivery notice before retrying."],
     instructions: [
       'Before sending, confirm the correct ticket and Reply tab, customer name, language, facts, links and attachments. Remove placeholders and internal-only information.',
-      'Use the same send actions on a new ticket or a reply: Send keeps a new ticket open and preserves the current status of an existing ticket; Send & resolve marks it resolved and follows the brand’s survey rules; Send & close marks it closed without a survey; Send & pending or Send & escalate keeps it outstanding in that status without a survey. Status changes require confirmed email sending and any required reason. If a status update fails after sending, retry the status update only; do not send the message again. Existing custom statuses are also available when your role permits them.',
       'If closing is not confirmed after sending, a reminder stays above the conversation. Open or refresh the ticket on another device using the same agent account and workspace to see it there. Retry close only checks the current status and opens the close dialog without sending another email. Choose a reason if required. Dismiss reminder removes the notice across devices without changing the ticket status. If sync fails, the change stays in this browser and retries when you reconnect or reopen the ticket. An older offline change cannot replace a newer saved version.',
       'If “Check before sending” appears, read each warning. Cancel to fix or verify the draft. Confirm only after checking; the warning cannot verify policy or payment claims for you.',
       'Wait for the result and check the conversation and delivery notice. Sent means the email provider accepted the send. Partially delivered means some recipients are confirmed; Delivered means every recipient\'s mail server accepted the email. Check Delivery confirmed in the email details for each recipient and time. This does not confirm that someone read the email or that it reached their inbox. Use Retry sending on a failed reply to resend the saved email and attachments without adding another message. Respovia blocks retries when delivery is unconfirmed to avoid sending the email twice. After a combined send-and-status action, also check the displayed status.',
     ],
+    permissions: ['tickets.reply'],
   },
   {
     id: 'statuses', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
@@ -144,8 +140,8 @@ export const GUIDE_STEPS = [
     body: 'Record whether work is active, waiting, escalated or finished.',
     highlights: ["Use Open for work in progress, or Pending when waiting.","Escalate with a handover note when you need help.","Resolve completed work. Follow your team’s process for privacy requests."],
     instructions: [
+      'Use the same send actions on a new ticket or a reply: Send keeps a new ticket open and preserves the current status of an existing ticket; Send & resolve marks it resolved and follows the brand’s survey rules; Send & close marks it closed without a survey; Send & pending or Send & escalate keeps it outstanding in that status without a survey. Status changes require confirmed email sending and any required reason. If a status update fails after sending, retry the status update only; do not send the message again. Existing custom statuses are also available when your role permits them.',
       'Use Ticket status below the subject to change status without composing a reply. Changing the status is separate from explaining the outcome to the customer.',
-      'Brand admins can add, rename or retire choices under Configuration → Ticket statuses. Choose a workflow category and whether a resolved choice sends a survey. For Resolved — no survey, choose Resolved and Never send. Set Reason required and add, rename or retire the reasons for each choice. Recorded reasons stay in ticket history. Closed choices never send surveys. Categories cannot be changed after creation. Built-in statuses stay available; update macros using a choice before retiring it.',
       'Custom choices appear in ticket status, bulk actions, macros and the send menu. Use the status filter beside the queue tabs to find a specific choice. Reports and SLAs use its workflow category. Survey policy is saved when the choice is selected, so later settings edits affect future selections. A no-survey selection also blocks manual survey sending; it cannot recall a survey already sent.',
       'Open: work still needs attention. Pending: waiting for information or another action; leave a note stating what you are waiting for and who will follow up.',
       'Escalated: the issue needs further help. Use More → Escalate or the status selector, assign the appropriate agent and leave a handover note. A status change alone does not explain the issue to the next person.',
@@ -154,19 +150,18 @@ export const GUIDE_STEPS = [
       'Closed: use More → Close without resolution for spam, abuse, a duplicate or another reason that is not a successful resolution. Select the required reason and add context if needed. This action sends no customer email or satisfaction survey.',
       'Spam: use More → Mark as spam, or select tickets and choose Mark as spam. This closes the tickets and filters future emails from their contacts in this workspace. Use Unmark contact as spam on the ticket or contact to stop filtering; old spam tickets stay closed.',
     ],
+    permissions: ['tickets.edit', 'tickets.close'],
   },
   {
     id: 'handover', page: 'tickets', target: 'tickets', source: 'web/js/tickets/list.js',
     title: 'Leave notes and hand over',
     body: 'Give the next agent enough context to continue without repeating work.',
-    highlights: ["Add an Internal note with the checks done and next action.","Name the next owner and assign the ticket.","Use Snooze for a timed follow-up; leave a note explaining why."],
+    highlights: ['Use your team’s handover process to agree the next owner.', 'Record what happened and what still needs attention.', 'Check that the next colleague can continue without repeating work.'],
     instructions: [
       'Choose Internal note. State the issue, checks completed, outcome, outstanding action and next owner. Type @ and choose a colleague to mention them, then choose Add note.',
       'Internal notes are for your team and are not customer replies. Send a separate Reply if the customer needs an update.',
-      'In Details → Properties, change Assigned agent and Ticket priority as needed. Check availability and agree ownership using your team’s process.',
-      'For a timed follow-up, use More → Snooze and choose a return time. Find deferred tickets in the Snoozed view; use More → Wake up to bring one back early. Leave a note explaining what to check when it returns.',
-      'Before applying a workflow macro or bulk action, check its actions and the selected tickets. These can change status, assignment or other properties across multiple requests.',
     ],
+    permissions: ['tickets.note'],
   },
   {
     id: 'agents',
@@ -178,12 +173,6 @@ export const GUIDE_STEPS = [
     instructions: [
       'Open Agents to review teammates, roles, workload and availability. Use your team’s escalation process to find the right owner for a specialist issue.',
       'When a teammate or an assignment rule assigns a ticket to you, Respovia emails you a link to the ticket. Assigning a ticket to yourself or saving the same assignee again sends no email. To turn these emails off, open Settings → Notifications and switch off Assignment emails. This preference applies across devices.',
-      'Brand Admins and God Users can open Configuration → Roles & Permissions → Permissions to tailor access for this brand. Scroll sideways for more roles; the permission labels and column headers stay in place. Checkboxes stay unsaved until you choose Save changes.',
-      'To add a role, choose + Role, enter its name and choose Set permissions. Select its permissions in the matrix, then Save changes. The new role cannot be assigned to an agent before this save. Existing roles keep their access unless you edit and save their permissions. Brand Admin and God User access is protected.',
-      'Saved permission changes apply immediately. Agents should refresh Respovia to see updated controls. If another admin saved first, reload the matrix and review the new settings before making further changes. Your unsaved selections stay on screen after a failed save.',
-      'Brand admins receive an in-app notification when AI credit falls below $2. Open it to view AI settings and ask a platform administrator to add credit. Reading or dismissing the alert is remembered until the balance recovers and falls below $2 again.',
-      'Open an agent to see their email address. Admins can choose Resend invite for agents marked Invited, check the recipient, then confirm. Agents who have already joined have a Send password reset option instead.',
-      'New invitees must use the emailed setup link to confirm their address and choose a password before joining. Complete this step before using Sign in with Maestro for the first time. If the email fails, an admin can resend the invitation.',
       'Choose Last 7 days, Last 30 days, Last 90 days or All time to compare performance. The dates appear beside the filter. Current workload always shows tickets needing attention now.',
       'Send & resolve credits the agent who resolves the ticket, regardless of its assignee. Each ticket counts once per agent in the selected period. Open an agent for saved replies, tickets handled and the counting explanation.',
       'If a control is missing, ask your lead whether your role or workspace has access. Some AI, template and administration controls depend on configuration or permissions.',
@@ -202,15 +191,363 @@ export const GUIDE_STEPS = [
       'Write a Reply or personalise a template. Verify AI suggestions, fill placeholders, and check language and attachments.',
       'Reread the final reply, send it, and check the saved message and delivery notice.',
       'Set the appropriate status. Record the next action, owner and follow-up in an internal note when work remains.',
-      'Choose Finish to close the tour, then open your ticket. Return to Guided tours whenever you need a reminder.',
+      'Choose Next to record that you viewed this step. Exit to work on your approved ticket, then reopen Guides to confirm your practice.',
+    ],
+    permissions: ['tickets.reply', 'tickets.edit', 'tickets.close', 'tickets.note'],
+  },
+  {
+    id: 'create',
+    page: 'tickets',
+    target: 'tickets',
+    source: 'web/js/tickets/list.js',
+    title: 'Create a ticket and save a draft',
+    body: 'Check the customer and inbox, prepare a message, then save before sending.',
+    highlights: [
+      'Choose New ticket and check the customer, inbox and subject.',
+      'Confirm the conversation language and prepare the first message.',
+      'Save as draft keeps the message unsent; wait for the save result.',
+    ],
+    instructions: [
+      'Choose New ticket. Select the correct customer, receiving inbox and subject. Check the customer email before continuing to the first message.',
+      'Confirm the conversation language. Write the first message, or choose a starter template and check every detail.',
+      'Save as draft creates an unsent ticket. Check that it appears in Tickets and reopen it before continuing. The walkthrough never creates or sends a ticket for you.',
+    ],
+    permissions: [
+      'tickets.create',
+    ],
+  },
+  {
+    id: 'attachments',
+    page: 'tickets',
+    target: 'tickets',
+    source: 'web/js/tickets/list.js',
+    title: 'Add and check attachments',
+    body: 'Attach only the files needed for this customer and check the upload result.',
+    highlights: [
+      'Choose Attachments in the first-message form or reply composer.',
+      'Check every file and remove anything unintended.',
+      'Wait for uploads and draft sync before leaving.',
+    ],
+    instructions: [
+      'New tickets accept up to 20 files, at most 10 MB each; sending allows 7 MB total. Review names and contents before sending.',
+      'Saving a first message as a draft keeps attachments private with the unsent message. If uploading fails after creation, retry in the same form; successful uploads are kept.',
+      'For an existing ticket, wait for reply uploads and draft sync to finish. Open an attachment preview to check it. A file in a draft has not been sent.',
+    ],
+    permissions: [
+      'tickets.attach',
+    ],
+    anyPermissions: [
+      'tickets.create',
+      'tickets.reply',
+    ],
+  },
+  {
+    id: 'contacts',
+    page: 'customers',
+    target: 'customers',
+    source: 'web/js/customers/index.js',
+    title: 'Manage customer email addresses',
+    body: 'Keep contact addresses accurate and check the primary email before replying.',
+    highlights: [
+      'Open the customer profile and review the email addresses.',
+      'Use only contact actions allowed by your saved permissions.',
+      'Check the primary address and the ticket recipient before sending.',
+    ],
+    instructions: [
+      'Email actions depend on your saved permissions. Adding, choosing a primary email and removing an email are separate permissions.',
+      'After an approved change, refresh the profile and verify that it was saved. An address may still be protected by validation or account rules. Read the error before retrying.',
+    ],
+    anyPermissions: [
+      'customers.contact_add',
+      'customers.contact_primary',
+      'customers.contact_remove',
+    ],
+  },
+  {
+    id: 'assignment',
+    page: 'tickets',
+    target: 'tickets',
+    source: 'web/js/tickets/list.js',
+    title: 'Assign and check ownership',
+    body: 'Choose the next owner and confirm the saved assignment.',
+    highlights: [
+      'Agree ownership using your team’s process.',
+      'Choose the assigned agent in Details → Properties.',
+      'Check the saved owner before leaving the ticket.',
+    ],
+    instructions: [
+      'Open Details → Properties and change Assigned agent. Check availability and use your team’s escalation process.',
+      'When another teammate or an assignment rule assigns a ticket, the assignee receives an email if Assignment emails is enabled. Assigning a ticket to yourself or keeping the same assignee does not send another email.',
+      'An assignment alone does not explain the issue. Make sure the next owner has the context they need.',
+    ],
+    permissions: [
+      'tickets.assign',
+    ],
+  },
+  {
+    id: 'preferences',
+    page: 'settings',
+    target: 'preferences',
+    source: 'web/js/settings/index.js',
+    title: 'Choose notification preferences',
+    body: 'Review your profile, language and assignment email preferences.',
+    highlights: [
+      'Open Settings → Notifications to review Assignment emails.',
+      'Choose the preference you want and wait for the save result.',
+      'Assignment emails follow your saved preference across devices.',
+    ],
+    instructions: [
+      'Review your profile and language preferences under Settings. Check the displayed save result when changing a preference.',
+      'Under Notifications, Assignment emails controls emails when a teammate or assignment rule assigns a ticket to you. Self-assignment and an unchanged assignee do not send these emails.',
+      'This guide does not change preferences. For practice you can inspect the current value without changing it.',
+    ],
+  },
+  {
+    id: 'configuration',
+    page: 'config',
+    target: 'configuration',
+    source: 'web/js/config-hub/index.js',
+    title: 'Review brand configuration',
+    body: 'Find brand settings and understand what a saved change affects.',
+    highlights: [
+      'Open Configuration and choose the area you need.',
+      'Review the current brand and settings before editing.',
+      'Use a test workspace for changes approved by your team.',
+    ],
+    instructions: [
+      'Configuration groups ticketing, content, channels and workspace settings. Available controls depend on your saved access.',
+      'Ticket status choices control workflow categories, required reasons and survey rules. Closed choices never send surveys. Survey choices cannot recall a survey already sent.',
+      'Review saved settings and the affected workflow before changing a live brand. This walkthrough changes nothing.',
+    ],
+    adminOnly: true,
+  },
+  {
+    id: 'role-permissions',
+    page: 'roles',
+    target: 'roles',
+    source: 'web/js/roles/index.js',
+    title: 'Tailor role permissions',
+    body: 'Review access for this brand and save only the changes you intend.',
+    highlights: [
+      'Open Permissions and scroll sideways to review more roles.',
+      'Checkbox changes stay unsaved until Save changes.',
+      'A new role opens the matrix and needs saving before assignment.',
+    ],
+    instructions: [
+      'Brand Admins and God Users can tailor role permissions. Protected administrator access cannot be removed or assigned through a custom role.',
+      'Choose + Role, name it and select Set permissions. Review its matrix column and choose Save changes. The role is unavailable for assignment until this save.',
+      'Saved permissions take effect immediately; agents should refresh to see updated controls. If another administrator saved first, reload and review their settings before saving. Unsaved selections stay on screen after a failed save.',
+    ],
+    adminOnly: true,
+  },
+  {
+    id: 'agent-admin',
+    page: 'agents',
+    target: 'agents',
+    source: 'web/js/agents/index.js',
+    title: 'Invite and manage agents',
+    body: 'Check the recipient, access and invitation state before inviting a teammate.',
+    highlights: [
+      'Use Agents to review existing access before inviting.',
+      'Choose only an approved role for the correct brand.',
+      'Read the invite result before retrying.',
+    ],
+    instructions: [
+      'Invite a teammate using the approved address and an available role. Existing protected Brand Admin access cannot be replaced through an invitation.',
+      'Open an invited agent to resend an invitation, check the recipient, then confirm. An agent who has already joined has a password reset option instead.',
+      'Ask the invitee to follow the emailed setup instructions. The guide does not send invitations or account emails.',
+    ],
+    permissions: [
+      'admin.agents',
     ],
   },
 ];
 
-export const QUICK_START_IDS = ['dashboard', 'tickets', 'reply', 'send', 'handover'];
+export const GUIDE_MODULES = [
+  {
+    "id": "navigation",
+    "title": "Find your way around",
+    "body": "Workspace, queues and trusted guidance.",
+    "stepIds": [
+      "dashboard",
+      "tickets",
+      "review",
+      "knowledge"
+    ],
+    "practice": [
+      {
+        "id": "workspace",
+        "step": "dashboard",
+        "task": "Check your workspace and open your team’s queue.",
+        "expected": "The brand and queue match the work assigned to you."
+      },
+      {
+        "id": "guidance",
+        "step": "knowledge",
+        "task": "Find an approved article for a sample issue.",
+        "expected": "You can explain why its brand and scope fit the issue."
+      }
+    ]
+  },
+  {
+    "id": "creation",
+    "title": "Tickets, drafts and attachments",
+    "body": "Start a conversation and prepare files.",
+    "stepIds": [
+      "create",
+      "attachments"
+    ],
+    "practice": [
+      {
+        "id": "draft",
+        "step": "create",
+        "task": "Save an unsent ticket using a team-approved test contact.",
+        "expected": "The saved draft reopens with the correct customer, inbox and subject."
+      },
+      {
+        "id": "file",
+        "step": "attachments",
+        "task": "Add a harmless test file to an approved draft and reopen it.",
+        "expected": "The file is available in the unsent draft and no email was sent."
+      }
+    ]
+  },
+  {
+    "id": "replies",
+    "title": "Reply, send and set status",
+    "body": "Prepare a reply and check the outcome.",
+    "stepIds": [
+      "reply",
+      "templates",
+      "ai-review",
+      "send",
+      "statuses",
+      "checklist"
+    ],
+    "practice": [
+      {
+        "id": "reply-draft",
+        "step": "reply",
+        "task": "Prepare and save a reply on an approved test ticket.",
+        "expected": "The unsent reply has the correct recipient, language and facts."
+      },
+      {
+        "id": "send-result",
+        "step": "send",
+        "task": "On a team-approved test ticket, choose the intended send action and check the result.",
+        "expected": "The saved message and delivery notice confirm the send. If you chose a status action, the saved status matches it."
+      },
+      {
+        "id": "status",
+        "step": "statuses",
+        "task": "Review the available status choices on an approved ticket.",
+        "expected": "You can explain Open, Pending, Escalated, Resolved and Closed without changing live work."
+      }
+    ]
+  },
+  {
+    "id": "customers",
+    "title": "Understand customer profiles",
+    "body": "Check history, identity and email addresses.",
+    "stepIds": [
+      "customers",
+      "contacts"
+    ],
+    "practice": [
+      {
+        "id": "profile",
+        "step": "customers",
+        "task": "Open an approved customer profile and review related tickets.",
+        "expected": "The customer and brand match, and you can identify related history."
+      },
+      {
+        "id": "contact-check",
+        "step": "contacts",
+        "task": "Review available email controls and the primary address.",
+        "expected": "You can identify your permitted actions and the correct recipient without deleting contact details."
+      }
+    ]
+  },
+  {
+    "id": "handovers",
+    "title": "Assignments and handovers",
+    "body": "Find the right owner and leave useful context.",
+    "stepIds": [
+      "agents",
+      "handover",
+      "assignment"
+    ],
+    "practice": [
+      {
+        "id": "availability",
+        "step": "agents",
+        "task": "Find the teammate responsible for a sample escalation.",
+        "expected": "You can identify the next owner using your team’s process."
+      },
+      {
+        "id": "note",
+        "step": "handover",
+        "task": "Add an internal handover note to an approved test ticket.",
+        "expected": "The note is internal and records checks, the next action and owner."
+      },
+      {
+        "id": "owner",
+        "step": "assignment",
+        "task": "Assign an approved test ticket as agreed with your team.",
+        "expected": "The saved assignee is correct; self-assignment does not trigger an assignment email."
+      }
+    ]
+  },
+  {
+    "id": "preferences",
+    "title": "Notifications and preferences",
+    "body": "Understand the settings for your account.",
+    "stepIds": [
+      "preferences"
+    ],
+    "practice": [
+      {
+        "id": "notifications",
+        "step": "preferences",
+        "task": "Open Notifications and review Assignment emails.",
+        "expected": "You know the saved preference and when an assignment email is expected."
+      }
+    ]
+  },
+  {
+    "id": "administration",
+    "title": "Brand administration",
+    "body": "Review configuration, agent access and roles.",
+    "stepIds": [
+      "configuration",
+      "role-permissions",
+      "agent-admin"
+    ],
+    "practice": [
+      {
+        "id": "config",
+        "step": "configuration",
+        "task": "Find the brand’s ticket statuses and survey settings.",
+        "expected": "You can explain the current rules without changing production settings."
+      },
+      {
+        "id": "matrix",
+        "step": "role-permissions",
+        "task": "Inspect the permission matrix for an approved role.",
+        "expected": "You can distinguish saved access from unsaved selections. New roles need Save changes before assignment."
+      },
+      {
+        "id": "invite",
+        "step": "agent-admin",
+        "task": "Review an existing agent’s role and invitation state.",
+        "expected": "You can identify whether an invite is pending without sending another email."
+      }
+    ]
+  }
+];
 
-// Changing any guide step automatically gives it a new completion version.
-export const GUIDE_VERSION = JSON.stringify(GUIDE_STEPS);
+// Content changes invalidate viewed and self-confirmed practice progress.
+export const GUIDE_VERSION = JSON.stringify([GUIDE_STEPS, GUIDE_MODULES]);
 
 export function validateGuideConfig(steps = GUIDE_STEPS) {
   const ids = new Set();

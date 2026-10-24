@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { ZodError } from 'zod';
 import { parseCustomerReply } from './lib/customer-reply.js';
 
 const sources = [{ id: 'KB-123', title: 'Withdrawal policy', url: 'https://example.com/policy' }];
@@ -26,4 +27,13 @@ test('rejects labels, internal citations, invalid shapes and invented reference 
 test('allows internal-only review results without manufacturing an email', () => {
   expect(parseCustomerReply({ ...valid, customerReply: '' }, sources).text).toBe('');
   expect(() => parseCustomerReply({ customerReply: '', internalNotes: [], referenceIds: [] }, [])).toThrow();
+});
+
+
+test('rejects an oversized reference list before accumulating per-item errors', () => {
+  let failure: ZodError | undefined;
+  try { parseCustomerReply({ customerReply: 'Hello', referenceIds: Array(10000).fill(123), internalNotes: [] }, []); }
+  catch (error) { if (!(error instanceof ZodError)) throw error; failure = error; }
+  expect(failure?.issues).toHaveLength(1);
+  expect(failure?.issues[0]).toMatchObject({ code: 'too_big', path: ['referenceIds'] });
 });

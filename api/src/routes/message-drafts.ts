@@ -4,7 +4,7 @@ import type { TransactionSql, JSONValue } from 'postgres';
 import { getDb } from '../lib/db.js';
 import { sanitizeEmailHtml } from '../lib/email-html.js';
 
-const metadata = z.record(z.unknown()).nullable().refine(v => JSON.stringify(v).length <= 50000);
+const metadata = z.record(z.string(), z.unknown()).nullable().refine(v => JSON.stringify(v).length <= 50000);
 const Input = z.object({
   version: z.number().int().min(0).max(2147483646),
   body: z.string().max(2000000),

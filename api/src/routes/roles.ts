@@ -16,7 +16,7 @@ export const roles = new Hono();
 
 roles.use('*', requireAuth);
 
-const PermissionSet = z.record(z.boolean()).superRefine((value, ctx) => {
+const PermissionSet = z.record(z.string(), z.boolean()).superRefine((value, ctx) => {
   if (Object.keys(value).length !== permissionKeys.length || permissionKeys.some(key => !Object.hasOwn(value, key)))
     ctx.addIssue({ code: 'custom', message: 'Save a complete set of supported permissions.' });
 });
