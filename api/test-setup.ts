@@ -18,8 +18,10 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 // postmark-outbound.test.ts needs Postmark to read as "configured" at env-parse
 // time (it stubs fetch, so nothing is actually sent). env is parsed once, so
 // these must be present before the first load — same reason as above.
-process.env.POSTMARK_SERVER_TOKEN ||= 'test-server-token';
-process.env.POSTMARK_OUTBOUND_FROM ||= 'support@maestro.test';
+// Never inherit live Postmark credentials from api/.env during tests.
+process.env.POSTMARK_SERVER_TOKEN = 'test-server-token';
+process.env.POSTMARK_OUTBOUND_FROM = 'support@maestro.test';
+process.env.POSTMARK_ACCOUNT_TOKEN = '';
 // push.test.ts needs Web Push to read as "configured" at env-parse time. A
 // real generated keypair so setVapidDetails() accepts it (the test stubs
 // webpush.sendNotification, so nothing leaves the process). Same parse-once
