@@ -14,6 +14,11 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
 
 const { deriveStatus, DomainSchema } = await import('./lib/email-domains.js');
 
+it('disables live Postmark domain provisioning in the test preload', () => {
+  expect(process.env.POSTMARK_ACCOUNT_TOKEN).toBe('');
+  expect(process.env.POSTMARK_SERVER_TOKEN).toBe('test-server-token');
+});
+
 describe('deriveStatus', () => {
   it('maps verified_at/degraded_at to pending | verified | degraded', () => {
     expect(deriveStatus({ verified_at: null, degraded_at: null })).toBe('pending');
@@ -130,6 +135,9 @@ runDbTests('email domains (DB-backed)', () => {
     const result = await addEmailDomain(ctx.ws2, d);
     expect(result.row.workspace_id).toBe(ctx.ws2);
     expect(result.superseded).toEqual({ workspaceId: ctx.ws, domainId: claim.id });
+    expect(result.row.postmark_domain_id).toBeNull();
+    expect(result.dnsSetup).toBeNull();
+    expect(result.postmarkError).toBeNull();
 
     // The squatter's claim is soft-deleted, not just shadowed.
     const [old] = await sql<{ deleted_at: Date | null }[]>`
