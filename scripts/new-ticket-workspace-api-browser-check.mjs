@@ -2,7 +2,7 @@
 export default async function checkWorkspaceApi(browser) {
   let checks = 0;
   const check = (ok, message) => { if (!ok) throw Error(message); checks++; };
-  for (const scenario of ['empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed']) {
+  for (const scenario of ['empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
     console.log('CHECK ticket workspace: ' + scenario);
     const context = await browser.newContext(), page = await context.newPage();
     const errors = [], requests = [], drafts = {};
@@ -18,7 +18,7 @@ export default async function checkWorkspaceApi(browser) {
       requests.push({ path, method: request.method(), body });
       let status = 200, json = {};
       if (path.endsWith('/ai/messages')) {
-        if (scenario === 'ai-edited') await new Promise(resolve => { releaseAi = resolve; });
+        if (['ai-edited','ai-rerender'].includes(scenario)) await new Promise(resolve => { releaseAi = resolve; });
         if (scenario === 'ai-failed') { status = 503; json = { error: 'Synthetic AI unavailable' }; }
         else json = { text: 'Customer suggestion only.', internal: { notes: ['Private agent note.'], references: [] } };
       }
@@ -26,7 +26,7 @@ export default async function checkWorkspaceApi(browser) {
       else if (path.endsWith('/ticket-statuses')) json = { statuses: ['open','pending','resolved','escalated','closed'].map(key => ({ key, label: key, base_key: key, is_active: true, reasons: [], send_survey: key === 'resolved' })) };
       else if (path.endsWith('/tickets') && request.method() === 'POST') {
         creates++; Object.assign(row, body); json = { ticket: row };
-        if (scenario === 'create-failed') { status = 503; json = { error: 'Synthetic create failure' }; }
+        if (['create-failed','ai-label'].includes(scenario)) { status = 503; json = { error: 'Synthetic create failure' }; }
       } else if (path.includes('/drafts/')) {
         const tab = path.split('/').at(-1);
         if (request.method() === 'PUT') {
@@ -83,19 +83,28 @@ export default async function checkWorkspaceApi(browser) {
       }
       await page.locator('#nt2-cc').fill('copy@example.test'); await page.locator('#nt2-from').selectOption(channelId);
       if (scenario.startsWith('ai')) {
+        if (scenario === 'ai-label') {
+          await page.locator('#nt2-without-ai-btn').click();
+          await page.locator('#nt2-draft-btn:not(:disabled)').waitFor();
+          await page.locator('#nt2-after-send').selectOption('pending');
+          await page.locator('#compose-new-ticket .ql-editor').waitFor();
+        }
         await page.getByRole('button', { name: 'Improve', exact: true }).click();
-        if (scenario === 'ai-edited') {
+        if (['ai-edited','ai-rerender'].includes(scenario)) {
           await page.waitForFunction(() => document.querySelector('#nt-ai-status')?.textContent.includes('Preparing'));
-          await editor.fill('Agent edits made while waiting');
+          if (scenario === 'ai-edited') await editor.fill('Agent edits made while waiting');
+          else await page.locator('#nt2-files').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') });
           while (!releaseAi) await new Promise(resolve => setTimeout(resolve, 10));
           releaseAi();
         }
         await page.waitForFunction(() => !document.querySelector('#nt-ai-status')?.textContent);
         const text = await editor.innerText();
-        check(text === (scenario === 'ai' ? 'Customer suggestion only.' : scenario === 'ai-edited' ? 'Agent edits made while waiting' : 'Reference {ticket}'), 'AI results preserve edits and failures keep the original');
+        check(text === (['ai','ai-label'].includes(scenario) ? 'Customer suggestion only.' : scenario === 'ai-edited' ? 'Agent edits made while waiting' : 'Reference {ticket}'), 'AI results preserve edits and failures keep the original');
         check(!text.includes('Private agent note.'), 'Internal AI notes never enter customer text');
         if (scenario === 'ai') check((await page.locator('#nt-ai-notes').innerText()).includes('Private agent note.'), 'Internal notes appear separately');
-        check(creates === 0 && messages === 0, 'AI tools never create or send a ticket');
+        check(creates === (scenario === 'ai-label' ? 1 : 0) && messages === 0, 'AI tools never create or send a ticket');
+        check(await page.locator('#nt2-send-btn').innerText() === (scenario === 'ai-label' ? 'Send & pending' : 'Send'), 'AI completion restores the current action label');
+        if (scenario === 'ai-rerender') check((await page.locator('body').innerText()).includes('The ticket changed while AI was working.'), 'Discarded AI result explains why and how to retry');
         check(errors.length === 0, `No AI browser errors: ${errors.join('; ')}`);
         continue;
       }

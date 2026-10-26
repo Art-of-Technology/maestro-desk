@@ -573,7 +573,10 @@ async function aiWriting(verb) {
   try {
     const instruction = { draft: 'Draft a concise first customer-support message from the supplied subject and agent notes. Do not invent facts.', improve: 'Improve clarity without changing the meaning.', shorten: 'Shorten while preserving the meaning.', friendly: 'Make the tone warmer without changing the meaning.' }[verb];
     const result = await callClaude({ action: 'draft', system: instruction, messages: [{ role: 'user', content: `Subject: ${NT.subject}\nAgent notes or message:\n${original}` }], replyFormat: true, replyContext: 'reply', maxTokens: 1600 });
-    if (!currentWorkspace() || NT.scope !== scope || NT.customer !== customer || document.getElementById('compose-new-ticket') !== editor) return;
+    if (!currentWorkspace() || NT.scope !== scope) return;
+    if (NT.customer !== customer || document.getElementById('compose-new-ticket') !== editor) {
+      showToast('The ticket changed while AI was working. Your message was kept. Generate the suggestion again.', 'warn'); return;
+    }
     captureEditor();
     if (NT.message !== original || NT.messageHtml !== originalHtml) { showToast('Your edits were kept. Generate the suggestion again.', 'warn'); return; }
     if (!result.text?.trim() || !result.data?.internal) throw Error('The suggestion was incomplete. Please try again.');
@@ -602,8 +605,6 @@ window.addEventListener('respovia:template-favourites', () => {
 
 
 // Freeze every exit while saving, so cancellation cannot reset in-flight work.
-let _confirmLabelBeforeBusy = '';
-
 function setBusy(on, label) {
   NT.busy = on;
   NT.editor?.enable(!on && can('tickets.reply'));
@@ -611,8 +612,7 @@ function setBusy(on, label) {
     .forEach(el => { el.disabled = on; });
   const confirm = document.getElementById('nt2-send-btn');
   if (confirm) {
-    if (on) { _confirmLabelBeforeBusy = confirm.textContent; confirm.textContent = label; }
-    else if (_confirmLabelBeforeBusy) { confirm.textContent = _confirmLabelBeforeBusy; }
+    confirm.textContent = on ? label : (sendActions().find(action => action.status === NT.statusAfterSend) || SEND_ACTIONS[0]).label;
     confirm.disabled = on || !can('tickets.reply');
   }
   const draft = document.getElementById('nt2-draft-btn');
