@@ -10,9 +10,12 @@ export function unresolvedVariables(text) {
 
 export function resolveTemplate(template, ticket, tailored = {}) {
   const customer = CUSTOMERS.find(c => c.id === ticket.customerId);
-  const values = { name: customer?.first, ticket: ticket.id,
+  const values = { name: customer?.first, ticket: ticket.pendingCreation ? null : ticket.id,
     brand: customer?.brand, agent: ticket.agent || SESSION?.name, ...tailored };
-  const replace = text => text.replace(/\{([a-z][a-z0-9_]*)\}/gi, (original, key) => Object.hasOwn(values, key) && values[key] ? values[key] : original);
+  const replace = text => text.replace(/\{([a-z][a-z0-9_]*)\}/gi, (original, key) => {
+    const lookup = Object.hasOwn(values, key) ? key : key.toLowerCase();
+    return Object.hasOwn(values, lookup) && values[lookup] ? values[lookup] : original;
+  });
   let html = template.html || null;
   if (html) {
     // Only text nodes: customer values cannot introduce markup or alter URLs.
@@ -35,7 +38,7 @@ export async function appendTemplate(ticket, template) {
   const active = () => host === document.getElementById('compose-' + ticket.id) && workspace === getWorkspaceId() && jwt === getJwt() && composeTab === COMPOSE_TAB;
   if (!active()) return false;
   const content = resolveTemplate(template, ticket);
-  const missing = unresolvedVariables(content.text);
+  const missing = unresolvedVariables(content.text).filter(key => !(ticket.pendingCreation && key.toLowerCase() === '{ticket}'));
   const valuesFromForm = () => Object.fromEntries(missing.map((key, i) => [key.slice(1, -1), document.getElementById('tailor-' + i).value.trim()]));
   {
     showModal('Preview response', `<p>Check the customer details before inserting this response.${missing.length ? ' Fill in the missing fields below.' : ''}</p>${missing.map((key, i) => `<div class="form-row"><label class="form-label" for="tailor-${i}">${window.escHtml(key)}</label><input class="form-input" id="tailor-${i}" autocomplete="off" /></div>`).join('')}<div id="tailor-preview" style="white-space:pre-wrap;overflow-wrap:anywhere;border:1px solid var(--rule);padding:12px;border-radius:8px">${window.escHtml(content.text)}</div><p id="tailor-status" role="status"></p>`, () => {
@@ -46,7 +49,7 @@ export async function appendTemplate(ticket, template) {
         return;
       }
       const resolved = resolveTemplate(template, ticket, values);
-      if (unresolvedVariables(resolved.html).length) {
+      if (unresolvedVariables(resolveTemplate(template, { ...ticket, pendingCreation: false }, values).html).length) {
         document.getElementById('tailor-status').textContent = 'This template has an unfilled field in its formatting or links. Edit the template before using it.';
         return;
       }

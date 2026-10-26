@@ -1,6 +1,7 @@
 // Run against the local static server via Playwright. All API traffic is mocked.
 export default async function checkNewTicketTemplates(page) {
   let checks = 0, writes = 0;
+  page.on('dialog', dialog => dialog.accept());
   const assert = (ok, message) => { if (!ok) throw new Error(message); checks++; };
   await page.route('**/api/**', route => {
     if (!['GET', 'OPTIONS'].includes(route.request().method())) writes++;
@@ -24,7 +25,7 @@ export default async function checkNewTicketTemplates(page) {
   });
   const search = page.getByRole('searchbox', { name: 'Search templates', exact: true });
   const category = page.getByRole('combobox', { name: 'Template category', exact: true });
-  const starter = page.getByRole('combobox', { name: 'Start from template (optional)', exact: true });
+  const starter = page.getByRole('combobox', { name: 'Start from ticket template (optional)', exact: true });
   assert(await starter.locator('option').count() === 104, 'All 103 templates and blank choice are initially available');
   await page.locator('#nt-subj').fill('Keep my subject');
   await page.locator('#nt-cat').selectOption('account');
@@ -54,35 +55,17 @@ export default async function checkNewTicketTemplates(page) {
   await search.fill('');
   assert((await page.locator('#nt-template-count').innerText()).includes('1 of 103'), 'Uncategorised templates are searchable');
   assert(await starter.inputValue() === 'TT-REFUND', 'Repeated filtering retains the selected starter');
-  await page.getByRole('button', { name: 'Next — write the message' }).click();
-  await page.locator('#nt-language').selectOption('English');
-  await page.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
-  const insert = page.getByRole('combobox', { name: 'Insert template (appends)', exact: true });
-  assert(await search.inputValue() === '', 'First-message filters start independently of details filters');
+  await page.locator('#compose-new-ticket .ql-editor').waitFor();
   assert(await page.locator('#nt2-msg').inputValue() === 'Your bank transfer is pending.', 'Starter message survives filter changes');
-  await page.locator('#nt2-msg').fill('Existing first-message draft');
-  await search.fill('proof address');
-  await category.selectOption('Account');
-  assert(await insert.locator('option').count() === 2, 'First-message search and category combine');
-  assert(await page.locator('#nt2-msg').inputValue() === 'Existing first-message draft', 'Filtering preserves the first message');
-  await insert.selectOption('TT-ACCOUNT');
-  assert(await insert.inputValue() === '', 'Insertion resets the selected append choice');
-  assert(await page.locator('#nt2-msg').inputValue() === 'Existing first-message draft\n\nPlease upload proof of address.', 'Selection appends rather than replaces');
-  await search.fill('not found');
-  assert(await insert.locator('option').count() === 1, 'No-match append list retains only its blank choice');
-  assert((await page.locator('#nt2-template-count').innerText()).includes('No templates match'), 'First-message no-match state is clear');
-  await page.locator('[data-action="nt.back"]').click();
-  assert(await search.inputValue() === '', 'Details search is retained independently');
-  assert(await category.inputValue() === 'Uncategorised', 'Details category survives moving back');
-  assert(await starter.inputValue() === 'TT-REFUND', 'Selected starter survives moving back');
-  assert(await page.locator('#nt-subj').inputValue() === 'Custom subject', 'Subject edits survive both steps');
-  await search.fill('verification');
-  await category.selectOption('Account');
-  assert(await starter.inputValue() === 'TT-REFUND', 'Returning and searching still does not apply another template');
-  await page.getByRole('button', { name: 'Next — write the message' }).click();
-  assert(await search.inputValue() === 'not found', 'First-message query survives moving between steps');
-  assert(await category.inputValue() === 'Account', 'First-message category survives moving between steps');
-  assert(await page.locator('#nt2-msg').inputValue() === 'Existing first-message draft\n\nPlease upload proof of address.', 'Draft survives back/forward after appending');
+  await page.locator('#compose-new-ticket .ql-editor').fill('Existing first-message draft');
+  await page.locator('#nt2-after-send').selectOption('pending');
+  await page.locator('#compose-new-ticket .ql-editor').waitFor();
+  assert(await search.inputValue() === '' && await category.inputValue() === 'Uncategorised', 'Filters survive composer rerender');
+  assert(await starter.inputValue() === 'TT-REFUND', 'Selected starter survives composer rerender');
+  assert(await page.locator('#nt-subj').inputValue() === 'Custom subject', 'Subject edits survive composer rerender');
+  await search.fill('verification'); await category.selectOption('Account');
+  await starter.selectOption('TT-ACCOUNT');
+  assert(await page.locator('#nt2-msg').inputValue() === 'Existing first-message draft', 'Applying a starter keeps an agent-written message');
   await category.selectOption(''); await search.fill('');
   for (const width of [390, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
@@ -92,12 +75,12 @@ export default async function checkNewTicketTemplates(page) {
   await search.focus(); await page.keyboard.press('Tab');
   assert(await category.evaluate(el => el === document.activeElement), 'Category is next in keyboard order');
   await page.keyboard.press('Tab');
-  assert(await insert.evaluate(el => el === document.activeElement), 'Template selector follows category in keyboard order');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  assert(await starter.evaluate(el => el === document.activeElement), 'Template selector follows category in keyboard order');
+  await page.getByRole('button', { name: 'Close new ticket', exact: true }).click();
   await page.evaluate(async customerId => (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, customerId), customerId);
   assert(await search.inputValue() === '' && await category.inputValue() === '', 'A fresh conversation resets filters');
   assert(await starter.inputValue() === '', 'A fresh conversation starts blank');
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Close new ticket', exact: true }).click();
   await page.evaluate(async customerId => {
     (await import('/js/core/data.js')).TICKET_TEMPLATES.length = 0;
     await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, customerId);

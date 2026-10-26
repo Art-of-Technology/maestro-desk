@@ -35,6 +35,7 @@ const actions = {
 };
 const actionKeys = Object.fromEntries(Object.entries(actions).flatMap(([key, names]) => names.map(name => [name, key])));
 export function actionPermission(element) {
+  if (['nt.cancel', 'nt.closePreview'].includes(element.dataset.action)) return null;
   if (element.dataset.action === 'td.deleteTicket' && element.dataset.blankTicket === 'true' && (SESSION?.permissionsLegacy || !SESSION?.permissions)) return null;
   if (element.dataset.action === 'td.setComposeTab') return element.dataset.tab === 'note' ? 'tickets.note' : 'tickets.reply';
   if ((element.dataset.action || '').startsWith('nt.')) return 'tickets.create';

@@ -4,11 +4,16 @@ import { runInNewContext } from 'node:vm';
 
 const source = readFileSync('web/js/tickets/new-ticket.js', 'utf8');
 const functions = source.slice(source.indexOf('async function createOnServer('), source.indexOf('// Demo persona'));
+const actionsSource = source.slice(source.lastIndexOf('registerActions({'));
+const cancelSource = source.slice(source.indexOf('function cancelWorkspace('), source.indexOf('function recipientPayload('));
 function fixture() {
   let workspace = 'brand', failFile = '', failSync = false, failSend = false, failFinish = false, switchUpload = false, allowed = true;
   const posts = [], uploads = [], draft = { body: '', files: [], version: 0 }, notices = [], finished = [];
   const row = { id: 'ticket-uuid', display_id: 'TK-NEW', assigned_user_id: null };
-  const context = { NT: { createdTicket: null }, TICKETS: [], FormData,
+  const context = { NT: { createdTicket: null }, TICKETS: [], FormData, SESSION: { name: 'Tester' },
+    resolveTemplate: template => ({ text: template.text.replaceAll('{ticket}', 'TK-NEW'), html: template.html?.replaceAll('{ticket}', 'TK-NEW') || null }),
+    unresolvedVariables: text => String(text).match(/\{[a-z_]+\}/gi) || [],
+    saveDraftRecipients: (id, recipients) => { draft.recipients = recipients; },
     document: { getElementById: () => ({ isConnected: true }) },
     can: () => allowed, getWorkspaceId: () => workspace, getJwt: () => 'session',
     apiPost: async (path, body) => { posts.push({ path, body }); if (path === '/api/v1/tickets') return { ticket: row };
@@ -25,7 +30,7 @@ function fixture() {
     finishDraftSend: (...args) => { finished.push(args); if (failFinish) throw Error('Synthetic cache failure'); }, notifyReplyDelivery() {}, showToast: text => notices.push(text),
   };
   runInNewContext(functions, context);
-  const snap = { customerUuid: 'customer', files: ['one.txt', 'two.txt'].map(name => ({ file: new File(['synthetic'], name), attachment: null })) };
+  const snap = { customerUuid: 'customer', recipients: { to: ['synthetic@example.test'], cc: ['copy@example.test'], mode: 'reply', sending_channel_id: null }, files: ['one.txt', 'two.txt'].map(name => ({ file: new File(['synthetic'], name), attachment: null })) };
   return { context, snap, draft, posts, uploads, notices, finished,
     run: (send = true) => context.createOnServer(snap, { message: 'Synthetic message', send }),
     set: options => { if ('failFile' in options) failFile = options.failFile; if ('failSync' in options) failSync = options.failSync;
@@ -103,9 +108,12 @@ test('selection, removal and cancellation stay local before ticket creation', ()
     can: () => true, templateFilters: {},
     document: { getElementById: id => ({ value: id === 'nt2-msg' ? 'Keep this text' : '', focus() {} }) },
     registerActions: map => Object.assign(actions, map), registerChangeActions: map => Object.assign(changes, map), registerInputActions() {}, registerMousedownActions() {},
-    renderStep2() {}, showToast: text => toasts.push(text), closeModal() {}, resetNT: () => { context.NT.files = []; },
+    currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Keep this text'; }, renderWorkspace() {},
+    hasUnfinishedTicket: () => true, window: { confirm: () => true }, closeWorkspace() {},
+    showToast: text => toasts.push(text), closeModal() {}, resetNT: () => { context.NT.files = []; },
   };
-  runInNewContext(source.slice(source.indexOf('// ─── Actions')), context);
+  context.document.querySelector = () => null;
+  runInNewContext(cancelSource + actionsSource, context);
   const file = new File(['synthetic'], 'receipt.txt');
   changes['nt.files']({}, { files: [file, new File([], 'empty.txt')] });
   expect(context.NT.files).toHaveLength(1); expect(context.NT.message).toBe('Keep this text');
@@ -123,12 +131,14 @@ test('selection, removal and cancellation stay local before ticket creation', ()
 
 test('sending rejects attachment-only messages and excessive combined size before creating a ticket', async () => {
   const alerts = [], context = { NT: { busy: false, files: [{ file: { size: 8 * 1024 * 1024 } }] },
-    document: { getElementById: () => ({ value: 'Synthetic' }) }, alert: text => alerts.push(text), required: () => false,
+    currentWorkspace: () => true, can: () => true, harvestWorkspace() {}, validateStep1: () => true, catOptions: () => [],
+    recipientPayload: () => ({ to: ['synthetic@example.test'] }),
+    document: { getElementById: () => ({ value: 'Synthetic', checkValidity: () => true }) }, alert: text => alerts.push(text), required: () => false,
   };
   runInNewContext(source.slice(source.indexOf('async function confirmSend('), source.indexOf('async function createOnServer(')), context);
   await context.confirmSend();
   expect(alerts[0]).toContain('max 7 MB');
-  context.document.getElementById = () => ({ value: '' });
+  context.document.getElementById = () => ({ value: '', checkValidity: () => true });
   await context.confirmSend();
   expect(alerts[1]).toContain('Write a message');
 });
@@ -141,10 +151,30 @@ test('leaving a partial upload requires confirmation and opens its existing draf
     document: { getElementById: () => ({ value: 'Preserved message' }) }, saveDraft: (...args) => saved.push(args),
     setComposeTabValue() {}, openTicket: id => opened.push(id), closeModal() {}, resetNT: () => { context.NT.files = []; },
     registerActions: map => Object.assign(actions, map), registerChangeActions() {}, registerInputActions() {}, registerMousedownActions() {},
+    currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Preserved message'; }, closeWorkspace() {},
+    recipientPayload: () => ({}), saveDraftRecipients() {},
+    resolveTemplate: template => template, SESSION: {},
   };
-  runInNewContext(source.slice(source.indexOf('// ─── Actions')), context);
+  runInNewContext(cancelSource + actionsSource, context);
   actions['nt.cancel'](); expect(context.NT.files).toHaveLength(1); expect(opened).toHaveLength(0);
   leave = true; actions['nt.cancel']();
   expect(opened).toEqual(['TK-EXISTS']); expect(saved[0]).toEqual(['TK-EXISTS', 'Preserved message', 'reply']);
   expect(context.NT.files).toHaveLength(0);
+});
+
+test('metadata-only drafts use the same versioned save without uploads or customer email', async () => {
+  const f = fixture(); f.snap.files = [];
+  const result = await f.context.createOnServer(f.snap, { message: '', send: false });
+  expect(result.keptDraft).toBe(true);
+  expect(f.posts).toHaveLength(1); expect(f.uploads).toHaveLength(0);
+  expect(f.draft.body).toBe(''); expect(f.draft.recipients.cc).toBe('copy@example.test');
+});
+
+test('rich drafts retain HTML and resolve the minted ticket number before saving and sending', async () => {
+  const f = fixture(); f.snap.files = []; f.snap.messageHtml = '<p>Reference <strong>{ticket}</strong></p>';
+  await f.context.createOnServer(f.snap, { message: 'Reference {ticket}', send: true });
+  expect(f.draft.body).toBe('<p>Reference <strong>TK-NEW</strong></p>');
+  expect(f.posts[1].body.body_html).toBe(f.draft.body);
+  expect(f.posts[1].body.body).toBe('Reference TK-NEW');
+  expect(f.posts[1].body.email_recipients.cc).toEqual(['copy@example.test']);
 });

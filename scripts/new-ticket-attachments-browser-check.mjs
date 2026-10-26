@@ -45,10 +45,9 @@ export default async (browser, screenshotsDir) => {
         await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, data.CUSTOMERS[0].id);
       }, { workspace, customerId, scenario });
       await page.locator('#nt-subj').fill('Synthetic files'); await page.locator('#nt-cat').selectOption({ index: 1 });
-      await page.locator('[data-action="modal.confirm"]').click();
-      await page.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
+      await page.locator('#compose-new-ticket .ql-editor').waitFor();
       if (scenario === 'restricted') { check(await page.locator('#nt2-files').count() === 0, 'Attachment permission hides file input'); continue; }
-      await page.locator('#nt2-msg').fill('Synthetic message');
+      await page.locator('#compose-new-ticket .ql-editor').fill('Synthetic message');
       const selected = scenario === 'large' ? [{ name: 'large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(8 * 1024 * 1024, 65) }]
         : ['receipt <tag>.txt','second.txt'].map(name => ({ name, mimeType: 'text/plain', buffer: Buffer.from('synthetic') }));
       await page.locator('#nt2-files').setInputFiles(selected);
@@ -57,7 +56,7 @@ export default async (browser, screenshotsDir) => {
       check(await page.locator('#nt2-msg').inputValue() === 'Synthetic message', 'File selection preserves message');
       check(await page.getByRole('button', { name: 'Remove receipt <tag>.txt', exact: true }).count() === (scenario === 'large' ? 0 : 1), 'File names are rendered safely');
       if (scenario === 'cancel') {
-        await page.getByRole('button', { name: 'Cancel new ticket', exact: true }).click();
+        await page.getByRole('button', { name: 'Close new ticket', exact: true }).click();
         check(creates === 0 && uploads.length === 0 && messages.length === 0, 'Cancel before creation performs no writes'); continue;
       }
       if (scenario === 'large') {
@@ -67,15 +66,15 @@ export default async (browser, screenshotsDir) => {
       if (scenario === 'manual') await page.locator('[data-action="nt.sendWithoutAI"]').click();
       else await page.getByRole('button', { name: ['draft','large'].includes(scenario) ? 'Save as draft' : 'Send', exact: true }).click();
       if (['retry','cancel-created'].includes(scenario)) {
-        await page.getByRole('status').filter({ hasText: 'already created' }).waitFor();
+        await page.getByRole('status').filter({ hasText: 'is saved. Continue here' }).waitFor();
         check(creates === 1 && uploads.length === 2 && messages.length === 0, 'Failed second upload cannot send a partial message');
         check(draft.attachments.length === 1, 'Successful upload is saved in the private draft');
         check(await page.locator('#nt2-msg').inputValue() === 'Synthetic message', 'Failed upload preserves message for retry');
         const target = await page.getByRole('button', { name: 'Remove second.txt', exact: true }).boundingBox();
         check(target.width >= 44 && target.height >= 44, 'Remove control has a 44px target');
-        check(await page.locator('.modal').evaluate(el => el.scrollWidth <= el.clientWidth), 'Mobile modal has no horizontal overflow');
+        check(await page.locator('.new-ticket-workspace').evaluate(el => el.scrollWidth <= el.clientWidth), 'Mobile modal has no horizontal overflow');
         if (scenario === 'cancel-created') {
-          await page.getByRole('button', { name: 'Cancel new ticket', exact: true }).click();
+          await page.getByRole('button', { name: 'Close new ticket', exact: true }).click();
           check(creates === 1 && messages.length === 0, 'Cancelling partial upload opens existing draft without sending'); continue;
         }
         allowRetry = true;

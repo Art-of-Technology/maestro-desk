@@ -52,6 +52,17 @@ run('ticket inbox moves', () => {
     for (const id of [ws, other].filter(Boolean)) await sql`delete from workspaces where id=${id}`;
     if (user) await sql`delete from users where id=${user}`;
   });
+  it('lists only verified active sending inboxes in the authenticated workspace before ticket creation', async () => {
+    const response = await request('channels/sending-inboxes');
+    expect(response.status).toBe(200);
+    const { inboxes }: any = await response.json();
+    expect(inboxes.map((inbox: any) => inbox.id).sort()).toEqual([first, second].sort());
+    expect((await (await request('channels/sending-inboxes', 'GET', undefined, other)).json() as any).inboxes).toEqual([]);
+    expect((await app.request('/api/v1/channels/sending-inboxes')).status).toBe(401);
+    await sql`update workspace_email_domains set degraded_at=now() where workspace_id=${ws}`;
+    try { expect((await (await request('channels/sending-inboxes')).json() as any).inboxes).toEqual([]); }
+    finally { await sql`update workspace_email_domains set degraded_at=null where workspace_id=${ws}`; }
+  });
   it('moves atomically, records history, changes the default sender and preserves the received email', async () => {
     const before = await current();
     const result = await move(second, before); expect(result.status).toBe(200);

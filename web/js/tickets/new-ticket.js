@@ -1,24 +1,7 @@
-// ─── New Ticket flow (two-step) ──────────────────────────────────────────────
-// Step 1 collects the compulsory details — customer (typeahead over the
-// loaded CUSTOMERS array), category (KEYS as values), subject, priority,
-// assignee. The agent confirms the conversation language before step 2,
-// the drafting window: templates append, Send emails the
-// message to the customer exactly like a reply, Save-as-draft creates the
-// ticket and keeps the text as a local composer draft, Cancel discards
-// everything. THE TICKET IS ONLY CREATED AT THE END OF STEP 2 (or at step 1's
-// confirm when the layout hides the message field entirely).
-//
-// Real workspaces persist via POST /api/v1/tickets (full post-rules row in
-// the response → upserted locally) + POST /:id/messages for Send. Demo
-// personas (picked customer has no _uuid) keep the legacy in-memory mint.
-//
-// One modal at a time (core/modal.js): each step is its own showModal call,
-// state carried in the module-local NT object (merge-chain pattern). NT is
-// reset on every fresh open, on finish, and on the explicit Cancel.
-//
-// External reaches (interim, via window): escAttr, escHtml — still in app.js.
+// Full-page new-ticket composer. Creation happens only on explicit Save or Send.
+// The existing ticket/draft/upload funnel remains responsible for retries.
 
-import { AGENTS, CATEGORIES, CUSTOMERS, TICKETS, TICKET_TEMPLATES } from '../core/data.js';
+import { AGENTS, CATEGORIES, CHANNELS, CUSTOMERS, TICKETS, TICKET_TEMPLATES, CANNED_RESPONSES } from '../core/data.js';
 import { can } from '../core/permissions.js';
 import { SESSION, CURRENT_TICKET, setComposeTabValue } from '../core/state.js';
 import { updateNavBadges } from '../core/router.js';
@@ -28,11 +11,16 @@ import { isFieldRequired, isFieldVisible } from '../layouts/index.js';
 import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
-import { apiPost, apiPatch, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery, applySentStatus } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
-import { saveDraft, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, finishDraftSend } from './drafts.js';
+import { saveDraft, saveDraftRecipients, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, finishDraftSend, textHtml } from './drafts.js';
+import { mountComposer, disposeComposer, getHtml, getPlainText, setText, setHtml, isRich } from './composer.js';
+import { appendTemplate, resolveTemplate, unresolvedVariables } from './template-content.js';
+import { showMacroPanel } from './macros.js';
+import { favouritesRow, loadTemplateFavourites, templateKey } from './template-favourites.js';
+import { callClaude } from '../ai/client.js';
 import { fmtBytes } from './attachment-chips.js';
 import { showToast } from '../core/toast.js';
 import { statusChoice, loadStatusOptions, statusOptionsState } from './status-options.js';
@@ -44,9 +32,7 @@ import { showCloseTickets, applyClosedTicket } from './closure.js';
 import { markCloseReminder } from './close-reminder.js';
 import { filterTemplates, templateCategories } from './template-search.js';
 
-// ─── Wizard state ────────────────────────────────────────────────────────────
-// Survives the closeModal()+showModal() hop between steps; nothing here is
-// persisted — the server (or the demo mint) only runs at the very end.
+// Unsubmitted work stays local until the agent explicitly saves or sends.
 const NT = {
   statusReason: '',
   busy: false,
@@ -57,11 +43,19 @@ const NT = {
   subject: '',
   priority: 'normal',
   agentUserId: null,     // explicit assignee (user id) — null = Auto (rules)
-  agentName: '',         // display name for the step-2 summary strip
+  agentName: '',
   message: '',
+  messageHtml: null,
+  cc: '',
+  sendingChannel: '',
+  sendingInboxes: [],
+  active: false,
+  scope: null,
+  editor: null,
+  aiBusy: false,
+  review: null,
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
   replyLanguage: '',
-  languageConfirmed: false,
   statusAfterSend: '',
   closeReason: '',
   files: [],
@@ -69,6 +63,7 @@ const NT = {
 };
 
 const templateFilters = { nt: { query: '', category: '' }, nt2: { query: '', category: '' } };
+const backgroundInert = new Map();
 
 function resetNT() {
   for (const filter of Object.values(templateFilters)) { filter.query = ''; filter.category = ''; }
@@ -83,9 +78,17 @@ function resetNT() {
   NT.agentUserId = null;
   NT.agentName = '';
   NT.message = '';
+  NT.messageHtml = null;
+  NT.cc = '';
+  NT.sendingChannel = '';
+  NT.sendingInboxes = [];
+  NT.active = false;
+  NT.scope = null;
+  NT.editor = null;
+  NT.aiBusy = false;
+  NT.review = null;
   NT.messageTouched = false;
   NT.replyLanguage = '';
-  NT.languageConfirmed = false;
   NT.statusAfterSend = '';
   NT.closeReason = '';
   NT.files = [];
@@ -127,31 +130,42 @@ function matchTemplateCategory(tplCategory) {
 // ─── Entry point ─────────────────────────────────────────────────────────────
 // templateId: prefill from a ticket template (ticket-templates page "Use").
 // custDisplayId: prefill the customer (customer-profile "New ticket" button).
+let openingRequest = 0;
 export async function showNewTicketModal(templateId, custDisplayId) {
+  if (NT.active) { cancelWorkspace(); if (NT.active) return; }
   if (!can('tickets.create')) { showToast('Your role does not allow ticket creation.'); return; }
+  const request = ++openingRequest, user = SESSION?.userId || null;
   const workspace = getWorkspaceId(), jwt = getJwt();
   if (workspace) await loadStatusOptions();
-  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  if (request !== openingRequest || user !== (SESSION?.userId || null) || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   if (!statusOptionsState().ready) { showToast('Reload ticket statuses before creating a ticket.'); return; }
   resetNT();
+  if (workspace && jwt) {
+    let inboxes = [];
+    try { inboxes = (await apiGet('/api/v1/channels/sending-inboxes')).inboxes || []; }
+    catch { showToast('Sending inboxes could not be loaded. The workspace default sender is still available.', 'warn'); }
+    if (request !== openingRequest || user !== (SESSION?.userId || null) || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    NT.sendingInboxes = inboxes;
+  } else NT.sendingInboxes = CHANNELS.filter(c => c.type === 'email' && c.status === 'active').map(c => ({ id: c.id, address: c.address }));
   if (templateId) applyTemplateToNT(templateId);
   if (custDisplayId) {
     const c = CUSTOMERS.find(x => x.id === custDisplayId && !x.mergedInto);
     if (c) NT.customer = customerRef(c);
   }
-  renderStep1();
+  NT.active = true;
+  NT.scope = { workspace, jwt, user: SESSION?.userId || null };
+  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  NT.replyLanguage = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : jurisdictionLanguage(customer?.jurisdiction || '');
+  closeModal();
+  renderWorkspace();
+  void loadTemplateFavourites();
 }
 
 function customerRef(c) {
   return { uuid: c._uuid || null, displayId: c.id, label: `${c.first} ${c.last}`.trim() || c.id };
 }
 
-// keepMessage: the agent may already have written the first message on step
-// 2 — step 1 has no message field, so silently replacing it with a template
-// body would destroy work with nothing on screen to show it. Callers pass
-// NT.messageTouched (an explicit "the agent typed here" flag) rather than
-// inferring from non-emptiness, which would also protect a body that only a
-// PREVIOUS template put there.
+// Keep agent edits; a previous template's untouched wording may be replaced.
 function applyTemplateToNT(id, { keepMessage = false } = {}) {
   NT.templateId = id || null;
   const t = id ? TICKET_TEMPLATES.find(x => x.id === id) : null;
@@ -195,7 +209,7 @@ function templateControls(prefix) {
         ${templateCategories(TICKET_TEMPLATES).map(category => `<option value="${window.escAttr(category)}" ${category === filter.category ? 'selected' : ''}>${window.escHtml(category)}</option>`).join('')}
       </select></label>
     </div>
-    <label class="form-label" for="${prefix}-template">${prefix === 'nt' ? 'Start from template (optional)' : 'Insert template (appends)'}</label>
+    <label class="form-label" for="${prefix}-template">${prefix === 'nt' ? 'Start from ticket template (optional)' : 'Insert template (appends)'}</label>
     <select class="form-input" id="${prefix}-template" aria-describedby="${prefix}-template-count" data-change-action="${prefix === 'nt' ? 'nt.applyTemplate' : 'nt.appendTemplate'}">${options.html}</select>
     <p class="template-picker-hint" id="${prefix}-template-count" role="status">${window.escHtml(options.status)}</p>
   </div>`;
@@ -224,15 +238,14 @@ function custBoxHtml() {
     <div id="nt-cust-sug" style="position:relative"></div>`;
 }
 
-function renderStep1() {
+function detailsHtml() {
   const cats = catOptions();
-  const singleStep = !visible('message');
 
   const customerRow = visible('customerId')
-    ? `<div class="form-row"><label class="form-label">Customer${reqMark('customerId')}</label><div id="nt-cust-box">${custBoxHtml()}</div></div>`
+    ? `<div class="form-row"><label class="form-label" for="nt-cust-search">Customer${reqMark('customerId')}</label><div id="nt-cust-box">${custBoxHtml()}</div></div>`
     : '';
   const categoryRow = visible('category')
-    ? `<div class="form-row"><label class="form-label">Category${reqMark('category')}</label>
+    ? `<div class="form-row"><label class="form-label" for="nt-cat">Category${reqMark('category')}</label>
         <select class="form-input" id="nt-cat">
           <option value="" disabled hidden ${NT.categoryValue ? '' : 'selected'}>Select a category…</option>
           ${cats.map(o => `<option value="${window.escAttr(o.value)}" ${NT.categoryValue === o.value ? 'selected' : ''}>${window.escHtml(o.label)}</option>`).join('')}
@@ -240,7 +253,7 @@ function renderStep1() {
       </div>`
     : '';
   const priorityRow = visible('priority')
-    ? `<div class="form-row"><label class="form-label">Priority${reqMark('priority')}</label>
+    ? `<div class="form-row"><label class="form-label" for="nt-pri">Priority${reqMark('priority')}</label>
         <select class="form-input" id="nt-pri">${['normal', 'high', 'urgent', 'low'].map(p => `<option ${NT.priority === p ? 'selected' : ''}>${p}</option>`).join('')}</select>
       </div>`
     : '';
@@ -250,7 +263,7 @@ function renderStep1() {
   // falls back to email, then 'Unknown'), and a name-based lookup miss would
   // silently drop the agent's deliberate pick.
   const agentRow = visible('agent')
-    ? `<div class="form-row"><label class="form-label">Assign to${reqMark('agent')}</label>
+    ? `<div class="form-row"><label class="form-label" for="nt-agent">Assign to${reqMark('agent')}</label>
         <select class="form-input" id="nt-agent">
           <option value="__auto__" ${NT.agentUserId ? '' : 'selected'}>Auto (apply rules)</option>
           ${AGENTS.filter(a => a.active !== false).map(a => `<option value="${window.escAttr(a.userId || a.name)}" ${NT.agentUserId === (a.userId || a.name) ? 'selected' : ''}>${window.escHtml(a.name)}${isAgentOOO(a.name) ? ' (OOO)' : ''}</option>`).join('')}
@@ -258,30 +271,14 @@ function renderStep1() {
       </div>`
     : '';
 
-  showModal('New Ticket', `
+  return `
     ${templateControls('nt')}
     ${customerRow}
-    ${visible('subject') ? `<div class="form-row"><label class="form-label">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
+    ${visible('subject') ? `<div class="form-row"><label class="form-label" for="nt-subj">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
     ${categoryRow || priorityRow ? `<div class="form-grid">${categoryRow}${priorityRow}</div>` : ''}
     ${agentRow}
     ${statusReasonField(statusChoice('open'), 'nt-status-reason', NT.statusReason)}
-  `, () => {
-    if (NT.busy) return;
-    harvestStep1();
-    if (!validateStep1(cats.length)) return;   // early-return keeps the modal open
-    if (singleStep) {
-      // No step 2 to host the busy state — guard the create here, or a
-      // double-click on "Create ticket" mints two tickets.
-      setBusy(true, 'Creating…');
-      void finishCreate({ message: '', send: false });
-      return;
-    }
-    closeModal();
-    if (NT.languageConfirmed) renderStep2();
-    else renderLanguageConfirmation();
-  }, singleStep ? 'Create ticket' : 'Next — write the message');
-
-  wireCustomerSearch();
+  `;
 }
 
 function harvestStep1() {
@@ -386,7 +383,6 @@ function pickCustomer(displayId) {
   if (!c) return;
   if (NT.customer?.displayId !== displayId) {
     NT.replyLanguage = '';
-    NT.languageConfirmed = false;
   }
   NT.customer = customerRef(c);
   const boxEl = document.getElementById('nt-cust-box');
@@ -396,101 +392,13 @@ function pickCustomer(displayId) {
 function clearCustomer() {
   NT.customer = null;
   NT.replyLanguage = '';
-  NT.languageConfirmed = false;
   const boxEl = document.getElementById('nt-cust-box');
   if (boxEl) { boxEl.innerHTML = custBoxHtml(); wireCustomerSearch(); }
 }
 
 // ─── Step 2 — drafting window ────────────────────────────────────────────────
 
-function renderLanguageConfirmation() {
-  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
-  const jurisdiction = String(customer?.jurisdiction || '').trim();
-  const saved = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : '';
-  const suggested = saved || jurisdictionLanguage(jurisdiction);
-  showModal('Confirm conversation language', `
-    <p>${saved
-      ? `Saved preferred language: <strong>${window.escHtml(saved)}</strong>.`
-      : suggested
-      ? `Suggested language: <strong>${window.escHtml(suggested)}</strong>, based on the customer's jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.`
-      : `Choose a language for this conversation. ${jurisdiction ? `Jurisdiction: <strong>${window.escHtml(jurisdiction)}</strong>.` : 'No jurisdiction is saved for this customer.'}`}</p>
-    <p id="nt-language-help">${suggested ? 'Confirm the suggestion or choose another language' : 'Choose a language'} before writing the first message. Your confirmed choice is saved on the customer profile for future conversations.</p>
-    <div class="form-row">
-      <label class="form-label" for="nt-language">Conversation language</label>
-      <select class="form-input" id="nt-language" data-change-action="nt.languageChoice" aria-describedby="nt-language-help nt-language-error" required>
-        <option value="" ${suggested ? '' : 'selected'} disabled>Choose a language…</option>
-        ${TRANSLATOR_LANGS.map(lang => `<option ${suggested === lang ? 'selected' : ''}>${lang}</option>`).join('')}
-      </select>
-      <p id="nt-language-error" role="alert" hidden>Choose a language to continue.</p>
-    </div>
-  `, async () => {
-    if (NT.busy) return;
-    const select = document.getElementById('nt-language');
-    if (!TRANSLATOR_LANGS.includes(select?.value)) {
-      document.getElementById('nt-language-error').hidden = false;
-      select?.setAttribute('aria-invalid', 'true');
-      select?.focus();
-      return;
-    }
-    const language = select.value;
-    const workspace = getWorkspaceId(), jwt = getJwt();
-    const modal = select.closest('.modal');
-    setBusy(true, 'Saving language…');
-    let saveError;
-    try {
-      if (isSessionApiBacked()) {
-        if (!customer?._uuid) throw new Error('Choose a saved customer before continuing.');
-        const res = await apiPatch(`/api/v1/customers/${customer._uuid}`, { preferred_language: language });
-        if (res?.customer?.preferred_language !== language) throw new Error('The language could not be confirmed as saved. Please try again.');
-      }
-    } catch (err) {
-      saveError = err;
-    }
-    if (!modal.isConnected) return;
-    if (workspace !== getWorkspaceId() || jwt !== getJwt()) {
-      closeModal(); resetNT();
-      showToast('Your workspace or session changed. Reopen the ticket form to continue.');
-      return;
-    }
-    setBusy(false);
-    if (saveError) {
-      const error = document.getElementById('nt-language-error');
-      error.textContent = `Could not save the preferred language. ${saveError?.message || 'Try again.'}`;
-      error.hidden = false;
-      select.focus();
-      return;
-    }
-    if (customer) customer.preferredLanguage = language;
-    NT.replyLanguage = language;
-    NT.languageConfirmed = true;
-    closeModal();
-    renderStep2();
-  }, 'Confirm and continue');
-  const modal = document.querySelector('#modal-container .modal');
-  modal.classList.add('conversation-language-modal');
-  modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-modal', 'true');
-  modal.setAttribute('aria-label', 'Confirm conversation language');
-  modal.querySelector('.modal-close').outerHTML = '<button type="button" class="modal-close" data-action="nt.cancel" aria-label="Cancel new conversation">×</button>';
-  const back = modal.querySelector('.modal-foot [data-action="modal.close"]');
-  back.textContent = 'Back';
-  back.dataset.action = 'nt.languageBack';
-  modal.addEventListener('keydown', event => {
-    if (NT.busy) { event.preventDefault(); return; }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeModal();
-      renderStep1();
-      document.querySelector('#modal-container [data-action="modal.confirm"]')?.focus();
-    } else if (event.key === 'Tab') {
-      const controls = [...modal.querySelectorAll('button, select')];
-      const first = controls[0], last = controls[controls.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    }
-  });
-  document.getElementById('nt-language')?.focus();
-}
+
 
 function renderNewTicketFiles() {
   if (!isSessionApiBacked() || !can('tickets.attach') || !can('tickets.reply')) return '';
@@ -505,85 +413,215 @@ function renderNewTicketFiles() {
   </div>`;
 }
 
-function renderStep2() {
-  const canDraft = !required('message');
-  const actions = sendActions();
-  const action = actions.find(a => a.status === NT.statusAfterSend) || SEND_ACTIONS[0];
-  showModal('New Ticket — first message', `
-    <div style="display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r);margin-bottom:12px;font-size:12px;color:var(--ink2);flex-wrap:wrap">
-      <strong style="color:var(--ink)">${window.escHtml(NT.customer?.label || '—')}</strong>
-      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${window.escHtml(NT.customer?.displayId || '')}</span>
-      <span>·</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px">${window.escHtml(NT.subject)}</span>
-      ${NT.categoryLabel ? `<span>·</span><span>${window.escHtml(NT.categoryLabel)}</span>` : ''}
-      ${NT.agentUserId ? `<span>·</span><span>→ ${window.escHtml(NT.agentName)}</span>` : ''}
-      ${NT.createdTicket ? '' : '<span class="link" data-action="nt.back" style="margin-left:auto;font-size:11px">‹ Edit details</span>'}
-    </div>
-    ${NT.createdTicket ? `<p role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is already created. Retry the remaining uploads here, or cancel to open its draft. No message has been sent.</p>` : templateControls('nt2')}
-    <div class="form-row">
-      <label class="form-label" for="nt2-msg">Message to the customer${required('message') ? ' <span style="color:var(--red);font-weight:500" title="Required">*</span>' : ''}</label>
-      <textarea class="form-input" id="nt2-msg" data-input-action="nt.msgInput" style="min-height:180px" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
-    </div>
-    ${renderNewTicketFiles()}
-    <div class="form-row">
-      <label class="form-label" for="nt2-language">Reply language</label>
-      <select class="form-input" id="nt2-language" data-change-action="nt.replyLanguage">
-        <option value="">As written</option>
-        ${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}
-      </select>
-    </div>
-    <div style="margin-top:4px">
-      <button class="btn btn-sm" data-action="nt.sendWithoutAI" id="nt2-without-ai-btn" aria-describedby="nt2-without-ai-hint" ${NT.statusAfterSend ? 'disabled title="Choose Send to send without AI."' : ''}>Send without AI…</button>
-      <p id="nt2-without-ai-hint" style="font-size:12px;color:var(--ink3);line-height:1.5;margin:6px 0 12px">${window.escHtml(SEND_WITHOUT_AI_HINT)}</p>
-      ${canDraft ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" data-action="nt.saveDraft" id="nt2-draft-btn">Save as draft</button>
-      <span style="font-size:11px;color:var(--ink3)">Creates the ticket and keeps the message as an unsent draft.</span></div>` : ''}
-    </div>
-    <div class="form-row" style="margin-top:16px">
-      <label class="form-label" for="nt2-after-send">Send action</label>
-      <select class="form-input" id="nt2-after-send" aria-describedby="nt2-action-hint" data-change-action="nt.afterSend">
-        ${actions.map(a => `<option value="${window.escAttr(a.status)}" ${a.status === NT.statusAfterSend ? 'selected' : ''}>${window.escHtml(a.label)}</option>`).join('')}
-      </select>
-    </div>
-    <p id="nt2-action-hint">${NT.statusAfterSend ? window.escHtml(action.hint) : 'Leaves the new ticket open. No survey.'} Status changes happen only after the email is sent.</p>
-    ${NT.statusAfterSend ? `<p>Your first message uses the normal AI and translation checks.</p>
-      ${statusReasonField(statusChoice(NT.statusAfterSend), 'nt2-close-reason', NT.closeReason)}
-      ${NT.statusAfterSend === 'closed' && statusChoice('closed')?.reasons?.some(r => r.key === 'spam' && r.is_active) ? '<p>Choosing Spam also marks the customer as spam and closes future emails from their addresses in this workspace.</p>' : ''}` : ''}
-  `, () => { void confirmSend(); }, action.label, true);
-
-  // A stray backdrop click must not destroy the drafted message — only ×,
-  // Cancel, Send, or Save-as-draft leave this step.
-  const bg = document.querySelector('#modal-container .modal-bg');
-  if (bg) bg.dataset.action = '';
-  // Retarget the footer Cancel to the explicit-discard action (resets NT).
-  const cancelBtn = document.querySelector('#modal-container .modal-foot [data-action="modal.close"]');
-  if (cancelBtn) cancelBtn.dataset.action = 'nt.cancel';
-  const close = document.querySelector('#modal-container .modal-close');
-  if (close) close.outerHTML = '<button type="button" class="modal-close" data-action="nt.cancel" aria-label="Cancel new ticket" style="border:0;background:transparent;min-width:44px;min-height:44px">×</button>';
-  document.getElementById('nt2-msg')?.focus();
+function currentWorkspace() {
+  return NT.active && NT.scope?.workspace === getWorkspaceId() && NT.scope?.jwt === getJwt()
+    && NT.scope?.user === (SESSION?.userId || null);
 }
 
-// Freeze / unfreeze whichever step is on screen while a create is in flight.
-// EVERY exit is disabled, not just the confirm: nt.cancel's resetNT() would
-// otherwise null NT.customer mid-await and blow up the post-await read.
-// `busyLabel` remembers the confirm's original text so unbusy can restore it
-// (step 1 says "Create ticket", step 2 "Send").
+function captureEditor() {
+  if (!NT.active) return;
+  if (isRich('new-ticket') || document.getElementById('compose-new-ticket')?.tagName === 'TEXTAREA') {
+    NT.messageHtml = getHtml('new-ticket');
+    NT.message = getPlainText('new-ticket') || (NT.messageHtml?.includes('<img') ? '[Image]' : '');
+    const fallback = document.getElementById('nt2-msg');
+    if (fallback) fallback.value = NT.message;
+  } else {
+    NT.message = document.getElementById('nt2-msg')?.value ?? NT.message;
+  }
+}
+
+function harvestWorkspace() {
+  harvestStep1();
+  captureEditor();
+  NT.cc = document.getElementById('nt2-cc')?.value || '';
+  NT.sendingChannel = document.getElementById('nt2-from')?.value || '';
+  NT.replyLanguage = document.getElementById('nt2-language')?.value ?? NT.replyLanguage;
+  NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+}
+
+function closeWorkspace() {
+  disposeComposer('new-ticket');
+  const container = document.getElementById('new-ticket-container');
+  if (container) container.innerHTML = '';
+  for (const [node, wasInert] of backgroundInert) node.inert = wasInert;
+  backgroundInert.clear();
+}
+
+function hasUnfinishedTicket() {
+  return !!(NT.subject || NT.categoryValue || NT.message || NT.messageHtml || NT.files.length || NT.createdTicket
+    || NT.cc || NT.sendingChannel || NT.agentUserId || NT.priority !== 'normal');
+}
+
+function cancelWorkspace() {
+  if (NT.busy) return;
+  harvestWorkspace();
+  const created = NT.createdTicket;
+  if (!created && hasUnfinishedTicket() && !window.confirm('Discard this unfinished ticket? Choose Save as draft to keep it.')) return;
+  if (created && NT.files.some(entry => !entry.attachment) && !window.confirm('Open the saved ticket draft? Files that have not uploaded will need to be selected again.')) return;
+  if (created && currentWorkspace()) {
+    const content = resolveTemplate({ text: NT.message, html: NT.messageHtml }, { id: created.row.display_id, customerId: NT.customer?.displayId, agent: NT.agentName || SESSION?.name });
+    saveDraft(created.row.display_id, content.html || content.text, 'reply');
+    saveDraftRecipients(created.row.display_id, { ...recipientPayload(), cc: NT.cc, ticket_channel_id: created.row.channel_id || null });
+    setComposeTabValue('reply');
+    closeWorkspace(); resetNT(); closeModal(); openTicket(created.row.display_id);
+    return;
+  }
+  closeWorkspace(); resetNT(); closeModal();
+  document.querySelector('[data-action="cust.newTicket"], [data-action="tickets.newTicket"]')?.focus();
+}
+
+function recipientPayload() {
+  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  const channel = NT.sendingInboxes.find(c => c.id === NT.sendingChannel);
+  return { source_message_id: null, mode: 'reply', to: customer?.email ? [customer.email] : [],
+    cc: NT.cc.split(',').map(value => value.trim()).filter(Boolean),
+    sending_channel_id: NT.sendingChannel || null, sending_address: channel?.address || null };
+}
+
+function newTicketContext() {
+  return { id: 'new-ticket', pendingCreation: true, customerId: NT.customer?.displayId, agent: NT.agentName || SESSION?.name };
+}
+
+function insertResponse(template) {
+  if (!currentWorkspace() || NT.busy || !can('tickets.reply')) return;
+  harvestWorkspace();
+  if (!NT.customer) { showToast('Choose a customer before inserting a response.', 'warn'); return; }
+  return appendTemplate(newTicketContext(), template);
+}
+
+function renderWorkspace() {
+  if (!currentWorkspace()) return;
+  const container = document.getElementById('new-ticket-container');
+  if (!container) return;
+  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  const actions = sendActions();
+  const action = actions.find(value => value.status === NT.statusAfterSend) || SEND_ACTIONS[0];
+  const channels = NT.sendingInboxes;
+  disposeComposer('new-ticket');
+  container.innerHTML = `<section class="new-ticket-workspace" role="dialog" aria-modal="true" aria-labelledby="nt-heading" data-guide="new-ticket">
+    <header class="nt-heading"><div><h1 id="nt-heading">New ticket</h1><p>Write the first message or save the details as a draft.</p></div><button type="button" class="btn" data-action="nt.cancel" aria-label="Close new ticket">Close</button></header>
+    <div class="nt-workspace-body"><aside class="nt-details" aria-label="Ticket details">${detailsHtml()}
+      ${customer ? `<dl class="nt-customer-context"><dt>Customer ID</dt><dd>${window.escHtml(customer.id)}</dd><dt>Email</dt><dd>${window.escHtml(customer.email || 'No primary email saved')}</dd><dt>Brand</dt><dd>${window.escHtml(customer.brand || 'Current workspace')}</dd><dt>Jurisdiction</dt><dd>${window.escHtml(customer.jurisdiction || 'Not set')}</dd></dl>` : ''}
+    </aside><div class="nt-writing">
+      ${NT.createdTicket ? `<p class="nt-saved-notice" role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is saved. Continue here to retry; your ticket will not be created again.</p>` : ''}
+      <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
+      <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
+      <label for="nt2-cc">Cc</label><input type="email" multiple id="nt2-cc" class="form-input" value="${window.escAttr(NT.cc)}" placeholder="Email addresses, separated by commas"></div>
+      <div class="nt-writing-tools"><button type="button" class="btn" data-action="nt.responses">Insert response template</button><button type="button" class="btn" data-action="nt.preview">Preview message</button>
+      <label for="nt2-language">Reply language</label><select class="form-input" id="nt2-language"><option value="">As written</option>${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}</select></div>
+      <div class="template-favourites" id="nt-favourites" aria-label="Favourite response templates">${favouritesRow('new-ticket', 'nt.favourite')}</div>
+      <label class="form-label" for="nt2-msg">Message to the customer</label>
+      <div id="compose-new-ticket" class="compose-area compose-rich nt-rich-editor" data-rich="1" aria-label="Message to the customer" hidden></div>
+      <textarea class="form-input nt-plain-editor" id="nt2-msg" data-input-action="nt.msgInput" placeholder="Write the first message…">${window.escHtml(NT.message)}</textarea>
+      <div class="nt-ai-tools" role="group" aria-label="AI writing tools">${[['draft','Draft message'],['improve','Improve'],['shorten','Shorten'],['friendly','Make friendlier']].map(([verb,label]) => `<button type="button" class="btn btn-sm" data-action="nt.ai" data-verb="${verb}" ${!can('tools.ai') || NT.aiBusy ? 'disabled' : ''}>${label}</button>`).join('')}<span id="nt-ai-status" role="status">${NT.aiBusy ? 'Preparing suggestion…' : ''}</span></div>
+      <div id="nt-ai-notes">${NT.review?.notes?.length ? `<aside class="nt-ai-notes" aria-label="Internal AI notes"><strong>Internal AI notes · not emailed</strong>${NT.review.notes.map(note => `<p>${window.escHtml(typeof note === 'string' ? note : note.text || '')}</p>`).join('')}</aside>` : ''}</div>
+      ${renderNewTicketFiles()}
+      <div class="nt-send-options"><label for="nt2-after-send">Send action</label><select id="nt2-after-send" class="form-input" data-change-action="nt.afterSend">${actions.map(a => `<option value="${window.escAttr(a.status)}" ${a.status === NT.statusAfterSend ? 'selected' : ''}>${window.escHtml(a.label)}</option>`).join('')}</select><p id="nt2-action-hint">${window.escHtml(action.hint)} Status changes happen only after the email is sent.</p>
+      ${NT.statusAfterSend ? statusReasonField(statusChoice(NT.statusAfterSend), 'nt2-close-reason', NT.closeReason) : ''}</div>
+    </div></div><footer class="nt-footer"><div><button type="button" class="btn" id="nt2-draft-btn" data-action="nt.saveDraft">Save as draft</button><span>Save the details and unsent message. No customer email or survey.</span></div>
+    <div><button type="button" class="btn" id="nt2-without-ai-btn" data-action="nt.sendWithoutAI" aria-describedby="nt2-without-ai-hint" ${NT.statusAfterSend || !can('tickets.reply') ? 'disabled' : ''}>Send without AI…</button><button type="button" class="btn btn-solid" id="nt2-send-btn" data-action="nt.send" ${!can('tickets.reply') ? 'disabled' : ''}>${window.escHtml(action.label)}</button><p id="nt2-without-ai-hint">${window.escHtml(SEND_WITHOUT_AI_HINT)}</p></div></footer>
+  </section>`;
+  for (const node of document.querySelectorAll('#app > .sidebar, #app > .main')) {
+    if (!backgroundInert.has(node)) backgroundInert.set(node, node.inert);
+    node.inert = true;
+  }
+  wireCustomerSearch();
+  const host = document.getElementById('compose-new-ticket');
+  const initialText = NT.message, initialHtml = NT.messageHtml;
+  void mountComposer('new-ticket', { initialHtml: NT.messageHtml || textHtml(NT.message), readOnly: NT.busy || !can('tickets.reply'),
+    placeholder: 'Write the first message…', onChange: () => { captureEditor(); NT.messageTouched = true; } }).then(editor => {
+      if (!currentWorkspace() || document.getElementById('compose-new-ticket') !== host) return;
+      NT.editor = editor;
+      if (editor) {
+        if (NT.message !== initialText || NT.messageHtml !== initialHtml) {
+          if (NT.messageHtml) setHtml('new-ticket', NT.messageHtml); else setText('new-ticket', NT.message);
+        }
+        host.hidden = false;
+      } else {
+        host.outerHTML = `<textarea id="compose-new-ticket" class="form-input nt-plain-editor" data-input-action="nt.msgInput" aria-label="Message to the customer">${window.escHtml(NT.message)}</textarea>`;
+      }
+      const input = editor?.root || document.getElementById('compose-new-ticket');
+      input.setAttribute('aria-label', 'Message to the customer');
+      if (editor) { input.setAttribute('role', 'textbox'); input.setAttribute('aria-multiline', 'true'); }
+      else input.readOnly = NT.busy || !can('tickets.reply');
+      document.getElementById('nt2-msg').hidden = true;
+    }).catch(() => { /* The plain-text editor remains available. */ });
+  if (NT.createdTicket) for (const node of container.querySelectorAll('.nt-details input,.nt-details select,.nt-details button')) node.disabled = true;
+  if (!can('tickets.reply')) for (const node of container.querySelectorAll('[data-action="nt.responses"], [data-action="nt.favourite"], [data-action="nt.ai"]')) node.disabled = true;
+  container.querySelector('.new-ticket-workspace').addEventListener('keydown', event => {
+    // Keep app navigation shortcuts out of an unfinished conversation.
+    event.stopPropagation();
+    if (event.key === 'Escape') { event.preventDefault(); cancelWorkspace(); return; }
+    if (event.code === 'Space' && (event.ctrlKey || event.metaKey) && event.shiftKey) { event.preventDefault(); showMacroPanel('new-ticket', insertResponse); }
+    if (event.key !== 'Tab') return;
+    const nodes = [...container.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[contenteditable="true"]')].filter(node => !node.hidden && node.getClientRects().length);
+    if (event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes.at(-1)?.focus(); }
+    else if (!event.shiftKey && document.activeElement === nodes.at(-1)) { event.preventDefault(); nodes[0]?.focus(); }
+  });
+  document.getElementById('nt-subj')?.focus();
+}
+
+async function aiWriting(verb) {
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !can('tools.ai') || !can('tickets.reply')) return;
+  harvestWorkspace();
+  const original = NT.message, originalHtml = NT.messageHtml, scope = NT.scope, customer = NT.customer;
+  const editor = document.getElementById('compose-new-ticket');
+  if (!original.trim() && (verb !== 'draft' || !NT.subject.trim())) { showToast('Enter a subject or write a message first.', 'warn'); return; }
+  NT.aiBusy = true;
+  document.querySelectorAll('[data-action="nt.ai"], #nt2-send-btn, #nt2-draft-btn, #nt2-without-ai-btn').forEach(node => { node.disabled = true; });
+  document.getElementById('nt-ai-status').textContent = 'Preparing suggestion…';
+  try {
+    const instruction = { draft: 'Draft a concise first customer-support message from the supplied subject and agent notes. Do not invent facts.', improve: 'Improve clarity without changing the meaning.', shorten: 'Shorten while preserving the meaning.', friendly: 'Make the tone warmer without changing the meaning.' }[verb];
+    const result = await callClaude({ action: 'draft', system: instruction, messages: [{ role: 'user', content: `Subject: ${NT.subject}\nAgent notes or message:\n${original}` }], replyFormat: true, replyContext: 'reply', maxTokens: 1600 });
+    if (!currentWorkspace() || NT.scope !== scope || NT.customer !== customer || document.getElementById('compose-new-ticket') !== editor) return;
+    captureEditor();
+    if (NT.message !== original || NT.messageHtml !== originalHtml) { showToast('Your edits were kept. Generate the suggestion again.', 'warn'); return; }
+    if (!result.text?.trim() || !result.data?.internal) throw Error('The suggestion was incomplete. Please try again.');
+    NT.review = result.data.internal;
+    setText('new-ticket', result.text); captureEditor(); NT.messageTouched = true;
+    document.getElementById('nt-ai-notes').innerHTML = `<aside class="nt-ai-notes" aria-label="Internal AI notes"><strong>Internal AI notes · not emailed</strong>${(NT.review.notes || []).map(note => `<p>${window.escHtml(typeof note === 'string' ? note : note.text || '')}</p>`).join('')}</aside>`;
+    showToast('Suggestion inserted. Review it before sending.');
+  } catch (error) { if (currentWorkspace() && NT.scope === scope) showToast(error.message || 'Could not prepare a suggestion.', 'error'); }
+  finally { if (currentWorkspace() && NT.scope === scope) { NT.aiBusy = false; setBusy(false); document.getElementById('nt-ai-status').textContent = ''; } }
+}
+
+window.addEventListener('beforeunload', event => {
+  if (!currentWorkspace()) return;
+  harvestWorkspace();
+  if (hasUnfinishedTicket()) { event.preventDefault(); event.returnValue = ''; }
+});
+window.addEventListener('respovia:auth-scope-changed', () => { closeWorkspace(); resetNT(); });
+window.addEventListener('respovia:session-expired', () => { closeWorkspace(); resetNT(); });
+window.addEventListener('respovia:clear-drafts', event => {
+  if (NT.active && (!event.detail?.userId || event.detail.userId === SESSION?.userId)) { closeWorkspace(); resetNT(); }
+});
+window.addEventListener('respovia:template-favourites', () => {
+  const target = document.getElementById('nt-favourites');
+  if (currentWorkspace() && target) target.innerHTML = favouritesRow('new-ticket', 'nt.favourite');
+});
+
+
+// Freeze every exit while saving, so cancellation cannot reset in-flight work.
 let _confirmLabelBeforeBusy = '';
 
 function setBusy(on, label) {
   NT.busy = on;
-  document.querySelectorAll('#modal-container input, #modal-container textarea, #modal-container select')
+  NT.editor?.enable(!on && can('tickets.reply'));
+  document.querySelectorAll('#new-ticket-container input, #new-ticket-container textarea, #new-ticket-container select')
     .forEach(el => { el.disabled = on; });
-  const confirm = document.querySelector('#modal-container [data-action="modal.confirm"]');
+  const confirm = document.getElementById('nt2-send-btn');
   if (confirm) {
     if (on) { _confirmLabelBeforeBusy = confirm.textContent; confirm.textContent = label; }
     else if (_confirmLabelBeforeBusy) { confirm.textContent = _confirmLabelBeforeBusy; }
-    confirm.disabled = on;
+    confirm.disabled = on || !can('tickets.reply');
   }
   const draft = document.getElementById('nt2-draft-btn');
   if (draft) draft.disabled = on;
   const manualSend = document.getElementById('nt2-without-ai-btn');
   if (manualSend) manualSend.disabled = on || NT.statusAfterSend;
-  document.querySelectorAll('#modal-container [data-action="nt.removeFile"]').forEach(el => { el.disabled = on; });
-  document.querySelectorAll('#modal-container [data-action="nt.cancel"], #modal-container [data-action="modal.close"], #modal-container [data-action="nt.back"], #modal-container [data-action="nt.languageBack"]')
+  document.querySelectorAll('#new-ticket-container button').forEach(el => { el.disabled = on || (el.dataset.action === 'nt.ai' && !can('tools.ai')) || (['nt.send','nt.sendWithoutAI','nt.ai','nt.responses','nt.favourite'].includes(el.dataset.action) && !can('tickets.reply')) || (el.dataset.action === 'nt.sendWithoutAI' && !!NT.statusAfterSend); });
+  if (NT.createdTicket) document.querySelectorAll('#new-ticket-container .nt-details input, #new-ticket-container .nt-details select, #new-ticket-container .nt-details button').forEach(node => { node.disabled = true; });
+  document.querySelectorAll('#new-ticket-container [data-action="nt.cancel"]')
     .forEach(el => {
       if (el.tagName === 'BUTTON') el.disabled = on;
       el.style.pointerEvents = on ? 'none' : '';
@@ -592,13 +630,19 @@ function setBusy(on, label) {
 }
 
 async function confirmSend(withoutAI = false) {
-  if (NT.busy) return;
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !can('tickets.create') || !can('tickets.reply')) return;
+  harvestWorkspace();
+  if (!validateStep1(catOptions().length)) return;
+  const ccInput = document.getElementById('nt2-cc');
+  if (ccInput && !ccInput.checkValidity()) { ccInput.reportValidity(); return; }
+  if (!recipientPayload().to.length) { showToast('Save a usable primary email on the customer before sending.', 'warn'); return; }
   if (withoutAI && NT.statusAfterSend) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
   NT.message = msg;
   if (NT.files.length && !msg) { alert('Write a message to send attachments, or choose Save as draft.'); return; }
   if (NT.files.reduce((size, entry) => size + entry.file.size, 0) > 7 * 1024 * 1024) { alert('Attachments are too large to email (max 7 MB in total). Remove some files or save as draft.'); return; }
-  if ((required('message') || NT.statusAfterSend) && !msg) { alert('First message is required.'); return; }
+  if (!msg) { alert('Write a first message to send, or choose Save as draft.'); return; }
+  if (unresolvedVariables(NT.messageHtml || msg).some(key => key.toLowerCase() !== '{ticket}')) { alert('Fill in the template fields before sending.'); return; }
   if (withoutAI && msg && !window.confirm('Send without AI?\n\nYour message and subject will not be translated. The header, signature and footer will use their saved wording. Check that the customer can understand them.')) return;
   setBusy(true, msg ? 'Sending…' : 'Creating…');
   if (NT.statusAfterSend) {
@@ -606,7 +650,7 @@ async function confirmSend(withoutAI = false) {
     const workspace = getWorkspaceId(), jwt = getJwt(), form = document.getElementById('nt2-msg');
     await loadStatusOptions(true);
     if (form?.isConnected === false) return;
-    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); closeWorkspace(); resetNT(); return; }
     setBusy(false);
     const choice = statusChoice(NT.statusAfterSend);
     if (!statusOptionsState().ready || !choice?.is_active) { showToast('This status is unavailable. Refresh the status options before sending.'); return; }
@@ -621,7 +665,9 @@ async function confirmSend(withoutAI = false) {
 }
 
 async function saveAsDraft() {
-  if (NT.busy) return;
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !can('tickets.create')) return;
+  harvestWorkspace();
+  if (!validateStep1(catOptions().length)) return;
   const msg = document.getElementById('nt2-msg')?.value.trim() || '';
   NT.message = msg;
   setBusy(true, 'Creating…');
@@ -634,9 +680,11 @@ async function saveAsDraft() {
 // the path must not leave the modal frozen (NT.busy true, every button
 // disabled) with no way forward — surface it and unfreeze.
 async function finishCreate(args) {
+  const scope = NT.scope;
   try {
     await runCreate(args);
   } catch (err) {
+    if (!currentWorkspace() || NT.scope !== scope) return;
     console.error('[new-ticket] create failed:');
     showToast(`Couldn't finish creating the ticket: ${err?.message || err}`, 'error', 8000);
     setBusy(false);
@@ -665,27 +713,30 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
     agentUserId: NT.agentUserId,
     agentName: NT.agentName,
     replyLanguage: withoutAI ? '' : NT.replyLanguage,
+    messageHtml: NT.messageHtml,
+    recipients: recipientPayload(),
     files: [...NT.files],
   };
   let displayId, keptDraft = false, emailed = false;
   if (isApiBacked) {
     if (send && message && !withoutAI) {
       const prepared = await prepareCustomerReply({ autoTranslateReplies: !!snapshot.replyLanguage,
-        customerLanguageManual: !!snapshot.replyLanguage, detectedCustomerLang: snapshot.replyLanguage || null }, message, null);
+        customerLanguageManual: !!snapshot.replyLanguage, detectedCustomerLang: snapshot.replyLanguage || null }, message, snapshot.messageHtml);
       if (!prepared.replyLanguage) throw new Error('Choose a reply language before sending. Your draft has been kept.');
       if (workspace !== getWorkspaceId() || jwt !== getJwt()) throw new Error('Your workspace or session changed. Reopen the ticket form before sending.');
       message = prepared.translation;
+      snapshot.messageHtml = prepared.translationHtml || null;
       snapshot.replyLanguage = prepared.replyLanguage;
     }
     if (form?.isConnected === false) return;
     const res = await createOnServer(snapshot, { message, send });
     if (form?.isConnected === false) return;
-    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); resetNT(); return; }
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); closeWorkspace(); resetNT(); return; }
     // Upload retries retain the created ticket; other failures open its draft.
     if (!res) { setBusy(false); return; }
-    if (res.retry) { setBusy(false); renderStep2(); return; }
+    if (res.retry) { setBusy(false); renderWorkspace(); return; }
     if (res.aborted) {
-      setBusy(false); closeModal(); resetNT();
+      setBusy(false); closeModal(); closeWorkspace(); resetNT();
       if (res.unsentMessage) showModal('Ticket created — first message not sent', `
         <p>The ticket was created, but its ID could not be confirmed. Reload the ticket list to find it before continuing. Do not create another ticket.</p>
         <label class="form-label" for="nt-recovery-message">Unsent first message — copy before closing</label>
@@ -703,6 +754,7 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
   // — silently switching an agent out of Internal-note mode otherwise.
   if (keptDraft) setComposeTabValue('reply');
   closeModal();
+  closeWorkspace();
   resetNT();
   updateNavBadges();
   openTicket(displayId);         // lazy detail load paints the thread (incl. the sent message)
@@ -788,7 +840,7 @@ async function createOnServer(snap, { message, send }) {
     latest_customer_sentiment: null, last_message_role: null,
     ...srv,
   };
-  if (snap.files?.length) NT.createdTicket = { row, workspace, jwt };
+  NT.createdTicket = { row, workspace, jwt };
   updateOrInsertTicket(row);
   if (snap.replyLanguage) setCustomerLanguage(row.display_id, snap.replyLanguage);
 
@@ -803,41 +855,16 @@ async function createOnServer(snap, { message, send }) {
   }
   if (!current()) return { aborted: true };
 
-  if (snap.files?.length || NT.createdTicket) return createWithFiles(row, snap, { message, send }, current);
-
-  let keptDraft = false, emailed = false;
-  if (send && message) {
-    let mres;
-    try {
-      // ONLY the network call is in the try — a throw from the toast helper
-      // below would otherwise be misreported as a send failure and prompt a
-      // duplicate send.
-      mres = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message, reply_language: snap.replyLanguage || undefined });
-    } catch (err) {
-      if (!current()) return { aborted: true };
-      // The ticket already exists — retrying in the modal would duplicate it.
-      // Rescue the text as a composer draft and let the agent send from there.
-      saveDraft(row.display_id, message, 'reply');
-      showToast('Ticket created, but the message failed to send — it was kept as a draft on the ticket.', 'warn', 8000);
-      return { displayId: row.display_id, keptDraft: true };
-    }
-    if (!current()) return { aborted: true };
-    emailed = mres?.delivery?.emailed === true;
-    if (mres?.delivery) notifyReplyDelivery(mres.delivery);
-    if (mres?.subject) {
-      const ticket = TICKETS.find(t => t._uuid === row.id);
-      if (ticket) ticket.subject = mres.subject;
-    }
-  } else if (message) {
-    saveDraft(row.display_id, message, 'reply');
-    keptDraft = true;
-  }
-  return { displayId: row.display_id, keptDraft, emailed };
+  return createWithFiles(row, snap, { message, send }, current);
 }
 
 async function createWithFiles(row, snap, { message, send }, current) {
   try {
-    saveDraft(row.display_id, message, 'reply');
+    const resolved = resolveTemplate({ text: message, html: snap.messageHtml }, { id: row.display_id, customerId: snap.customerDisplayId, agent: snap.agentName || SESSION?.name });
+    message = resolved.text; snap.messageHtml = resolved.html;
+    if (send && unresolvedVariables(snap.messageHtml || message).length) throw Error('Fill in the remaining template fields before sending.');
+    saveDraft(row.display_id, snap.messageHtml || message, 'reply');
+    saveDraftRecipients(row.display_id, { ...snap.recipients, cc: snap.recipients.cc.join(', '), ticket_channel_id: row.channel_id || null });
     saveDraftAttachments(row.display_id, snap.files.filter(entry => entry.attachment).map(entry => entry.attachment));
     await flushPersonalDraft(row.display_id, 'reply');
     for (const entry of snap.files) {
@@ -854,7 +881,7 @@ async function createWithFiles(row, snap, { message, send }, current) {
     }
   } catch (error) {
     if (!current()) return { aborted: true };
-    showToast(`Ticket ${row.display_id} is saved, but its attachments are not ready. No message was sent. Retry here. ${error.message}`, 'warn', 10000);
+    showToast(`Ticket ${row.display_id} is saved, but its draft is not fully saved. No message was sent. Retry here. ${error.message}`, 'warn', 10000);
     return { retry: true };
   }
   if (!current()) return { aborted: true };
@@ -866,6 +893,7 @@ async function createWithFiles(row, snap, { message, send }, current) {
   let response;
   try {
     response = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message,
+      body_html: snap.messageHtml || undefined, email_recipients: snap.recipients,
       reply_language: snap.replyLanguage || undefined, draft_version: sent.version,
       attachment_ids: snap.files.map(entry => entry.attachment.id) });
   } catch {
@@ -885,12 +913,14 @@ async function createWithFiles(row, snap, { message, send }, current) {
   return { displayId: row.display_id, keptDraft: false, emailed: response.delivery?.emailed === true };
 }
 
-// Demo persona — the legacy in-memory mint, verbatim semantics.
+// Demo persona — the same workflow without API writes.
 function createDemoTicket(snap, { message, send }) {
   // parseInt on non-numeric IDs returns NaN; filter them out so a stray
   // ticket like "TK-foo" can't poison Math.max into NaN.
   const ticketNums = TICKETS.map(t => parseInt((t.id || '').split('-')[1] || '0', 10)).filter(n => Number.isFinite(n));
   const newId = 'TK-' + String(Math.max(0, ...ticketNums) + 1).padStart(3, '0');
+  const resolved = resolveTemplate({ text: message, html: snap.messageHtml }, { id: newId, customerId: snap.customerDisplayId, agent: snap.agentName || SESSION?.name });
+  message = resolved.text; snap.messageHtml = resolved.html;
   TICKETS.unshift({
     id: newId, subject: snap.subject, customerId: snap.customerDisplayId,
     status: 'open',
@@ -904,117 +934,88 @@ function createDemoTicket(snap, { message, send }) {
   if (!snap.agentUserId) applyAssignmentRules(TICKETS[0]);
   refreshTicketSLA(TICKETS[0]);
   fireWebhook('ticket.created', ticketPayload(TICKETS[0]));
-  const keptDraft = Boolean(!send && message);
-  if (keptDraft) saveDraft(newId, message, 'reply');
+  const keptDraft = !send;
+  if (keptDraft) {
+    saveDraft(newId, snap.messageHtml || message, 'reply');
+    saveDraftRecipients(newId, { ...snap.recipients, cc: snap.recipients.cc.join(', ') });
+  }
   return { displayId: newId, keptDraft };
 }
 
-// ─── Actions ─────────────────────────────────────────────────────────────────
-
 registerActions({
-  'nt.languageBack': () => {
-    if (NT.busy) return;
-    closeModal(); renderStep1();
-    document.querySelector('#modal-container [data-action="modal.confirm"]')?.focus();
-  },
-  'nt.clearCust': () => clearCustomer(),
+  'nt.clearCust': () => { if (NT.busy || NT.createdTicket) return; harvestWorkspace(); clearCustomer(); renderWorkspace(); },
+  'nt.send': () => { void confirmSend(); },
   'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
-  'nt.back':      () => {
-    if (NT.busy || NT.createdTicket) return;
-    const ta = document.getElementById('nt2-msg');
-    if (ta) { NT.message = ta.value; if (ta.value.trim()) NT.messageTouched = true; }
-    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
-    closeModal();
-    renderStep1();
+  'nt.cancel': cancelWorkspace,
+  'nt.responses': () => { if (currentWorkspace() && !NT.busy) showMacroPanel('new-ticket', insertResponse); },
+  'nt.favourite': ds => { const template = CANNED_RESPONSES.find(t => templateKey(t) === ds.templateKey); if (template) void insertResponse(template); },
+  'nt.ai': ds => { void aiWriting(ds.verb); },
+  'nt.preview': () => {
+    if (!currentWorkspace()) return;
+    harvestWorkspace();
+    const html = NT.messageHtml || textHtml(NT.message);
+    const doc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"><style>body{font:14px/1.5 sans-serif;overflow-wrap:anywhere}img{max-width:100%}</style>${html}`;
+    showModal('Preview message', `<p>This shows your message as written. Sending applies the selected language and saved email branding.</p><iframe class="nt-message-preview" title="Message preview" tabindex="-1" sandbox="" srcdoc="${window.escAttr(doc)}"></iframe><button type="button" class="btn" data-action="nt.closePreview">Close preview</button>`, null, null, true);
+    const modal = document.querySelector('#modal-container .modal');
+    modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-label', 'Preview message');
+    const close = modal.querySelector('[data-action="nt.closePreview"]'); close.focus();
+    modal.addEventListener('keydown', event => {
+      event.stopPropagation();
+      if (event.key === 'Tab') { event.preventDefault(); close.focus(); }
+      if (event.key === 'Escape') { event.preventDefault(); closeModal(); document.querySelector('[data-action="nt.preview"]')?.focus(); }
+    });
   },
+  'nt.closePreview': () => { closeModal(); document.querySelector('[data-action="nt.preview"]')?.focus(); },
   'nt.removeFile': ds => {
-    if (NT.busy) return;
-    NT.message = document.getElementById('nt2-msg')?.value || '';
-    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+    if (!currentWorkspace() || NT.busy) return;
+    harvestWorkspace();
     NT.files.splice(Number(ds.index), 1);
     if (NT.createdTicket) saveDraftAttachments(NT.createdTicket.row.display_id, NT.files.filter(entry => entry.attachment).map(entry => entry.attachment));
-    renderStep2();
-    document.getElementById('nt2-files')?.focus();
-  },
-  'nt.cancel':    () => {
-    if (NT.busy) return;
-    const created = NT.createdTicket;
-    if (created && NT.files.some(entry => !entry.attachment) && !window.confirm('Open the saved ticket draft? Files that have not uploaded will need to be selected again.')) return;
-    if (created && created.workspace === getWorkspaceId() && created.jwt === getJwt()) {
-      saveDraft(created.row.display_id, document.getElementById('nt2-msg')?.value || NT.message, 'reply');
-      setComposeTabValue('reply'); openTicket(created.row.display_id);
-    }
-    resetNT(); closeModal();
+    renderWorkspace(); document.getElementById('nt2-files')?.focus();
   },
 });
 
 registerChangeActions({
-  'nt.files': (ds, input) => {
-    if (NT.busy || !can('tickets.attach') || !can('tickets.reply')) return;
-    NT.message = document.getElementById('nt2-msg')?.value || '';
-    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
+  'nt.files': (_, input) => {
+    if (!currentWorkspace() || NT.busy || !can('tickets.attach') || !can('tickets.reply')) return;
+    harvestWorkspace();
     for (const file of input.files || []) {
       if (NT.files.length >= 20) { showToast('A reply can have up to 20 attached files.', 'warn'); break; }
       if (!file.size || file.size > 10 * 1024 * 1024) { showToast(`${file.name}: choose a non-empty file up to 10 MB.`, 'warn'); continue; }
       NT.files.push({ file, attachment: null });
     }
-    renderStep2();
-    document.getElementById('nt2-files')?.focus();
+    renderWorkspace(); document.getElementById('nt2-files')?.focus();
   },
-  'nt.templateCategory': (ds, el) => {
-    if (NT.busy) return;
-    templateFilters[ds.templateStep].category = el.value;
-    filterTemplateOptions(ds.templateStep);
+  'nt.templateCategory': (ds, el) => { if (!NT.busy) { templateFilters[ds.templateStep].category = el.value; filterTemplateOptions(ds.templateStep); } },
+  'nt.afterSend': (_, el) => {
+    if (!currentWorkspace() || NT.busy) return;
+    harvestWorkspace(); NT.statusAfterSend = el.value; NT.closeReason = ''; renderWorkspace();
+    document.getElementById('nt2-after-send')?.focus();
   },
-  'nt.afterSend': (ds, el) => {
-    if (NT.busy) return;
-    NT.message = document.getElementById('nt2-msg')?.value || '';
-    NT.closeReason = document.getElementById('nt2-close-reason')?.value ?? NT.closeReason;
-    NT.statusAfterSend = el.value;
-    NT.closeReason = '';
-    renderStep2();
-  },
-  'nt.languageChoice': (ds, el) => {
-    el.removeAttribute('aria-invalid');
-    document.getElementById('nt-language-error').hidden = true;
-  },
-  'nt.replyLanguage': (ds, el) => { NT.replyLanguage = el.value; },
-  'nt.applyTemplate': (ds, el) => {
-    // Keep a message the agent already drafted on step 2 (step 1 has no
-    // message field, so clobbering it would be invisible). Priority is only
-    // rewritten when the template actually carries one — matching the old
-    // modal, which never reset a hand-picked priority.
-    const before = NT.priority;
+  'nt.applyTemplate': (_, el) => {
+    if (!currentWorkspace() || NT.busy || NT.createdTicket) return;
+    harvestWorkspace();
+    if (NT.messageTouched && !window.confirm('Apply this ticket template? Your written message will be kept; the subject, category and priority may change.')) { el.value = NT.templateId || ''; return; }
     applyTemplateToNT(el.value, { keepMessage: NT.messageTouched });
-    const subj = document.getElementById('nt-subj');
-    if (subj) subj.value = NT.subject;
-    const cat = document.getElementById('nt-cat');
-    if (cat) cat.value = NT.categoryValue;
-    const pri = document.getElementById('nt-pri');
-    if (pri && NT.priority !== before) pri.value = NT.priority;
-  },
-  'nt.appendTemplate': (ds, el) => {
-    const t = TICKET_TEMPLATES.find(x => x.id === el.value);
-    el.value = '';
-    if (!t?.body) return;
-    const ta = document.getElementById('nt2-msg');
-    if (ta) { ta.value = ta.value ? `${ta.value}\n\n${t.body}` : t.body; ta.focus(); }
+    if (!NT.messageTouched) NT.messageHtml = null;
+    renderWorkspace();
   },
 });
 
 registerInputActions({
-  'nt.templateSearch': (ds, el) => {
-    if (NT.busy) return;
-    templateFilters[ds.templateStep].query = el.value;
-    filterTemplateOptions(ds.templateStep);
-  },
-  'nt.custSearch': (ds, el) => renderSuggestions(el.value),
-  // Typing in the drafting window marks the message as the agent's, so a
-  // later template pick on a step-1 revisit won't overwrite it.
-  'nt.msgInput':   (ds, el) => { NT.message = el.value; NT.messageTouched = true; },
+  'nt.templateSearch': (ds, el) => { if (!NT.busy) { templateFilters[ds.templateStep].query = el.value; filterTemplateOptions(ds.templateStep); } },
+  'nt.custSearch': (_, el) => renderSuggestions(el.value),
+  'nt.msgInput': (_, el) => { if (!currentWorkspace()) return; NT.message = el.value; NT.messageHtml = null; NT.messageTouched = true; const copy = document.getElementById('nt2-msg'); if (copy) copy.value = el.value; },
 });
 
 registerMousedownActions({
-  'nt.pick': (ds) => pickCustomer(ds.custId),
+  'nt.pick': ds => {
+    if (!currentWorkspace() || NT.busy || NT.createdTicket) return;
+    harvestWorkspace(); pickCustomer(ds.custId);
+    const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+    NT.replyLanguage = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : jurisdictionLanguage(customer?.jurisdiction || '');
+    NT.cc = ''; NT.review = null; renderWorkspace();
+    if (NT.message) showToast('Customer changed. Review the recipient and message before sending.', 'warn');
+  },
 });

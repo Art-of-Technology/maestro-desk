@@ -23,6 +23,16 @@ test('known variables fill automatically; unknown values remain explicit', () =>
   expect(resolveTemplate({ text: '{name} {brand} {constructor}' }, { id: 'T2' }).text)
     .toBe('{name} {brand} {constructor}');
 });
+
+test('new-ticket responses defer only the ticket number until creation', async () => {
+  const pending = { ...ticket, pendingCreation: true };
+  expect(resolveTemplate({ text: 'Hi {name}, reference {ticket}.' }, pending).text).toBe('Hi Sam, reference {ticket}.');
+  await appendTemplate(pending, { text: 'Hi {name}, reference {ticket}.' });
+  expect(modalBody).not.toContain('id="tailor-0"');
+  confirm(); expect(inserted.text).toBe('Hi Sam, reference {ticket}.');
+  expect(resolveTemplate({ text: inserted.text }, { ...ticket, id: 'TK-123' }).text).toBe('Hi Sam, reference TK-123.');
+  expect(resolveTemplate({ text: '{NAME}: {TICKET}' }, { ...ticket, id: 'TK-123' }).text).toBe('Sam: TK-123');
+});
 test('tailoring rejects empty fields and unresolved nested variables, then inserts the completed reply', async () => {
   expect(await appendTemplate(ticket, { text: 'Hi {name}, check {reference}.' })).toBe(false);
   expect(inserted).toBeNull();

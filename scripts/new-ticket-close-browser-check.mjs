@@ -3,6 +3,7 @@ export default async page => {
   let checks=0;
   const check=(ok,message)=>{checks++;if(!ok)throw Error(message);};
   for(const scenario of ['sent','optional','cancel','empty','create-failed','incomplete','translation-failed','send-failed','unconfirmed','close-failed','inactive','switched','demo']) {
+    console.log('CHECK new-ticket close: '+scenario);
     const context=await page.context().browser().newContext(),p=await context.newPage();
     try {
       await p.setViewportSize({width:scenario==='close-failed'?390:1280,height:900});
@@ -29,7 +30,11 @@ export default async page => {
         else if(path.endsWith('/ai/messages')) {
           ai++;
           if(scenario==='translation-failed'){status=503;json={error:'Fixture AI unavailable'};}
-          else json={text:body.action==='detect_language'?'English':'Su cuenta está lista.'};
+          else {
+            let text=body.action==='detect_language'?'English':'Su cuenta está lista.';
+            try { const nodes=JSON.parse(body.messages[0].content); if(Array.isArray(nodes))text=JSON.stringify(nodes.map(()=>'Su cuenta está lista.')); } catch {}
+            json={text};
+          }
         } else if(path.endsWith('/tickets')&&req.method()==='POST') {
           creates++;
           if(scenario==='create-failed'){status=503;json={error:'Fixture create unavailable'};}
@@ -66,35 +71,34 @@ export default async page => {
         await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null,CUSTOMERS[0].id);
       },{customerId,scenario});
       await p.locator('#nt-subj').fill('Account update');await p.locator('#nt-cat').selectOption({index:1});
-      await p.locator('[data-action="modal.confirm"]').click();
-      await p.getByRole('button',{name:'Confirm and continue',exact:true}).click();
-      await p.locator('#nt2-msg').fill(scenario==='empty'?'':'Your account is ready.');
+      await p.locator('#compose-new-ticket .ql-editor').waitFor();
+      await p.locator('#compose-new-ticket .ql-editor').fill(scenario==='empty'?'':'Your account is ready.');
       await p.locator('#nt2-after-send').selectOption('closed');
       check(await p.locator('#nt2-msg').inputValue()===(scenario==='empty'?'':'Your account is ready.'),'Changing the option preserves the first message');
       check(await p.getByRole('button',{name:'Send & close',exact:true}).count()===1,'Footer names the selected action');
       check(creates===0&&bodies.length===0&&closes===0,'Selecting the option creates and sends nothing');
       if(scenario==='cancel') {
         await p.locator('#nt2-close-reason').selectOption('other');
-        await p.locator('[data-action="nt.back"]').click();await p.locator('[data-action="modal.confirm"]').click();
+        await p.locator('#nt-subj').fill('Updated account');
         check(await p.locator('#nt2-msg').inputValue()==='Your account is ready.','Returning from details preserves the draft');
         check(await p.locator('#nt2-close-reason').inputValue()==='other','Returning preserves the closure reason');
         await p.locator('#nt2-after-send').selectOption('');
         check(await p.getByRole('button',{name:'Send',exact:true}).count()===1,'Can return to normal Send');
         check(await p.locator('#nt2-without-ai-btn').isEnabled(),'Normal manual send remains available');
-        await p.getByRole('button',{name:'Cancel',exact:true}).click();
+        await p.getByRole('button',{name:'Close new ticket',exact:true}).click();
         check(creates===0&&bodies.length===0&&closes===0,'Cancellation does not create, send or close');
         continue;
       }
       if(scenario!=='optional'&&scenario!=='empty') {
-        await p.locator('[data-action="modal.confirm"]').click();
-        await p.waitForFunction(()=>!document.querySelector('[data-action="modal.confirm"]').disabled);
+        await p.locator('#nt2-send-btn').click();
+        await p.waitForFunction(()=>!document.querySelector('#nt2-send-btn').disabled);
         check(creates===0&&bodies.length===0,'Missing reason or inactive status blocks creation and sending');
         await p.locator('#nt2-close-reason').selectOption('other');
       }
       await p.screenshot({path:`new-ticket-close-${scenario}.png`});
-      await p.locator('[data-action="modal.confirm"]').evaluate(button=>{button.click();button.click();});
+      await p.locator('#nt2-send-btn').evaluate(button=>{button.click();button.click();});
       if(['create-failed','translation-failed','inactive','empty'].includes(scenario)) {
-        await p.waitForFunction(()=>!document.querySelector('[data-action="modal.confirm"]').disabled);
+        await p.waitForFunction(()=>!document.querySelector('#nt2-send-btn').disabled);
         check(bodies.length===0&&closes===0,'Failed pre-send step cannot send or close');
         check(await p.locator('#nt2-msg').inputValue()===(scenario==='empty'?'':'Your account is ready.'),'Failure preserves the composer');
         check(creates===(scenario==='create-failed'?1:0),'Pre-send failures never retry ticket creation automatically');
