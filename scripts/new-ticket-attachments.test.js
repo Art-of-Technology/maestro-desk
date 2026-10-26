@@ -108,7 +108,7 @@ test('selection, removal and cancellation stay local before ticket creation', ()
     can: () => true, templateFilters: {},
     document: { getElementById: id => ({ value: id === 'nt2-msg' ? 'Keep this text' : '', focus() {} }) },
     registerActions: map => Object.assign(actions, map), registerChangeActions: map => Object.assign(changes, map), registerInputActions() {}, registerMousedownActions() {},
-    currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Keep this text'; }, renderWorkspace() {},
+    visible: () => true, currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Keep this text'; }, renderWorkspace() {},
     hasUnfinishedTicket: () => true, window: { confirm: () => true }, closeWorkspace() {},
     showToast: text => toasts.push(text), closeModal() {}, resetNT: () => { context.NT.files = []; },
   };
@@ -131,7 +131,7 @@ test('selection, removal and cancellation stay local before ticket creation', ()
 
 test('sending rejects attachment-only messages and excessive combined size before creating a ticket', async () => {
   const alerts = [], context = { NT: { busy: false, files: [{ file: { size: 8 * 1024 * 1024 } }] },
-    currentWorkspace: () => true, can: () => true, harvestWorkspace() {}, validateStep1: () => true, catOptions: () => [],
+    visible: () => true, currentWorkspace: () => true, can: () => true, harvestWorkspace() {}, validateStep1: () => true, catOptions: () => [],
     recipientPayload: () => ({ to: ['synthetic@example.test'] }),
     document: { getElementById: () => ({ value: 'Synthetic', checkValidity: () => true }) }, alert: text => alerts.push(text), required: () => false,
   };
@@ -151,7 +151,7 @@ test('leaving a partial upload requires confirmation and opens its existing draf
     document: { getElementById: () => ({ value: 'Preserved message' }) }, saveDraft: (...args) => saved.push(args),
     setComposeTabValue() {}, openTicket: id => opened.push(id), closeModal() {}, resetNT: () => { context.NT.files = []; },
     registerActions: map => Object.assign(actions, map), registerChangeActions() {}, registerInputActions() {}, registerMousedownActions() {},
-    currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Preserved message'; }, closeWorkspace() {},
+    visible: () => true, currentWorkspace: () => true, harvestWorkspace: () => { context.NT.message = 'Preserved message'; }, closeWorkspace() {},
     recipientPayload: () => ({}), saveDraftRecipients() {},
     resolveTemplate: template => template, SESSION: {},
   };

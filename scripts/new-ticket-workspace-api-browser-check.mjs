@@ -2,7 +2,7 @@
 export default async function checkWorkspaceApi(browser) {
   let checks = 0;
   const check = (ok, message) => { if (!ok) throw Error(message); checks++; };
-  for (const scenario of ['empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
+  for (const scenario of ['hidden-message', 'empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
     console.log('CHECK ticket workspace: ' + scenario);
     const context = await browser.newContext(), page = await context.newPage();
     const errors = [], requests = [], drafts = {};
@@ -56,6 +56,7 @@ export default async function checkWorkspaceApi(browser) {
         data.CATEGORIES.push({ key: 'general', label: 'General', is_active: true });
         data.CHANNELS.push({ _uuid: channelId, id: 'CH-TEST', type: 'email', status: 'active', address: 'support@example.test' });
         (await import('/js/layouts/index.js')).getLayoutFields('ticket').find(f => f.key === 'message').required = true;
+        if (scenario === 'hidden-message') (await import('/js/layouts/index.js')).getLayoutFields('ticket').find(f => f.key === 'message').visible = false;
         if (scenario === 'restricted') {
           const state = await import('/js/core/state.js'); state.setSession({ ...state.SESSION, permissions: { 'tickets.create': true } });
         }
@@ -63,6 +64,13 @@ export default async function checkWorkspaceApi(browser) {
       }, { customerId, channelId, scenario });
       await page.locator('#nt-subj').fill('Synthetic workspace'); await page.locator('#nt-cat').selectOption({ index: 1 });
       await page.locator('#nt-pri').selectOption('high');
+      if (scenario === 'hidden-message') {
+        check(await page.locator('#compose-new-ticket, #nt2-send-btn, [data-action="nt.responses"], #nt2-files').count() === 0, 'Hidden First message omits writing, send and attachment controls');
+        await page.locator('#nt2-draft-btn').click();
+        await page.locator('.new-ticket-workspace').waitFor({ state: 'detached' });
+        check(creates === 1 && messages === 0 && drafts.reply.body === '', 'Hidden First message still permits a metadata-only unsent draft');
+        continue;
+      }
       if (scenario === 'loading-editor') {
         await page.locator('#nt2-msg').fill('Typed while loading'); releaseEditor();
         await page.locator('#compose-new-ticket .ql-editor').waitFor();
@@ -93,7 +101,10 @@ export default async function checkWorkspaceApi(browser) {
         if (['ai-edited','ai-rerender'].includes(scenario)) {
           await page.waitForFunction(() => document.querySelector('#nt-ai-status')?.textContent.includes('Preparing'));
           if (scenario === 'ai-edited') await editor.fill('Agent edits made while waiting');
-          else await page.locator('#nt2-files').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') });
+          else {
+            await page.locator('#nt2-files').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') });
+            check(await page.locator('#nt2-send-btn').isDisabled() && await page.locator('#nt2-draft-btn').isDisabled() && await page.locator('#nt2-without-ai-btn').isDisabled(), 'AI-busy buttons remain disabled after the form redraws');
+          }
           while (!releaseAi) await new Promise(resolve => setTimeout(resolve, 10));
           releaseAi();
         }

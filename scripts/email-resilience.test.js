@@ -56,7 +56,7 @@ test('new-ticket manual sends require confirmation and omit translation while ke
     let posted = [], closed = false, aiCalls = 0, notices = [];
     const context = {
       NT: state, document: { getElementById: () => ({ value: 'Hello', checkValidity: () => true }) },
-      currentWorkspace:()=>true, can:()=>true, harvestWorkspace(){}, validateStep1:()=>true, catOptions:()=>[], recipientPayload:()=>({to:['synthetic@example.test']}), unresolvedVariables:()=>[], closeWorkspace(){},
+      visible:()=>true,currentWorkspace:()=>true, can:()=>true, harvestWorkspace(){}, validateStep1:()=>true, catOptions:()=>[], recipientPayload:()=>({to:['synthetic@example.test']}), unresolvedVariables:()=>[], closeWorkspace(){},
       window: { confirm: message => { expect(message).toContain('will not be translated'); return scenario !== 'cancelled'; } },
       required: () => false, setBusy: value => { state.busy = value; },
       isSessionApiBacked: () => true, getWorkspaceId: () => 'one', getJwt: () => 'session',

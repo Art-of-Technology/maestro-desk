@@ -483,7 +483,7 @@ function newTicketContext() {
 }
 
 function insertResponse(template) {
-  if (!currentWorkspace() || NT.busy || !can('tickets.reply')) return;
+  if (!currentWorkspace() || NT.busy || !visible('message') || !can('tickets.reply')) return;
   harvestWorkspace();
   if (!NT.customer) { showToast('Choose a customer before inserting a response.', 'warn'); return; }
   return appendTemplate(newTicketContext(), template);
@@ -494,15 +494,16 @@ function renderWorkspace() {
   const container = document.getElementById('new-ticket-container');
   if (!container) return;
   const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  const messageVisible = visible('message');
   const actions = sendActions();
   const action = actions.find(value => value.status === NT.statusAfterSend) || SEND_ACTIONS[0];
   const channels = NT.sendingInboxes;
   disposeComposer('new-ticket');
   container.innerHTML = `<section class="new-ticket-workspace" role="dialog" aria-modal="true" aria-labelledby="nt-heading" data-guide="new-ticket">
-    <header class="nt-heading"><div><h1 id="nt-heading">New ticket</h1><p>Write the first message or save the details as a draft.</p></div><button type="button" class="btn" data-action="nt.cancel" aria-label="Close new ticket">Close</button></header>
-    <div class="nt-workspace-body"><aside class="nt-details" aria-label="Ticket details">${detailsHtml()}
+    <header class="nt-heading"><div><h1 id="nt-heading">New ticket</h1><p>${messageVisible ? 'Write the first message or save the details as a draft.' : 'Save the ticket details as a draft.'}</p></div><button type="button" class="btn" data-action="nt.cancel" aria-label="Close new ticket">Close</button></header>
+    <div class="nt-workspace-body ${messageVisible ? '' : 'nt-details-only'}"><aside class="nt-details" aria-label="Ticket details">${detailsHtml()}
       ${customer ? `<dl class="nt-customer-context"><dt>Customer ID</dt><dd>${window.escHtml(customer.id)}</dd><dt>Email</dt><dd>${window.escHtml(customer.email || 'No primary email saved')}</dd><dt>Brand</dt><dd>${window.escHtml(customer.brand || 'Current workspace')}</dd><dt>Jurisdiction</dt><dd>${window.escHtml(customer.jurisdiction || 'Not set')}</dd></dl>` : ''}
-    </aside><div class="nt-writing">
+    </aside>${messageVisible ? `<div class="nt-writing">
       ${NT.createdTicket ? `<p class="nt-saved-notice" role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is saved. Continue here to retry; your ticket will not be created again.</p>` : ''}
       <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
       <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
@@ -518,8 +519,8 @@ function renderWorkspace() {
       ${renderNewTicketFiles()}
       <div class="nt-send-options"><label for="nt2-after-send">Send action</label><select id="nt2-after-send" class="form-input" data-change-action="nt.afterSend">${actions.map(a => `<option value="${window.escAttr(a.status)}" ${a.status === NT.statusAfterSend ? 'selected' : ''}>${window.escHtml(a.label)}</option>`).join('')}</select><p id="nt2-action-hint">${window.escHtml(action.hint)} Status changes happen only after the email is sent.</p>
       ${NT.statusAfterSend ? statusReasonField(statusChoice(NT.statusAfterSend), 'nt2-close-reason', NT.closeReason) : ''}</div>
-    </div></div><footer class="nt-footer"><div><button type="button" class="btn" id="nt2-draft-btn" data-action="nt.saveDraft">Save as draft</button><span>Save the details and unsent message. No customer email or survey.</span></div>
-    <div><button type="button" class="btn" id="nt2-without-ai-btn" data-action="nt.sendWithoutAI" aria-describedby="nt2-without-ai-hint" ${NT.statusAfterSend || !can('tickets.reply') ? 'disabled' : ''}>Send without AI…</button><button type="button" class="btn btn-solid" id="nt2-send-btn" data-action="nt.send" ${!can('tickets.reply') ? 'disabled' : ''}>${window.escHtml(action.label)}</button><p id="nt2-without-ai-hint">${window.escHtml(SEND_WITHOUT_AI_HINT)}</p></div></footer>
+    </div>` : ''}</div><footer class="nt-footer"><div><button type="button" class="btn" id="nt2-draft-btn" data-action="nt.saveDraft" ${NT.aiBusy ? 'disabled' : ''}>Save as draft</button><span>Save the details and unsent message. No customer email or survey.</span></div>
+    ${messageVisible ? `<div><button type="button" class="btn" id="nt2-without-ai-btn" data-action="nt.sendWithoutAI" aria-describedby="nt2-without-ai-hint" ${NT.aiBusy || NT.statusAfterSend || !can('tickets.reply') ? 'disabled' : ''}>Send without AI…</button><button type="button" class="btn btn-solid" id="nt2-send-btn" data-action="nt.send" ${NT.aiBusy || !can('tickets.reply') ? 'disabled' : ''}>${window.escHtml(action.label)}</button><p id="nt2-without-ai-hint">${window.escHtml(SEND_WITHOUT_AI_HINT)}</p></div>` : ''}</footer>
   </section>`;
   for (const node of document.querySelectorAll('#app > .sidebar, #app > .main')) {
     if (!backgroundInert.has(node)) backgroundInert.set(node, node.inert);
@@ -528,7 +529,7 @@ function renderWorkspace() {
   wireCustomerSearch();
   const host = document.getElementById('compose-new-ticket');
   const initialText = NT.message, initialHtml = NT.messageHtml;
-  void mountComposer('new-ticket', { initialHtml: NT.messageHtml || textHtml(NT.message), readOnly: NT.busy || !can('tickets.reply'),
+  if (messageVisible) void mountComposer('new-ticket', { initialHtml: NT.messageHtml || textHtml(NT.message), readOnly: NT.busy || !can('tickets.reply'),
     placeholder: 'Write the first message…', onChange: () => { captureEditor(); NT.messageTouched = true; } }).then(editor => {
       if (!currentWorkspace() || document.getElementById('compose-new-ticket') !== host) return;
       NT.editor = editor;
@@ -552,7 +553,7 @@ function renderWorkspace() {
     // Keep app navigation shortcuts out of an unfinished conversation.
     event.stopPropagation();
     if (event.key === 'Escape') { event.preventDefault(); cancelWorkspace(); return; }
-    if (event.code === 'Space' && (event.ctrlKey || event.metaKey) && event.shiftKey) { event.preventDefault(); showMacroPanel('new-ticket', insertResponse); }
+    if (messageVisible && event.code === 'Space' && (event.ctrlKey || event.metaKey) && event.shiftKey) { event.preventDefault(); showMacroPanel('new-ticket', insertResponse); }
     if (event.key !== 'Tab') return;
     const nodes = [...container.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[contenteditable="true"]')].filter(node => !node.hidden && node.getClientRects().length);
     if (event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes.at(-1)?.focus(); }
@@ -562,7 +563,7 @@ function renderWorkspace() {
 }
 
 async function aiWriting(verb) {
-  if (!currentWorkspace() || NT.busy || NT.aiBusy || !can('tools.ai') || !can('tickets.reply')) return;
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !visible('message') || !can('tools.ai') || !can('tickets.reply')) return;
   harvestWorkspace();
   const original = NT.message, originalHtml = NT.messageHtml, scope = NT.scope, customer = NT.customer;
   const editor = document.getElementById('compose-new-ticket');
@@ -630,7 +631,7 @@ function setBusy(on, label) {
 }
 
 async function confirmSend(withoutAI = false) {
-  if (!currentWorkspace() || NT.busy || NT.aiBusy || !can('tickets.create') || !can('tickets.reply')) return;
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !visible('message') || !can('tickets.create') || !can('tickets.reply')) return;
   harvestWorkspace();
   if (!validateStep1(catOptions().length)) return;
   const ccInput = document.getElementById('nt2-cc');
@@ -713,9 +714,9 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
     agentUserId: NT.agentUserId,
     agentName: NT.agentName,
     replyLanguage: withoutAI ? '' : NT.replyLanguage,
-    messageHtml: NT.messageHtml,
+    messageHtml: visible('message') ? NT.messageHtml : null,
     recipients: recipientPayload(),
-    files: [...NT.files],
+    files: visible('message') ? [...NT.files] : [],
   };
   let displayId, keptDraft = false, emailed = false;
   if (isApiBacked) {
@@ -948,7 +949,7 @@ registerActions({
   'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
   'nt.cancel': cancelWorkspace,
-  'nt.responses': () => { if (currentWorkspace() && !NT.busy) showMacroPanel('new-ticket', insertResponse); },
+  'nt.responses': () => { if (currentWorkspace() && !NT.busy && visible('message')) showMacroPanel('new-ticket', insertResponse); },
   'nt.favourite': ds => { const template = CANNED_RESPONSES.find(t => templateKey(t) === ds.templateKey); if (template) void insertResponse(template); },
   'nt.ai': ds => { void aiWriting(ds.verb); },
   'nt.preview': () => {

@@ -14,7 +14,7 @@ test('new-ticket closure requires a message, a valid reason and confirmed sendin
     const ticket={id:'TK-NEW',_uuid:'ticket'};
     const context={
       can:()=>true,NT:state,TICKETS:[ticket],CURRENT_TICKET:null,
-      currentWorkspace:()=>true,harvestWorkspace(){},validateStep1:()=>true,catOptions:()=>[],recipientPayload:()=>({to:['synthetic@example.test']}),unresolvedVariables:()=>[],closeWorkspace(){},
+      visible:()=>true,currentWorkspace:()=>true,harvestWorkspace(){},validateStep1:()=>true,catOptions:()=>[],recipientPayload:()=>({to:['synthetic@example.test']}),unresolvedVariables:()=>[],closeWorkspace(){},
       document:{getElementById:id=>id==='nt2-msg'?form:id==='closure-error'?error:{value:scenario==='reason-missing'?'':'other',checkValidity:()=>true,focus(){}}},
       required:()=>false,alert(){},window:{confirm:()=>true},setBusy:v=>{state.busy=v;},
       getWorkspaceId:()=>workspace,getJwt:()=> 'session',isSessionApiBacked:()=>true,

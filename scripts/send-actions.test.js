@@ -27,7 +27,7 @@ test('new ticket changes each selected status only after confirmed sending and v
       const context = {
         NT: { busy: false, statusAfterSend: status, closeReason: '', files: [], customer: { uuid: 'customer' } },
         TICKETS: [ticket], CURRENT_TICKET: 'TK-NEW', can: key => outcome !== 'denied' || ['tickets.create','tickets.reply'].includes(key),
-        currentWorkspace:()=>true,harvestWorkspace(){},validateStep1:()=>true,catOptions:()=>[],recipientPayload:()=>({to:['synthetic@example.test']}),unresolvedVariables:()=>[],closeWorkspace(){},
+        visible:()=>true,currentWorkspace:()=>true,harvestWorkspace(){},validateStep1:()=>true,catOptions:()=>[],recipientPayload:()=>({to:['synthetic@example.test']}),unresolvedVariables:()=>[],closeWorkspace(){},
         document: { getElementById: id => ({ value: id === 'nt2-msg' ? 'Hello' : '', checkValidity:()=>true,focus() {} }) },
         required: () => false, alert() {}, setBusy() {}, showToast() {},
         getWorkspaceId: () => 'workspace', getJwt: () => 'session', isSessionApiBacked: () => true,
