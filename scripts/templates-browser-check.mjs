@@ -40,39 +40,51 @@ export default async function checkTemplates(page) {
   await page.getByRole('button', { name: '{agent}', exact: true }).click();
   assert((await page.locator('#compose-template-editor .ql-editor').innerText()).includes('{agent}'), 'Variable button inserts text');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  const result = await page.evaluate(async () => {
+  const ticketId = await page.evaluate(async () => {
     const data = await import('/js/core/data.js');
-    const composer = await import('/js/tickets/composer.js');
-    const { appendTemplate } = await import('/js/tickets/template-content.js');
     const detail = await import('/js/tickets/detail.js');
     const ticket = data.TICKETS[0];
     const customer = data.CUSTOMERS.find(c => c.id === ticket.customerId);
-    customer.first = '<img src=x onerror=alert(1)> $& {ticket}';
+    customer.first = '$& {ticket}';
+    const { resolveTemplate } = await import('/js/tickets/template-content.js');
+    if (resolveTemplate({ text: '{name}' }, ticket).text !== '$& {ticket}') throw Error('Customer values must not be re-expanded');
+    customer.first = '<img src=x onerror=alert(1)> $&';
+    (await import('/js/core/state.js')).setComposeTabValue('reply');
     detail.openTicket(ticket.id);
-    await composer.mountComposer(ticket.id);
-    composer.setText(ticket.id, 'Existing draft');
-    await appendTemplate(ticket, data.CANNED_RESPONSES[0]);
-    const html = composer.getHtml(ticket.id);
-    const plain = composer.getPlainText(ticket.id);
-    const host = document.getElementById('compose-' + ticket.id);
+    return ticket.id;
+  });
+  await page.locator('[data-compose-launch][data-tab="reply"]').click();
+  await page.locator(`[id="compose-${ticketId}"] .ql-editor`).fill('Existing draft');
+  await page.evaluate(async id => {
+    const data = await import('/js/core/data.js');
+    await (await import('/js/tickets/template-content.js')).appendTemplate(data.TICKETS.find(t => t.id === id), data.CANNED_RESPONSES[0]);
+  }, ticketId);
+  await page.getByRole('button', { name: 'Insert response', exact: true }).click();
+  const result = await page.evaluate(async id => {
+    const composer = await import('/js/tickets/composer.js');
+    const html = composer.getHtml(id);
+    const plain = composer.getPlainText(id);
+    const host = document.getElementById('compose-' + id);
     const imageCount = host.querySelectorAll('img').length;
     return { html, plain, imageCount };
-  });
+  }, ticketId);
   assert(result.plain.startsWith('Existing draft'), 'Insertion must preserve existing draft');
   assert(result.html.includes('<strong>'), 'Inserted response must keep formatting');
   assert(result.imageCount === 1, 'Customer variable must not inject an image');
-  assert(result.plain.includes('$& {ticket}'), 'Variable values must not be re-expanded');
+  assert(result.plain.includes('$&'), 'Variable values must not be interpreted as replacement patterns');
   assert(!result.plain.includes('{brand}') && !result.plain.includes('{agent}'), 'All variable types must resolve');
   const macro = await page.evaluate(async () => {
     const data = await import('/js/core/data.js');
     const macros = await import('/js/tickets/macros.js');
     const composer = await import('/js/tickets/composer.js');
-    macros.MACROS.push({ id: 'MAC-TEST', name: 'Rich test', actions: [{ kind: 'reply', templateId: data.CANNED_RESPONSES[0].id }] });
+    const template = data.CANNED_RESPONSES[0];
+    macros.MACROS.push({ id: 'MAC-TEST', name: 'Rich test', actions: [{ kind: 'reply', templateId: template._uuid || template.id }] });
     composer.setText(data.TICKETS[0].id, 'Macro draft');
     macros.showApplyMacroModal(data.TICKETS[0].id);
     return { id: data.TICKETS[0].id };
   });
   await page.locator('[data-macro-id="MAC-TEST"]').dispatchEvent('mousedown');
+  await page.getByRole('button', { name: 'Insert response', exact: true }).click();
   await page.waitForFunction(id => document.getElementById('compose-' + id)?.querySelector('strong'), macro.id);
   const macroText = await page.locator('[id="compose-' + macro.id + '"] .ql-editor').innerText();
   assert(macroText.startsWith('Macro draft'), 'Macro must preserve and append to the draft');

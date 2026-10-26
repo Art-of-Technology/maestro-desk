@@ -11,6 +11,8 @@ test('verified grants override role names and legacy flags', () => {
   expect(can('customers.delete')).toBe(false);
   expect(can('tickets.note')).toBe(true);
   expect(can('admin.agents')).toBe(false);
+  expect(actionPermission({ dataset: { action: 'nt.cancel' } })).toBeNull();
+  expect(actionPermission({ dataset: { action: 'nt.closePreview' } })).toBeNull();
 });
 test('blank-ticket deletion keeps its legacy exception until explicit permissions are saved', () => {
   Object.assign(session, { permissions: { 'tickets.delete': false }, permissionsLegacy: true });

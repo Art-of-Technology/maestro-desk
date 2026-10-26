@@ -77,7 +77,9 @@ function macActionSummary(a) {
 // Picker for inserting a CANNED_RESPONSES entry into the compose box of
 // ticket `id`. Rows carry data-action="macros.insert"; the handler calls
 // insertMacro (from detail.js). Labels go through escAttr/escHtml on the way in.
-export function showMacroPanel(id) {
+let templateInsertTarget = null;
+export function showMacroPanel(id, onInsert = null) {
+  templateInsertTarget = { id, onInsert, workspace: getWorkspaceId(), jwt: getJwt() };
   const trigger = document.activeElement;
   void loadTemplateFavourites();
   showModal('Response templates', `
@@ -477,7 +479,15 @@ export function renderMacros() {
 }
 
 registerActions({
-  'macros.insert':     (ds) => insertMacro(ds.id, CANNED_RESPONSES.findIndex(r => (r._uuid || r.id) === ds.templateId)),
+  'macros.insert': ds => {
+    const target = templateInsertTarget;
+    const index = CANNED_RESPONSES.findIndex(r => (r._uuid || r.id) === ds.templateId);
+    if (target?.id === ds.id && target.onInsert) {
+      if (target.workspace === getWorkspaceId() && target.jwt === getJwt() && index >= 0) return target.onInsert(CANNED_RESPONSES[index]);
+      return;
+    }
+    return insertMacro(ds.id, index);
+  },
   'macros.gotoManage': () => { closeModal(); navTo('macros'); },
   'macros.removeStep': (ds) => macRemoveStep(parseInt(ds.idx, 10)),
   'macros.addStep':    () => macAddStep(),

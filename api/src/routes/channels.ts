@@ -5,6 +5,7 @@ import { requirePermission } from '../lib/role-permissions.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
+import { getSendingInboxes } from '../lib/outbound-from.js';
 
 // Migration to Neon — Step 3. Reads are member-level; writes require a
 // workspace ADMIN. Every query is workspace-scoped via c.get('workspaceId')
@@ -20,6 +21,9 @@ import { nextDisplayId } from '../lib/display-id.js';
 export const channels = new Hono();
 
 channels.use('*', requireAuth);
+
+// The compose form needs the same verified senders as an existing ticket.
+channels.get('/sending-inboxes', async c => c.json({ inboxes: await getSendingInboxes(c.get('workspaceId')) }));
 
 const CHANNEL_COLS = `
   ch.id, ch.display_id, ch.name, ch.type, ch.address, ch.status,

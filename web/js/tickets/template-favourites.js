@@ -76,10 +76,10 @@ export function favouriteStatus() {
   return `<span role="status">${state.loading ? 'Loading favourites…' : window.escHtml(state.error)}</span>${state.loadError && !state.loading ? ' <button type="button" class="btn btn-sm" data-action="templateFavourites.retry">Retry favourites</button>' : ''}`;
 }
 
-export function favouritesRow(ticketId) {
+export function favouritesRow(ticketId, insertAction = 'templateFavourites.insert') {
   const state = templateFavourites();
   const pinned = CANNED_RESPONSES.filter(t => state.pins.has(templateKey(t)));
-  return `<div class="template-favourites-heading">Favourites</div><div class="template-favourites-links">${pinned.length ? pinned.map(t => `<button type="button" class="btn btn-sm" data-action="templateFavourites.insert" data-ticket-id="${window.escAttr(ticketId)}" data-template-key="${window.escAttr(templateKey(t))}" title="${window.escAttr(t.name)}">${window.escHtml(t.name)}</button>`).join('') : '<span>Pin templates in the picker for quick access here.</span>'}</div><div class="template-favourites-status">${favouriteStatus()}</div>`;
+  return `<div class="template-favourites-heading">Favourites</div><div class="template-favourites-links">${pinned.length ? pinned.map(t => `<button type="button" class="btn btn-sm" data-action="${window.escAttr(insertAction)}" data-ticket-id="${window.escAttr(ticketId)}" data-template-key="${window.escAttr(templateKey(t))}" title="${window.escAttr(t.name)}">${window.escHtml(t.name)}</button>`).join('') : '<span>Pin templates in the picker for quick access here.</span>'}</div><div class="template-favourites-status">${favouriteStatus()}</div>`;
 }
 
 registerActions({

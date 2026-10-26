@@ -30,7 +30,8 @@ export default async (browser, screenshotsDir) => {
         else if (path.endsWith('/tickets') && req.method() === 'POST') { creates++; Object.assign(row, body); json = { ticket: row }; }
         else if (path.endsWith('/messages') && req.method() === 'POST') {
           const message = { id: 'message-' + messages.length, role: 'agent', body: body.body, created_at: new Date().toISOString() };
-          messages.push(message); json = { message, delivery: { emailed: scenario !== 'unconfirmed', reason: scenario === 'unconfirmed' ? 'delivery_unconfirmed' : 'sent' } };
+          drafts.reply = { body: '', recipients: null, review: null, attachments: [], version: (drafts.reply?.version || 0) + 1 };
+          messages.push(message); json = { message, draft_version: drafts.reply.version, delivery: { emailed: scenario !== 'unconfirmed', reason: scenario === 'unconfirmed' ? 'delivery_unconfirmed' : 'sent' } };
         } else if (path.includes('/drafts/')) {
           const tab = path.split('/').at(-1);
           if (req.method() === 'PUT') drafts[tab] = { ...body, version: (body.version || 0) + 1, attachments: [] };
@@ -57,8 +58,7 @@ export default async (browser, screenshotsDir) => {
         await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, data.CUSTOMERS[0].id);
       }, customerId);
       await page.locator('#nt-subj').fill('Synthetic send actions'); await page.locator('#nt-cat').selectOption({ index: 1 });
-      await page.locator('[data-action="modal.confirm"]').click();
-      await page.getByRole('button', { name: 'Confirm and continue', exact: true }).click();
+      await page.locator('#compose-new-ticket .ql-editor').waitFor();
       await page.locator('#nt2-after-send').waitFor();
       const withoutAIHint = 'Sends your message as written, without AI translation. The subject, header, signature and footer keep their saved wording. Check the language before sending.';
       check(await page.locator('#nt2-without-ai-hint').textContent() === withoutAIHint, 'New-ticket form explains sending without AI');
@@ -68,11 +68,11 @@ export default async (browser, screenshotsDir) => {
       check(withoutAIHintBounds.y >= withoutAIButtonBounds.y + withoutAIButtonBounds.height, 'New-ticket explanation sits below its button');
       const choices = await page.locator('#nt2-after-send option').allTextContents();
       check(JSON.stringify(choices.slice(0, 5)) === JSON.stringify(labels), 'New-ticket actions have the agreed labels and order: '+JSON.stringify(choices));
-      await page.locator('#nt2-msg').fill('Synthetic message'); await page.locator('#nt2-after-send').selectOption(target);
+      await page.locator('#compose-new-ticket .ql-editor').fill('Synthetic message'); await page.locator('#nt2-after-send').selectOption(target);
       if (target === 'custom-review') await page.locator('#nt2-close-reason').selectOption('review');
       check(await page.locator('#nt2-msg').inputValue() === 'Synthetic message', 'Changing action preserves message');
       if (screenshotsDir && scenario === 'pending') { await page.locator('#nt2-without-ai-hint').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${screenshotsDir}/new-ticket-send-actions-1280.png` }); }
-      await page.locator('[data-action="modal.confirm"]').click();
+      await page.locator('#nt2-send-btn').click();
       await page.locator('#nt2-msg').waitFor({ state: 'detached' });
       if (scenario === 'retry') {
         await page.getByRole('button', { name: 'Retry status only', exact: true }).waitFor();
