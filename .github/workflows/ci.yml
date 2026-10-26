@@ -282,7 +282,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Dependency security audit
-        run: bun audit --audit-level=high
+        run: bun audit --audit-level=moderate
 
       - name: Typecheck
         run: bun run typecheck
