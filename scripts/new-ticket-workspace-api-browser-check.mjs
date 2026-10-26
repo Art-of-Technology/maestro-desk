@@ -2,7 +2,7 @@
 export default async function checkWorkspaceApi(browser) {
   let checks = 0;
   const check = (ok, message) => { if (!ok) throw Error(message); checks++; };
-  for (const scenario of ['hidden-message', 'empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
+  for (const scenario of ['busy-shortcut', 'hidden-message', 'empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
     console.log('CHECK ticket workspace: ' + scenario);
     const context = await browser.newContext(), page = await context.newPage();
     const errors = [], requests = [], drafts = {};
@@ -10,7 +10,7 @@ export default async function checkWorkspaceApi(browser) {
     page.on('dialog', dialog => dialog.accept());
     const id = '11111111-1111-4111-8111-111111111111', customerId = '22222222-2222-4222-8222-222222222222', channelId = '55555555-5555-4555-8555-555555555555';
     const row = { id, display_id: 'TK-WORKSPACE', customer_id: customerId, status_key: 'open', priority_key: 'high' };
-    let failDraft = scenario === 'draft-retry', creates = 0, messages = 0, releaseEditor, releaseAi;
+    let failDraft = scenario === 'draft-retry', creates = 0, messages = 0, releaseEditor, releaseAi, releaseCreate;
     if (scenario === 'plain-fallback') await page.route('**/vendor/quill.js', route => route.abort());
     if (scenario === 'loading-editor') await page.route('**/vendor/quill.js', async route => { await new Promise(resolve => { releaseEditor = resolve; }); await route.continue(); });
     await page.route('**/api/**', async route => {
@@ -25,6 +25,7 @@ export default async function checkWorkspaceApi(browser) {
       else if (path.endsWith('/channels/sending-inboxes')) json = { inboxes: [{ id: channelId, address: 'support@example.test' }] };
       else if (path.endsWith('/ticket-statuses')) json = { statuses: ['open','pending','resolved','escalated','closed'].map(key => ({ key, label: key, base_key: key, is_active: true, reasons: [], send_survey: key === 'resolved' })) };
       else if (path.endsWith('/tickets') && request.method() === 'POST') {
+        if (scenario === 'busy-shortcut') await new Promise(resolve => { releaseCreate = resolve; });
         creates++; Object.assign(row, body); json = { ticket: row };
         if (['create-failed','ai-label'].includes(scenario)) { status = 503; json = { error: 'Synthetic create failure' }; }
       } else if (path.includes('/drafts/')) {
@@ -100,6 +101,8 @@ export default async function checkWorkspaceApi(browser) {
         await page.getByRole('button', { name: 'Improve', exact: true }).click();
         if (['ai-edited','ai-rerender'].includes(scenario)) {
           await page.waitForFunction(() => document.querySelector('#nt-ai-status')?.textContent.includes('Preparing'));
+          await editor.focus(); await page.keyboard.press('Control+Shift+Space');
+          check(await page.locator('#template-picker-results').count() === 0, 'Template shortcut cannot open the picker during AI generation');
           if (scenario === 'ai-edited') await editor.fill('Agent edits made while waiting');
           else {
             await page.locator('#nt2-files').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') });
@@ -126,6 +129,13 @@ export default async function checkWorkspaceApi(browser) {
       }
       check(creates === 0, 'Typing never creates a ticket');
       await page.locator(scenario === 'send' ? '#nt2-without-ai-btn' : '#nt2-draft-btn').click();
+      if (scenario === 'busy-shortcut') {
+        await page.locator('.new-ticket-workspace').evaluate(node => { node.tabIndex = -1; node.focus(); });
+        await page.keyboard.press('Control+Shift+Space');
+        check(await page.locator('#template-picker-results').count() === 0, 'Template shortcut cannot open the picker during saving');
+        while (!releaseCreate) await new Promise(resolve => setTimeout(resolve, 10));
+        releaseCreate();
+      }
       if (scenario === 'create-failed') {
         await page.locator('#nt2-draft-btn:not(:disabled)').waitFor();
         check(await page.locator('#nt-subj').inputValue() === 'Synthetic workspace' && (await editor.innerText()).includes('{ticket}'), 'Create failure keeps details and message');
@@ -160,7 +170,7 @@ export default async function checkWorkspaceApi(browser) {
       check(errors.length === 0, `No browser errors in ${scenario}: ${errors.join('; ')}`);
       console.log('PASS ticket workspace: ' + scenario);
     } catch (error) { console.error({ scenario, errors }); throw error; }
-    finally { releaseEditor?.(); releaseAi?.(); await context.close(); }
+    finally { releaseEditor?.(); releaseAi?.(); releaseCreate?.(); await context.close(); }
   }
   return { checks };
 }

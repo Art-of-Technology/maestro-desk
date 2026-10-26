@@ -52,6 +52,9 @@ export default async function checkWorkspace(browser, outDir) {
     acceptDialogs = false; await page.getByRole('button', { name: 'Close new ticket', exact: true }).click();
     check(await page.locator('.new-ticket-workspace').count() === 1, 'Declining discard keeps unfinished work');
     acceptDialogs = true;
+    await page.locator('#compose-new-ticket .ql-editor').focus(); await page.keyboard.press('Control+Shift+Space');
+    check(await page.getByRole('dialog', { name: 'Response templates', exact: true }).count() === 1, 'Template shortcut opens the shared picker when idle');
+    await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Close new ticket', exact: true }).focus();
     await page.keyboard.press('Shift+Tab');
     check(await page.locator('#nt2-send-btn').evaluate(el => el === document.activeElement), 'Workspace wraps backward keyboard focus');

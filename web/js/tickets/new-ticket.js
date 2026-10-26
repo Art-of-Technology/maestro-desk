@@ -483,7 +483,7 @@ function newTicketContext() {
 }
 
 function insertResponse(template) {
-  if (!currentWorkspace() || NT.busy || !visible('message') || !can('tickets.reply')) return;
+  if (!currentWorkspace() || NT.busy || NT.aiBusy || !visible('message') || !can('tickets.reply')) return;
   harvestWorkspace();
   if (!NT.customer) { showToast('Choose a customer before inserting a response.', 'warn'); return; }
   return appendTemplate(newTicketContext(), template);
@@ -508,7 +508,7 @@ function renderWorkspace() {
       <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
       <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
       <label for="nt2-cc">Cc</label><input type="email" multiple id="nt2-cc" class="form-input" value="${window.escAttr(NT.cc)}" placeholder="Email addresses, separated by commas"></div>
-      <div class="nt-writing-tools"><button type="button" class="btn" data-action="nt.responses">Insert response template</button><button type="button" class="btn" data-action="nt.preview">Preview message</button>
+      <div class="nt-writing-tools"><button type="button" class="btn" data-action="nt.responses" ${NT.aiBusy ? 'disabled' : ''}>Insert response template</button><button type="button" class="btn" data-action="nt.preview">Preview message</button>
       <label for="nt2-language">Reply language</label><select class="form-input" id="nt2-language"><option value="">As written</option>${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}</select></div>
       <div class="template-favourites" id="nt-favourites" aria-label="Favourite response templates">${favouritesRow('new-ticket', 'nt.favourite')}</div>
       <label class="form-label" for="nt2-msg">Message to the customer</label>
@@ -548,12 +548,15 @@ function renderWorkspace() {
       document.getElementById('nt2-msg').hidden = true;
     }).catch(() => { /* The plain-text editor remains available. */ });
   if (NT.createdTicket) for (const node of container.querySelectorAll('.nt-details input,.nt-details select,.nt-details button')) node.disabled = true;
-  if (!can('tickets.reply')) for (const node of container.querySelectorAll('[data-action="nt.responses"], [data-action="nt.favourite"], [data-action="nt.ai"]')) node.disabled = true;
+  if (NT.aiBusy || !can('tickets.reply')) for (const node of container.querySelectorAll('[data-action="nt.responses"], [data-action="nt.favourite"], [data-action="nt.ai"]')) node.disabled = true;
   container.querySelector('.new-ticket-workspace').addEventListener('keydown', event => {
     // Keep app navigation shortcuts out of an unfinished conversation.
     event.stopPropagation();
     if (event.key === 'Escape') { event.preventDefault(); cancelWorkspace(); return; }
-    if (messageVisible && event.code === 'Space' && (event.ctrlKey || event.metaKey) && event.shiftKey) { event.preventDefault(); showMacroPanel('new-ticket', insertResponse); }
+    if (messageVisible && event.code === 'Space' && (event.ctrlKey || event.metaKey) && event.shiftKey) {
+      event.preventDefault();
+      if (!NT.busy && !NT.aiBusy && can('tickets.reply')) showMacroPanel('new-ticket', insertResponse);
+    }
     if (event.key !== 'Tab') return;
     const nodes = [...container.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[contenteditable="true"]')].filter(node => !node.hidden && node.getClientRects().length);
     if (event.shiftKey && document.activeElement === nodes[0]) { event.preventDefault(); nodes.at(-1)?.focus(); }
@@ -569,7 +572,7 @@ async function aiWriting(verb) {
   const editor = document.getElementById('compose-new-ticket');
   if (!original.trim() && (verb !== 'draft' || !NT.subject.trim())) { showToast('Enter a subject or write a message first.', 'warn'); return; }
   NT.aiBusy = true;
-  document.querySelectorAll('[data-action="nt.ai"], #nt2-send-btn, #nt2-draft-btn, #nt2-without-ai-btn').forEach(node => { node.disabled = true; });
+  document.querySelectorAll('[data-action="nt.ai"], [data-action="nt.responses"], [data-action="nt.favourite"], #nt2-send-btn, #nt2-draft-btn, #nt2-without-ai-btn').forEach(node => { node.disabled = true; });
   document.getElementById('nt-ai-status').textContent = 'Preparing suggestion…';
   try {
     const instruction = { draft: 'Draft a concise first customer-support message from the supplied subject and agent notes. Do not invent facts.', improve: 'Improve clarity without changing the meaning.', shorten: 'Shorten while preserving the meaning.', friendly: 'Make the tone warmer without changing the meaning.' }[verb];
@@ -601,7 +604,10 @@ window.addEventListener('respovia:clear-drafts', event => {
 });
 window.addEventListener('respovia:template-favourites', () => {
   const target = document.getElementById('nt-favourites');
-  if (currentWorkspace() && target) target.innerHTML = favouritesRow('new-ticket', 'nt.favourite');
+  if (currentWorkspace() && target) {
+    target.innerHTML = favouritesRow('new-ticket', 'nt.favourite');
+    if (NT.busy || NT.aiBusy || !can('tickets.reply')) for (const node of target.querySelectorAll('button')) node.disabled = true;
+  }
 });
 
 
@@ -949,7 +955,7 @@ registerActions({
   'nt.sendWithoutAI': () => { void confirmSend(true); },
   'nt.saveDraft': () => { void saveAsDraft(); },
   'nt.cancel': cancelWorkspace,
-  'nt.responses': () => { if (currentWorkspace() && !NT.busy && visible('message')) showMacroPanel('new-ticket', insertResponse); },
+  'nt.responses': () => { if (currentWorkspace() && !NT.busy && !NT.aiBusy && visible('message') && can('tickets.reply')) showMacroPanel('new-ticket', insertResponse); },
   'nt.favourite': ds => { const template = CANNED_RESPONSES.find(t => templateKey(t) === ds.templateKey); if (template) void insertResponse(template); },
   'nt.ai': ds => { void aiWriting(ds.verb); },
   'nt.preview': () => {
