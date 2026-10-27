@@ -25,6 +25,7 @@ run('tag-only triage', () => {
     const [t] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key,category_key,ai_summary,ai_draft_reply)
       values (${ws},${customer.id},'TK-23','Withdrawal question','open','normal','General','{"text":"keep summary"}','{"text":"keep draft"}') returning id`;
     ticket = t.id;
+    await sql`insert into tag_library(workspace_id,tag,kind) values (${ws},'withdrawal','manual')`;
     const { anthropic } = await import('./lib/anthropic.js');
     create = spyOn(anthropic.messages, 'create');
     post = spyOn(await import('./lib/auto-reply.js'), 'postAutoReply').mockResolvedValue({ posted: false, reason: 'send_failed' });

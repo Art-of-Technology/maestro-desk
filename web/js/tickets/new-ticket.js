@@ -1,3 +1,4 @@
+import { renderTagControls, mountTagControls, scheduleTagSuggestions } from './tag-controls.js';
 // Full-page new-ticket composer. Creation happens only on explicit Save or Send.
 // The existing ticket/draft/upload funnel remains responsible for retries.
 
@@ -11,7 +12,7 @@ import { isFieldRequired, isFieldVisible } from '../layouts/index.js';
 import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
-import { apiGet, apiPost, apiPatch, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery, applySentStatus } from './detail.js';
 import { matchesContact } from '../customers/contacts.js';
@@ -34,6 +35,7 @@ import { filterTemplates, templateCategories } from './template-search.js';
 
 // Unsubmitted work stays local until the agent explicitly saves or sends.
 const NT = {
+  id: 'new-ticket', tags: [], tagSuggestions: null,
   statusReason: '',
   busy: false,
   templateId: null,
@@ -66,6 +68,7 @@ const templateFilters = { nt: { query: '', category: '' }, nt2: { query: '', cat
 const backgroundInert = new Map();
 
 function resetNT() {
+  NT.tags = []; NT.tagSuggestions = null;
   for (const filter of Object.values(templateFilters)) { filter.query = ''; filter.category = ''; }
   NT.busy = false;
   NT.templateId = null;
@@ -274,7 +277,7 @@ function detailsHtml() {
   return `
     ${templateControls('nt')}
     ${customerRow}
-    ${visible('subject') ? `<div class="form-row"><label class="form-label" for="nt-subj">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
+    ${visible('subject') ? `<div class="form-row"><label class="form-label" for="nt-subj">Subject${reqMark('subject')}</label><input class="form-input" id="nt-subj" data-input-action="nt.subjectInput" value="${window.escAttr(NT.subject)}" placeholder="Describe the issue…"/></div>` : ''}
     ${categoryRow || priorityRow ? `<div class="form-grid">${categoryRow}${priorityRow}</div>` : ''}
     ${agentRow}
     ${statusReasonField(statusChoice('open'), 'nt-status-reason', NT.statusReason)}
@@ -489,6 +492,22 @@ function insertResponse(template) {
   return appendTemplate(newTicketContext(), template);
 }
 
+async function changeNewTicketTag(tag, remove) {
+  if (!currentWorkspace() || NT.busy) return;
+  const scope = NT.scope;
+  if (NT.createdTicket) {
+    setBusy(true, 'Saving tag…');
+    try {
+      const path = '/api/v1/tickets/' + NT.createdTicket.row.id + '/tags';
+      if (remove) await apiDelete(path + '/' + encodeURIComponent(tag));
+      else await apiPost(path, { tag });
+    } finally { if (NT.scope === scope && currentWorkspace()) setBusy(false); }
+  }
+  if (NT.scope !== scope || !currentWorkspace()) return;
+  if (remove) NT.tags = NT.tags.filter(t => t !== tag);
+  else if (!NT.tags.includes(tag)) NT.tags.push(tag);
+}
+
 function renderWorkspace() {
   if (!currentWorkspace()) return;
   const container = document.getElementById('new-ticket-container');
@@ -505,6 +524,7 @@ function renderWorkspace() {
       ${customer ? `<dl class="nt-customer-context"><dt>Customer ID</dt><dd>${window.escHtml(customer.id)}</dd><dt>Email</dt><dd>${window.escHtml(customer.email || 'No primary email saved')}</dd><dt>Brand</dt><dd>${window.escHtml(customer.brand || 'Current workspace')}</dd><dt>Jurisdiction</dt><dd>${window.escHtml(customer.jurisdiction || 'Not set')}</dd></dl>` : ''}
     </aside>${messageVisible ? `<div class="nt-writing">
       ${NT.createdTicket ? `<p class="nt-saved-notice" role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is saved. Continue here to retry; your ticket will not be created again.</p>` : ''}
+      ${renderTagControls('new-ticket')}
       <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
       <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
       <label for="nt2-cc">Cc</label><input type="email" multiple id="nt2-cc" class="form-input" value="${window.escAttr(NT.cc)}" placeholder="Email addresses, separated by commas"></div>
@@ -527,10 +547,11 @@ function renderWorkspace() {
     node.inert = true;
   }
   wireCustomerSearch();
+  mountTagControls(NT, () => { const subject = document.getElementById('nt-subj')?.value ?? NT.subject; return subject.trim() || NT.message.trim() ? JSON.stringify({ subject, draft: NT.message }) : ''; }, tag => changeNewTicketTag(tag, false), tag => changeNewTicketTag(tag, true));
   const host = document.getElementById('compose-new-ticket');
   const initialText = NT.message, initialHtml = NT.messageHtml;
   if (messageVisible) void mountComposer('new-ticket', { initialHtml: NT.messageHtml || textHtml(NT.message), readOnly: NT.busy || !can('tickets.reply'),
-    placeholder: 'Write the first message…', onChange: () => { captureEditor(); NT.messageTouched = true; } }).then(editor => {
+    placeholder: 'Write the first message…', onChange: () => { captureEditor(); NT.messageTouched = true; scheduleTagSuggestions(NT); } }).then(editor => {
       if (!currentWorkspace() || document.getElementById('compose-new-ticket') !== host) return;
       NT.editor = editor;
       if (editor) {
@@ -713,6 +734,7 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
     customerUuid: NT.customer?.uuid || null,
     customerDisplayId: NT.customer?.displayId || 'M001',
     subject: NT.subject,
+    tags: [...(NT.tags || [])],
     statusReason: NT.statusReason,
     categoryValue: NT.categoryValue,
     categoryLabel: NT.categoryLabel,
@@ -862,6 +884,12 @@ async function createOnServer(snap, { message, send }) {
   }
   if (!current()) return { aborted: true };
 
+  for (const tag of snap.tags || []) {
+    if (!current()) return { aborted: true };
+    await apiPost(`/api/v1/tickets/${row.id}/tags`, { tag });
+    const ticket = TICKETS.find(t => t._uuid === row.id);
+    if (ticket && !ticket.tags.includes(tag)) ticket.tags.push(tag);
+  }
   return createWithFiles(row, snap, { message, send }, current);
 }
 
@@ -935,7 +963,7 @@ function createDemoTicket(snap, { message, send }) {
     category: snap.categoryLabel || catOptions()[0]?.label || 'General',
     agent: snap.agentName || '',
     created: new Date().toISOString().slice(0, 10), _createdAt: new Date().toISOString(), updated: 'just now', _listUpdatedAt: new Date().toISOString(),
-    sla: 'ok', tags: [], aiTags: [], csat: null,
+    sla: 'ok', tags: [...(snap.tags || [])], aiTags: [], csat: null,
     msgs: (send && message) ? [{ from: SESSION.name, r: 'agent', t: message, ts: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) }] : [],
   });
   if (!snap.agentUserId) applyAssignmentRules(TICKETS[0]);
@@ -1013,7 +1041,8 @@ registerChangeActions({
 registerInputActions({
   'nt.templateSearch': (ds, el) => { if (!NT.busy) { templateFilters[ds.templateStep].query = el.value; filterTemplateOptions(ds.templateStep); } },
   'nt.custSearch': (_, el) => renderSuggestions(el.value),
-  'nt.msgInput': (_, el) => { if (!currentWorkspace()) return; NT.message = el.value; NT.messageHtml = null; NT.messageTouched = true; const copy = document.getElementById('nt2-msg'); if (copy) copy.value = el.value; },
+  'nt.subjectInput': (_, el) => { NT.subject = el.value; scheduleTagSuggestions(NT); },
+  'nt.msgInput': (_, el) => { if (!currentWorkspace()) return; NT.message = el.value; NT.messageHtml = null; NT.messageTouched = true; scheduleTagSuggestions(NT); const copy = document.getElementById('nt2-msg'); if (copy) copy.value = el.value; },
 });
 
 registerMousedownActions({

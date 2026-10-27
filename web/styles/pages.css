@@ -946,3 +946,13 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
   .ticket-status-settings .btn,.ticket-status-modal button,.ticket-status-modal .form-input{min-height:44px}
   .ticket-status-modal .modal-close{min-width:44px}
 }
+
+.ticket-tag-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;max-width:100%}
+.ticket-tag-controls .ticket-tag-list{display:flex;flex-wrap:wrap;gap:6px}
+.tag-picker{max-width:100%}
+.tag-picker[open]{flex-basis:100%;padding:8px;border:1px solid var(--rule);border-radius:6px}
+.tag-picker label{display:block;font-size:12px;margin:8px 0}
+.tag-picker [data-tag-options]{display:flex;flex-wrap:wrap;gap:6px;max-height:200px;overflow:auto}
+.tag-suggestions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--ink3)}
+.ticket-tag-controls .btn{white-space:normal;overflow-wrap:anywhere;max-width:100%;min-height:32px}
+@media(pointer:coarse){.ticket-tag-controls .btn{min-height:44px}}

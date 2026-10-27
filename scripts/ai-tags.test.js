@@ -1,71 +1,54 @@
-import { beforeEach, expect, mock, test } from 'bun:test';
-globalThis.localStorage = { getItem: () => null };
-const { setCurrentTicket } = await import('../web/js/core/state.js');
-const tickets = [];
-let workspace, jwt, current, request, panel;
-mock.module('../web/js/core/data.js', () => ({ TICKETS: tickets }));
-mock.module('../web/js/core/api-client.js', () => ({ apiPost: (...args) => request(...args), getWorkspaceId: () => workspace, getJwt: () => jwt }));
-const { generateAITags, renderAITags } = await import('../web/js/ai/tags.js');
-const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
-globalThis.window = { escHtml: escape, escAttr: escape };
-globalThis.document = { getElementById: () => panel };
-beforeEach(() => {
-  workspace = 'workspace'; jwt = 'session'; current = 'TK-23';
-  setCurrentTicket(current);
-  panel = { dataset: { ticketId: current }, innerHTML: '' };
-  tickets.splice(0, tickets.length, { id: current, _uuid: 'uuid', aiTags: [{ tag: 'existing', conf: 80, accepted: true }], aiDraft: { text: 'Keep this draft' } });
-  request = mock(async () => ({ ai_tags: [{ tag: 'withdrawal', confidence: 95, accepted: false }] }));
+import { test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+
+function setup() {
+  let timer, calls = [], content = 'withdrawal question', resolve, workspace = 'one';
+  const nodes = Object.fromEntries(['[data-applied]', '[data-tag-options]', '[data-suggestions]', '[data-tag-search]', 'details'].map(k => [k, { value: '', innerHTML: '', open: false }]));
+  const host = { isConnected: true, querySelector: key => nodes[key] };
+  const model = { id: 'ticket', _uuid: 'uuid', tags: [] };
+  const ctx = {
+    TAG_LIBRARY: ['withdrawal','billing','bonus','account'].map(tag => ({ tag })),
+    can: () => true, getJwt: () => 'jwt', getWorkspaceId: () => workspace,
+    apiGet: async () => ({ tags: ctx.TAG_LIBRARY }),
+    callClaude: input => { calls.push(input); return new Promise(r => { resolve = r; }); },
+    document: { getElementById: () => host }, window: { escAttr: String, escHtml: String },
+    setTimeout: fn => { timer = fn; return 1; }, clearTimeout() {},
+  };
+  const source = readFileSync('web/js/tickets/tag-controls.js', 'utf8').replace(/^import .*;\r?\n/gm, '').replaceAll('export ', '');
+  runInNewContext(source + '\nglobalThis.controls={mountTagControls,scheduleTagSuggestions,validSuggestions,availableTags};', ctx);
+  ctx.controls.mountTagControls(model, () => content, async tag => model.tags.push(tag), async tag => { model.tags = model.tags.filter(t => t !== tag); });
+  return { ctx, model, nodes, calls, host, run: () => timer(), reply: names => resolve({ text: JSON.stringify(names) }), content: text => { content = text; ctx.controls.scheduleTagSuggestions(model); }, switch: () => { workspace = 'two'; } };
+}
+test('offers library tags only, filters search and caps unique suggestions at three', () => {
+  const f = setup();
+  expect([...f.ctx.controls.validSuggestions(['fake','bonus','bonus','billing','withdrawal','account'])]).toEqual(['bonus','billing','withdrawal']);
+  expect([...f.ctx.controls.validSuggestions(['bonus','billing'], ['bonus'])]).toEqual(['billing']);
+  expect(f.ctx.controls.availableTags([], 'BILL').map(t => t.tag)).toEqual(['billing']);
 });
-test('shows an empty state, generates suggestions and preserves drafts', async () => {
-  expect(renderAITags(tickets[0])).toContain('Generate tags');
-  expect(renderAITags(tickets[0])).toContain('No tag suggestions yet.');
-  await generateAITags(current);
-  expect(request).toHaveBeenCalledWith('/api/v1/tickets/uuid/triage/tags', {});
-  expect(tickets[0].aiTags[0].tag).toBe('withdrawal');
-  expect(tickets[0].aiDraft.text).toBe('Keep this draft');
-  expect(panel.innerHTML).toContain('Accept tag withdrawal');
+test('uses current draft context and does not spend again on unchanged content', async () => {
+  const f = setup(); const first = f.run();
+  expect(f.calls[0].ticketId).toBe('uuid');
+  f.reply(['withdrawal']); await first;
+  await f.run(); expect(f.calls).toHaveLength(1);
+  f.content('draft about billing'); const next = f.run();
+  expect(f.calls[1].messages[0].content).toContain('draft about billing');
+  f.reply(['billing']); await next;
+  expect(f.model.tagSuggestions.names).toEqual(['billing']);
 });
-test('blocks repeat clicks while pending and keeps existing tags on a credit failure', async () => {
-  let reject;
-  request = mock(() => new Promise((_, r) => { reject = r; }));
-  const task = generateAITags(current);
-  await generateAITags(current);
-  expect(request).toHaveBeenCalledTimes(1);
-  expect(panel.innerHTML).toContain('Generating tags…');
-  reject({ status: 402 }); await task;
-  expect(panel.innerHTML).toContain('no AI credit');
-  expect(panel.innerHTML).toContain('Retry');
-  expect(tickets[0].aiTags[0].accepted).toBe(true);
-  request = mock(async () => ({ ai_tags: [] }));
-  await generateAITags(current);
-  expect(panel.innerHTML).toContain('No new tags to suggest.');
+test('discards replies for stale drafts and changed workspaces', async () => {
+  const f = setup(); const first = f.run();
+  f.content('changed draft'); f.reply(['withdrawal']); await first;
+  expect(f.model.tagSuggestions.names).toEqual([]);
+  const next = f.run(); f.switch(); f.reply(['billing']); await next;
+  expect(f.model.tagSuggestions.names).toEqual([]);
 });
-test('does not redraw another ticket or apply results to a changed session or workspace', async () => {
-  for (const change of [() => { current = 'TK-24'; setCurrentTicket(current); panel.dataset.ticketId = current; }, () => { workspace = 'other'; }, () => { jwt = 'other'; }]) {
-    workspace = 'workspace'; jwt = 'session'; current = 'TK-23'; panel.dataset.ticketId = current;
-    setCurrentTicket(current);
-    let resolve;
-    request = () => new Promise(r => { resolve = r; });
-    const task = generateAITags(current);
-    change(); panel.innerHTML = 'Other screen';
-    resolve({ ai_tags: [{ tag: 'new', confidence: 90, accepted: false }] }); await task;
-    expect(panel.innerHTML).toBe('Other screen');
-    expect(tickets[0].aiTagGeneration.pending).toBe(false);
-  }
-});
-test('escapes model tag text and renders accessible buttons', () => {
-  tickets[0].aiTags = [{ tag: '<img src=x>', conf: 99, accepted: false }];
-  const html = renderAITags(tickets[0]);
-  expect(html).not.toContain('<img');
-  expect(html).toContain('&lt;img');
-  expect(html).toContain('aria-live="polite"');
-});
-test('keeps keyboard focus in the panel while loading and returns it to the action', async () => {
-  const focusButton = mock(() => {});
-  panel.contains = () => true;
-  panel.focus = mock(() => {});
-  panel.querySelector = () => ({ focus: focusButton });
-  await generateAITags(current);
-  expect(panel.focus).toHaveBeenCalledTimes(1);
-  expect(focusButton).toHaveBeenCalledTimes(1);
+test('works before a ticket exists and applies chosen suggestions locally', async () => {
+  const f = setup(); delete f.model._uuid;
+  const first = f.run(); expect(f.calls[0].ticketId).toBeUndefined();
+  f.reply(['bonus']); await first;
+  await f.host.onclick({ target: { closest: () => ({ dataset: { tagOperation: 'add', tag: 'bonus' } }) } });
+  expect(f.model.tags).toEqual(['bonus']);
+  await f.host.onclick({ target: { closest: () => ({ dataset: { tagOperation: 'add', tag: 'invented' } }) } });
+  expect(f.model.tags).toEqual(['bonus']);
 });

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 process.env.BETTER_AUTH_SECRET ||= 'test-better-auth-secret-0123456789abcdef';
 process.env.ANTHROPIC_API_KEY ||= 'anthropic-key-placeholder';
 process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
@@ -48,6 +48,31 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
     expect((await json(await request(0, 0, 'tags'))).tags[0]).toMatchObject({ tag: 'free-spins', ai_confidence: 0 });
     expect((await request(0, 0, 'tags/free-spins', 'DELETE')).status).toBe(204);
     expect((await json(await request(0, 0, 'tags'))).tags).toHaveLength(0);
+  });
+
+  it('rejects unapproved tags and restricts AI suggestions to the workspace library', async () => {
+    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name) values (${workspaces[0]},'M-TAG','Test') returning id`;
+    const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key) values (${workspaces[0]},${customer.id},'TK-TAG','Test tags','open','normal') returning id`;
+    const path = 'tickets/' + ticket.id;
+    expect((await request(0, 0, path + '/tags', 'POST', { tag: 'invented' })).status).toBe(400);
+    expect((await request(1, 1, 'tags', 'POST', { tag: 'foreign' })).status).toBe(201);
+    expect((await request(0, 0, path + '/tags', 'POST', { tag: 'foreign' })).status).toBe(400);
+    await sql`insert into ticket_ai_tags(workspace_id,ticket_id,tag,confidence) values (${workspaces[0]},${ticket.id},'invented',90)`;
+    expect((await request(0, 0, path + '/ai_tags/invented', 'PATCH', { accepted: true })).status).toBe(400);
+    expect(await sql`select tag from ticket_tags where ticket_id=${ticket.id}`).toHaveLength(0);
+    expect((await request(0, 0, 'tags', 'POST', { tag: 'approved' })).status).toBe(201);
+    expect((await request(0, 0, path + '/tags', 'POST', { tag: 'approved' })).status).toBe(201);
+    expect((await request(0, 0, 'macros', 'POST', { name: 'Invalid', actions: [{ kind: 'tag', value: 'invented' }] })).status).toBe(400);
+    const { anthropic } = await import('./lib/anthropic.js');
+    await sql`update workspaces set ai_credits_micro=1000000 where id=${workspaces[0]}`;
+    const create = spyOn(anthropic.messages, 'create').mockResolvedValue({ id: 'tags', usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: 'text', text: '["foreign","approved","approved","invented"]' }] } as any);
+    try {
+      const response = await request(0, 0, 'ai/messages', 'POST', { action: 'tag_suggestions', messages: [{ role: 'user', content: 'Draft email about approved' }] });
+      expect(response.status).toBe(200);
+      expect(JSON.parse((await json(response)).text)).toEqual(['approved']);
+      expect((create.mock.calls[0][0] as any).system).toContain('approved');
+      expect((create.mock.calls[0][0] as any).system).not.toContain('foreign');
+    } finally { create.mockRestore(); }
   });
 
   it('persists macros and usage, validates reply ownership and isolates CRUD by workspace', async () => {

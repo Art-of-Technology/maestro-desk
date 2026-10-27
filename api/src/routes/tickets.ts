@@ -1,3 +1,4 @@
+import { HTTPException } from 'hono/http-exception';
 import { requirePermission } from '../lib/role-permissions.js';
 import { ticketAssigneeScope } from '../lib/role-permissions.js';
 import { safeError } from '../lib/diagnostics.js';
@@ -1133,8 +1134,7 @@ tickets.post('/:id/sentiment/backfill', async (c) => {
 //
 // Tag is normalised the same way the SPA used to (lowercase, hyphenated,
 // alphanumeric-only) so a value that round-trips through the API matches
-// what `data.js` set. On insert, also upsert into tag_library so the
-// workspace's tag catalogue stays in sync — kind='manual', no confidence.
+// what `data.js` set. Tags must already exist in the admin-managed library.
 const PostTag = z.object({
   tag: z.string().min(1).max(64),
 });
@@ -1164,24 +1164,15 @@ tickets.post('/:id/tags', async (c) => {
     const [ticket] = await sql`select id from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null for update`;
     if (!ticket) return null;
+    const [available] = await sql`select tag from tag_library where workspace_id=${workspaceId} and tag=${tag} for share`;
+    if (!available) throw new HTTPException(400, { message: 'Choose an existing tag. Admins can create tags in Settings.' });
     const [added] = await sql`insert into ticket_tags (workspace_id, ticket_id, tag)
       values (${workspaceId}, ${ticketId}, ${tag}) on conflict (ticket_id, tag) do nothing returning tag`;
+    await sql`update ticket_ai_tags set accepted=true where workspace_id=${workspaceId} and ticket_id=${ticketId} and tag=${tag}`;
     return added ? await recordTicketActivity(sql, { workspaceId, ticketId, actorId: c.get('userId'),
       kind: 'tag', before: null, after: tag }) : [];
   });
   if (result === null) return c.json({ error: 'Ticket not found' }, 404);
-
-  // Keep the workspace tag library populated. Best-effort — failure here
-  // shouldn't fail the request because the ticket_tags row already landed.
-  try {
-    await sql`
-      insert into tag_library (workspace_id, tag, kind)
-      values (${workspaceId}, ${tag}, 'manual')
-      on conflict (workspace_id, tag) do nothing
-    `;
-  } catch (err) {
-    console.warn('[tickets] tag_library upsert failed:', safeError(err));
-  }
 
   return c.json({ tag, activity: result }, 201);
 });
@@ -1216,8 +1207,7 @@ tickets.delete('/:id/tags/:tag', async (c) => {
 // The UI only ever flips accepted=true (there's no "un-accept" button).
 // On accept, also writes a ticket_tags row so the accepted suggestion
 // becomes a real manual tag — single source of truth for "what tags does
-// this ticket have" stays the manual tags array. tag_library upsert is
-// best-effort, same shape as POST /tags.
+// this ticket have" stays the manual tags array. Only library tags can be accepted.
 const PatchAITag = z.object({
   accepted: z.literal(true),
 });
@@ -1238,6 +1228,8 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
     const [ticket] = await sql`select id from tickets where id = ${ticketId}
       and workspace_id = ${workspaceId} and deleted_at is null for update`;
     if (!ticket) return null;
+    const [available] = await sql`select tag from tag_library where workspace_id=${workspaceId} and tag=${tag} for share`;
+    if (!available) throw new HTTPException(400, { message: 'Choose an existing tag. Admins can create tags in Settings.' });
     const [accepted] = await sql`update ticket_ai_tags set accepted = true
       where ticket_id = ${ticketId} and workspace_id = ${workspaceId} and tag = ${tag} returning tag`;
     if (!accepted) return null;
@@ -1247,17 +1239,6 @@ tickets.patch('/:id/ai_tags/:tag', async (c) => {
       kind: 'tag', before: null, after: tag }) : [];
   });
   if (activity === null) return c.json({ error: 'AI tag not found' }, 404);
-
-  // 3. Keep the workspace tag library populated. Best-effort.
-  try {
-    await sql`
-      insert into tag_library (workspace_id, tag, kind)
-      values (${workspaceId}, ${tag}, 'manual')
-      on conflict (workspace_id, tag) do nothing
-    `;
-  } catch (err) {
-    console.warn('[tickets] tag_library upsert failed:', safeError(err));
-  }
 
   return c.json({ tag, accepted: true, activity });
 });

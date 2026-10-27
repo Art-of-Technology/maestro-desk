@@ -30,6 +30,7 @@ run('permanent ticket history', () => {
     const [t] = await sql`insert into tickets(workspace_id, display_id, customer_id, subject, status_key, priority_key)
       values (${ws}, 'TK-503', ${customer.id}, 'History acceptance', 'pending', 'normal') returning id`;
     ticket = t.id;
+    await sql`insert into tag_library(workspace_id,tag,kind) values (${ws},'audit-retry','manual'), (${ws},'suggestion','manual')`;
   }, 30000);
   afterAll(async () => {
     if (!sql) return;

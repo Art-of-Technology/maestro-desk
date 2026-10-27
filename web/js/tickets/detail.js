@@ -27,7 +27,7 @@ import { COMPOSE_TAB, CURRENT_TICKET, SESSION, TICKET_SELECTED_IDS, setAiThinkin
 import { renderPage, updateNavBadges, highlightNav } from '../core/router.js';
 import { syncRoute, ticketUrl } from '../core/url-navigation.js';
 import { summarizeTicket, clearTicketSummary } from '../ai/summarize.js';
-import { generateAITags, renderAITags } from '../ai/tags.js';
+import { renderTagControls, mountTagControls, scheduleTagSuggestions } from './tag-controls.js';
 import { changeTicketCategory, renderTicketCategory, ticketCategoryKey } from './category.js';
 import { renderTicketInbox, showMoveInbox } from './inbox.js';
 import { handoverStale, handoverText } from '../ai/handover.js';
@@ -244,7 +244,6 @@ export function openTicket(id) {
   const circumference = 2*Math.PI*18;
   const dash = (csatPct/100)*circumference;
 
-  const aiTagsHtml = `<div class="ts-section" id="ticket-ai-tags" data-ticket-id="${window.escAttr(id)}">${renderAITags(t)}</div>`;
 
   const times = getTicketTimes(t);
   const timeBlock = `
@@ -592,10 +591,7 @@ export function openTicket(id) {
               ${['low','normal','high','urgent'].map(p => `<option value="${p}"${t.priority === p ? ' selected' : ''}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`).join('')}
             </select>
           </label>
-          <div class="ticket-tag-list" aria-label="Ticket tags">
-          ${t.tags.map(tg=>`<span class="tag tag-neutral" style="display:inline-flex;align-items:center;gap:4px">${window.escHtml(tg)}<span style="cursor:pointer;color:var(--ink3);font-weight:400" data-action="td.removeTag" data-ticket-id="${window.escAttr(id)}" data-tag="${window.escAttr(tg)}" title="Remove tag">×</span></span>`).join('')}
-          <input id="tag-add-${id}" data-tag-add-id="${window.escAttr(id)}" aria-label="Add ticket tag" placeholder="+ tag"/>
-          </div>
+          ${renderTagControls(id)}
           <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="${t.status !== 'closed' && findMatchingSLAPolicy(t) ? `sla-${t.sla}` : ''}">${t.status === 'closed' ? 'N/A' : !findMatchingSLAPolicy(t) ? 'No matching policy' : t.sla.toUpperCase()}</span></span>
         </div>
       </div>
@@ -720,7 +716,6 @@ export function openTicket(id) {
           ${aiSummaryBlock}
           ${timeBlock}
           ${slaBlock}
-          ${aiTagsHtml}
           ${followersBlock}
           ${kbBlock}
           ${extKbBlock}
@@ -778,6 +773,8 @@ export function openTicket(id) {
     restoreMessageScroll(thread, keepScroll);
     sizeMessageFrames(thread, keepScroll);
   }
+
+  mountTagControls(t, () => JSON.stringify({ subject: t.subject, conversation: (t.msgs || []).map(m => ({ role: m.role, text: m.text || m.body })), draft: COMPOSE_TAB === 'reply' ? getPlainText(id) : '' }), tag => addTicketTag(id, tag), tag => removeTicketTag(id, tag));
 
   // Mount the rich editor for the reply tab and repaint the pending-upload
   // chips. Fire-and-forget: the composer falls back to plain text if the
@@ -1016,35 +1013,42 @@ async function backfillTicketSentiment(id) {
   }
 }
 export async function addTicketTag(id, raw) {
+  const jwt = getJwt(), workspace = getWorkspaceId();
   const tag = String(raw || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   if (!tag) return;
+  if (!TAG_LIBRARY.some(t => t.tag === tag)) { alert('Choose an existing tag. Admins can create tags in Settings.'); return; }
   const t = TICKETS.find(x => x.id === id); if (!t) return;
   if (!t.tags) t.tags = [];
   if (t.tags.includes(tag)) { openTicket(id); return; }
   if (t._uuid) {
-    try { applySavedActivity(t, await apiPost(`/api/v1/tickets/${t._uuid}/tags`, { tag })); }
+    try {
+      const saved = await apiPost(`/api/v1/tickets/${t._uuid}/tags`, { tag });
+      if (jwt !== getJwt() || workspace !== getWorkspaceId()) return;
+      applySavedActivity(t, saved);
+    }
     catch (err) { alert(`Couldn't add tag: ${err?.message || err}`); return; }
   }
   t.tags.push(tag);
   if (!t._uuid) logTicketEvent(id, 'tag', `Tagged: ${tag}`);
   const lib = TAG_LIBRARY.find(x => x.tag === tag);
   if (lib) lib.count++;
-  else TAG_LIBRARY.push({ tag, count: 1, type: 'manual', conf: null });
-  openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
 }
 async function removeTicketTag(id, tag) {
+  const jwt = getJwt(), workspace = getWorkspaceId();
   const t = TICKETS.find(x => x.id === id); if (!t) return;
   if (!(t.tags || []).includes(tag)) { openTicket(id); return; }
   if (t._uuid) {
     try { await apiDelete(`/api/v1/tickets/${t._uuid}/tags/${encodeURIComponent(tag)}`); }
     catch (err) { alert(`Couldn't remove tag: ${err?.message || err}`); return; }
   }
+  if (jwt !== getJwt() || workspace !== getWorkspaceId()) return;
   if (!t._uuid) logTicketEvent(id, 'tag', `Tag removed: ${tag}`);
   if (t._uuid) t._detailLoaded = false;
   t.tags = (t.tags || []).filter(x => x !== tag);
   const lib = TAG_LIBRARY.find(x => x.tag === tag);
   if (lib && lib.count > 0) lib.count--;
-  openTicket(id);
+  if (CURRENT_TICKET === id) openTicket(id);
 }
 export async function changeTicketPriority(id, val) {
   const t = TICKETS.find(x => x.id === id);
@@ -1078,37 +1082,6 @@ export async function changeTicketAgent(id, val) {
   fireWebhook('ticket.assigned', { ...ticketPayload(t), previousAgent: old });
 }
 
-async function acceptAITag(ticketId, tagName) {
-  const t = TICKETS.find(x=>x.id===ticketId);
-  if (!t) return;
-  const at = t.aiTags.find(x=>x.tag===tagName);
-  if (!at || at.accepted) { openTicket(ticketId); return; }
-  if (t._uuid) {
-    try { applySavedActivity(t, await apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(tagName)}`, { accepted: true })); }
-    catch (err) { alert(`Couldn't accept AI tag: ${err?.message || err}`); return; }
-  }
-  at.accepted = true;
-  if (!t.tags.includes(tagName)) t.tags.push(tagName);
-  openTicket(ticketId);
-}
-async function acceptAllAITags(ticketId) {
-  const t = TICKETS.find(x=>x.id===ticketId);
-  if (!t) return;
-  const pending = t.aiTags.filter(at => !at.accepted);
-  if (pending.length === 0) { openTicket(ticketId); return; }
-  if (t._uuid) {
-    try {
-      await Promise.all(pending.map((at) =>
-        apiPatch(`/api/v1/tickets/${t._uuid}/ai_tags/${encodeURIComponent(at.tag)}`, { accepted: true }).then(res => applySavedActivity(t, res))
-      ));
-    } catch (err) { alert(`Couldn't accept AI tags: ${err?.message || err}`); return; }
-  }
-  pending.forEach((at) => {
-    at.accepted = true;
-    if (!t.tags.includes(at.tag)) t.tags.push(at.tag);
-  });
-  openTicket(ticketId);
-}
 function prevNextTicket(dir) {
   const idx = TICKETS.findIndex(t => t.id === CURRENT_TICKET);
   const next = TICKETS[idx + dir];
@@ -1218,6 +1191,7 @@ export function onComposeInput(id) {
   const text = getPlainText(id);
   saveDraft(id, draft);
   const ticket=TICKETS.find(t=>t.id===id);
+  if (COMPOSE_TAB === 'reply' && ticket) scheduleTagSuggestions(ticket);
   if(COMPOSE_TAB==='reply' && ticket?.replyRecipients) saveDraftRecipients(id, replyDraft(ticket));
   if(COMPOSE_TAB==='reply')queueSharedAiDraftSave(id,ticket?._uuid,text,getHtml(id));
   const launcher = document.querySelector?.(`#ticket-page-${id} [data-compose-launch][data-tab="${COMPOSE_TAB}"]`);
@@ -1609,9 +1583,6 @@ registerActions({
   'td.deleteTicket':   (ds) => deleteTicketPrompt(ds.ticketId),
   'td.openTicket':     (ds) => openTicket(ds.ticketId),
   // AI tags
-  'td.generateAITags': (ds) => generateAITags(ds.ticketId),
-  'td.acceptAITag':    (ds) => acceptAITag(ds.ticketId, ds.tag),
-  'td.acceptAllAITags':(ds) => acceptAllAITags(ds.ticketId),
   // Sidebar info rows / SLA / KB
   'td.showAttach':     (ds) => showAttachPanel(ds.ticketId),
   'td.navTo':          (ds) => navTo(ds.target),
@@ -1735,20 +1706,12 @@ registerInputActions({
 // don't justify extending the harness. Both are document-level listeners
 // that route by element class/dataset.
 //
-//  - keydown: tag-add input (Enter adds the tag); compose textarea (the
-//    `@` mention dropdown's arrow-key navigation, handled by mentions.js).
+//  - keydown: compose textarea mention navigation, handled by mentions.js.
 //  - focusout: compose textarea (when focus leaves, schedule a hide of the
 //    mention dropdown — needed because `blur` doesn't bubble so a document
 //    listener on `blur` wouldn't fire; `focusout` is the bubbling counterpart).
 document.addEventListener('keydown', e => {
   const el = e.target;
-  // Tag-add input (slice 2)
-  if (el instanceof HTMLInputElement && el.dataset.tagAddId) {
-    if (e.key !== 'Enter') return;
-    e.preventDefault();
-    addTicketTag(el.dataset.tagAddId, el.value);
-    return;
-  }
   // Compose textarea mention-dropdown navigation
   if (el instanceof HTMLTextAreaElement && el.classList.contains('compose-area') && el.dataset.ticketId) {
     mentionDropdownKey(e, el.dataset.ticketId);

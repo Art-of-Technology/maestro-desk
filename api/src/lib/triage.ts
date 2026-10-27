@@ -57,7 +57,7 @@ const RECORD_TRIAGE_TOOL: Anthropic.Tool = {
       tags: {
         type: 'array',
         description:
-          '3-6 short topical tags (lowercase, hyphenated, no spaces). Examples: "checkout-error", "billing-dispute", "password-reset".',
+          'Up to 3 relevant tags selected only from the supplied workspace tag library. Return none if nothing matches.',
         items: {
           type: 'object',
           properties: {
@@ -118,7 +118,7 @@ Rules:
 - Sentiment: judge from word choice, exclamation marks, all-caps. Default to "neutral" if unsure.
 - Summary: lead with the symptom in concrete terms. Avoid filler like "the customer is asking about". An agent should be able to pick up the ticket after reading just the summary.
 - Draft reply: write what an experienced support agent would write. Acknowledge the issue, state what you'll do or what you already see, and ask for specifics if needed. NO fake timelines ("within 24 hours"). NO fake commitments. NO promises to "look into it" without saying what.
-- Tags: 3-6 short kebab-case tags. Prefer existing taxonomy ("billing", "checkout", "mobile-bug") over inventing new ones.
+- Tags: choose up to 3 relevant tags from the supplied workspace library only. Never invent tags.
 - Confidence: be honest. If the ticket is ambiguous or you couldn't find a good category, lower the confidence so a human reviews it.
 `;
 
@@ -288,7 +288,7 @@ export async function triageTicket(input: TriageInput): Promise<TriageResult> {
     { type: 'text', text: SYSTEM_INTRO },
     {
       type: 'text',
-      text: buildWorkspaceContext(lookups),
+      text: buildWorkspaceContext(lookups) + '\nAvailable tags: ' + JSON.stringify(await getDb()`select tag from tag_library where workspace_id=${workspaceId} order by tag`),
       cache_control: { type: 'ephemeral' },
     },
   ];
@@ -611,7 +611,14 @@ async function persistAITags(
   if (!ticket) throw new TriageError('Ticket not found', 404);
   await tx`delete from ticket_ai_tags where ticket_id = ${ticketId}
     and workspace_id = ${workspaceId} and accepted = false`;
-  for (const t of tags) {
+  const available = await tx`select tag from tag_library l where workspace_id=${workspaceId}
+    and not exists (select 1 from ticket_tags t where t.workspace_id=${workspaceId} and t.ticket_id=${ticketId} and t.tag=l.tag) for share`;
+  const allowed = new Set(available.map(t => t.tag));
+  const seen = new Set<string>();
+  for (const t of [...tags].sort((a, b) => b.confidence - a.confidence)) {
+    if (!allowed.has(t.tag) || seen.has(t.tag)) continue;
+    seen.add(t.tag);
+    if (seen.size > 3) break;
     await tx`insert into ticket_ai_tags (workspace_id, ticket_id, tag, confidence, accepted)
       select ${workspaceId}, ${ticketId}, ${t.tag}, ${t.confidence}, false
       where not exists (select 1 from ticket_tags where ticket_id = ${ticketId}
