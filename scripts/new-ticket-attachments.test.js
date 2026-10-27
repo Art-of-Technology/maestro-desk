@@ -54,6 +54,14 @@ test('save as draft keeps text and files without sending a customer message', as
   expect(f.draft.body).toBe('Synthetic message');
   expect(f.draft.files).toHaveLength(2);
 });
+
+test('saves selected library tags before saving the new email draft', async () => {
+  const f = fixture(); f.snap.tags = ['billing', 'withdrawal'];
+  expect((await f.run(false)).keptDraft).toBe(true);
+  expect(f.posts.map(post => post.path)).toEqual(['/api/v1/tickets', '/api/v1/tickets/ticket-uuid/tags', '/api/v1/tickets/ticket-uuid/tags']);
+  expect(f.posts.slice(1).map(post => post.body.tag)).toEqual(['billing', 'withdrawal']);
+  expect(f.draft.body).toBe('Synthetic message');
+});
 test('partial upload failure retains selections and retries only the missing file on the same ticket', async () => {
   const f = fixture(); f.set({ failFile: 'two.txt' });
   expect((await f.run()).retry).toBe(true);

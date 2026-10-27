@@ -39,6 +39,8 @@ async function referencesExist(sql: TransactionSql, workspaceId: string, actions
     const choice = await activeTicketStatus(sql, workspaceId, key);
     if (choice.base_key === 'closed') return false;
   }
+  const tags = [...new Set(actions.filter(a => a.kind === 'tag').map(a => a.value))];
+  if (tags.length && (await sql`select tag from tag_library where workspace_id=${workspaceId} and tag in ${sql(tags)}`).length !== tags.length) return false;
   const ids = [...new Set(actions.filter(a => a.kind === 'reply').map(a => a.templateId))];
   if (!ids.length) return true;
   const rows = await sql`select id from canned_responses where workspace_id = ${workspaceId} and id in ${sql(ids)}`;
@@ -52,7 +54,7 @@ macros.post('/', async (c) => {
   if (!parsed.success) return c.json({ error: 'Invalid macro', issues: parsed.error.issues }, 400);
   const sql = getDb(), d = parsed.data, ws = c.get('workspaceId');
   return sql.begin(async sql => {
-    if (!await referencesExist(sql, ws, d.actions)) return c.json({ error: 'A status or reply template is unavailable in this workspace.' }, 400);
+    if (!await referencesExist(sql, ws, d.actions)) return c.json({ error: 'A tag, status or reply template is unavailable in this workspace.' }, 400);
     const [row] = await sql`insert into workspace_macros (workspace_id, name, icon, description, actions)
       values (${ws}, ${d.name}, ${d.icon}, ${d.description}, ${sql.json(d.actions)}) returning ${sql.unsafe(columns)}`;
     return c.json({ macro: row }, 201);
@@ -70,7 +72,7 @@ macros.put('/:id', async (c) => {
     const [existing] = await sql`select id from workspace_macros
       where id=${c.req.param('id')} and workspace_id=${ws} and deleted_at is null`;
     if (!existing) return c.json({ error: 'Macro not found' }, 404);
-    if (!await referencesExist(sql, ws, d.actions)) return c.json({ error: 'A status or reply template is unavailable in this workspace.' }, 400);
+    if (!await referencesExist(sql, ws, d.actions)) return c.json({ error: 'A tag, status or reply template is unavailable in this workspace.' }, 400);
     const [row] = await sql`update workspace_macros set name=${d.name}, icon=${d.icon}, description=${d.description},
       actions=${sql.json(d.actions)}, updated_at=now()
       where id=${c.req.param('id')} and workspace_id=${ws} and deleted_at is null returning ${sql.unsafe(columns)}`;

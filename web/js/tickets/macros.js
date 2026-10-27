@@ -25,7 +25,7 @@ import { statusChoice, selectedStatus, statusSelectOptions, loadStatusOptions, s
 // logTicketEvent is imported from core/activity-log.js since that's already
 // extracted.
 
-import { AGENTS, CANNED_RESPONSES, MACROS, TICKETS, mapMacro } from '../core/data.js';
+import { TAG_LIBRARY, AGENTS, CANNED_RESPONSES, MACROS, TICKETS, mapMacro } from '../core/data.js';
 import { CURRENT_TICKET, MACRO_FILTER_QUERY, SESSION, TICKET_SELECTED_IDS, setMacroFilterQuery } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
@@ -52,7 +52,7 @@ const MAC_ACTION_KINDS = [
   { kind:'status',   label:'Set status',     hint:'an available brand status (closing requires a reason)' },
   { kind:'priority', label:'Set priority',   hint:'urgent / high / normal / low' },
   { kind:'assign',   label:'Assign to',      hint:'agent name (or "unassign")' },
-  { kind:'tag',      label:'Add tag',        hint:'lowercase, hyphenated' },
+  { kind:'tag',      label:'Add tag',        hint:'choose an available tag' },
   { kind:'reply',    label:'Insert reply',   hint:'response template' },
   { kind:'note',     label:'Add internal note', hint:'note text' },
 ];
@@ -295,6 +295,7 @@ function macStepRow(a, i) {
     if (a.kind === 'reply') {
       return `<select class="form-input" data-mac-tpl="${i}">${CANNED_RESPONSES.map(r=>`<option value="${window.escAttr(r._uuid || r.id)}" ${a.templateId===(r._uuid || r.id)?'selected':''}>${window.escHtml(r.name)}</option>`).join('')}</select>`;
     }
+    if (a.kind === 'tag') return `<select class="form-input" data-mac-val="${i}"><option value="">Choose a tag</option>${TAG_LIBRARY.map(t => `<option value="${esc(t.tag)}" ${a.value === t.tag ? 'selected' : ''}>${window.escHtml(t.tag)}</option>`).join('')}</select>`;
     if (a.kind === 'note') {
       return `<input class="form-input" data-mac-text="${i}" value="${esc(a.text)}" placeholder="Internal note text"/>`;
     }

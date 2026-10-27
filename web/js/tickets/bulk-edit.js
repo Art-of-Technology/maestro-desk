@@ -38,7 +38,7 @@ export function showBulkEdit(kind, initialValue = '') {
   const isTag = kind === 'tag';
   const n = pending.length;
   const input = isTag
-    ? '<label class="form-label" for="bulk-edit-value">Tag</label><input class="form-input" id="bulk-edit-value" maxlength="64" placeholder="e.g. priority-customer" autocomplete="off"/><p style="font-size:12px">Lowercase letters, numbers and hyphens. Existing tags are kept.</p>'
+    ? `<label class="form-label" for="bulk-edit-value">Tag</label><select class="form-input" id="bulk-edit-value"><option value="">Choose a tag</option>${TAG_LIBRARY.map(t => `<option value="${window.escAttr(t.tag)}">${window.escHtml(t.tag)}</option>`).join('')}</select><p>Admins manage available tags in Settings.</p>`
     : `<label class="form-label" for="bulk-edit-value">Priority</label><select class="form-input" id="bulk-edit-value">${priorities.map(p => `<option value="${p}" ${p === initialValue ? 'selected' : ''}>${p[0].toUpperCase() + p.slice(1)}</option>`).join('')}</select>`;
   showModal(`${isTag ? 'Tag' : 'Set priority on'} ${n} ticket${n === 1 ? '' : 's'}`,
     `<div class="form-row">${input}</div><div id="bulk-edit-result" role="status" style="font-size:13px;line-height:1.5"></div>`, execute, isTag ? 'Apply tag' : 'Save priority');
@@ -52,8 +52,8 @@ export function showBulkEdit(kind, initialValue = '') {
     const confirm = document.querySelector('#modal-container [data-action="modal.confirm"]');
     if (!field || !status || !confirm) return;
     const value = isTag ? normaliseBulkTag(field.value) : field.value;
-    if (isTag ? !value || value.length > 64 : !priorities.includes(value)) {
-      status.textContent = isTag ? 'Enter a tag of 1–64 letters, numbers or hyphens.' : 'Choose a priority.';
+    if (isTag ? !TAG_LIBRARY.some(t => t.tag === value) : !priorities.includes(value)) {
+      status.textContent = isTag ? 'Choose an available tag.' : 'Choose a priority.';
       field.focus(); return;
     }
     const isCurrent = () => sameContext() && field.isConnected;
@@ -78,7 +78,7 @@ export function showBulkEdit(kind, initialValue = '') {
               if (!jwt) logTicketEvent(t.id, 'tag', `Tagged: ${value} (bulk)`);
               if (!jwt) {
                 const lib = TAG_LIBRARY.find(t => t.tag === value);
-                if (lib) lib.count++; else TAG_LIBRARY.push({ tag: value, count: 1, type: 'manual', conf: null });
+                if (lib) lib.count++;
               }
             }
           } else if (t) {
