@@ -159,7 +159,7 @@ run('audit minimisation and erasable activity',()=>{
     expect((await sql`select reason from gdpr_erasures where customer_id=${s.customer}`)[0].reason).toBe('other');
     const before=await sql`select id,encode(row_hash,'hex') hash from audit_events where workspace_id=${ws} order by seq`;
     const child=spawnSync('node',['--import','tsx','scripts/inspect-audit-history.ts','--workspace',ws,'--limit','1'],
-      {encoding:'utf8',env:{...process.env,DATABASE_URL:process.env.DATABASE_URL!,POSTMARK_SERVER_TOKEN:'',MAESTRO_API_TOKEN:''},timeout:30000});
+      {encoding:'utf8',stdio:['ignore','pipe','pipe'],env:{...process.env,DATABASE_URL:process.env.DATABASE_URL!,POSTMARK_SERVER_TOKEN:'',MAESTRO_API_TOKEN:''},timeout:30000});
     expect(child.status).toBe(0);const report=JSON.parse(child.stdout);
     expect(report.mode).toBe('read_only');expect(report.records).toHaveLength(1);expect(child.stdout).not.toContain('PRIVATE');
     expect([...(await sql`select id,encode(row_hash,'hex') hash from audit_events where workspace_id=${ws} order by seq`)]).toEqual([...before]);

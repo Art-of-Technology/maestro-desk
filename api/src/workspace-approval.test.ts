@@ -41,6 +41,8 @@ const app = (await import('./index.js')).default;
         email: `approval-${name}-${randomUUID()}@test.invalid`, password: 'password-12345', name,
       } });
       userIds.push(session.user.id);
+      await sql`insert into account ("accountId", "providerId", "userId", "updatedAt")
+        values (${session.user.id}, 'maestro', ${session.user.id}, now())`;
       if (name === 'admin') { admin = session.user.id; adminToken = session.token!; }
       if (name === 'agent') { user = session.user.id; userToken = session.token!; }
     }
