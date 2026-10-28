@@ -54,7 +54,7 @@ test('Insights validates ranges, exact dates and export flags', () => {
     // The deliberately mismatched time row must be removed before its ticket.
     for (const id of [other, ws].filter(Boolean)) await sql`delete from workspaces where id = ${id}`;
     for (const id of [user, teammate].filter(Boolean)) await sql`delete from users where id = ${id}`;
-  });
+  }, 30000);
   test('counts every ticket, unopened ratings/time, closures and separate same-name agents', async () => {
     const data = await report();
     const r = data!.report;

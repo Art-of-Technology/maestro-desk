@@ -176,8 +176,11 @@ export async function maestroFetch<T = unknown>(path: string, opts: FetchOpts): 
 export async function getUserAccessToken(userId: string, headers: Headers): Promise<string | null> {
   if (!maestroSignInPossible()) return null;
   try {
+    const accounts = await auth.api.listUserAccounts({ headers });
+    const account = accounts.find(account => account.providerId === MAESTRO_PROVIDER_ID);
+    if (!account) return null;
     const result = await auth.api.getAccessToken({
-      body: { providerId: MAESTRO_PROVIDER_ID, userId },
+      body: { accountId: account.id, userId },
       headers,
     });
     return result?.accessToken ?? null;

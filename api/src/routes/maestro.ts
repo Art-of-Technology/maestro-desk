@@ -95,9 +95,9 @@ maestro.get('/status', (c) => c.json({ enabled: maestroSignInEnabled }));
 maestro.get('/login', async (c) => {
   try {
     ensureEnabled();
-    const baResp = await auth.api.signInWithOAuth2({
+    const baResp = await auth.api.signInSocial({
       body: {
-        providerId: MAESTRO_PROVIDER_ID,
+        provider: MAESTRO_PROVIDER_ID,
         callbackURL: OAUTH_COMPLETE_URL,
         errorCallbackURL: OAUTH_ERROR_URL,
       },
