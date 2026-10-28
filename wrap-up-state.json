@@ -1,24 +1,16 @@
 {
   "version": 1,
   "receipt": {
-    "coverageThrough": "2026-10-27T17:36:01.129Z",
-    "verifiedAt": "2026-10-27T17:36:05.408Z",
+    "coverageThrough": "2026-10-28T17:36:19.241Z",
+    "verifiedAt": "2026-10-28T17:36:26.842Z",
     "channelId": "C0C0W6B9PU6",
     "transport": "slack-webhook",
-    "runId": "40552102447"
+    "runId": "40737279605"
   },
-  "pending": {
-    "cutoff": "2026-10-28T17:36:19.241Z",
-    "date": "2026-10-28",
-    "mode": "send",
-    "runId": "40737279605",
-    "localCoverage": {
-      "orbit": "2026-10-28T17:34:05.684Z"
-    }
-  },
-  "lastDate": "2026-10-27",
+  "pending": null,
+  "lastDate": "2026-10-28",
   "lastTestRun": "36992282000",
   "localCoverage": {
-    "orbit": "2026-10-27T17:19:10.745Z"
+    "orbit": "2026-10-28T17:34:05.684Z"
   }
 }
