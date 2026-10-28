@@ -1,16 +1,9 @@
-import { createHash } from 'node:crypto';
-import { APIError, createAuthMiddleware, getOAuthState } from 'better-auth/api';
-import { genericOAuth } from 'better-auth/plugins';
-import { validateAuthorizationCode, validateToken } from 'better-auth/oauth2';
+import { APIError, createAuthEndpoint, createAuthMiddleware, getOAuthState } from 'better-auth/api';
+import type { BetterAuthPlugin } from 'better-auth';
+import { createAuthorizationURL, refreshAccessToken, validateAuthorizationCode, validateToken, type OAuthProvider } from 'better-auth/oauth2';
 import { z } from 'zod';
 
 export const MAESTRO_PROVIDER_ID = 'maestro';
-
-// Reuse Better Auth's one-use state and random PKCE verifier; no second nonce
-// store/cookie. Domain separation keeps the nonce distinct from the PKCE hash.
-function nonceFor(codeVerifier: string): string {
-  return createHash('sha256').update(`respovia-maestro-nonce:${codeVerifier}`).digest('base64url');
-}
 
 const identityClaims = z.object({
   sub: z.string().min(1),
@@ -51,83 +44,91 @@ export function maestroOAuth(options: {
     return discoverySchema.parse(await response.json());
   }
 
-  const plugin = genericOAuth({ config: [{
-    providerId: MAESTRO_PROVIDER_ID,
+  const provider: OAuthProvider<{ sub: string }> = {
+    id: MAESTRO_PROVIDER_ID,
+    name: 'Maestro',
     issuer,
-    discoveryUrl,
-    clientId,
-    clientSecret,
-    scopes,
-    pkce: true,
-    // Preserve the existing client_secret_post exchange. Discovery's list of
-    // supported methods does not establish this app's registered client type.
-    authentication: 'post',
-    async getToken(data) {
+    // Keep the URL already registered with Maestro; the endpoint below forwards
+    // to Better Auth's shared callback without changing the token redirect URI.
+    callbackPath: '/oauth2/callback/maestro',
+    requiresIdTokenNonce: true,
+    accountSubject: ({ profile }) => profile.sub,
+    async createAuthorizationURL(data) {
       try {
         const metadata = await discover();
+        return await createAuthorizationURL({
+          ...data, id: MAESTRO_PROVIDER_ID, options: { clientId, clientSecret },
+          authorizationEndpoint: metadata.authorization_endpoint,
+          scopes, nonce: data.idTokenNonce,
+        });
+      } catch {
+        throw new APIError('BAD_REQUEST', { message: 'Maestro sign-in is unavailable. Please try again.' });
+      }
+    },
+    async validateAuthorizationCode(data) {
+      try {
+        const metadata = await discover();
+        // Preserve the app's registered client_secret_post exchange.
         return await validateAuthorizationCode({ ...data, options: { clientId, clientSecret }, tokenEndpoint: metadata.token_endpoint, authentication: 'post' });
       } catch {
-        // Provider responses can contain credentials or claims. Never forward
-        // their raw error bodies into Better Auth's diagnostics.
         throw new Error('Maestro token exchange failed');
+      }
+    },
+    async refreshAccessToken(refreshToken) {
+      try {
+        const metadata = await discover();
+        return await refreshAccessToken({ refreshToken, options: { clientId, clientSecret }, tokenEndpoint: metadata.token_endpoint, authentication: 'post' });
+      } catch {
+        throw new Error('Maestro token refresh failed');
       }
     },
     async getUserInfo(tokens) {
       try {
         if (!tokens.idToken) return null;
         const metadata = await discover();
-        const { payload, protectedHeader } = await validateToken(tokens.idToken, metadata.jwks_uri, { issuer, audience: clientId });
-        if (!['RS256', 'EdDSA'].includes(protectedHeader.alg)) return null;
+        const { payload } = await validateToken(tokens.idToken, metadata.jwks_uri, {
+          issuer, audience: clientId, algorithms: ['RS256', 'EdDSA'],
+        });
         const claims = identityClaims.parse(payload);
-        // jwtVerify checks exp/nbf when present; require exp/iat too. Reject
-        // untrusted additional audiences and a mismatched authorized party.
         if (claims.iat > Math.floor(Date.now() / 1000) + 60 || claims.exp <= claims.iat
           || (Array.isArray(payload.aud) && payload.aud.some(aud => aud !== clientId))
           || (claims.azp !== undefined && claims.azp !== clientId)) return null;
         const state = await getOAuthState();
-        // Account-info may read a stored, still-valid token outside a callback.
-        // Both callback families parse Better Auth state before calling here.
-        if (state && claims.nonce !== nonceFor(state.codeVerifier)) return null;
+        // Account-info can read a stored, signed token outside a callback.
+        if (state && (!tokens.expectedIdTokenNonce || claims.nonce !== tokens.expectedIdTokenNonce)) return null;
         if (state?.link && claims.email_verified !== true) return null;
         return {
-          id: claims.sub,
-          email: claims.email,
-          emailVerified: claims.email_verified === true,
-          name: claims.name?.trim() || claims.email.split('@')[0],
-          image: claims.picture ?? undefined,
+          data: { sub: claims.sub },
+          user: {
+            email: claims.email,
+            emailVerified: claims.email_verified === true,
+            name: claims.name?.trim() || claims.email.split('@')[0],
+            image: claims.picture ?? undefined,
+          },
         };
       } catch {
-        return null; // Existing OAuth error bridge gives a safe sign-in error.
+        return null;
       }
     },
-  }] });
+  };
 
   return {
-    ...plugin,
+    id: 'maestro-oidc',
+    init: ctx => ({ context: { socialProviders: [provider, ...ctx.socialProviders] } }),
     hooks: { after: [{
-      matcher: (ctx: { path?: string; body?: Record<string, unknown> }) =>
-        ['/sign-in/oauth2', '/oauth2/link', '/sign-in/social', '/link-social'].includes(ctx.path ?? '')
-        && (ctx.body?.providerId === MAESTRO_PROVIDER_ID || ctx.body?.provider === MAESTRO_PROVIDER_ID),
+      matcher: ctx => ctx.path === '/link-social' && ctx.body?.provider === MAESTRO_PROVIDER_ID,
       handler: createAuthMiddleware(async ctx => {
-        const result = ctx.context.returned;
-        if (!result || typeof result !== 'object' || !('url' in result) || typeof result.url !== 'string') return;
-        try {
-          const state = await getOAuthState();
-          if (!state?.codeVerifier) throw new Error('Missing OAuth state');
-          if (state.link && ctx.context.session?.user.emailVerified !== true) throw new Error('Unverified local identity');
-          const metadata = await discover();
-          const url = new URL(result.url);
-          const expected = new URL(metadata.authorization_endpoint);
-          if (url.origin !== expected.origin || url.pathname !== expected.pathname) throw new Error('Invalid authorization endpoint');
-          url.searchParams.set('nonce', nonceFor(state.codeVerifier));
-          if (ctx.context.responseHeaders?.has('location')) ctx.setHeader('location', url.toString());
-          return ctx.json({ ...result, url: url.toString() });
-        } catch {
-          // Remove an existing redirect before reporting validation failure.
+        if (ctx.context.session?.user.emailVerified !== true) {
           ctx.context.responseHeaders?.delete('location');
-          throw new APIError('BAD_REQUEST', { message: 'Maestro sign-in is unavailable. Please try again.' });
+          throw new APIError('BAD_REQUEST', { message: 'Verify your email before linking Maestro.' });
         }
       }),
     }] },
-  };
+    endpoints: {
+      maestroCallback: createAuthEndpoint('/oauth2/callback/maestro', { method: 'GET' }, async ctx => {
+        const query = new URL(ctx.request!.url).search;
+        throw ctx.redirect(`${ctx.context.baseURL}/callback/maestro${query}`);
+      }),
+    },
+  } satisfies BetterAuthPlugin;
 }

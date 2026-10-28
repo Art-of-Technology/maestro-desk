@@ -19,7 +19,7 @@
     "@sentry/node": "^10.59.0",
     "@vercel/functions": "^3.6.3",
     "aws4fetch": "^1.0.20",
-    "better-auth": "^1.6.23",
+    "better-auth": "1.7.14",
     "fflate": "^0.8.3",
     "hono": "^4.13.13",
     "nodemailer": "^10.2.1",

@@ -26,7 +26,7 @@ const realAuthMod = await import('./lib/auth.js');
 mock.module('./lib/auth.js', () => ({ ...realAuthMod, maestroSignInEnabled: true }));
 
 const api = realAuthMod.auth.api as unknown as Record<string, (...args: unknown[]) => unknown>;
-const realSignInWithOAuth2 = api.signInWithOAuth2;
+const realSignInSocial = api.signInSocial;
 const realGetSession = api.getSession;
 
 const { env } = await import('./lib/env.js');
@@ -36,7 +36,7 @@ const app = (await import('./index.js')).default;
 // via the cached app (CI's DB-backed suites caught exactly that: a lingering
 // getSession throw 500'd the SLA report test).
 afterEach(() => {
-  api.signInWithOAuth2 = realSignInWithOAuth2;
+  api.signInSocial = realSignInSocial;
   api.getSession = realGetSession;
 });
 
@@ -44,7 +44,7 @@ afterEach(() => {
 // module registry — re-mock the real module back so files that load after this
 // one don't inherit maestroSignInEnabled=true.
 afterAll(() => {
-  api.signInWithOAuth2 = realSignInWithOAuth2;
+  api.signInSocial = realSignInSocial;
   api.getSession = realGetSession;
   mock.module('./lib/auth.js', () => ({ ...realAuthMod }));
   mock.restore();
@@ -56,14 +56,14 @@ const SIGNIN_FAILED_REDIRECT = `${env.APP_BASE_URL}/#maestro_error=signin_failed
 describe('GET /api/v1/maestro/login', () => {
   it('redirects to the SPA with maestro_error=unavailable when Better Auth returns no authorize URL (Maestro outage)', async () => {
     // The outage signature: discovery empty → Better Auth 400s with no `url`.
-    api.signInWithOAuth2 = async () => new Response('{}', { status: 400 });
+    api.signInSocial = async () => new Response('{}', { status: 400 });
     const res = await app.request('/api/v1/maestro/login');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(UNAVAILABLE_REDIRECT);
   });
 
-  it('redirects to the SPA with maestro_error=unavailable when signInWithOAuth2 throws', async () => {
-    api.signInWithOAuth2 = async () => {
+  it('redirects to the SPA with maestro_error=unavailable when signInSocial throws', async () => {
+    api.signInSocial = async () => {
       throw new Error('boom');
     };
     const res = await app.request('/api/v1/maestro/login');
@@ -72,7 +72,7 @@ describe('GET /api/v1/maestro/login', () => {
   });
 
   it('lets deliberate HTTP errors keep their status (a config 503 is not "try again in a few minutes")', async () => {
-    api.signInWithOAuth2 = async () => {
+    api.signInSocial = async () => {
       throw new HTTPException(503, { message: 'Sign in with Maestro is not configured on this server.' });
     };
     const res = await app.request('/api/v1/maestro/login');
@@ -84,11 +84,13 @@ describe('GET /api/v1/maestro/login', () => {
     // stale literal here (the assertion below round-trips whatever we pass).
     const authorizeUrl = `${env.MAESTRO_ISSUER}/oauth2/authorize?client_id=x&state=y`;
     const pkceCookie = 'better-auth.state=abc123; Path=/; HttpOnly; SameSite=Lax';
-    api.signInWithOAuth2 = async () =>
-      new Response(JSON.stringify({ url: authorizeUrl }), {
+    api.signInSocial = async (...args) => {
+      expect(args[0]).toMatchObject({ body: { provider: 'maestro' }, asResponse: true });
+      return new Response(JSON.stringify({ url: authorizeUrl }), {
         status: 200,
         headers: { 'content-type': 'application/json', 'set-cookie': pkceCookie },
       });
+    };
     const res = await app.request('/api/v1/maestro/login');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe(authorizeUrl);

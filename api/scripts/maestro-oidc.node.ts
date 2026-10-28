@@ -13,6 +13,7 @@ const baseURL = 'http://localhost:3333';
 const email = 'private-marker@example.invalid';
 const keys = [generateKeyPairSync('rsa', { modulusLength: 2048 }), generateKeyPairSync('rsa', { modulusLength: 2048 }), generateKeyPairSync('ed25519')];
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+let fixtureId = 0;
 
 type Scenario = {
   claims?: Record<string, unknown>;
@@ -24,7 +25,7 @@ type Scenario = {
   localVerified?: boolean;
   linked?: boolean;
   explicit?: boolean;
-  social?: boolean;
+  directCallback?: boolean;
   wrongState?: boolean;
   wrongCallbackIssuer?: boolean;
   discovery?: Record<string, unknown>;
@@ -33,11 +34,13 @@ type Scenario = {
   tokenFailure?: boolean;
   directIdToken?: boolean;
   internalApi?: boolean;
-  socialCallback?: boolean;
+  refresh?: boolean;
   keyIndex?: number;
 };
 
 async function fixture(scenario: Scenario = {}) {
+  // Better Auth 1.7 caches JWKS by URL; each outage/rotation fixture needs its own.
+  const jwksUrl = issuer + '/jwks/' + ++fixtureId;
   const db: Record<string, any[]> = { user: [], account: [], session: [], verification: [] };
   const now = new Date();
   if (scenario.existing || scenario.explicit || scenario.linked) db.user.push({ id: 'local-user', email, emailVerified: scenario.localVerified !== false, name: 'Local Agent', createdAt: now, updatedAt: now });
@@ -56,9 +59,9 @@ async function fixture(scenario: Scenario = {}) {
     paths.push(new URL(url).pathname);
     if (url === issuer + '/.well-known/openid-configuration') {
       if (scenario.discoveryFailure) return new Response('private-marker', { status: 503 });
-      return Response.json({ issuer, authorization_endpoint: issuer + '/authorize', token_endpoint: issuer + '/token', jwks_uri: issuer + '/jwks', ...scenario.discovery });
+      return Response.json({ issuer, authorization_endpoint: issuer + '/authorize', token_endpoint: issuer + '/token', jwks_uri: jwksUrl, ...scenario.discovery });
     }
-    if (url === issuer + '/jwks') {
+    if (url === jwksUrl) {
       if (scenario.jwksFailure) return new Response('private-marker', { status: 503 });
       const index = scenario.keyIndex ?? 0;
       return Response.json({ keys: [{ ...keys[index].publicKey.export({ format: 'jwk' }), kid: `key-${index}`, alg: index === 2 ? 'EdDSA' : 'RS256', use: 'sig' }] });
@@ -67,7 +70,12 @@ async function fixture(scenario: Scenario = {}) {
       const body = new URLSearchParams(init?.body as URLSearchParams);
       assert.equal(body.get('client_id'), 'expected-client');
       assert.equal(body.get('client_secret'), 'synthetic-secret');
+      if (body.get('grant_type') === 'refresh_token') {
+        assert.equal(body.get('refresh_token'), 'synthetic-refresh');
+        return Response.json({ access_token: 'refreshed-access', token_type: 'Bearer', expires_in: 300 });
+      }
       assert.ok(body.get('code_verifier'));
+      assert.equal(body.get('redirect_uri'), baseURL + '/api/auth/oauth2/callback/maestro');
       if (scenario.tokenFailure) return Response.json({ error: 'private-marker', access_token: 'synthetic-secret' }, { status: 400 });
       const seconds = Math.floor(Date.now() / 1000);
       const payload: Record<string, unknown> = { iss: issuer, aud: 'expected-client', sub: 'provider-subject', email, email_verified: true, name: null, iat: seconds, exp: seconds + 300, nonce: authorization.searchParams.get('nonce'), ...scenario.claims };
@@ -87,31 +95,59 @@ async function fixture(scenario: Scenario = {}) {
       account: { accountLinking: { enabled: true, trustedProviders: [], requireLocalEmailVerified: true } },
       plugins: [bearer(), maestroOAuth({ issuer, clientId: 'expected-client', clientSecret: 'synthetic-secret', scopes: ['openid', 'profile', 'email'] })],
     });
-    const path = scenario.explicit ? (scenario.social ? '/link-social' : '/oauth2/link') : (scenario.social ? '/sign-in/social' : '/sign-in/oauth2');
-    const begin = scenario.internalApi ? await auth.api.signInWithOAuth2({ body: { providerId: 'maestro', callbackURL: baseURL + '/complete' }, asResponse: true }) : await auth.handler(new Request(baseURL + '/api/auth' + path, {
+    const path = scenario.explicit ? '/link-social' : '/sign-in/social';
+    const begin = scenario.internalApi ? await auth.api.signInSocial({ body: { provider: 'maestro', callbackURL: baseURL + '/complete' }, asResponse: true }) : await auth.handler(new Request(baseURL + '/api/auth' + path, {
       method: 'POST', headers: { 'content-type': 'application/json', origin: baseURL, ...scenario.explicit ? { authorization: 'Bearer synthetic-local-session' } : {} },
-      body: JSON.stringify({ [scenario.social ? 'provider' : 'providerId']: 'maestro', callbackURL: baseURL + '/complete', errorCallbackURL: baseURL + '/failed', additionalData: { nonce: 'caller-controlled' }, ...scenario.directIdToken ? { idToken: { token: 'caller-supplied-token' } } : {} }),
+      body: JSON.stringify({ provider: 'maestro', callbackURL: baseURL + '/complete', errorCallbackURL: baseURL + '/failed', additionalData: { nonce: 'caller-controlled' }, ...scenario.directIdToken ? { idToken: { token: 'caller-supplied-token' } } : {} }),
     }));
     if (begin.status !== 200) return { beginStatus: begin.status, sessionsAdded: db.session.length - initialSessions, accountsAdded: db.account.length - initialAccounts, paths, logs, beginLocation: begin.headers.get('location') };
     authorization = new URL((await begin.json()).url);
     assert.equal(authorization.searchParams.get('code_challenge_method'), 'S256');
-    assert.match(authorization.searchParams.get('nonce')!, /^[\w-]{43}$/);
+    assert.match(authorization.searchParams.get('nonce')!, /^[\w-]{32}$/);
     assert.notEqual(authorization.searchParams.get('nonce'), 'caller-controlled');
     assert.notEqual(authorization.searchParams.get('nonce'), authorization.searchParams.get('code_challenge'));
     if (begin.headers.has('location')) assert.equal(begin.headers.get('location'), authorization.toString());
     const callback = new URL(authorization.searchParams.get('redirect_uri')!);
-    if (scenario.socialCallback) callback.pathname = '/api/auth/callback/maestro';
+    if (scenario.directCallback) callback.pathname = '/api/auth/callback/maestro';
     callback.searchParams.set('code', 'synthetic-code');
     callback.searchParams.set('state', scenario.wrongState ? 'incorrect-state' : authorization.searchParams.get('state')!);
     callback.searchParams.set('iss', scenario.wrongCallbackIssuer ? 'https://wrong.invalid' : issuer);
     const cookie = begin.headers.getSetCookie().map(c => c.split(';')[0]).join('; ');
-    const finish = await auth.handler(new Request(callback, { headers: { cookie } }));
+    const complete = async () => {
+      const response = await auth.handler(new Request(callback, { headers: { cookie } }));
+      if (callback.pathname.includes('/oauth2/')) {
+        assert.equal(response.status, 302);
+        const target = new URL(response.headers.get('location')!);
+        assert.equal(target.origin, baseURL);
+        assert.equal(target.pathname, '/api/auth/callback/maestro');
+        assert.equal(target.search, callback.search);
+        return auth.handler(new Request(target, { headers: { cookie } }));
+      }
+      return response;
+    };
+    const finish = await complete();
     const sessionsAdded = db.session.length - initialSessions;
     const accountsAdded = db.account.length - initialAccounts;
     // Replaying the same state must not mint another session or account.
-    await auth.handler(new Request(callback, { headers: { cookie } }));
+    await complete();
     assert.equal(db.session.length - initialSessions, sessionsAdded);
     assert.equal(db.account.length - initialAccounts, accountsAdded);
+    if (scenario.refresh) {
+      assert.equal(sessionsAdded, 1);
+      const account = db.account[0];
+      account.accessTokenExpiresAt = new Date(0);
+      account.refreshToken = 'synthetic-refresh';
+      const headers = new Headers({ authorization: 'Bearer ' + db.session.at(-1)!.token });
+      const accounts = await auth.api.listUserAccounts({ headers });
+      const selected = accounts.find(account => account.providerId === 'maestro')!;
+      const result = await auth.api.getAccessToken({ body: { accountId: selected.id, userId: db.user[0].id }, headers });
+      assert.equal(result.accessToken, 'refreshed-access');
+      assert.equal(db.account[0].accessToken, 'refreshed-access');
+      assert.equal(db.account[0].accountId, 'provider-subject');
+      await assert.rejects(auth.api.getAccessToken({ body: { accountId: 'another-users-account' }, headers }));
+      await auth.api.signOut({ headers });
+      await assert.rejects(auth.api.getAccessToken({ body: { accountId: selected.id }, headers }));
+    }
     const diagnostic = JSON.stringify(logs);
     assert.ok(!diagnostic.includes(email) && !diagnostic.includes('private-marker') && !diagnostic.includes('synthetic-secret'));
     if (issuedToken) assert.ok(!diagnostic.includes(issuedToken));
@@ -122,13 +158,13 @@ async function fixture(scenario: Scenario = {}) {
 }
 
 test('Maestro signed identity validation across real HTTP sign-in/link boundaries', async t => {
-  for (const social of [false, true]) {
-    await t.test(`valid sign-in (${social ? 'social' : 'generic'})`, async () => {
-      const result = await fixture({ social });
+  for (const directCallback of [false, true]) {
+    await t.test(`valid sign-in (${directCallback ? 'shared callback' : 'registered callback'})`, async () => {
+      const result = await fixture({ directCallback });
       assert.equal(result.sessionsAdded, 1);
       assert.equal(result.location, baseURL + '/complete');
       assert.equal(result.user.name, 'private-marker');
-      assert.ok(result.paths.includes('/jwks'));
+      assert.ok(result.paths.some(path => path.startsWith('/jwks/')));
     });
     for (const [name, scenario] of Object.entries({
       'wrong issuer': { claims: { iss: 'https://wrong.invalid' } },
@@ -158,27 +194,27 @@ test('Maestro signed identity validation across real HTTP sign-in/link boundarie
       'untrusted additional audience': { claims: { aud: ['expected-client', 'another-app'] } },
       'wrong authorized party': { claims: { azp: 'another-app' } },
     })) {
-      await t.test(`${name} (${social ? 'social' : 'generic'})`, async () => {
-        const result = await fixture({ ...scenario, social });
+      await t.test(`${name} (${directCallback ? 'shared callback' : 'registered callback'})`, async () => {
+        const result = await fixture({ ...scenario, directCallback });
         assert.equal(result.sessionsAdded, 0);
         assert.equal(result.accountsAdded, 0);
       });
     }
-    await t.test(`verified implicit linking (${social ? 'social' : 'generic'})`, async () => {
-      const result = await fixture({ existing: true, social });
+    await t.test(`verified implicit linking (${directCallback ? 'shared callback' : 'registered callback'})`, async () => {
+      const result = await fixture({ existing: true, directCallback });
       assert.equal(result.sessionsAdded, 1);
       assert.equal(result.accountsAdded, 1);
       assert.equal(result.user.id, 'local-user');
     });
     for (const verified of [true, false]) {
-      await t.test(`explicit linking, local verified=${verified} (${social ? 'social' : 'generic'})`, async () => {
-        const result = await fixture({ explicit: true, localVerified: verified, social });
+      await t.test(`explicit linking, local verified=${verified} (${directCallback ? 'shared callback' : 'registered callback'})`, async () => {
+        const result = await fixture({ explicit: true, localVerified: verified, directCallback });
         assert.equal(result.accountsAdded, verified ? 1 : 0);
         assert.equal(result.sessionsAdded, 0);
       });
     }
-    await t.test(`explicit linking requires remote verification (${social ? 'social' : 'generic'})`, async () => {
-      assert.equal((await fixture({ explicit: true, claims: { email_verified: false }, social })).accountsAdded, 0);
+    await t.test(`explicit linking requires remote verification (${directCallback ? 'shared callback' : 'registered callback'})`, async () => {
+      assert.equal((await fixture({ explicit: true, claims: { email_verified: false }, directCallback })).accountsAdded, 0);
     });
   }
   await t.test('already linked identity keeps its local user when remote email is unverified', async () => {
@@ -193,11 +229,13 @@ test('Maestro signed identity validation across real HTTP sign-in/link boundarie
   await t.test('EdDSA signed identity is accepted', async () => {
     assert.equal((await fixture({ keyIndex: 2 })).sessionsAdded, 1);
   });
-  await t.test('server-side signInWithOAuth2 bridge preserves nonce and state cookies', async () => {
+  await t.test('server-side signInSocial bridge preserves nonce and state cookies', async () => {
     assert.equal((await fixture({ internalApi: true })).sessionsAdded, 1);
   });
-  // The generic plugin also registers a social provider. Exercise that second
-  // callback directly even though today's authorization URL uses /oauth2/.
+  await t.test('existing account refresh selects the local row and respects session revocation', async () => {
+    await fixture({ linked: true, refresh: true });
+  });
+  // Exercise the shared callback directly as well as the registered URL.
   for (const [name, scenario] of Object.entries({
     valid: {},
     'wrong audience': { claims: { aud: 'another-app' } },
@@ -206,7 +244,7 @@ test('Maestro signed identity validation across real HTTP sign-in/link boundarie
     'unverified remote link': { existing: true, claims: { email_verified: false } },
   })) {
     await t.test(`social callback boundary: ${name}`, async () => {
-      assert.equal((await fixture({ ...scenario, socialCallback: true })).sessionsAdded, name === 'valid' ? 1 : 0);
+      assert.equal((await fixture({ ...scenario, directCallback: true })).sessionsAdded, name === 'valid' ? 1 : 0);
     });
   }
   await t.test('wrong callback issuer is rejected before exchange', async () => {
@@ -216,7 +254,7 @@ test('Maestro signed identity validation across real HTTP sign-in/link boundarie
   });
   for (const explicit of [false, true]) {
     await t.test(`caller-supplied ID token is unsupported (explicit link=${explicit})`, async () => {
-      const result = await fixture({ social: true, explicit, directIdToken: true });
+      const result = await fixture({ directCallback: true, explicit, directIdToken: true });
       assert.ok(result.beginStatus >= 400);
       assert.equal(result.sessionsAdded, 0);
       assert.equal(result.accountsAdded, 0);
