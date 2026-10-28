@@ -528,7 +528,12 @@ function renderWorkspace() {
       <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
       <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
       <label for="nt2-cc">Cc</label><input type="email" multiple id="nt2-cc" class="form-input" value="${window.escAttr(NT.cc)}" placeholder="Email addresses, separated by commas"></div>
-      <div class="nt-writing-tools"><button type="button" class="btn" data-action="nt.responses" ${NT.aiBusy ? 'disabled' : ''}>Insert response template</button><button type="button" class="btn" data-action="nt.preview">Preview message</button>
+      <div class="nt-writing-tools"><div class="composer-actions" role="group" aria-label="Message tools">
+      <button type="button" class="btn btn-sm composer-tool" data-action="nt.responses" aria-label="Insert template" aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space" title="Insert template (Ctrl/Cmd+Shift+Space)" ${NT.aiBusy ? 'disabled' : ''}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 12h8M8 16h6"/></svg>
+      </button><button type="button" class="btn btn-sm composer-tool" data-action="nt.preview" aria-label="Preview message" title="Preview message">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button></div>
       <label for="nt2-language">Reply language</label><select class="form-input" id="nt2-language"><option value="">As written</option>${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}</select></div>
       <div class="template-favourites" id="nt-favourites" aria-label="Favourite response templates">${favouritesRow('new-ticket', 'nt.favourite')}</div>
       <label class="form-label" for="nt2-msg">Message to the customer</label>
