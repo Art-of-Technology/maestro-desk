@@ -63,4 +63,54 @@ dbTests('Slack settings keep credentials server-side', () => {
     expect((await request(0, 'PUT', { channel: '#stale-form', events })).status).toBe(400);
     expect(await (await request(0)).json()).toEqual({ integration: null });
   });
+  it('tests only the authorized workspace saved connection and reports delivery honestly', async () => {
+    const originalFetch = globalThis.fetch;
+    const calls: { url: string; init?: RequestInit }[] = [];
+    let reply = () => Promise.resolve(new Response('ok'));
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return reply();
+    }) as typeof fetch;
+    const send = (user = 0) => app.request('/api/v1/integrations/slack/test', {
+      method: 'POST', headers: { Authorization: `Bearer ${users[user].token}`, 'X-Workspace-Id': workspaceId },
+    });
+    try {
+      expect((await app.request('/api/v1/integrations/slack/test', { method: 'POST' })).status).toBe(401);
+      expect((await app.request('/api/v1/integrations/slack/test', {
+        method: 'POST', headers: { Authorization: `Bearer ${users[0].token}`, 'X-Workspace-Id': crypto.randomUUID() },
+      })).status).toBe(403);
+      expect((await send(1)).status).toBe(403);
+      expect((await send()).status).toBe(400);
+      await request(0, 'PUT', { webhook_url: webhook, events, active: false });
+      expect((await send()).status).toBe(400);
+      expect(calls).toHaveLength(0);
+      await request(0, 'PUT', { events, active: true });
+      expect((await send()).status).toBe(200);
+      expect(calls[0].url).toBe(webhook);
+      expect(calls[0].init?.redirect).toBe('error');
+      expect(JSON.parse(String(calls[0].init?.body))).toEqual({ text: 'Respovia test alert: your saved Slack connection is working.' });
+      reply = () => Promise.resolve(new Response('invalid', { status: 403 }));
+      expect((await send()).status).toBe(502);
+      await request(0, 'PUT', { events, bot_token: bot, channel: 'C-test' });
+      reply = () => Promise.resolve(Response.json({ ok: true }));
+      expect((await send()).status).toBe(200);
+      expect(calls.at(-1)?.url).toBe('https://slack.com/api/chat.postMessage');
+      expect(JSON.parse(String(calls.at(-1)?.init?.body)).channel).toBe('C-test');
+      reply = () => Promise.resolve(Response.json({ ok: false, error: bot }));
+      const rejected = await send();
+      expect(rejected.status).toBe(502);
+      expect(await rejected.text()).not.toContain(bot);
+      reply = () => Promise.reject(new Error(webhook));
+      const before = calls.length;
+      const uncertain = await send();
+      expect(uncertain.status).toBe(502);
+      expect(await uncertain.text()).toContain('Check Slack before trying again');
+      expect(calls).toHaveLength(before + 1);
+      await sql`update workspaces set suspended_at=now() where id=${workspaceId}`;
+      expect((await send()).status).toBe(403);
+      expect(calls).toHaveLength(before + 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

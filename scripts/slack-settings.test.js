@@ -4,6 +4,33 @@ import { expect, test } from 'bun:test';
 
 const source = readFileSync(new URL('../web/js/settings/index.js', import.meta.url), 'utf8');
 const handler = source.slice(source.indexOf('async function saveSlackIntegration()'), source.indexOf('async function deleteSlackIntegration()'));
+const testHandler = source.slice(source.indexOf('async function testSlackIntegration()'), source.indexOf('async function deleteSlackIntegration()'));
+
+test('Slack test alerts block duplicate clicks, enforce permission and restore the button after failure', async () => {
+  for (const mode of ['success', 'failure', 'member']) {
+    const button = { disabled: false };
+    const msg = { textContent: '', style: {} };
+    let calls = 0;
+    let finish;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const context = { can: () => mode !== 'member', document: { getElementById: id => id === 'slack-test' ? button : msg },
+      apiPost: async (path, body) => {
+        calls++;
+        expect(path).toBe('/api/v1/integrations/slack/test');
+        expect(Object.keys(body)).toHaveLength(0);
+        await pending;
+        if (mode === 'failure') throw new Error('Slack rejected the test alert.');
+      },
+    };
+    const running = runInNewContext(testHandler + '\ntestSlackIntegration()', context);
+    await runInNewContext(testHandler + '\ntestSlackIntegration()', context);
+    expect(calls).toBe(mode === 'member' ? 0 : 1);
+    finish();
+    await running;
+    expect(button.disabled).toBe(false);
+    if (mode !== 'member') expect(msg.textContent).toContain(mode === 'success' ? 'Slack accepted' : 'Slack rejected');
+  }
+});
 
 test('Slack settings omit an unchanged secret and clear a replacement after saving', async () => {
   for (const mode of ['existing', 'new', 'replacement', 'member', 'failed']) {

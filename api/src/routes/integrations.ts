@@ -5,6 +5,7 @@ import { requirePermission } from '../lib/role-permissions.js';
 import { getDb } from '../lib/db.js';
 import { assertSafeWebhookUrl } from '../lib/ssrf.js';
 import { resetContactSuppression } from '../lib/contact-suppression.js';
+import { sendWhileWorkspaceAvailable } from '../lib/workspace-access.js';
 
 // Migration to Neon — Step 3. Workspace-scoped via getDb(). Listing (GET) is
 // member-level (reads expose only a token suffix + non-secret config), but all
@@ -86,6 +87,39 @@ integrations.put('/slack', async (c) => {
     if (!updated.length) return c.json({ error: 'Webhook URL is required for a new connection' }, 400);
   }
   return c.json({ ok: true });
+});
+
+integrations.post('/slack/test', async (c) => {
+  const denied = await requirePermission(c, 'admin.integrations');
+  if (denied) return denied;
+  const sql = getDb();
+  const workspaceId = c.get('workspaceId');
+  const [saved] = await sql`select webhook_url, bot_token, channel, active
+    from slack_integrations where workspace_id = ${workspaceId}`;
+  if (!saved) return c.json({ error: 'Save a Slack connection first.' }, 400);
+  if (!saved.active) return c.json({ error: 'Enable the Slack connection and save before testing.' }, 400);
+  const bot = Boolean(saved.bot_token && saved.channel);
+  const url = bot ? 'https://slack.com/api/chat.postMessage' : saved.webhook_url;
+  if (!bot && !SlackBody.shape.webhook_url.unwrap().safeParse(url).success) {
+    return c.json({ error: 'Save a valid Slack webhook URL before testing.' }, 400);
+  }
+  try {
+    const accepted = await sendWhileWorkspaceAvailable(workspaceId, async () => {
+      const response = await fetch(url, {
+        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+        headers: { 'Content-Type': 'application/json', ...(bot ? { Authorization: `Bearer ${saved.bot_token}` } : {}) },
+        body: JSON.stringify({ text: 'Respovia test alert: your saved Slack connection is working.',
+          ...(bot ? { channel: saved.channel } : {}) }),
+      });
+      if (!response.ok) return false;
+      return bot ? (await response.json() as { ok?: boolean }).ok === true : (await response.text()).trim() === 'ok';
+    });
+    if (!accepted) return c.json({ error: 'Slack rejected the test alert. Check your saved connection and channel access.' }, 502);
+    return c.json({ ok: true });
+  } catch {
+    // A timeout can happen after delivery; never retry a test automatically.
+    return c.json({ error: 'Delivery could not be confirmed. Check Slack before trying again.' }, 502);
+  }
 });
 
 integrations.delete('/slack', async (c) => {
