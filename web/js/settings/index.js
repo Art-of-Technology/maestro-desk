@@ -743,8 +743,19 @@ function settingsIntegrations() {
     <div class="settings-section">
       <div class="settings-h">Slack</div>
       <div class="settings-desc" style="margin-bottom:14px">
-        Post a message to a Slack channel when key ticket events fire.
-        Paste your Slack <a href="https://api.slack.com/messaging/webhooks" target="_blank" style="color:var(--purple)">incoming-webhook URL</a> — it's the secret, so treat it like a password.
+        Send ticket alerts to a shared Slack channel. Each brand has one Slack connection.
+      </div>
+      <div class="settings-desc" style="margin-bottom:18px">
+        <strong>Set up Slack alerts</strong>
+        <ol style="padding-left:20px;margin:8px 0;line-height:1.6">
+          <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style="color:var(--purple)">your Slack apps (opens in a new tab)</a>. Create an app for your Slack workspace, or choose an existing app.</li>
+          <li>In the app settings, open <strong>Incoming Webhooks</strong> and turn on <strong>Activate Incoming Webhooks</strong>.</li>
+          <li>Select <strong>Add New Webhook to Workspace</strong>, choose the channel for alerts, and authorize it. You must belong to a private channel to select it.</li>
+          <li>Copy the webhook URL into <strong>Webhook URL</strong> below. Leave <strong>Channel override</strong> blank to use the channel you chose in Slack.</li>
+          <li>Select at least one event, keep <strong>Active</strong> on, and select <strong>Save</strong>. Leave the two-way sync fields blank if you only want alerts.</li>
+        </ol>
+        Keep the webhook URL private, like a password. After saving, select <strong>Send test alert</strong> to check delivery.
+        <a href="https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/" target="_blank" rel="noopener noreferrer" style="color:var(--purple)">Slack setup help (opens in a new tab)</a>.
       </div>
       <div class="form-row">
         <label class="form-label" for="slack-url">Webhook URL</label>
@@ -784,11 +795,13 @@ function settingsIntegrations() {
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-top:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
         <button class="btn btn-solid btn-sm" data-action="settings.saveSlack">Save</button>
+        <button class="btn btn-sm" id="slack-test" data-action="settings.testSlack" ${slack?.active && can('admin.integrations') ? '' : 'disabled'}>Send test alert</button>
         ${slack ? '<button class="btn btn-sm btn-danger" data-action="settings.deleteSlack">Disconnect</button>' : ''}
-        <span id="slack-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
+        <span id="slack-msg" role="status" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
       </div>
+      <div class="settings-desc" style="margin-top:8px">Test alerts use the saved, active connection. Save any changes first.</div>
     </div>
     ${settingsOutgoingWebhooksSection()}
     ${settingsSuppressionListSection()}`;
@@ -1233,6 +1246,26 @@ async function saveSlackIntegration() {
   }
 }
 
+async function testSlackIntegration() {
+  if (!can('admin.integrations')) return;
+  const button = document.getElementById('slack-test');
+  if (button.disabled) return;
+  const msg = document.getElementById('slack-msg');
+  button.disabled = true;
+  msg.textContent = 'Sending test alert...';
+  msg.style.color = 'var(--ink3)';
+  try {
+    await apiPost('/api/v1/integrations/slack/test', {});
+    msg.textContent = 'Slack accepted the test alert. Check your channel.';
+    msg.style.color = 'var(--green)';
+  } catch (err) {
+    msg.textContent = err?.message || 'Delivery could not be confirmed. Check Slack before trying again.';
+    msg.style.color = 'var(--red)';
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function deleteSlackIntegration() {
   if (!can('admin.integrations')) return;
   if (!confirm('Disconnect Slack? Future ticket events won\'t notify until you reconnect.')) return;
@@ -1370,6 +1403,7 @@ registerActions({
   'settings.testKb':            () => testKbConnection(),
   // integrations
   'settings.saveSlack':         () => saveSlackIntegration(),
+  'settings.testSlack':         () => testSlackIntegration(),
   'settings.deleteSlack':       () => deleteSlackIntegration(),
   // outgoing webhooks
   'settings.createWebhook':     () => createOutgoingWebhook(),
