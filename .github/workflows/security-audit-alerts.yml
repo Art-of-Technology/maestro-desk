@@ -1,0 +1,56 @@
+name: Security scan alerts
+on:
+  workflow_run:
+    workflows: [Dependency security audit]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '35 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Check scan health or send a labelled delivery test
+        type: choice
+        options: [check, test]
+        default: check
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: security-scan-alerts
+  cancel-in-progress: false
+jobs:
+  monitor:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check dependency scan health
+        id: check
+        run: node scripts/security-audit-monitor.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MONITOR_MODE: ${{ inputs.mode || 'check' }}
+          SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
+      - name: Remember confirmed alert delivery
+        if: steps.check.outputs.cache-key != ''
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.check.outputs.cache-key }}
+          path: security-audit-alert.json
+      - name: Verify delivery record survived storage
+        if: steps.check.outputs.cache-key != ''
+        run: node scripts/security-audit-monitor.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERIFY_ALERT_KEY: ${{ steps.check.outputs.cache-key }}
+      - name: Flag unverifiable scan health
+        if: steps.check.outputs.health == 'unknown'
+        run: exit 1
