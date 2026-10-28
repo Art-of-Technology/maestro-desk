@@ -173,7 +173,7 @@ dbTests('customer content erasure and late work', () => {
       await tx`update tickets set ai_summary='{"text":"HISTORICAL_PRIVATE"}' where id=${s.ticket}`;
     });
     const run=(args:string[])=>spawnSync('node',['--import','tsx','scripts/repair-erased-content.ts','--workspace',ws,...args],{
-      cwd:import.meta.dirname+'/..',encoding:'utf8',timeout:15000,
+      cwd:import.meta.dirname+'/..',encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:15000,
       env:{...process.env,DATABASE_URL:process.env.DATABASE_URL!,POSTMARK_SERVER_TOKEN:'',MAESTRO_API_TOKEN:'',ALERT_EMAIL_TO:'',SLACK_ALERT_WEBHOOK_URL:''},
     });
     const preview=run([]);expect(preview.status).toBe(0);expect(preview.stdout).toContain('"mode":"preview"');expect(preview.stdout).not.toContain('HISTORICAL_PRIVATE');

@@ -35,7 +35,7 @@ run('restricted database runtime', () => {
       await owner`drop role ${owner(role)}`;
       await owner.end();
     }
-  });
+  }, 30000);
   async function denied(action: () => PromiseLike<unknown>) {
     let code;
     try {
@@ -146,6 +146,7 @@ run('restricted database runtime', () => {
       ],
       {
         encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           DATABASE_URL: url.toString(),
@@ -166,6 +167,7 @@ run('restricted database runtime', () => {
     function boot(databaseUrl: string) {
       return spawnSync('node', ['--import', 'tsx', 'scripts/migrate.ts'], {
         encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
           DATABASE_URL: databaseUrl,

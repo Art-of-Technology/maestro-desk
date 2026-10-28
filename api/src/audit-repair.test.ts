@@ -281,6 +281,7 @@ run('historical audit repair (operator only)', () => {
         ],
         {
           encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 15000,
           env: { ...process.env, TEST_PROPOSAL: JSON.stringify(p) },
         },
