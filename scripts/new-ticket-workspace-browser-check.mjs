@@ -32,7 +32,12 @@ export default async function checkWorkspace(browser, outDir) {
     await page.locator('#nt-cat').selectOption({ index: 1 });
     await page.locator('#nt-pri').selectOption('high');
     const category = await page.locator('#nt-cat').inputValue();
-    await page.getByRole('button', { name: 'Insert response template', exact: true }).click();
+    for (const label of ['Insert template', 'Preview message']) {
+      const button = page.getByRole('button', { name: label, exact: true });
+      check(await button.locator('svg[aria-hidden="true"]').count() === 1 && !(await button.innerText()).trim(), `${label} uses an accessible icon button`);
+      check((await button.getAttribute('title')).includes(label), `${label} has a hover tooltip`);
+    }
+    await page.getByRole('button', { name: 'Insert template', exact: true }).click();
     await page.getByRole('button', { name: 'Pin Welcome response', exact: true }).click();
     await page.locator('#modal-container').getByText('Welcome response', { exact: true }).click();
     await page.getByRole('button', { name: 'Insert response', exact: true }).click();
@@ -62,6 +67,11 @@ export default async function checkWorkspace(browser, outDir) {
     check(await page.getByRole('button', { name: 'Close new ticket', exact: true }).evaluate(el => el === document.activeElement), 'Workspace wraps forward keyboard focus');
     for (const width of [1280, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 });
+      await page.getByRole('button', { name: 'Insert template', exact: true }).scrollIntoViewIfNeeded();
+      for (const label of ['Insert template', 'Preview message']) {
+        const bounds = await page.getByRole('button', { name: label, exact: true }).boundingBox();
+        check(bounds.width >= 44 && bounds.height >= 44, `${label} retains a touch target at ${width}`);
+      }
       check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `No horizontal overflow at ${width}`);
       check(await page.locator('#nt2-draft-btn').isVisible() && await page.locator('#nt2-send-btn').isVisible(), `Footer reachable at ${width}`);
       await page.screenshot({ path: `${outDir}/new-ticket-workspace-${width}.png` });
