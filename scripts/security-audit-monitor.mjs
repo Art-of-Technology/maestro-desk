@@ -26,10 +26,26 @@ function validateRun(run) {
   return run;
 }
 
-function failedScan(run) {
+async function failedScan(run, api) {
+  let detail = 'The scan outcome is unknown. Check the run for details before retrying.';
+  if (run.conclusion === 'timed_out' || run.conclusion === 'cancelled') {
+    detail = `The dependency scan ${run.conclusion === 'timed_out' ? 'timed out' : 'was cancelled'}. It did not confirm a clean result.`;
+  } else if (Number.isSafeInteger(run.run_attempt) && run.run_attempt > 0) {
+    try {
+      const body = await api(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
+      if (!Array.isArray(body.jobs) || body.total_count !== 1 || body.jobs.length !== 1) throw new Error('Incomplete audit jobs');
+      const job = body.jobs[0];
+      if (job.run_id !== run.id || job.run_attempt !== run.run_attempt || job.name !== 'Audit current main dependencies' ||
+          job.status !== 'completed' || !Array.isArray(job.steps)) throw new Error('Invalid audit job');
+      const findings = job.steps.filter(step => step.name === 'Dependency audit found vulnerabilities' && step.conclusion === 'failure');
+      const errors = job.steps.filter(step => step.name === 'Dependency audit could not complete' && step.conclusion === 'failure');
+      if (findings.length === 1 && errors.length === 0) detail = 'The dependency scan found moderate or higher vulnerabilities. Update the affected dependencies and run the scan again.';
+      if (errors.length === 1 && findings.length === 0) detail = 'The dependency scan could not complete. Check setup, registry access and scanner output before retrying. Vulnerability status is unknown.';
+    } catch { /* Keep the unknown outcome when job results cannot be verified. */ }
+  }
   return {
     name: `security-audit-failure-${run.id}`,
-    text: `Respovia security scan needs attention\nThe dependency scan ${run.conclusion === 'timed_out' ? 'timed out' : `finished with status: ${run.conclusion}`}. Check the run for details before retrying.\nhttps://github.com/${repository}/actions/runs/${run.id}`,
+    text: `Respovia security scan needs attention (${run.conclusion})\n${detail}\nhttps://github.com/${repository}/actions/runs/${run.id}`,
   };
 }
 
@@ -41,7 +57,7 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
     // A rerun may already have recovered by the time this notification is processed.
     const current = validateRun(await api(`actions/runs/${run.id}`));
     if (current.id !== run.id) throw new Error('Mismatched audit run');
-    return current.status === 'completed' && current.conclusion !== 'success' ? failedScan(current) : null;
+    return current.status === 'completed' && current.conclusion !== 'success' ? failedScan(current, api) : null;
   }
   const expected = expectedScan(now);
   const body = await api(`actions/workflows/${file}/runs?event=schedule&branch=main&created=${encodeURIComponent(`>=${new Date(expected.start).toISOString()}`)}&per_page=100`);
@@ -50,7 +66,7 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
   if (runs.some(run => run.event !== 'schedule')) throw new Error('Unexpected manual run in schedule history');
   const latest = runs.filter(run => Date.parse(run.created_at) >= expected.start && Date.parse(run.created_at) < Math.min(expected.end, now.getTime() + 1))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0];
-  if (latest?.status === 'completed') return latest.conclusion === 'success' ? null : failedScan(latest);
+  if (latest?.status === 'completed') return latest.conclusion === 'success' ? null : failedScan(latest, api);
   return {
     name: `security-audit-overdue-${expected.date}`,
     text: `Respovia daily security scan is overdue\nNo completed scheduled dependency scan for ${expected.date}, due at 06:15 UTC with two hours allowed for delays. ${latest ? 'The run has not finished.' : 'No scheduled run was found.'} Manual scans do not confirm the daily schedule is working.\n${latest ? `https://github.com/${repository}/actions/runs/${latest.id}` : workflow}`,
