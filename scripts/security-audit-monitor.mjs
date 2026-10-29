@@ -156,7 +156,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     if (result.health === 'unknown') appendFileSync(process.env.GITHUB_OUTPUT, 'health=unknown\n');
     console.log(`Security scan monitor: ${result.status}`);
   } catch {
-    console.error('Security scan monitor failed. Check durable receipt storage and reconcile any pending Slack delivery before retrying; upstream details are omitted.');
+    console.error('Security scan monitor failed. Check durable receipt storage and run "node scripts/security-audit-reconcile.mjs" from the repository in an interactive terminal to review any pending Slack delivery before retrying; upstream details are omitted.');
     process.exitCode = 1;
   }
 }
