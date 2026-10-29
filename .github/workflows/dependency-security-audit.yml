@@ -38,6 +38,10 @@ jobs:
         id: audit
         run: bun ../scripts/dependency-audit-result.mjs
 
+      - name: 'Dependency audit counts: ${{ steps.audit.outputs.counts }}'
+        if: steps.audit.outputs.outcome == 'findings' && steps.audit.outputs.counts != ''
+        run: 'true'
+
       - name: Dependency audit found vulnerabilities
         if: steps.audit.outputs.outcome == 'findings'
         run: exit 1

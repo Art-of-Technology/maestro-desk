@@ -6,7 +6,8 @@
 - Alerts distinguish confirmed moderate-or-higher vulnerabilities from a scan that could not complete. The scanner validates Bun's JSON report and exit status, then records the outcome in named GitHub job steps. The monitor reads only the current run attempt. Missing, unreadable or conflicting results produce an outcome-unknown message, never a vulnerability claim.
 - An hourly check at :35 UTC independently checks scheduled runs. The daily scan is due at 06:15 UTC, with two hours of grace. The first overdue check is normally 08:35 UTC; GitHub may delay scheduled workflows. Manual scans cannot satisfy this check.
 - Healthy scans send no message. Unreadable, incomplete or invalid history sends a separate status-unknown warning and fails the monitor job rather than claiming health.
-- Messages contain run status and links only, never dependency reports, logs, credentials or customer data. The workflow checks out trusted main and does not download audit artifacts or execute the triggering commit.
+- Confirmed vulnerability alerts include critical, high and moderate counts when available, counting each advisory ID once across packages. Conflicting severities, missing counts or invalid metadata retain the generic vulnerability message; missing counts are never shown as zero. Older runs remain supported.
+- Messages contain run status, verified severity counts and links only, never dependency reports, logs, credentials or customer data. The workflow checks out trusted main and does not download audit artifacts or execute the triggering commit.
 
 ## Delivery test and recovery
 
