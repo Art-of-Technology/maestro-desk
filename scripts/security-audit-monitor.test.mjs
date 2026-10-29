@@ -12,11 +12,11 @@ const env = {
 const run = (overrides = {}) => ({
   id: 123, run_attempt: 2, name: 'Dependency security audit', path: '.github/workflows/dependency-security-audit.yml',
   head_repository: { full_name: env.GITHUB_REPOSITORY }, head_branch: 'main',
-  event: 'schedule', created_at: '2026-10-28T06:30:00Z', status: 'completed', conclusion: 'success',
+  event: 'schedule', created_at: '2026-10-28T06:30:00Z', updated_at: '2026-10-28T07:30:00Z', status: 'completed', conclusion: 'success',
   ...overrides,
 });
 
-function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0], jobs = { total_count: 0, jobs: [] } } = {}) {
+function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0], jobs = { total_count: 0, jobs: [] }, recoveryRuns = runs, recoveryTotal = recoveryRuns.length, failed = run({ conclusion: 'failure', updated_at: '2026-10-28T06:31:00Z' }), receipts } = {}) {
   const calls = [], messages = [];
   return {
     calls, messages,
@@ -32,11 +32,12 @@ function fixture(runs = [], { cached = [], historyError = false, deliveryError =
       assert.equal(options.headers.Authorization, 'Bearer test-token');
       if (url.includes('/actions/caches?')) {
         if (cacheError) return new Response('', { status: 403 });
-        return Response.json({ actions_caches: cached.map(key => ({ key, ref: 'refs/heads/main' })), total_count: cached.length });
+        return Response.json((new URL(url).searchParams.get('key') === 'security-audit-failure-' && receipts) || { actions_caches: cached.map(key => ({ key, ref: 'refs/heads/main', created_at: '2026-10-28T06:32:00Z' })), total_count: cached.length });
       }
       if (historyError) throw new Error('private upstream details');
       if (url.includes('/jobs?')) return Response.json(jobs);
-      if (url.includes('/actions/runs/')) return Response.json(current);
+      if (url.includes('/actions/runs/')) return Response.json(url.endsWith(`/actions/runs/${current?.id}`) || (!cached.length && !receipts) ? current : failed);
+      if (url.includes('/runs?branch=main&created=')) return Response.json({ workflow_runs: recoveryRuns, total_count: recoveryTotal });
       assert.match(url, /event=schedule&branch=main&created=/);
       return Response.json({ workflow_runs: runs, total_count: total });
     },
@@ -56,10 +57,10 @@ test('UTC grace switches expected date exactly at 08:15, including month/year an
   }
 });
 
-test('successful scheduled scan is quiet with no Slack or cache access', async () => {
+test('successful scheduled scan without a confirmed failure remains quiet', async () => {
   const f = fixture([run()]);
   assert.deepEqual(await monitor(env, {}, now, f.fetch), { status: 'healthy' });
-  assert.equal(f.calls.length, 1);
+  assert.equal(f.calls.length, 2);
 });
 
 test('missing scan, unfinished scan and failed statuses produce specific warnings', async () => {
@@ -106,7 +107,7 @@ test('event notifications re-read the run to suppress recovered or running rerun
   for (const current of [run(), run({ status: 'in_progress', conclusion: null })]) {
     const f = fixture([], { current });
     assert.equal((await monitor({ ...env, GITHUB_EVENT_NAME: 'workflow_run' }, event, now, f.fetch)).status, 'healthy');
-    assert.equal(f.calls.length, 1);
+    assert.equal(f.calls.length, current.status === 'completed' ? 2 : 1);
   }
 });
 
@@ -259,4 +260,88 @@ test('missing, malformed, conflicting and stale job results keep the outcome unk
     assert.match(f.messages[0], /scan outcome is unknown/);
     assert.doesNotMatch(f.messages[0], /found moderate or higher vulnerabilities/);
   }
+});
+
+test('confirmed failure recovers once on a later clean scan, including manual scans and successful reruns', async () => {
+  for (const eventMode of [false, true]) {
+    for (const sameRun of [false, true]) {
+      const clean = run({ id: sameRun ? 123 : 124, event: eventMode ? 'workflow_dispatch' : 'schedule' });
+      const options = { cached: ['security-audit-failure-123'], current: clean };
+      const context = { ...env, GITHUB_EVENT_NAME: eventMode ? 'workflow_run' : 'schedule' };
+      const event = eventMode ? { action: 'completed', workflow_run: clean } : {};
+      const f = fixture([clean], options);
+      const result = await monitor(context, event, now, f.fetch);
+      assert.equal(result.name, 'security-audit-recovery-123');
+      assert.equal(result.health, 'healthy');
+      assert.match(f.messages[0], /scan recovered/);
+      assert.match(f.messages[0], new RegExp(`Clean scan: .*runs/${clean.id}`));
+      assert.match(f.messages[0], /Daily schedule health is checked separately/);
+      const repeat = fixture([clean], { ...options, cached: [...options.cached, result.name] });
+      assert.equal((await monitor(context, event, now, repeat.fetch)).status, 'healthy');
+      assert.equal(repeat.messages.length, 0);
+    }
+  }
+});
+
+test('later clean scans do not repeat recovery and overdue receipts never justify recovery', async () => {
+  for (const cached of [[], ['security-audit-overdue-2026-10-28'], ['security-audit-failure-123', 'security-audit-recovery-123']]) {
+    const clean = run({ id: 125 });
+    const f = fixture([clean], { cached });
+    assert.equal((await monitor(env, {}, now, f.fetch)).status, 'healthy');
+    assert.equal(f.messages.length, 0);
+  }
+  const f = fixture([], { cached: ['security-audit-recovery-123'] });
+  assert.match((await monitor(env, {}, now, f.fetch)).name, /overdue/);
+});
+
+test('the latest confirmed failure defines the recovery incident', async () => {
+  const clean = run({ id: 125 });
+  const f = fixture([clean], { failed: run({ id: 124, conclusion: 'failure' }), receipts: {
+    total_count: 2, actions_caches: [
+      { key: 'security-audit-failure-123', ref: 'refs/heads/main', created_at: '2026-10-28T06:32:00Z' },
+      { key: 'security-audit-failure-124', ref: 'refs/heads/main', created_at: '2026-10-28T07:00:00Z' },
+    ],
+  } });
+  assert.equal((await monitor(env, {}, now, f.fetch)).name, 'security-audit-recovery-124');
+});
+
+test('stale successes, newer failures and unfinished scans cannot announce recovery', async () => {
+  const clean = run({ id: 124 });
+  for (const newer of [
+    run({ id: 125, conclusion: 'failure', updated_at: '2026-10-28T08:00:00Z' }),
+    run({ id: 125, status: 'in_progress', conclusion: null }),
+    run({ id: 125, status: 'queued', conclusion: null }),
+    run({ id: 125, updated_at: '2026-10-28T08:00:00Z' }),
+    { ...clean, run_attempt: 3 }, { ...clean, conclusion: 'failure' },
+  ]) {
+    const f = fixture([clean], { cached: ['security-audit-failure-123'], recoveryRuns: newer.id === clean.id ? [newer] : [clean, newer] });
+    assert.equal((await monitor(env, {}, now, f.fetch)).status, 'healthy');
+    assert.equal(f.messages.length, 0);
+  }
+  const old = run({ id: 124, updated_at: '2026-10-28T06:31:00Z' });
+  const f = fixture([old], { cached: ['security-audit-failure-123'] });
+  assert.equal((await monitor(env, {}, now, f.fetch)).status, 'healthy');
+  assert.equal(f.messages.length, 0);
+});
+
+test('unverifiable recovery evidence never announces recovery', async () => {
+  const clean = run({ id: 124 });
+  for (const overrides of [
+    { recoveryTotal: 101 }, { recoveryRuns: [run({ id: 124, updated_at: 'bad' })] },
+    { recoveryRuns: [run({ id: 124, head_branch: 'other' })] },
+    { failed: run({ id: 999 }) },
+    { receipts: { total_count: 101, actions_caches: [] } },
+    { receipts: { total_count: 1, actions_caches: [{ key: 'security-audit-failure-123', ref: 'refs/heads/main', created_at: 'bad' }] } },
+  ]) {
+    const f = fixture([clean], { cached: ['security-audit-failure-123'], ...overrides });
+    const result = await monitor(env, {}, now, f.fetch);
+    assert.equal(result.health, 'unknown');
+    assert.doesNotMatch(f.messages.join(''), /scan recovered/);
+  }
+});
+
+test('recovery delivery failure cannot produce a saved recovery receipt', async () => {
+  const f = fixture([run({ id: 124 })], { cached: ['security-audit-failure-123'], deliveryError: true });
+  await assert.rejects(monitor(env, {}, now, f.fetch));
+  assert.equal(f.messages.length, 1);
 });
