@@ -4,10 +4,8 @@
     "security-audit-recovery-40829603272": "2026-10-29T13:25:10.748Z",
     "security-audit-failure-40829603272": "2026-10-29T06:30:41.479Z",
     "security-audit-failure-40644233453": "2026-10-28T12:43:26.281Z",
-    "security-audit-test-40686364599": "2026-10-28T12:15:54.004Z"
+    "security-audit-test-40686364599": "2026-10-28T12:15:54.004Z",
+    "security-audit-test-40884830805": "2026-10-29T13:45:20.200Z"
   },
-  "pending": {
-    "name": "security-audit-test-40884830805",
-    "startedAt": "2026-10-29T13:45:20.200Z"
-  }
+  "pending": null
 }
