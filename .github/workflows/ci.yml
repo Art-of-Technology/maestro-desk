@@ -150,7 +150,7 @@ jobs:
           bash scripts/cron-job-response.test.sh
 
       - name: Unassigned notification tests
-        run: bun test scripts/unassigned-notifications.test.js
+        run: bun test scripts/unassigned-notifications.test.js scripts/queue-sound.test.js
 
       - name: Workspace selection regression
         run: |

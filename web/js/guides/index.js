@@ -183,13 +183,13 @@ function renderPractice() {
   const confirmed = progress.practiced[module.id] === signature(module);
   container().innerHTML = `<div class="guide-layer guide-menu-layer"><section class="guide-menu" role="dialog" aria-modal="true" aria-labelledby="guide-menu-title" tabindex="-1">
     <div class="guide-menu-head"><div><div class="guide-kicker">PRACTICE CHECKLIST</div><h2 id="guide-menu-title">${esc(module.title)}</h2></div><button type="button" class="modal-close" data-action="guides.close" aria-label="Exit and keep progress">×</button></div>
-    <p>Exit to practise on work approved by your team. Reopen Guides and choose Resume, tick each result you checked, then Confirm practice. Guides never perform these actions for you.</p>
+    <p>Try these tasks on work approved by your team. Choose <strong>Go to workspace</strong>, then return here using <strong>Guides → Resume</strong>.</p><p>Tick each task you have done. This checklist records your practice; it does not change tickets or contacts.</p>
     <div class="guide-practice">${practice.map(item => `<label><input type="checkbox" data-change-action="guides.check" data-item="${item.id}" ${progress.checked.includes(`${module.id}:${item.id}`) ? 'checked' : ''}><span>${esc(item.task)}<small><strong>Expected result:</strong> ${esc(item.expected)}</small></span></label>`).join('')}</div>
     ${!viewed ? '<p class="guide-warning">Some steps have not been viewed. Review them before confirming practice.</p>' : ''}
     ${confirmed ? '<p class="guide-complete" role="status">✓ Practice confirmed by you</p>' : ''}
     <p class="guide-save-note">${notice()}</p>
-    <div class="guide-practice-actions"><button type="button" class="btn" data-action="guides.close">Exit to practise</button><button type="button" class="btn btn-solid" data-action="guides.confirm" ${!viewed || !checked ? 'disabled' : ''}>Confirm practice</button>
-    <button type="button" class="btn" data-action="guides.back">Review steps</button><button type="button" class="btn" data-action="guides.continue">${active.full ? 'Continue onboarding →' : 'All modules'}</button></div>
+    <div class="guide-practice-actions"><button type="button" class="btn ${!confirmed && !(viewed && checked) ? 'btn-solid' : ''}" data-action="guides.close">Go to workspace</button><button type="button" class="btn btn-solid" data-action="guides.confirm" ${!viewed || !checked || confirmed ? 'hidden disabled' : ''}>Finish practice</button>
+    <button type="button" class="btn" data-action="guides.back">Review steps</button><button type="button" class="btn ${confirmed ? 'btn-solid' : ''}" data-action="guides.continue">${confirmed ? (active.full ? 'Next module →' : 'All modules') : (active.full ? 'Skip practice for now →' : 'Back to modules')}</button></div>
     </section></div>`;
   requestAnimationFrame(focusSurface);
 }
@@ -263,7 +263,13 @@ registerChangeActions({ 'guides.check': (ds, element) => {
   delete progress.practiced[module.id]; saveProgress(progress);
   // Keep the checkbox focused while updating the confirmation state.
   const confirm = container()?.querySelector('[data-action="guides.confirm"]');
-  if (confirm) confirm.disabled = !stepsFor(module).every(step => progress.viewed.includes(step.id)) || !practiceFor(module).every(item => progress.checked.includes(`${module.id}:${item.id}`));
+  if (confirm) {
+    confirm.disabled = !stepsFor(module).every(step => progress.viewed.includes(step.id)) || !practiceFor(module).every(item => progress.checked.includes(`${module.id}:${item.id}`));
+    confirm.hidden = confirm.disabled;
+    container().querySelector('.guide-practice-actions [data-action="guides.close"]')?.classList.toggle('btn-solid', confirm.disabled);
+    const next = container().querySelector('[data-action="guides.continue"]');
+    if (next) { next.classList.remove('btn-solid'); next.textContent = active.full ? 'Skip practice for now →' : 'Back to modules'; }
+  }
   const note = container()?.querySelector('.guide-save-note'); if (note) note.textContent = notice();
   const complete = container()?.querySelector('.guide-complete'); if (complete) complete.remove();
 } });

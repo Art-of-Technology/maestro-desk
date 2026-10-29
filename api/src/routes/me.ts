@@ -128,7 +128,7 @@ me.get('/', async (c) => {
   const workspaceId = c.get('workspaceId');
 
   const [user] = await sql`
-    select id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme
+    select id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme, display_mode
     from users where id = ${userId}
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
@@ -155,6 +155,7 @@ export const MePatch = z.object({
   assignment_email_enabled: z.boolean().optional(),
   navigation_position: z.enum(['left', 'top']).optional(),
   colour_scheme: z.enum(['violet', 'blue', 'teal']).optional(),
+  display_mode: z.enum(['light', 'dark', 'system']).optional(),
 }).strict();
 
 me.patch('/', async (c) => {
@@ -170,7 +171,7 @@ me.patch('/', async (c) => {
   const [user] = await sql`
     update users set ${sql(parsed.data)}
     where id = ${userId}
-    returning id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme
+    returning id, email, name, initials, is_platform_admin, mention_email_enabled, assignment_email_enabled, navigation_position, colour_scheme, display_mode
   `;
   if (!user) return c.json({ error: 'User not found' }, 404);
   return c.json({ user });

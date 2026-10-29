@@ -42,6 +42,21 @@ export const customers = new Hono();
 
 customers.use('*', requireAuth);
 
+customers.post('/:id/spam', async (c) => {
+  const denied = await requirePermission(c, 'customers.spam');
+  if (denied) return denied;
+  const customerId = c.req.param('id'), workspaceId = c.get('workspaceId');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const found = await getDb().begin(async sql => {
+    const [customer] = await sql`select id from customers where id = ${customerId} and workspace_id = ${workspaceId}
+      and deleted_at is null and erased_at is null and merged_into_customer_id is null for update`;
+    if (!customer) return false;
+    await setCustomerSpam(sql, workspaceId, customerId, true, c.get('userId'));
+    return true;
+  });
+  return found ? c.json({ customer: { id: customerId, is_spam: true } }) : c.json({ error: 'Customer not found' }, 404);
+});
+
 customers.delete('/:id/spam', async (c) => {
   const customerId = c.req.param('id'), workspaceId = c.get('workspaceId');
   if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);

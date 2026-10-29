@@ -4,9 +4,12 @@ import { renderPage } from '../core/router.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { refreshSidebar } from '../core/sidebar.js';
 
-const defaults = { navigation_position: 'left', colour_scheme: 'violet' };
+const defaults = { navigation_position: 'left', colour_scheme: 'violet', display_mode: 'light' };
 const positions = ['left', 'top'];
 const schemes = ['violet', 'blue', 'teal'];
+const modes = ['light', 'dark', 'system'];
+const systemTheme = globalThis.matchMedia?.('(prefers-color-scheme: dark)');
+systemTheme?.addEventListener('change', () => { if (state && current(state)) paint(state.draft); });
 let state;
 
 function current(s) {
@@ -17,6 +20,7 @@ function paint(value) {
   if (!app) return;
   app.dataset.navigation = value.navigation_position;
   app.dataset.colourScheme = value.colour_scheme;
+  app.dataset.displayMode = value.display_mode === 'system' ? (systemTheme?.matches ? 'dark' : 'light') : value.display_mode;
   refreshSidebar();
 }
 function notify() {
@@ -48,7 +52,8 @@ async function load(s) {
     const { user } = await apiGet('/api/v1/me', { signal: AbortSignal.timeout(10000) });
     if (!current(s)) return;
     if (!positions.includes(user?.navigation_position) || !schemes.includes(user?.colour_scheme)) throw Error();
-    s.saved = { navigation_position: user.navigation_position, colour_scheme: user.colour_scheme };
+    if (user.display_mode !== undefined && !modes.includes(user.display_mode)) throw Error();
+    s.saved = { navigation_position: user.navigation_position, colour_scheme: user.colour_scheme, display_mode: user.display_mode || 'light' };
     s.draft = { ...s.saved };
     s.ready = true;
     s.failed = false;
@@ -60,7 +65,7 @@ async function load(s) {
   notify();
 }
 function changed(s) {
-  return s.saved.navigation_position !== s.draft.navigation_position || s.saved.colour_scheme !== s.draft.colour_scheme;
+  return Object.keys(defaults).some(key => s.saved[key] !== s.draft[key]);
 }
 function updateControls() {
   const s = state;
@@ -78,7 +83,7 @@ function updateControls() {
 function select(field, value) {
   const s = state;
   if (!s || !current(s) || !s.ready || s.saving) return;
-  if (!(field === 'navigation_position' ? positions : schemes).includes(value)) return;
+  if (!({ navigation_position: positions, colour_scheme: schemes, display_mode: modes })[field]?.includes(value)) return;
   s.draft[field] = value;
   s.error = '';
   paint(s.draft);
@@ -112,7 +117,7 @@ const title = value => value[0].toUpperCase() + value.slice(1);
 function option(field, value) {
   const layout = field === 'navigation_position';
   return `<label class="appearance-choice"><input type="radio" name="${field}" value="${value}" ${state.draft[field] === value ? 'checked' : ''} ${!state.ready || state.saving ? 'disabled' : ''} data-change-action="appearance.choose"/>
-    <span class="appearance-card"><span class="appearance-mini ${layout ? 'mini-' + value : 'mini-theme theme-' + value}" aria-hidden="true"><i></i><b></b><em></em><span></span></span><span class="appearance-label">${title(value)}<span class="appearance-check" aria-hidden="true">✓</span></span></span></label>`;
+    <span class="appearance-card">${field === 'display_mode' ? '' : `<span class="appearance-mini ${layout ? 'mini-' + value : 'mini-theme theme-' + value}" aria-hidden="true"><i></i><b></b><em></em><span></span></span>`}<span class="appearance-label">${title(value)}<span class="appearance-check" aria-hidden="true">✓</span></span></span></label>`;
 }
 export function renderPersonalAppearance() {
   ensurePersonalAppearance();
@@ -123,6 +128,7 @@ export function renderPersonalAppearance() {
     ${s.failed ? '<p role="alert">Couldn’t load your appearance settings. <button class="btn btn-sm" data-action="appearance.retry">Try again</button></p>' : !s.ready ? '<p role="status">Loading appearance settings…</p>' : ''}
     <fieldset class="appearance-fieldset"><legend>Menu position</legend><div class="appearance-options">${positions.map(v => option('navigation_position', v)).join('')}</div></fieldset>
     <fieldset class="appearance-fieldset"><legend>Colour scheme</legend><div class="appearance-options appearance-schemes">${schemes.map(v => option('colour_scheme', v)).join('')}</div></fieldset>
+    <fieldset class="appearance-fieldset"><legend>Light and dark mode</legend><div class="appearance-options appearance-schemes">${modes.map(v => option('display_mode', v)).join('')}</div><p class="appearance-hint">System follows your device’s appearance.</p></fieldset>
     <p class="appearance-hint">Your brand colours, portal and emails stay the same.</p>
     ${!s.session?.userId ? '<p class="appearance-hint">Demo preview only. Sign in to save across devices.</p>' : ''}
     <div class="appearance-footer"><span id="appearance-status" role="status" tabindex="-1">${s.error || (s.saving ? 'Saving…' : !s.ready ? '' : changed(s) ? 'Unsaved changes' : 'All changes saved')}</span>
@@ -133,6 +139,6 @@ registerChangeActions({ 'appearance.choose': (_, el) => select(el.name, el.value
 registerActions({
   'appearance.save': save,
   'appearance.cancel': () => { cancelAppearancePreview(); updateControls(); },
-  'appearance.defaults': () => { select('navigation_position', defaults.navigation_position); select('colour_scheme', defaults.colour_scheme); },
+  'appearance.defaults': () => { for (const [field, value] of Object.entries(defaults)) select(field, value); },
   'appearance.retry': () => { if (state?.failed) { state.failed = false; void load(state); notify(); } },
 });

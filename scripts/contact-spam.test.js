@@ -35,7 +35,7 @@ mock.module('../web/js/core/ticket-history.js', () => ({ applySavedActivity() {}
 mock.module('../web/js/tickets/sla.js', () => ({ refreshTicketSLA() {} }));
 mock.module('../web/js/tickets/status-options.js', () => ({ statusChoice: () => statusSettings,
   DEFAULT_CLOSURE_REASONS: ['spam', 'abuse', 'duplicate', 'other'].map(key => ({ key, label: key[0].toUpperCase() + key.slice(1), is_active: true })) }));
-const { showCloseTickets, closureDetails, unmarkSpamContact } = await import('../web/js/tickets/closure.js');
+const { showCloseTickets, markTicketsSpam, markSpamContact, closureDetails, unmarkSpamContact } = await import('../web/js/tickets/closure.js');
 
 beforeEach(() => {
   workspace = 'one'; failId = 'never'; failUndo = false; closed = false; changed = [];
@@ -59,6 +59,24 @@ test('single spam action preselects the reason, marks its contact and exposes un
   expect(closureDetails(tickets[0])).not.toContain('A new customer reply reopens');
   await unmarkSpamContact('c1');
   expect(contacts[0].isSpam).toBe(false); expect(tickets[0].status).toBe('closed');
+});
+
+test('one-click spam closes tickets, filters contacts and retains failed selections', async () => {
+  failId = '/2/';
+  await markTicketsSpam(['1', '2'], ids => changed.push(...ids));
+  expect(changed).toEqual(['1']);
+  expect(tickets[0].status).toBe('closed'); expect(contacts[0].isSpam).toBe(true);
+  expect(tickets[1].status).toBe('open'); expect(contacts[1].isSpam).toBeUndefined();
+});
+test('one-click contact spam leaves existing tickets intact and supports unmark', async () => {
+  await markSpamContact('c1');
+  expect(requests[0].path).toBe('/api/v1/customers/c1/spam');
+  expect(contacts[0].isSpam).toBe(true); expect(tickets[0].status).toBe('open');
+  await unmarkSpamContact('c1'); expect(contacts[0].isSpam).toBe(false);
+});
+test('overlapping one-click requests write once', async () => {
+  await Promise.all([markTicketsSpam(['1']), markTicketsSpam(['1'])]);
+  expect(requests).toHaveLength(1);
 });
 
 test('send and close validates the reason before sending and stays open on unconfirmed delivery', async () => {

@@ -90,7 +90,7 @@ import {
 } from '../kb-integration/index.js';
 import { showModal, closeModal, showDangerConfirm } from '../core/modal.js';
 import { ticketCSATBlock, notifySurveyResult } from './csat.js';
-import { showCloseTickets, closureDetails, unmarkSpamContact } from './closure.js';
+import { showCloseTickets, markTicketsSpam, closureDetails, unmarkSpamContact } from './closure.js';
 import { closeReminder, clearCloseReminder, loadCloseReminder, dismissCloseReminder } from './close-reminder.js';
 import { favouritesRow, templateFavourites, templateKey, loadTemplateFavourites } from './template-favourites.js';
 import { chooseStatusReason } from './status-reasons.js';
@@ -552,12 +552,14 @@ export function openTicket(id) {
             <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this ticket"></div>
             <button class="btn btn-sm" data-action="td.prev" aria-label="Previous ticket">← Prev</button>
             <button class="btn btn-sm" data-action="td.next" aria-label="Next ticket">Next →</button>
+            ${!t.mergedInto ? (CUSTOMERS.find(c => c.id === t.customerId)?.isSpam
+              ? `<button class="btn btn-sm" data-action="td.unmarkSpam" data-ticket-id="${window.escAttr(id)}" title="Stop filtering this contact’s future emails; old spam tickets stay closed">Unmark contact as spam</button>`
+              : `<button class="btn btn-sm" data-permission="customers.spam tickets.close" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam" title="Close as spam and filter future emails from this contact">Mark as spam</button>`) : ''}
             <details class="ticket-popover ticket-more">
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
             ${t._uuid && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}">Download thread</button>` : ''}
             ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
-            ${!t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam">Mark as spam</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.macroModal" data-ticket-id="${window.escAttr(id)}" title="Apply a macro">⚡ Macro</button>`}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.runRules" data-ticket-id="${window.escAttr(id)}" title="Auto-assign by rules">⇄ Run rules</button>`}
@@ -937,7 +939,7 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
   if (category === 'closed' || val === 'spam') {
     const select = document.querySelector('[aria-label="Ticket status"]');
     if (select) select.value = selectedStatus(t);
-    showCloseTickets([id], async (succeeded) => {
+    await (val === 'spam' ? markTicketsSpam : showCloseTickets)([id], async (succeeded) => {
       if (!succeeded.length) return false;
       updateNavBadges();
       if (t._uuid) await loadTicketDetail(id);
@@ -988,7 +990,7 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
   if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
   return true;
 }
-function quickStatus(id, val) { changeTicketStatus(id, val); }
+function quickStatus(id, val) { return changeTicketStatus(id, val); }
 
 // Trigger server-side sentiment backfill for a ticket. Sequential
 // scoring means a slow ticket (lots of unscored messages) will take
