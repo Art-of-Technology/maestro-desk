@@ -16,10 +16,12 @@ const run = (overrides = {}) => ({
   ...overrides,
 });
 
-function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0], jobs = { total_count: 0, jobs: [] }, recoveryRuns = runs, recoveryTotal = recoveryRuns.length, failed = run({ conclusion: 'failure', updated_at: '2026-10-28T06:31:00Z' }), receipts } = {}) {
+function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0], jobs = { total_count: 0, jobs: [] }, recoveryRuns = runs, recoveryTotal = recoveryRuns.length, failed = run({ conclusion: 'failure', updated_at: '2026-10-28T06:31:00Z' }), receipts, saveErrorAt, pending = null } = {}) {
   const calls = [], messages = [];
+  let state = { version: 1, receipts: Object.fromEntries(receipts ? receipts.actions_caches.map(item => [item.key, new Date(item.created_at).toISOString()]) : cached.map(key => [key, '2026-10-28T06:32:00.000Z'])), pending };
+  let saves = 0;
   return {
-    calls, messages,
+    calls, messages, state: () => state,
     fetch: async (url, options) => {
       calls.push({ url, options });
       assert.equal(options.redirect, 'error');
@@ -30,9 +32,17 @@ function fixture(runs = [], { cached = [], historyError = false, deliveryError =
         return new Response('ok');
       }
       assert.equal(options.headers.Authorization, 'Bearer test-token');
-      if (url.includes('/actions/caches?')) {
+      if (url.includes('/contents/security-audit-receipts.json')) {
         if (cacheError) return new Response('', { status: 403 });
-        return Response.json((new URL(url).searchParams.get('key') === 'security-audit-failure-' && receipts) || { actions_caches: cached.map(key => ({ key, ref: 'refs/heads/main', created_at: '2026-10-28T06:32:00Z' })), total_count: cached.length });
+        if (options.method === 'PUT') {
+          saves++;
+          if (saves === saveErrorAt) return new Response('', { status: 500 });
+          const body = JSON.parse(options.body);
+          assert.equal(body.branch, 'security-audit-state');
+          state = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'));
+          return Response.json({ content: { sha: 'a'.repeat(40) } });
+        }
+        return Response.json({ sha: 'a'.repeat(40), encoding: 'base64', content: Buffer.from(JSON.stringify(state)).toString('base64') });
       }
       if (historyError) throw new Error('private upstream details');
       if (url.includes('/jobs?')) return Response.json(jobs);
@@ -107,7 +117,7 @@ test('event notifications re-read the run to suppress recovered or running rerun
   for (const current of [run(), run({ status: 'in_progress', conclusion: null })]) {
     const f = fixture([], { current });
     assert.equal((await monitor({ ...env, GITHUB_EVENT_NAME: 'workflow_run' }, event, now, f.fetch)).status, 'healthy');
-    assert.equal(f.calls.length, current.status === 'completed' ? 2 : 1);
+    assert.equal(f.calls.length, 2);
   }
 });
 
@@ -166,7 +176,8 @@ test('delivery test requires main dispatch, is labelled and is deduplicated by m
   assert.equal(result.name, 'security-audit-test-800');
   assert.match(f.messages[0], /^TEST: Respovia security scan alerts/);
   assert.match(f.messages[0], /No scan failure is being claimed/);
-  assert.equal(f.calls.length, 2);
+  assert.equal(f.messages.length, 1);
+  assert.ok(f.state().receipts[result.name]);
   for (const overrides of [{ GITHUB_EVENT_NAME: 'schedule' }, { GITHUB_RUN_ID: '../oops' }]) {
     await assert.rejects(monitor({ ...env, GITHUB_EVENT_NAME: 'workflow_dispatch', MONITOR_MODE: 'test', ...overrides }, {}, now, f.fetch), /Invalid test/);
   }
@@ -186,8 +197,9 @@ test('workflow uses trusted main, serialized checks and only saves confirmed del
   assert.match(workflow, /cron: '35 \* \* \* \*'/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /ref: main\s+persist-credentials: false/);
-  assert.match(workflow, /if: steps.check.outputs.cache-key != ''/);
-  assert.match(workflow, /VERIFY_ALERT_KEY:/);
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /options: \[check, test, migrate\]/);
+  assert.doesNotMatch(workflow, /actions\/cache|VERIFY_ALERT_KEY/);
   assert.match(workflow, /if: steps.check.outputs.health == 'unknown'/);
   assert.doesNotMatch(workflow, /download-artifact|head_sha|permissions:[\s\S]*actions: write/);
   const audit = readFileSync(new URL('../.github/workflows/dependency-security-audit.yml', import.meta.url), 'utf8');
@@ -330,8 +342,6 @@ test('unverifiable recovery evidence never announces recovery', async () => {
     { recoveryTotal: 101 }, { recoveryRuns: [run({ id: 124, updated_at: 'bad' })] },
     { recoveryRuns: [run({ id: 124, head_branch: 'other' })] },
     { failed: run({ id: 999 }) },
-    { receipts: { total_count: 101, actions_caches: [] } },
-    { receipts: { total_count: 1, actions_caches: [{ key: 'security-audit-failure-123', ref: 'refs/heads/main', created_at: 'bad' }] } },
   ]) {
     const f = fixture([clean], { cached: ['security-audit-failure-123'], ...overrides });
     const result = await monitor(env, {}, now, f.fetch);
@@ -344,4 +354,45 @@ test('recovery delivery failure cannot produce a saved recovery receipt', async 
   const f = fixture([run({ id: 124 })], { cached: ['security-audit-failure-123'], deliveryError: true });
   await assert.rejects(monitor(env, {}, now, f.fetch));
   assert.equal(f.messages.length, 1);
+});
+
+test('storage failures block delivery or retain a pending marker without claiming confirmation', async () => {
+  for (const saveErrorAt of [1, 2]) {
+    const f = fixture([run({ conclusion: 'failure' })], { saveErrorAt });
+    await assert.rejects(monitor(env, {}, now, f.fetch));
+    assert.equal(f.messages.length, saveErrorAt === 1 ? 0 : 1);
+    assert.equal(f.state().receipts['security-audit-failure-123'], undefined);
+    if (saveErrorAt === 2) {
+      assert.equal(f.state().pending.name, 'security-audit-failure-123');
+      await assert.rejects(monitor(env, {}, now, f.fetch), /reconciliation/);
+      assert.equal(f.messages.length, 1, 'automatic retries must not repeat an ambiguous delivery');
+    }
+  }
+});
+
+test('successful sends persist receipts before reporting success and suppress repeats without cache access', async () => {
+  const f = fixture([run({ conclusion: 'failure' })]);
+  const first = await monitor(env, {}, now, f.fetch);
+  assert.equal(f.state().pending, null);
+  assert.equal(f.state().receipts[first.name], now.toISOString());
+  assert.equal((await monitor(env, {}, now, f.fetch)).status, 'already-alerted');
+  assert.equal(f.messages.length, 1);
+  assert.ok(f.calls.every(call => !call.url.includes('/actions/caches')));
+});
+
+test('ambiguous Slack failures leave pending state and stop subsequent sends', async () => {
+  const f = fixture([run({ conclusion: 'failure' })], { deliveryError: true });
+  await assert.rejects(monitor(env, {}, now, f.fetch));
+  assert.ok(f.state().pending);
+  assert.equal(Object.keys(f.state().receipts).length, 0);
+  await assert.rejects(monitor(env, {}, now, f.fetch), /reconciliation/);
+  assert.equal(f.messages.length, 1);
+});
+
+test('migration is restricted to trusted manual dispatch and never sends Slack', async () => {
+  const f = fixture();
+  await assert.rejects(monitor({ ...env, MONITOR_MODE: 'migrate' }, {}, now, f.fetch), /manual dispatch/);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await monitor({ ...env, GITHUB_EVENT_NAME: 'workflow_dispatch', MONITOR_MODE: 'migrate' }, {}, now, f.fetch)).status, 'migrated');
+  assert.equal(f.messages.length, 0);
 });

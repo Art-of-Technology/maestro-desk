@@ -9,12 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Check scan health or send a labelled delivery test
+        description: Check scan health, send a labelled delivery test, or migrate legacy receipts
         type: choice
-        options: [check, test]
+        options: [check, test, migrate]
         default: check
 permissions:
-  contents: read
+  contents: write
   actions: read
 concurrency:
   group: security-scan-alerts
@@ -39,18 +39,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           MONITOR_MODE: ${{ inputs.mode || 'check' }}
           SLACK_DEPLOY_WEBHOOK_URL: ${{ secrets.SLACK_DEPLOY_WEBHOOK_URL }}
-      - name: Remember confirmed alert delivery
-        if: steps.check.outputs.cache-key != ''
-        uses: actions/cache/save@v4
-        with:
-          key: ${{ steps.check.outputs.cache-key }}
-          path: security-audit-alert.json
-      - name: Verify delivery record survived storage
-        if: steps.check.outputs.cache-key != ''
-        run: node scripts/security-audit-monitor.mjs
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          VERIFY_ALERT_KEY: ${{ steps.check.outputs.cache-key }}
       - name: Flag unverifiable scan health
         if: steps.check.outputs.health == 'unknown'
         run: exit 1

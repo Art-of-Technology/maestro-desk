@@ -1,9 +1,9 @@
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { sendAlert } from './deployment-alert.mjs';
-import { alreadyAlerted } from './wrap-up-monitor.mjs';
 import { github } from './wrap-up-state.mjs';
+import { readAlertState, saveAlertState, migrateAlertState } from './security-audit-state.mjs';
 
 const repository = 'Art-of-Technology/maestro-desk';
 const file = 'dependency-security-audit.yml';
@@ -59,21 +59,18 @@ async function failedScan(run, api) {
   };
 }
 
-async function recoveredScan(run, api, env, fetchImpl) {
-  const receipts = await api('actions/caches?key=security-audit-failure-&ref=refs%2Fheads%2Fmain&per_page=100');
-  if (!Array.isArray(receipts.actions_caches) || receipts.total_count !== receipts.actions_caches.length) throw new Error('Incomplete failure receipts');
-  const failures = receipts.actions_caches.filter(cache => cache.ref === 'refs/heads/main' && /^security-audit-failure-[1-9]\d*$/.test(cache.key));
+async function recoveredScan(run, api, receipts) {
+  const failures = Object.entries(receipts).filter(([name]) => name.startsWith('security-audit-failure-'));
   if (!failures.length) return null;
-  if (failures.some(cache => !Number.isFinite(Date.parse(cache.created_at)))) throw new Error('Invalid failure receipt');
-  failures.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const receipt = failures[0];
-  const id = Number(receipt.key.slice('security-audit-failure-'.length));
+  failures.sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]));
+  const [key, verifiedAt] = failures[0];
+  const id = Number(key.slice('security-audit-failure-'.length));
   if (!Number.isSafeInteger(id)) throw new Error('Invalid failed run ID');
   const name = `security-audit-recovery-${id}`;
-  if (await alreadyAlerted(name, env.GITHUB_TOKEN, fetchImpl)) return null;
+  if (Object.hasOwn(receipts, name)) return null;
   const finished = Date.parse(run.updated_at);
   if (!Number.isFinite(finished) || finished < Date.parse(run.created_at) || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) throw new Error('Invalid recovery metadata');
-  if (finished < Date.parse(receipt.created_at)) return null;
+  if (finished < Date.parse(verifiedAt)) return null;
   const failed = id === run.id ? run : validateRun(await api(`actions/runs/${id}`));
   if (failed.id !== id) throw new Error('Mismatched failed run');
   // shortcut: fail closed beyond 100 runs since the failure; paginate if this window grows.
@@ -90,8 +87,9 @@ async function recoveredScan(run, api, env, fetchImpl) {
   };
 }
 
-export async function inspectAudit(env, event, now, fetchImpl = fetch) {
+export async function inspectAudit(env, event, now, fetchImpl = fetch, receipts) {
   const api = github(env.GITHUB_TOKEN, fetchImpl);
+  receipts ??= (await readAlertState(api)).value.receipts;
   if (env.GITHUB_EVENT_NAME === 'workflow_run') {
     const run = validateRun(event?.workflow_run);
     if (event.action !== 'completed') throw new Error('Invalid audit event');
@@ -99,7 +97,7 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
     const current = validateRun(await api(`actions/runs/${run.id}`));
     if (current.id !== run.id) throw new Error('Mismatched audit run');
     if (current.status !== 'completed') return null;
-    return current.conclusion === 'success' ? recoveredScan(current, api, env, fetchImpl) : failedScan(current, api);
+    return current.conclusion === 'success' ? recoveredScan(current, api, receipts) : failedScan(current, api);
   }
   const expected = expectedScan(now);
   const body = await api(`actions/workflows/${file}/runs?event=schedule&branch=main&created=${encodeURIComponent(`>=${new Date(expected.start).toISOString()}`)}&per_page=100`);
@@ -108,7 +106,7 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
   if (runs.some(run => run.event !== 'schedule')) throw new Error('Unexpected manual run in schedule history');
   const latest = runs.filter(run => Date.parse(run.created_at) >= expected.start && Date.parse(run.created_at) < Math.min(expected.end, now.getTime() + 1))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0];
-  if (latest?.status === 'completed') return latest.conclusion === 'success' ? recoveredScan(latest, api, env, fetchImpl) : failedScan(latest, api);
+  if (latest?.status === 'completed') return latest.conclusion === 'success' ? recoveredScan(latest, api, receipts) : failedScan(latest, api);
   return {
     name: `security-audit-overdue-${expected.date}`,
     text: `Respovia daily security scan is overdue\nNo completed scheduled dependency scan for ${expected.date}, due at 06:15 UTC with two hours allowed for delays. ${latest ? 'The run has not finished.' : 'No scheduled run was found.'} Manual scans do not confirm the daily schedule is working.\n${latest ? `https://github.com/${repository}/actions/runs/${latest.id}` : workflow}`,
@@ -118,14 +116,22 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
 export async function monitor(env, event = {}, now = new Date(), fetchImpl = fetch) {
   if (env.GITHUB_REPOSITORY !== repository || env.GITHUB_REF !== 'refs/heads/main' ||
       !['workflow_run', 'schedule', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME) ||
-      !['check', 'test'].includes(env.MONITOR_MODE || 'check')) throw new Error('Untrusted monitor context');
+      !['check', 'test', 'migrate'].includes(env.MONITOR_MODE || 'check')) throw new Error('Untrusted monitor context');
+  const api = github(env.GITHUB_TOKEN, fetchImpl);
+  if (env.MONITOR_MODE === 'migrate') {
+    if (env.GITHUB_EVENT_NAME !== 'workflow_dispatch') throw new Error('Migration requires manual dispatch');
+    const migrated = await migrateAlertState(api);
+    return { status: 'migrated', receipts: Object.keys(migrated.value.receipts).length };
+  }
+  const state = await readAlertState(api);
+  if (state.value.pending) throw new Error('Pending security alert delivery requires reconciliation');
   let alert;
   let health = 'attention';
   if (env.MONITOR_MODE === 'test') {
     if (env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || !/^\d+$/.test(env.GITHUB_RUN_ID || '')) throw new Error('Invalid test context');
     alert = { name: `security-audit-test-${env.GITHUB_RUN_ID}`, text: `TEST: Respovia security scan alerts\nThis is a delivery test. No scan failure is being claimed.\n${workflow}` };
   } else {
-    try { alert = await inspectAudit(env, event, now, fetchImpl); }
+    try { alert = await inspectAudit(env, event, now, fetchImpl, state.value.receipts); }
     catch {
       health = 'unknown';
       alert = { name: `security-audit-unknown-${now.toISOString().slice(0, 10)}`, text: `Respovia security scan status could not be checked\nGitHub audit history is unavailable or incomplete. Scan health is unknown. Check the monitor run before retrying.\nhttps://github.com/${repository}/actions/workflows/security-audit-alerts.yml` };
@@ -133,29 +139,24 @@ export async function monitor(env, event = {}, now = new Date(), fetchImpl = fet
   }
   if (!alert) return { status: 'healthy' };
   health = alert.health || health;
-  if (await alreadyAlerted(alert.name, env.GITHUB_TOKEN, fetchImpl)) return { status: 'already-alerted', health };
+  if (Object.hasOwn(state.value.receipts, alert.name)) return { status: 'already-alerted', health };
+  state.value.pending = { name: alert.name, startedAt: now.toISOString() };
+  await saveAlertState(api, state);
   await sendAlert(alert.text, env.SLACK_DEPLOY_WEBHOOK_URL, fetchImpl);
+  state.value.receipts[alert.name] = now.toISOString();
+  state.value.pending = null;
+  await saveAlertState(api, state);
   return { status: 'sent', name: alert.name, health, verifiedAt: now.toISOString() };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    if (process.env.VERIFY_ALERT_KEY) {
-      if (!await alreadyAlerted(process.env.VERIFY_ALERT_KEY, process.env.GITHUB_TOKEN)) throw new Error('Delivery record was not saved');
-      console.log('Security scan alert delivery record verified.');
-    } else {
-      const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
-      const result = await monitor(process.env, event);
-      if (result.status === 'sent') {
-        // shortcut: Slack and cache saves are not transactional; reconcile delivery before retrying an ambiguous failure.
-        writeFileSync('security-audit-alert.json', JSON.stringify(result));
-        appendFileSync(process.env.GITHUB_OUTPUT, `cache-key=${result.name}\n`);
-      }
-      if (result.health === 'unknown') appendFileSync(process.env.GITHUB_OUTPUT, 'health=unknown\n');
-      console.log(`Security scan monitor: ${result.status}`);
-    }
+    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
+    const result = await monitor(process.env, event);
+    if (result.health === 'unknown') appendFileSync(process.env.GITHUB_OUTPUT, 'health=unknown\n');
+    console.log(`Security scan monitor: ${result.status}`);
   } catch {
-    console.error('Security scan monitor failed. Check GitHub access and Slack delivery before retrying; upstream details are omitted.');
+    console.error('Security scan monitor failed. Check durable receipt storage and reconcile any pending Slack delivery before retrying; upstream details are omitted.');
     process.exitCode = 1;
   }
 }
