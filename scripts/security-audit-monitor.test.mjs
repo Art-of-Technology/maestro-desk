@@ -195,7 +195,40 @@ test('workflow uses trusted main, serialized checks and only saves confirmed del
   assert.match(audit, /bun \.\.\/scripts\/dependency-audit-result.mjs/);
   assert.match(audit, /name: Dependency audit found vulnerabilities\s+if: steps.audit.outputs.outcome == 'findings'\s+run: exit 1/);
   assert.match(audit, /name: Dependency audit could not complete/);
+  assert.ok(audit.includes("name: 'Dependency audit counts: ${{ steps.audit.outputs.counts }}'"));
+  assert.ok(audit.includes("if: steps.audit.outputs.outcome == 'findings' && steps.audit.outputs.counts != ''"));
   assert.match(audit, /failure\(\) && steps.audit.outputs.outcome != 'findings'/);
+});
+
+test('verified severity counts appear only with confirmed findings on the current attempt', async () => {
+  const summary = { name: 'Dependency audit counts: critical=1 high=2 moderate=3', status: 'completed', conclusion: 'success' };
+  for (const eventMode of [false, true]) {
+    for (const [marker, expected] of [['Dependency audit found vulnerabilities', true], ['Dependency audit could not complete', false]]) {
+      const current = run({ conclusion: 'failure' });
+      const jobs = { total_count: 1, jobs: [{ run_id: 123, run_attempt: 2, name: 'Audit current main dependencies', status: 'completed',
+        steps: [summary, { name: marker, conclusion: 'failure' }] }] };
+      const f = fixture([current], { jobs });
+      await monitor({ ...env, GITHUB_EVENT_NAME: eventMode ? 'workflow_run' : 'schedule' }, eventMode ? { action: 'completed', workflow_run: current } : {}, now, f.fetch);
+      assert.equal(f.messages[0].includes('Unique advisories: 1 critical, 2 high, 3 moderate.'), expected);
+    }
+  }
+});
+
+test('missing, malformed, duplicate and unsuccessful summaries retain the generic finding alert', async () => {
+  const summary = { name: 'Dependency audit counts: critical=0 high=1 moderate=0', status: 'completed', conclusion: 'success' };
+  const invalidNames = ['critical=-1 high=2 moderate=0', 'critical=0 high=0 moderate=0', 'critical=01 high=2 moderate=0',
+    'critical=1 high=2 moderate=3 trailing', 'critical=1.5 high=2 moderate=0', 'critical=9007199254740992 high=1 moderate=0',
+    'critical=9007199254740991 high=1 moderate=0', 'critical=1 high=2', ''];
+  for (const summaries of [[], [summary, summary],
+    ...invalidNames.map(name => [{ ...summary, name: `Dependency audit counts: ${name}` }]),
+    [{ ...summary, conclusion: 'skipped' }], [{ ...summary, status: 'in_progress' }]]) {
+    const jobs = { total_count: 1, jobs: [{ run_id: 123, run_attempt: 2, name: 'Audit current main dependencies', status: 'completed',
+      steps: [...summaries, { name: 'Dependency audit found vulnerabilities', conclusion: 'failure' }] }] };
+    const f = fixture([run({ conclusion: 'failure' })], { jobs });
+    await monitor(env, {}, now, f.fetch);
+    assert.match(f.messages[0], /found moderate or higher vulnerabilities/);
+    assert.doesNotMatch(f.messages[0], /Unique advisories/);
+  }
 });
 
 test('alerts distinguish confirmed findings from execution failures for the exact run attempt', async () => {

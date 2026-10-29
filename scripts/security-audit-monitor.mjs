@@ -39,7 +39,17 @@ async function failedScan(run, api) {
           job.status !== 'completed' || !Array.isArray(job.steps)) throw new Error('Invalid audit job');
       const findings = job.steps.filter(step => step.name === 'Dependency audit found vulnerabilities' && step.conclusion === 'failure');
       const errors = job.steps.filter(step => step.name === 'Dependency audit could not complete' && step.conclusion === 'failure');
-      if (findings.length === 1 && errors.length === 0) detail = 'The dependency scan found moderate or higher vulnerabilities. Update the affected dependencies and run the scan again.';
+      if (findings.length === 1 && errors.length === 0) {
+        detail = 'The dependency scan found moderate or higher vulnerabilities. Update the affected dependencies and run the scan again.';
+        const summaries = job.steps.filter(step => typeof step.name === 'string' && step.name.startsWith('Dependency audit counts:'));
+        if (summaries.length === 1 && summaries[0].status === 'completed' && summaries[0].conclusion === 'success') {
+          const match = /^Dependency audit counts: critical=(0|[1-9]\d*) high=(0|[1-9]\d*) moderate=(0|[1-9]\d*)$/.exec(summaries[0].name);
+          const counts = match?.slice(1).map(Number);
+          if (counts?.every(Number.isSafeInteger) && Number.isSafeInteger(counts.reduce((a, b) => a + b, 0)) && counts.some(count => count > 0)) {
+            detail += `\nUnique advisories: ${counts[0]} critical, ${counts[1]} high, ${counts[2]} moderate.`;
+          }
+        }
+      }
       if (errors.length === 1 && findings.length === 0) detail = 'The dependency scan could not complete. Check setup, registry access and scanner output before retrying. Vulnerability status is unknown.';
     } catch { /* Keep the unknown outcome when job results cannot be verified. */ }
   }

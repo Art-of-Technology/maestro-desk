@@ -17,6 +17,18 @@ export function classifyAudit(result) {
   } catch { return 'error'; }
 }
 
+export function severityCounts(result) {
+  if (classifyAudit(result) !== 'findings') return null;
+  const advisories = new Map();
+  for (const item of Object.values(JSON.parse(result.stdout)).flat()) {
+    if (advisories.has(item.id) && advisories.get(item.id) !== item.severity) return null;
+    advisories.set(item.id, item.severity);
+  }
+  const counts = { critical: 0, high: 0, moderate: 0 };
+  for (const severity of advisories.values()) if (Object.hasOwn(counts, severity)) counts[severity]++;
+  return counts;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const result = spawnSync('bun', ['audit', '--json', '--audit-level=moderate'], {
     encoding: 'utf8', timeout: 120_000, maxBuffer: 5 * 1024 * 1024,
@@ -30,4 +42,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     }
   }
   appendFileSync(process.env.GITHUB_OUTPUT, `outcome=${outcome}\n`);
+  const counts = severityCounts(result);
+  if (counts) appendFileSync(process.env.GITHUB_OUTPUT, `counts=critical=${counts.critical} high=${counts.high} moderate=${counts.moderate}\n`);
 }
