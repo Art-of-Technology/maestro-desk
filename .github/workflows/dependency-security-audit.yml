@@ -35,4 +35,13 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Check for moderate or higher vulnerabilities
-        run: bun audit --audit-level=moderate
+        id: audit
+        run: bun ../scripts/dependency-audit-result.mjs
+
+      - name: Dependency audit found vulnerabilities
+        if: steps.audit.outputs.outcome == 'findings'
+        run: exit 1
+
+      - name: Dependency audit could not complete
+        if: "!cancelled() && (steps.audit.outputs.outcome == 'error' || (failure() && steps.audit.outputs.outcome != 'findings'))"
+        run: exit 1

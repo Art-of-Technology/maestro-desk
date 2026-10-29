@@ -10,13 +10,13 @@ const env = {
   SLACK_DEPLOY_WEBHOOK_URL: 'https://hooks.slack.com/services/test/offline/only',
 };
 const run = (overrides = {}) => ({
-  id: 123, name: 'Dependency security audit', path: '.github/workflows/dependency-security-audit.yml',
+  id: 123, run_attempt: 2, name: 'Dependency security audit', path: '.github/workflows/dependency-security-audit.yml',
   head_repository: { full_name: env.GITHUB_REPOSITORY }, head_branch: 'main',
   event: 'schedule', created_at: '2026-10-28T06:30:00Z', status: 'completed', conclusion: 'success',
   ...overrides,
 });
 
-function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0] } = {}) {
+function fixture(runs = [], { cached = [], historyError = false, deliveryError = false, cacheError = false, total = runs.length, current = runs[0], jobs = { total_count: 0, jobs: [] } } = {}) {
   const calls = [], messages = [];
   return {
     calls, messages,
@@ -35,6 +35,7 @@ function fixture(runs = [], { cached = [], historyError = false, deliveryError =
         return Response.json({ actions_caches: cached.map(key => ({ key, ref: 'refs/heads/main' })), total_count: cached.length });
       }
       if (historyError) throw new Error('private upstream details');
+      if (url.includes('/jobs?')) return Response.json(jobs);
       if (url.includes('/actions/runs/')) return Response.json(current);
       assert.match(url, /event=schedule&branch=main&created=/);
       return Response.json({ workflow_runs: runs, total_count: total });
@@ -191,4 +192,38 @@ test('workflow uses trusted main, serialized checks and only saves confirmed del
   const audit = readFileSync(new URL('../.github/workflows/dependency-security-audit.yml', import.meta.url), 'utf8');
   assert.match(audit, /name: Dependency security audit/);
   assert.match(audit, /cron: '15 6 \* \* \*'/);
+  assert.match(audit, /bun \.\.\/scripts\/dependency-audit-result.mjs/);
+  assert.match(audit, /name: Dependency audit found vulnerabilities\s+if: steps.audit.outputs.outcome == 'findings'\s+run: exit 1/);
+  assert.match(audit, /name: Dependency audit could not complete/);
+  assert.match(audit, /failure\(\) && steps.audit.outputs.outcome != 'findings'/);
+});
+
+test('alerts distinguish confirmed findings from execution failures for the exact run attempt', async () => {
+  for (const [name, message] of [
+    ['Dependency audit found vulnerabilities', /found moderate or higher vulnerabilities/],
+    ['Dependency audit could not complete', /could not complete.*Vulnerability status is unknown/],
+  ]) {
+    const jobs = { total_count: 1, jobs: [{ run_id: 123, run_attempt: 2, name: 'Audit current main dependencies', status: 'completed', steps: [{ name, conclusion: 'failure' }] }] };
+    for (const eventMode of [false, true]) {
+      const current = run({ conclusion: 'failure' });
+      const f = fixture([current], { jobs });
+      await monitor({ ...env, GITHUB_EVENT_NAME: eventMode ? 'workflow_run' : 'schedule' }, eventMode ? { action: 'completed', workflow_run: current } : {}, now, f.fetch);
+      assert.match(f.messages[0], message);
+      assert.ok(f.calls.some(call => call.url.endsWith('/actions/runs/123/attempts/2/jobs?per_page=100')));
+    }
+  }
+});
+
+test('missing, malformed, conflicting and stale job results keep the outcome unknown', async () => {
+  const job = { run_id: 123, run_attempt: 2, name: 'Audit current main dependencies', status: 'completed', steps: [{ name: 'Dependency audit found vulnerabilities', conclusion: 'failure' }] };
+  for (const jobs of [null, {}, { total_count: 0, jobs: [] }, { total_count: 2, jobs: [job] },
+    ...[{ run_id: 456 }, { run_attempt: 1 }, { name: 'other' }, { status: 'in_progress' }, { steps: null },
+      { steps: [{ name: 'Dependency audit found vulnerabilities', conclusion: 'skipped' }] },
+      { steps: [...job.steps, { name: 'Dependency audit could not complete', conclusion: 'failure' }] }]
+      .map(overrides => ({ total_count: 1, jobs: [{ ...job, ...overrides }] }))]) {
+    const f = fixture([run({ conclusion: 'failure' })], { jobs });
+    await monitor(env, {}, now, f.fetch);
+    assert.match(f.messages[0], /scan outcome is unknown/);
+    assert.doesNotMatch(f.messages[0], /found moderate or higher vulnerabilities/);
+  }
 });
