@@ -2,6 +2,8 @@ import { beforeAll, afterAll, describe, expect, test } from 'bun:test';
 import { MePatch } from './routes/me.js';
 
 test('appearance accepts only supported choices and rejects owner overrides', () => {
+  for (const display_mode of ['light', 'dark', 'system'] as const) expect(MePatch.parse({ display_mode })).toEqual({ display_mode });
+  expect(MePatch.safeParse({ display_mode: 'blue' }).success).toBe(false);
   expect(MePatch.parse({ navigation_position: 'top', colour_scheme: 'teal' })).toEqual({ navigation_position: 'top', colour_scheme: 'teal' });
   for (const body of [null, { colour_scheme: 'dark' }, { navigation_position: 'bottom' },
     { colour_scheme: '#ff0000' }, { colour_scheme: 'blue', user_id: 'other' }, { navigation_position: true }]) {
@@ -51,8 +53,8 @@ test('appearance accepts only supported choices and rejects owner overrides', ()
   });
   test('choices follow the account across workspaces without changing teammates or workspace branding', async () => {
     const [brand] = await sql`select primary_color from workspaces where id=${workspaces[0]}`;
-    expect((await request({ navigation_position: 'top', colour_scheme: 'teal' })).status).toBe(200);
-    expect((await (await request(undefined, workspaces[1])).json() as any).user).toMatchObject({ navigation_position: 'top', colour_scheme: 'teal' });
+    expect((await request({ navigation_position: 'top', colour_scheme: 'teal', display_mode: 'dark' })).status).toBe(200);
+    expect((await (await request(undefined, workspaces[1])).json() as any).user).toMatchObject({ navigation_position: 'top', colour_scheme: 'teal', display_mode: 'dark' });
     expect((await (await request(undefined, workspaces[0], otherToken)).json() as any).user).toMatchObject({ navigation_position: 'left', colour_scheme: 'violet' });
     expect((await sql`select primary_color from workspaces where id=${workspaces[0]}`)[0]).toEqual(brand);
     await request({ mention_email_enabled: false });

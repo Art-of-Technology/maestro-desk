@@ -21,11 +21,11 @@ function setup() {
     load: async value => { reads.at(-1).resolve({ user: value }); await Promise.resolve(); },
   };
 }
-const defaults = { navigation_position: 'left', colour_scheme: 'violet' };
+const defaults = { navigation_position: 'left', colour_scheme: 'violet', display_mode: 'light' };
 test('preview, cancel and defaults never write; only Save persists both validated preferences', async () => {
   const s = setup(); s.context.ensurePersonalAppearance(); await s.load(defaults);
   s.choose('navigation_position', 'top'); s.choose('colour_scheme', 'teal');
-  expect(s.app.dataset).toEqual({ navigation: 'top', colourScheme: 'teal' });
+  expect(s.app.dataset).toEqual({ navigation: 'top', colourScheme: 'teal', displayMode: 'light' });
   expect(s.writes).toHaveLength(0);
   s.actions['appearance.cancel']();
   expect(s.app.dataset.navigation).toBe('left');
@@ -68,4 +68,15 @@ test('leaving and reopening during a save cannot undo its eventual successful re
   s.writes[0].resolve({}); await saving;
   expect(s.app.dataset.navigation).toBe('top');
   expect(s.context.renderPersonalAppearance()).toContain('All changes saved');
+});
+
+test('dark mode previews, cancels, persists and rejects invalid choices', async () => {
+  const s = setup(); s.context.ensurePersonalAppearance(); await s.load(defaults);
+  s.choose('display_mode', 'dark'); expect(s.app.dataset.displayMode).toBe('dark');
+  s.choose('display_mode', 'invalid'); expect(s.app.dataset.displayMode).toBe('dark');
+  s.actions['appearance.cancel'](); expect(s.app.dataset.displayMode).toBe('light');
+  s.choose('display_mode', 'dark'); const saving = s.actions['appearance.save']();
+  expect(s.writes[0].body.display_mode).toBe('dark'); s.writes[0].resolve({}); await saving;
+  s.actions['appearance.defaults'](); expect(s.app.dataset.displayMode).toBe('light');
+  s.actions['appearance.cancel'](); expect(s.app.dataset.displayMode).toBe('dark');
 });

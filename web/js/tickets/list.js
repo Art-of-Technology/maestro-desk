@@ -29,7 +29,7 @@ import { formatSnoozeUntil } from './snooze.js';
 import { isAgentOOO } from './assignment-rules.js';
 import { ticketTotalMinutes, ticketBillableMinutes } from './time-tracking.js';
 import { openTicket, changeTicketStatus } from './detail.js';
-import { showCloseTickets } from './closure.js';
+import { showCloseTickets, markTicketsSpam } from './closure.js';
 import { chooseStatusReason } from './status-reasons.js';
 import { showNewTicketModal } from './new-ticket.js';
 import { logTicketEvent } from '../core/activity-log.js';
@@ -297,7 +297,7 @@ export function renderTickets() {
         <option value="low">Low</option>
       </select>
       <button class="btn btn-sm" data-action="tickets.bulkTag">Add tag…</button>
-      <button class="btn btn-sm" data-action="tickets.bulkSpam">Mark as spam</button>
+      <button class="btn btn-sm" data-permission="customers.spam tickets.close" data-action="tickets.bulkSpam" title="Close selected tickets as spam and filter future emails from their contacts">Mark as spam</button>
       <button class="btn btn-sm" data-action="snooze.bulkSnooze">💤 Snooze…</button>
       <button class="btn btn-sm" data-action="ar.bulkRun">⇄ Run rules</button>
       <select class="filter-select" data-change-action="macros.bulkRun">
@@ -750,7 +750,7 @@ function bulkAssignTickets() {
 async function bulkSetStatus(v) {
   if (!v || TICKET_SELECTED_IDS.size === 0) return;
   if (statusChoice(v)?.base_key === 'closed' || v === 'spam') {
-    showCloseTickets([...TICKET_SELECTED_IDS], (succeeded) => {
+    await (v === 'spam' ? markTicketsSpam : showCloseTickets)([...TICKET_SELECTED_IDS], (succeeded) => {
       succeeded.forEach(id => TICKET_SELECTED_IDS.delete(id));
       updateNavBadges();
       if (CURRENT_PAGE === 'tickets' && !CURRENT_TICKET) renderPage('tickets');

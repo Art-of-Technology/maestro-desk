@@ -215,4 +215,10 @@ run('saved role permissions (isolated database)', () => {
       expect((await request(agent.token, 'tickets')).status).toBe(403);
     } finally { await sql`update workspace_members set role_id=${roleId} where workspace_id=${ws} and user_id=${agent.id}`; }
   });
+  it('spam requires the saved spam permission even when ticket closure is allowed', async () => {
+    expect((await save(grants(['tickets.view_assigned', 'tickets.close', 'customers.view']))).status).toBe(200);
+    expect((await request(agent.token, `customers/${customer}/spam`, 'POST', {})).status).toBe(403);
+    expect((await request(agent.token, `tickets/${ownTicket}/close`, 'POST', { reason: 'spam' })).status).toBe(403);
+    expect((await sql`select is_spam from customers where id=${customer}`)[0].is_spam).toBe(false);
+  });
 });

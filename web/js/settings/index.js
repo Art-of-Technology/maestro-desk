@@ -29,6 +29,7 @@ import {
   AGENT_PREFERRED_LANG, TRANSLATOR_LANGS, setAgentPreferredLang,
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
+import { renderSoundSettings } from '../notifications/sound.js';
 import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
@@ -491,6 +492,7 @@ function settingsNotifications() {
         </div>`).join('')}
     </div>
 
+    ${renderSoundSettings()}
     <div class="settings-section email-notification-settings">
       <div class="settings-h">Email notifications</div>
       <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Choose when we email you outside the app. Saved to your account, applies across devices.</div>

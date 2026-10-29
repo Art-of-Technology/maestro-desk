@@ -38,7 +38,7 @@ import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { matchesContact, applyContacts } from './contacts.js';
 import { renderDetailsCard, attachPinObserver, detachPinObserver } from './details-card.js';
-import { unmarkSpamContact } from '../tickets/closure.js';
+import { unmarkSpamContact, markSpamContact } from '../tickets/closure.js';
 import { apiPost, apiPut, apiPatch, apiDelete, getBrandId } from '../core/api-client.js';
 import { mapCustomerNote } from '../core/bootstrap.js';
 import { showToast } from '../core/toast.js';
@@ -1157,7 +1157,7 @@ function renderCustomerDetail(custId) {
         </div>
       </div>
       <div class="page-scroll"${c._uuid ? ` data-customer-history="${window.escAttr(c._uuid)}"` : ''}>${renderDetailsCard(c)}
-        ${c.isSpam && !c.erased && !c.mergedInto ? `<div class="card"><div class="card-title">Spam contact</div><p>Future emails from this contact are closed as spam without a reply or survey.</p><button type="button" class="btn btn-sm" data-action="cust.unmarkSpam" data-cust-id="${window.escAttr(c.id)}">Unmark contact as spam</button></div>` : ''}
+        ${!c.erased && !c.mergedInto ? `<div class="card"><div class="card-title">${c.isSpam ? 'Spam contact' : 'Spam filtering'}</div><p>${c.isSpam ? 'Future emails from this contact are closed as spam without a reply or survey.' : 'Marking this contact as spam filters future emails. Existing tickets stay unchanged.'}</p><button type="button" class="btn btn-sm" data-action="${c.isSpam ? 'cust.unmarkSpam' : 'cust.markSpam'}" data-cust-id="${window.escAttr(c.id)}">${c.isSpam ? 'Unmark contact as spam' : 'Mark as spam'}</button></div>` : ''}
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
           <span style="color:var(--ink2)">→</span>
@@ -1192,6 +1192,7 @@ function renderCustomerDetail(custId) {
 
 registerActions({
   'cust.unmarkSpam': (ds) => unmarkSpamContact(ds.custId, () => renderPage('customers')),
+  'cust.markSpam': (ds) => markSpamContact(ds.custId, () => renderPage('customers')),
   // List + bulk actions
   'cust.openProfile':     (ds) => openCustomerProfile(ds.custId),
   'cust.closeProfile':    () => closeCustomerProfile(),

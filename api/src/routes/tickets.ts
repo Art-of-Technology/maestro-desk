@@ -220,6 +220,11 @@ tickets.get('/sync', async (c) => {
     : sql`and updated_at > ${cursorTs}`;
   const rows = [...await sql`
     select ${cols},
+           case when greatest(queue_assignment_at, queue_reopened_at) > ${cursorTs}::timestamptz and (
+             exists(select 1 from channels ch where ch.id=tickets.channel_id and ch.workspace_id=tickets.workspace_id and ch.type='email')
+             or exists(select 1 from ticket_messages tm where tm.ticket_id=tickets.id and tm.workspace_id=tickets.workspace_id
+               and tm.deleted_at is null and tm.role='customer' and tm.email_metadata->>'status'='received'))
+             then greatest(queue_assignment_at, queue_reopened_at) end as queue_alert_at,
            (select tm.role from ticket_messages tm
               where tm.ticket_id = tickets.id and tm.deleted_at is null and cardinality(tm.forwarded_from_ticket_ids)=0
               order by tm.created_at desc limit 1) as last_message_role
@@ -377,6 +382,10 @@ tickets.post('/:id/close', async (c) => {
   if (!UUID_RE.test(ticketId)) return c.json({ error: 'Ticket not found' }, 404);
   const parsed = CloseTicket.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'Choose a closure reason and keep the note under 4,000 characters.' }, 400);
+  if (parsed.data.reason === 'spam') {
+    const denied = await requirePermission(c, 'customers.spam');
+    if (denied) return denied;
+  }
   const result = await getDb().begin(async (sql) => {
     const choice = await activeTicketStatus(sql, workspaceId, parsed.data.status_option_key || 'closed');
     if (choice.base_key !== 'closed') return { ok: false as const, error: 'Choose a closed status.', status: 400 as const };

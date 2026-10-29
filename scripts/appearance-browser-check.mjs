@@ -49,7 +49,7 @@ export default async (browser, screenshotsDir) => {
           await choose('navigation_position', position); await choose('colour_scheme', scheme);
           await painted(position, scheme);
           check(writes.length === 0, `${width}: preview does not save`);
-          check(await page.locator('.personal-appearance input:checked').count() === 2, `${width}: exactly one selection per group`);
+          check(await page.locator('.personal-appearance input:checked').count() === 3, `${width}: exactly one selection per group`);
           check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${width}: no page overflow`);
           check(await page.locator('#app-sidebar').isVisible(), `${width}: menu visible`);
           check(JSON.stringify(await page.locator('.sb-item:visible').evaluateAll(items => items.map(el => el.dataset.page))) === JSON.stringify(visibleDestinations), `${width}: layout preserves permission-filtered destinations`);

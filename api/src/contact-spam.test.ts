@@ -164,4 +164,47 @@ process.env.POSTMARK_OUTBOUND_FROM = 'support@maestro.test';
     const allowed = await inbound({ workspaceId, payload: payload(email) });
     expect((await sql`select status_key from tickets where id = ${allowed.ticket_id}`)[0].status_key).toBe('open');
   });
+
+  it('contact button filters future mail without closing existing tickets and rejects foreign contacts', async () => {
+    const [contact] = await sql`insert into customers (workspace_id, display_id, first_name, email)
+      values (${workspaceId}, 'DIRECT-SPAM-C', 'Direct', ${'direct-' + email}) returning id`;
+    const [ticket] = await sql`insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key)
+      values (${workspaceId}, 'DIRECT-SPAM-T', 'Existing', ${contact.id}, 'open', 'normal') returning id`;
+    expect((await request(`/customers/${contact.id}/spam`, 'POST', {}, otherWorkspace)).status).toBe(404);
+    expect((await request('/customers/not-a-uuid/spam', 'POST', {})).status).toBe(404);
+    expect((await request(`/customers/${contact.id}/spam`, 'POST', {})).status).toBe(200);
+    expect((await sql`select is_spam from customers where id=${contact.id}`)[0].is_spam).toBe(true);
+    expect((await sql`select status_key from tickets where id=${ticket.id}`)[0].status_key).toBe('open');
+    const result = await inbound({ workspaceId, payload: payload('direct-' + email) });
+    await assertSpam(result.ticket_id);
+    expect((await request(`/customers/${contact.id}/spam`, 'DELETE')).status).toBe(200);
+  });
+
+  it('sync retains assignment and reopening events across intervening edits without replaying on refresh', async () => {
+    const [contact] = await sql`insert into customers (workspace_id, display_id, first_name, email)
+      values (${workspaceId}, 'QUEUE-EVENT-C', 'Queue', ${'queue-' + email}) returning id`;
+    const [ticket] = await sql`insert into tickets (workspace_id, display_id, subject, customer_id, status_key, priority_key)
+      values (${workspaceId}, 'QUEUE-EVENT', 'Queue event', ${contact.id}, 'open', 'normal') returning id`;
+    await sql`insert into ticket_messages (workspace_id,ticket_id,role,author_label,body,email_metadata)
+      values (${workspaceId},${ticket.id},'customer','Sender','Email',${sql.json({status:'received'})})`;
+    const sync = async (cursor?: string) => {
+      const res = await request('/tickets/sync' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''), 'GET');
+      expect(res.status).toBe(200); return await res.json() as any;
+    };
+    const initial = await sync(); expect(initial.tickets).toEqual([]);
+    await sql`update tickets set assigned_user_id=${userId} where id=${ticket.id}`;
+    await sql`update tickets set subject='Edited after assignment' where id=${ticket.id}`;
+    const assigned = await sync(initial.cursor);
+    const notice = assigned.tickets.find((t: any) => t.id === ticket.id);
+    expect(notice.queue_alert_at).toBeTruthy(); expect(notice.assigned_user_id).toBe(userId);
+    await sql`update tickets set status_key='closed', closed_at=now(), closure_reason='other', status_reason='other' where id=${ticket.id}`;
+    await sql`update tickets set status_key='open' where id=${ticket.id}`;
+    const reopened = await sync(assigned.cursor);
+    const next = reopened.tickets.find((t: any) => t.id === ticket.id);
+    expect(next.status_key).toBe('open'); expect(new Date(next.queue_alert_at).getTime()).toBeGreaterThan(new Date(notice.queue_alert_at).getTime());
+    const refresh = await sync(); expect(refresh.tickets).toEqual([]);
+    await sql`update tickets set subject='Ordinary edit' where id=${ticket.id}`;
+    const ordinary = await sync(refresh.cursor);
+    expect(ordinary.tickets.find((t: any) => t.id === ticket.id).queue_alert_at).toBeNull();
+  });
 });

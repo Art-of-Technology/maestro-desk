@@ -20,7 +20,7 @@ const actions = {
   'customers.edit': ['cust.editDetails', 'td.editContact', 'cust.addNote', 'cust.new'],
   'customers.merge': ['cust.showMergeModal', 'cust.unmerge'],
   'customers.delete': ['cust.bulkDelete', 'cust.deleteNote'],
-  'customers.spam': ['cust.unmarkSpam', 'td.unmarkSpam', 'tickets.bulkSpam'],
+  'customers.spam': ['cust.markSpam', 'cust.unmarkSpam', 'td.unmarkSpam', 'tickets.bulkSpam'],
   'data.export': ['privacy.export', 'td.gdprExport'],
   'data.export_lists': ['cust.export', 'tickets.bulkExport', 'reports.export', 'replyPerformance.summary', 'replyPerformance.details'],
   'data.export_emails': ['emailDownload.open'],

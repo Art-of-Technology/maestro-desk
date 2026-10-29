@@ -25,6 +25,7 @@ import { apiGet, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { updateOrInsertTicket, buildTicketLookups } from '../core/bootstrap.js';
 import { invalidateWorkQueue, refreshQueueUrgency, workQueueState } from './work-queue.js';
 import { invalidateDashboard, dashboardPeriodChanged } from '../dashboard/index.js';
+import { notifyQueueSounds } from '../notifications/sound.js';
 
 const POLL_INTERVAL_MS = 60000;
 
@@ -72,6 +73,7 @@ export async function tick() {
     if (res?.cursor) state.cursor = res.cursor;
 
     const rows = Array.isArray(res?.tickets) ? res.tickets : [];
+    void notifyQueueSounds(rows);
     if (rows.length === 0) {
       // SLA deadlines still advance without ticket edits. Only repaint when
       // a threshold changes; otherwise retain focus, scroll and DOM identity.

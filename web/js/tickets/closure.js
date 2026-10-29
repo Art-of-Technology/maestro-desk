@@ -10,6 +10,46 @@ import { statusChoice, DEFAULT_CLOSURE_REASONS } from './status-options.js';
 import { markCloseReminder, clearCloseReminder } from './close-reminder.js';
 
 export const CLOSURE_REASONS = { spam: 'Spam', abuse: 'Abuse', duplicate: 'Duplicate', other: 'Other' };
+const spamPending = new Set();
+
+export async function markTicketsSpam(ids, onChanged) {
+  const workspace = getWorkspaceId(), jwt = getJwt(), succeeded = [], failed = [];
+  for (const id of ids) {
+    if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    const t = TICKETS.find(t => t.id === id);
+    const key = `${workspace}:${jwt}:ticket:${id}`;
+    if (!t || t.mergedInto || spamPending.has(key)) continue;
+    spamPending.add(key);
+    try {
+      const result = t._uuid ? await apiPost(`/api/v1/tickets/${t._uuid}/close`, { reason: 'spam', note: '', status_option_key: 'closed' }) : null;
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      if (!TICKETS.includes(t)) continue;
+      applyClosedTicket(t, result, 'spam');
+      succeeded.push(id);
+    } catch (err) { failed.push(`${id}: ${err?.message || 'Could not mark as spam.'}`); }
+    finally { spamPending.delete(key); }
+  }
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+  if (succeeded.length) showToast(`${succeeded.length} ticket${succeeded.length === 1 ? '' : 's'} marked as spam. Linked contacts’ future emails will be filtered.`);
+  if (failed.length) showToast(failed.join('\n'), 'error');
+  await onChanged?.(succeeded);
+}
+
+export async function markSpamContact(customerId, onChanged) {
+  const contact = CUSTOMERS.find(c => c.id === customerId);
+  const workspace = getWorkspaceId(), jwt = getJwt(), key = `${workspace}:${jwt}:contact:${customerId}`;
+  if (!contact || contact.erased || contact.mergedInto || spamPending.has(key)) return;
+  spamPending.add(key);
+  try {
+    if (contact._uuid) await apiPost(`/api/v1/customers/${contact._uuid}/spam`, {});
+    if (workspace !== getWorkspaceId() || jwt !== getJwt() || !CUSTOMERS.includes(contact)) return;
+    contact.isSpam = true;
+    showToast('Contact marked as spam. Future emails will be closed as spam. Existing tickets are unchanged.');
+    await onChanged?.();
+  } catch (err) {
+    if (workspace === getWorkspaceId() && jwt === getJwt()) showToast(err?.message || 'Could not mark contact as spam.', 'error');
+  } finally { spamPending.delete(key); }
+}
 
 export function closureDetails(t) {
   const contact = CUSTOMERS.find(c => c.id === t.customerId);
@@ -160,12 +200,12 @@ export function showCloseTickets(ids, onChanged, presetReason = '', statusOption
 export async function unmarkSpamContact(customerId, onChanged) {
   const contact = CUSTOMERS.find(c => c.id === customerId);
   if (!contact) return;
-  const workspace = getWorkspaceId();
+  const workspace = getWorkspaceId(), jwt = getJwt();
   try {
     if (contact._uuid) await apiDelete(`/api/v1/customers/${contact._uuid}/spam`);
-    if (workspace !== getWorkspaceId()) return;
+    if (workspace !== getWorkspaceId() || jwt !== getJwt() || !CUSTOMERS.includes(contact)) return;
     contact.isSpam = false;
     showToast('Contact unmarked as spam. Future emails will arrive normally.');
     await onChanged?.();
-  } catch (err) { if (workspace === getWorkspaceId()) showToast(err?.message || 'Could not unmark contact as spam.', 'error'); }
+  } catch (err) { if (workspace === getWorkspaceId() && jwt === getJwt()) showToast(err?.message || 'Could not unmark contact as spam.', 'error'); }
 }

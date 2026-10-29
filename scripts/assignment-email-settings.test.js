@@ -8,7 +8,7 @@ test('assignment preference reflects the server value and saves only the chosen 
   const calls = [], messages = { style: {} }, renders = [];
   let fail = false;
   const context = { ME_PREFS_LOADED: true, ME_PREFS: { mention_email_enabled: true, assignment_email_enabled: false },
-    NOTIF_PREFS: {}, window: { escAttr: String }, settingsPushSection: () => '',
+    NOTIF_PREFS: {}, window: { escAttr: String }, settingsPushSection: () => '', renderSoundSettings: () => '',
     document: { getElementById: () => messages }, renderPage: page => renders.push(page),
     apiPatch: async (path, body) => { calls.push({ path, body }); if (fail) throw new Error('Synthetic save failure'); return { user: { ...context.ME_PREFS, ...body } }; },
   };
