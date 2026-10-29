@@ -5,7 +5,8 @@
 - Completed failed, timed-out or cancelled dependency scans notify Slack with a fixed GitHub run link. A queued notification rechecks the run so a successful rerun suppresses a stale failure.
 - Alerts distinguish confirmed moderate-or-higher vulnerabilities from a scan that could not complete. The scanner validates Bun's JSON report and exit status, then records the outcome in named GitHub job steps. The monitor reads only the current run attempt. Missing, unreadable or conflicting results produce an outcome-unknown message, never a vulnerability claim.
 - An hourly check at :35 UTC independently checks scheduled runs. The daily scan is due at 06:15 UTC, with two hours of grace. The first overdue check is normally 08:35 UTC; GitHub may delay scheduled workflows. Manual scans cannot satisfy this check.
-- Healthy scans send no message. Unreadable, incomplete or invalid history sends a separate status-unknown warning and fails the monitor job rather than claiming health.
+- Healthy scans stay quiet unless there is a confirmed failure notification to recover. A later clean scan sends one recovery message for the latest confirmed failure, linking both runs. Successful reruns and manual scans qualify, but do not clear overdue-schedule warnings. Newer or unfinished scans suppress stale recovery messages.
+- Unreadable, incomplete or invalid history sends a separate status-unknown warning and fails the monitor job rather than claiming health.
 - Confirmed vulnerability alerts include critical, high and moderate counts when available, counting each advisory ID once across packages. Conflicting severities, missing counts or invalid metadata retain the generic vulnerability message; missing counts are never shown as zero. Older runs remain supported.
 - Messages contain run status, verified severity counts and links only, never dependency reports, logs, credentials or customer data. The workflow checks out trusted main and does not download audit artifacts or execute the triggering commit.
 
@@ -16,6 +17,8 @@ After merge, run `Security scan alerts` on **main**, choosing mode **test**. Exp
 On a failure warning, inspect the linked scan, fix the cause and rerun the audit. A successful manual run establishes dependency health but does not repair a missing schedule: check that the next scheduled audit succeeds. On an unknown-status warning, inspect GitHub access and monitor logs. Slack delivery or cache verification errors fail the job without printing upstream response details.
 
 Confirmed sends use GitHub Actions cache records: one warning per failed audit run ID, one overdue warning per expected UTC date, and one unknown-status warning per UTC date. A test uses its monitor run ID. All monitor invocations share a concurrency group. Failed and overdue are distinct incidents, so an overdue run that later fails can produce a failure warning too.
+
+Recovery uses a separate cache record keyed to the latest confirmed failed run ID, so subsequent clean scans do not repeat it. Missing failure receipts cannot justify a recovery message. The recovery check requires complete history (up to 100 runs since that failure) and complete failure-receipt results (up to 100); exceeding those limits reports unknown status rather than guessing. Cache eviction can remove recovery evidence or permit a repeat, just as it can for failure alerts.
 
 Cache eviction/deletion can permit a repeat. Slack delivery and saving its cache receipt are not transactional: after a timeout or failed receipt save, check Slack before retrying. No automatic delivery retries are used. If hourly GitHub scheduling itself stops, this GitHub-hosted monitor cannot alert until it resumes; independent external monitoring would be needed to cover a complete Actions outage.
 

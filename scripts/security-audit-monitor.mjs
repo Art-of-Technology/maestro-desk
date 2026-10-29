@@ -59,6 +59,37 @@ async function failedScan(run, api) {
   };
 }
 
+async function recoveredScan(run, api, env, fetchImpl) {
+  const receipts = await api('actions/caches?key=security-audit-failure-&ref=refs%2Fheads%2Fmain&per_page=100');
+  if (!Array.isArray(receipts.actions_caches) || receipts.total_count !== receipts.actions_caches.length) throw new Error('Incomplete failure receipts');
+  const failures = receipts.actions_caches.filter(cache => cache.ref === 'refs/heads/main' && /^security-audit-failure-[1-9]\d*$/.test(cache.key));
+  if (!failures.length) return null;
+  if (failures.some(cache => !Number.isFinite(Date.parse(cache.created_at)))) throw new Error('Invalid failure receipt');
+  failures.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  const receipt = failures[0];
+  const id = Number(receipt.key.slice('security-audit-failure-'.length));
+  if (!Number.isSafeInteger(id)) throw new Error('Invalid failed run ID');
+  const name = `security-audit-recovery-${id}`;
+  if (await alreadyAlerted(name, env.GITHUB_TOKEN, fetchImpl)) return null;
+  const finished = Date.parse(run.updated_at);
+  if (!Number.isFinite(finished) || finished < Date.parse(run.created_at) || !Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) throw new Error('Invalid recovery metadata');
+  if (finished < Date.parse(receipt.created_at)) return null;
+  const failed = id === run.id ? run : validateRun(await api(`actions/runs/${id}`));
+  if (failed.id !== id) throw new Error('Mismatched failed run');
+  // shortcut: fail closed beyond 100 runs since the failure; paginate if this window grows.
+  const history = await api(`actions/workflows/${file}/runs?branch=main&created=${encodeURIComponent(`>=${failed.created_at}`)}&per_page=100`);
+  if (!Array.isArray(history.workflow_runs) || history.total_count !== history.workflow_runs.length) throw new Error('Incomplete recovery history');
+  const runs = history.workflow_runs.map(validateRun);
+  if (runs.some(item => !Number.isFinite(Date.parse(item.updated_at)) || Date.parse(item.updated_at) < Date.parse(item.created_at) || Date.parse(item.created_at) < Date.parse(failed.created_at))) throw new Error('Invalid recovery history');
+  const clean = runs.find(item => item.id === run.id);
+  if (!clean || clean.status !== 'completed' || clean.conclusion !== 'success' || clean.run_attempt !== run.run_attempt || clean.updated_at !== run.updated_at) return null;
+  if (runs.some(item => item.status !== 'completed' || (item.id !== run.id && Date.parse(item.updated_at) >= finished))) return null;
+  return {
+    name, health: 'healthy',
+    text: `Respovia dependency security scan recovered\nA clean scan completed after the previously reported failure. No moderate or higher vulnerabilities were found. Daily schedule health is checked separately.\nClean scan: https://github.com/${repository}/actions/runs/${run.id}\nPrevious alert: https://github.com/${repository}/actions/runs/${id}`,
+  };
+}
+
 export async function inspectAudit(env, event, now, fetchImpl = fetch) {
   const api = github(env.GITHUB_TOKEN, fetchImpl);
   if (env.GITHUB_EVENT_NAME === 'workflow_run') {
@@ -67,7 +98,8 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
     // A rerun may already have recovered by the time this notification is processed.
     const current = validateRun(await api(`actions/runs/${run.id}`));
     if (current.id !== run.id) throw new Error('Mismatched audit run');
-    return current.status === 'completed' && current.conclusion !== 'success' ? failedScan(current, api) : null;
+    if (current.status !== 'completed') return null;
+    return current.conclusion === 'success' ? recoveredScan(current, api, env, fetchImpl) : failedScan(current, api);
   }
   const expected = expectedScan(now);
   const body = await api(`actions/workflows/${file}/runs?event=schedule&branch=main&created=${encodeURIComponent(`>=${new Date(expected.start).toISOString()}`)}&per_page=100`);
@@ -76,7 +108,7 @@ export async function inspectAudit(env, event, now, fetchImpl = fetch) {
   if (runs.some(run => run.event !== 'schedule')) throw new Error('Unexpected manual run in schedule history');
   const latest = runs.filter(run => Date.parse(run.created_at) >= expected.start && Date.parse(run.created_at) < Math.min(expected.end, now.getTime() + 1))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)[0];
-  if (latest?.status === 'completed') return latest.conclusion === 'success' ? null : failedScan(latest, api);
+  if (latest?.status === 'completed') return latest.conclusion === 'success' ? recoveredScan(latest, api, env, fetchImpl) : failedScan(latest, api);
   return {
     name: `security-audit-overdue-${expected.date}`,
     text: `Respovia daily security scan is overdue\nNo completed scheduled dependency scan for ${expected.date}, due at 06:15 UTC with two hours allowed for delays. ${latest ? 'The run has not finished.' : 'No scheduled run was found.'} Manual scans do not confirm the daily schedule is working.\n${latest ? `https://github.com/${repository}/actions/runs/${latest.id}` : workflow}`,
@@ -100,6 +132,7 @@ export async function monitor(env, event = {}, now = new Date(), fetchImpl = fet
     }
   }
   if (!alert) return { status: 'healthy' };
+  health = alert.health || health;
   if (await alreadyAlerted(alert.name, env.GITHUB_TOKEN, fetchImpl)) return { status: 'already-alerted', health };
   await sendAlert(alert.text, env.SLACK_DEPLOY_WEBHOOK_URL, fetchImpl);
   return { status: 'sent', name: alert.name, health, verifiedAt: now.toISOString() };
