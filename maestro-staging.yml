@@ -1,6 +1,6 @@
 # Maestro Connect app manifest for isolated Respovia staging.
 # Staging app id: 46fc9b1d-0aa3-4e66-b3bc-580bd4313cf7
-# Lifecycle: maestro apps submit <appId> --file maestro.yml (first review),
+# Lifecycle: maestro apps submit <appId> --file maestro-staging.yml (first review),
 # then maestro apps diff / maestro apps revise for every change after approval.
 maestroVersion: '1'
 
