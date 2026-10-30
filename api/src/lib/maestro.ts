@@ -313,7 +313,7 @@ export async function listUserBrands(
   // repeated org entry or a future flat endpoint returning overlaps.
   const byId = new Map<string, MaestroBrand>();
   for (const r of fulfilled) for (const b of r.value) byId.set(b.id, b);
-  return [...byId.values()];
+  return [...byId.values()].filter((b) => !env.MAESTRO_ALLOWED_BRAND_ID || b.id === env.MAESTRO_ALLOWED_BRAND_ID);
 }
 
 // ─── Worker-context (capability B — headless email pipeline / AI drafting) ──

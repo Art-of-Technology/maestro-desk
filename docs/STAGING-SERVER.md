@@ -15,9 +15,10 @@ pending; this runbook does not certify staging as ready to replace Vercel.
 
 The separate Maestro app is `Respovia Staging`
 (`46fc9b1d-0aa3-4e66-b3bc-580bd4313cf7`), managed by `maestro-staging.yml`.
-Keep it unlisted and install only in the approved test organisation,
-`Jodi's Organisation` (`53d2875b-51cd-414d-afe7-27b68fe8b03a`). The app is ACTIVE,
-unlisted and installed in that organisation. Do not use production credentials.
+The app is ACTIVE and unlisted, originally installed in `Jodi's Organisation`.
+Jodi subsequently approved using Space Casino's Maestro identity for staging;
+its Respovia workspace, tickets and files remain in the separate staging stores.
+Do not use production app credentials or headless tokens.
 
 Create `staging-server` from the reviewed current code, not the old `staging`
 branch. The legacy Neon migration workflow only targets `staging`; do not
@@ -36,9 +37,13 @@ own database before startup, matching production.
   `sslmode=disable`. Never publish the database port.
 - Use a separate Maestro client, staging callback URL and explicitly approved
   test organisation. Keep production client credentials and headless tokens out.
-- Set `MAESTRO_ORGANIZATION_ID=53d2875b-51cd-414d-afe7-27b68fe8b03a` in staging.
+- Set `MAESTRO_ORGANIZATION_ID=cebeb395-48d3-4a27-9c6b-571446b27696` and
+  `MAESTRO_ALLOWED_BRAND_ID=58d5016a-91bb-49e6-a9be-b3f36f08afde` in staging
+  (Oh My Casino organisation, Space Casino brand).
   This server-side restriction covers discovery, workspace requests and brand
-  selection. Leave it unset in production to preserve multi-organisation access.
+  selection. Leave both unset in production to preserve multi-brand access.
+- Keep `MAESTRO_API_TOKEN` empty. Player lookups, imports and background player
+  enrichment require that separate token; user sign-in must not enable them.
 - Use staging-only R2 buckets and bucket-scoped credentials. Never reuse the
   production attachments, assets or backup bucket credentials.
 - Leave Postmark outbound/account credentials, Slack, Pubby, push notifications,
@@ -74,11 +79,11 @@ Provisioned on 2026-10-30:
   After deploying `412937a`, refreshing the picker returned no available brands,
   matching the empty approved test organisation. Restriction tests, typecheck
   and CI passed; Octopus reviewed that commit with zero findings (4/5).
-- Blocker: Maestro rejected creation of `Respovia Staging Test` in Jodi's
+- Historical blocker: Maestro rejected creation of `Respovia Staging Test` in Jodi's
   Organisation with "You do not have permission to create brands in this
   organization", although the CLI reports `ORGANIZATION_ADMIN`. No brand was
-  created. A Maestro administrator must resolve this permission or create the
-  synthetic brand there.
+  created. Jodi approved using Space Casino instead, with synthetic tickets and
+  player lookups/outbound integrations disabled. No new Maestro brand is needed.
 - Still required: grant the verified Maestro identity staging administration,
   approve the synthetic workspace, and verify ticket operations and isolated
   uploads. Vercel retirement remains on hold.

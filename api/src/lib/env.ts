@@ -132,6 +132,7 @@ const Env = z.object({
   MAESTRO_CLIENT_SECRET: z.string().default(''),
   // Restrict an isolated deployment without changing production's multi-org access.
   MAESTRO_ORGANIZATION_ID: z.union([z.string().uuid(), z.literal('')]).default(''),
+  MAESTRO_ALLOWED_BRAND_ID: z.union([z.string().uuid(), z.literal('')]).default(''),
   // Discovery itself is at the CANONICAL path
   // (`${MAESTRO_ISSUER}/.well-known/openid-configuration`, fetched in
   // lib/auth.ts); `iss` is the issuer ORIGIN — scheme included, no path prefix
