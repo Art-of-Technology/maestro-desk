@@ -1,8 +1,9 @@
 # Company-server staging
 
 Staging uses a separate Dokploy environment in the existing `respovia` project.
-The web, API and database are deployed. Authenticated acceptance checks are
-pending; this runbook does not certify staging as ready to replace Vercel.
+The web, API and database are deployed. Maestro sign-in, workspace access,
+synthetic ticket operations and attachment upload/download passed acceptance
+checks on 2026-10-30. Live player access, outbound integrations and AI are disabled.
 
 | Component | Configuration |
 | --- | --- |
@@ -84,9 +85,22 @@ Provisioned on 2026-10-30:
   organization", although the CLI reports `ORGANIZATION_ADMIN`. No brand was
   created. Jodi approved using Space Casino instead, with synthetic tickets and
   player lookups/outbound integrations disabled. No new Maestro brand is needed.
-- Still required: grant the verified Maestro identity staging administration,
-  approve the synthetic workspace, and verify ticket operations and isolated
-  uploads. Vercel retirement remains on hold.
+- API commit `51e4ad9` adds the approved Space Casino brand restriction. CI
+  (API typecheck/tests and frontend build/smokes) passed; Octopus scored 5/5
+  with zero findings. Production leaves both restriction variables unset.
+- The verified Maestro identity received staging administration; Space Casino's
+  staging workspace was requested and approved. The one-time bootstrap command
+  was removed, and normal container startup restored.
+- Synthetic customer `M1` and ticket `TK-1` were created. Resolution persisted
+  after reload. A 68-byte synthetic attachment uploaded to staging storage and
+  downloaded successfully; its SHA-256 matched the original file. The reply
+  remains a draft; no email was sent.
+- Player lookup is unavailable. Existing customer-account refresh can show a
+  misleading "You do not have access to this brand" toast for the staging
+  platform administrator; this does not block local ticket/file operations.
+  Live integration credentials remain absent. Improving that message is separate
+  from infrastructure acceptance.
+- Staging and production readiness both returned 200 after bootstrap removal.
 
 Deploy the database, then the API, then the web service, one at a time. Check API
 `/api/v1/health` and `/api/v1/health/ready`, Maestro callback/sign-in, authenticated
@@ -97,5 +111,15 @@ Promote code through normal reviewed PRs; never promote staging credentials or
 test data. Roll back code using Dokploy deployment history. Migrations are not
 undone by code rollback; repair a schema with a forward migration.
 
-The existing Vercel configuration remains during verification. Retire it only
-after the company staging environment passes its checks.
+## Legacy Vercel retirement
+
+On 2026-10-30, the `maestro-desk` and `maestro-desk-zjkl` projects were
+disconnected from Git and their production deployments paused. Custom production
+domain assignments had already been removed and the legacy API cron disabled.
+Company-server production and staging are independent of these paused projects.
+
+Pause is reversible and does not remove existing previews or stored deployments.
+The previously configured one-week retention remains in place. Historical usage
+and reclaimed storage have not yet been verified; do not describe this as a
+complete deletion or claim the storage warning has cleared. Unrelated Vercel
+projects and external databases were not removed.
