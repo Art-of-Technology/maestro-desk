@@ -1,7 +1,8 @@
 # Company-server staging
 
 Staging uses a separate Dokploy environment in the existing `respovia` project.
-Provisioning is in progress; this runbook does not certify a completed deployment.
+The web, API and database are deployed. Authenticated acceptance checks are
+pending; this runbook does not certify staging as ready to replace Vercel.
 
 | Component | Configuration |
 | --- | --- |
@@ -15,8 +16,8 @@ Provisioning is in progress; this runbook does not certify a completed deploymen
 The separate Maestro app is `Respovia Staging`
 (`46fc9b1d-0aa3-4e66-b3bc-580bd4313cf7`), managed by `maestro-staging.yml`.
 Keep it unlisted and install only in the approved test organisation,
-`Jodi's Organisation` (`53d2875b-51cd-414d-afe7-27b68fe8b03a`). Its platform
-approval is pending; do not use production credentials to bypass that gate.
+`Jodi's Organisation` (`53d2875b-51cd-414d-afe7-27b68fe8b03a`). The app is ACTIVE,
+unlisted and installed in that organisation. Do not use production credentials.
 
 Create `staging-server` from the reviewed current code, not the old `staging`
 branch. The legacy Neon migration workflow only targets `staging`; do not
@@ -48,6 +49,25 @@ own database before startup, matching production.
   80 and API port 3001. Preserve all existing production ingress routes.
 
 ## Deploy and verify
+
+Provisioned on 2026-10-30:
+
+- Dokploy environment: `staging`; API service `respovia-staging-api-eqkcgf`,
+  web service `respovia-staging-web-dwk2lr`, database `respovia-staging-db-1roohi`.
+- The existing Cloudflare tunnel routes the two staging hostnames to those
+  services. All four production routes remain unchanged.
+- R2 buckets: `respovia-staging-assets` (public synthetic logos) and
+  `respovia-staging-attachments` (private), with credentials scoped to these two
+  buckets. Asset base URL: `https://pub-1b80c560c72a45a99fa8bc0d517adf99.r2.dev`.
+  The development URL is rate-limited and only intended for staging.
+- Automatic deployments and environment-file generation are disabled for both
+  applications. API secrets are runtime configuration, never frontend files.
+- All 149 migrations applied. Staging and production readiness returned 200;
+  staging frontend returned 200, unauthenticated tickets returned 401, and
+  `/.env` returned 404. CORS allowed the staging frontend and rejected an
+  unrelated origin. Maestro is enabled and its sign-in page loads.
+- Still required: complete Maestro sign-in, provision an approved synthetic
+  brand/workspace, and verify ticket operations and isolated uploads.
 
 Deploy the database, then the API, then the web service, one at a time. Check API
 `/api/v1/health` and `/api/v1/health/ready`, Maestro callback/sign-in, authenticated
