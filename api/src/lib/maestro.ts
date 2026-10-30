@@ -261,7 +261,9 @@ export async function listUserOrganizations(token: string): Promise<MaestroOrgan
   const data = await maestroFetch<{ organizations?: RawUserOrg[] }>('/api/v1/organizations', {
     token,
   });
-  return (data.organizations ?? []).map((o) => ({
+  return (data.organizations ?? [])
+    .filter(o => !env.MAESTRO_ORGANIZATION_ID || o.id === env.MAESTRO_ORGANIZATION_ID)
+    .map((o) => ({
     id: o.id,
     name: o.name,
     slug: o.slug,
@@ -288,12 +290,14 @@ export async function listUserBrands(
   token: string,
   orgs?: MaestroOrganization[],
 ): Promise<MaestroBrand[]> {
-  const organizations = orgs ?? (await listUserOrganizations(token));
+  const organizations = (orgs ?? (await listUserOrganizations(token)))
+    .filter(o => !env.MAESTRO_ORGANIZATION_ID || o.id === env.MAESTRO_ORGANIZATION_ID);
   const settled = await Promise.allSettled(
     organizations.map((o) =>
       maestroFetch<{ brands?: MaestroBrand[] }>(`/api/v1/organizations/${o.id}/brands`, {
         token,
-      }).then((d) => d.brands ?? []),
+      }).then((d) => (d.brands ?? []).filter(b => !env.MAESTRO_ORGANIZATION_ID
+        || !b.organizationId || b.organizationId === o.id)),
     ),
   );
 
@@ -309,7 +313,7 @@ export async function listUserBrands(
   // repeated org entry or a future flat endpoint returning overlaps.
   const byId = new Map<string, MaestroBrand>();
   for (const r of fulfilled) for (const b of r.value) byId.set(b.id, b);
-  return [...byId.values()];
+  return [...byId.values()].filter((b) => !env.MAESTRO_ALLOWED_BRAND_ID || b.id === env.MAESTRO_ALLOWED_BRAND_ID);
 }
 
 // ─── Worker-context (capability B — headless email pipeline / AI drafting) ──

@@ -43,6 +43,9 @@ jobs:
       - name: Bridge collision check
         run: bun scripts/bridge-collision-check.mjs
 
+      - name: Deployment hostname isolation
+        run: bun test scripts/api-base.test.js
+
       - name: Permission matrix save and new-role flow
         run: |
           bun test scripts/role-permissions.test.js
