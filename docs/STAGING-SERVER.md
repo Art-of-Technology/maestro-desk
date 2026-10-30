@@ -36,6 +36,9 @@ own database before startup, matching production.
   `sslmode=disable`. Never publish the database port.
 - Use a separate Maestro client, staging callback URL and explicitly approved
   test organisation. Keep production client credentials and headless tokens out.
+- Set `MAESTRO_ORGANIZATION_ID=53d2875b-51cd-414d-afe7-27b68fe8b03a` in staging.
+  This server-side restriction covers discovery, workspace requests and brand
+  selection. Leave it unset in production to preserve multi-organisation access.
 - Use staging-only R2 buckets and bucket-scoped credentials. Never reuse the
   production attachments, assets or backup bucket credentials.
 - Leave Postmark outbound/account credentials, Slack, Pubby, push notifications,

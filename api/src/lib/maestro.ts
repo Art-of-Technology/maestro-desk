@@ -261,7 +261,9 @@ export async function listUserOrganizations(token: string): Promise<MaestroOrgan
   const data = await maestroFetch<{ organizations?: RawUserOrg[] }>('/api/v1/organizations', {
     token,
   });
-  return (data.organizations ?? []).map((o) => ({
+  return (data.organizations ?? [])
+    .filter(o => !env.MAESTRO_ORGANIZATION_ID || o.id === env.MAESTRO_ORGANIZATION_ID)
+    .map((o) => ({
     id: o.id,
     name: o.name,
     slug: o.slug,
@@ -288,12 +290,14 @@ export async function listUserBrands(
   token: string,
   orgs?: MaestroOrganization[],
 ): Promise<MaestroBrand[]> {
-  const organizations = orgs ?? (await listUserOrganizations(token));
+  const organizations = (orgs ?? (await listUserOrganizations(token)))
+    .filter(o => !env.MAESTRO_ORGANIZATION_ID || o.id === env.MAESTRO_ORGANIZATION_ID);
   const settled = await Promise.allSettled(
     organizations.map((o) =>
       maestroFetch<{ brands?: MaestroBrand[] }>(`/api/v1/organizations/${o.id}/brands`, {
         token,
-      }).then((d) => d.brands ?? []),
+      }).then((d) => (d.brands ?? []).filter(b => !env.MAESTRO_ORGANIZATION_ID
+        || !b.organizationId || b.organizationId === o.id)),
     ),
   );
 
