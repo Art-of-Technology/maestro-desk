@@ -69,8 +69,19 @@ Provisioned on 2026-10-30:
   staging frontend returned 200, unauthenticated tickets returned 401, and
   `/.env` returned 404. CORS allowed the staging frontend and rejected an
   unrelated origin. Maestro is enabled and its sign-in page loads.
-- Still required: complete Maestro sign-in, provision an approved synthetic
-  brand/workspace, and verify ticket operations and isolated uploads.
+- Maestro sign-in completed. The initial brand picker included other
+  organisations, so the staging API now enforces `MAESTRO_ORGANIZATION_ID`.
+  After deploying `412937a`, refreshing the picker returned no available brands,
+  matching the empty approved test organisation. Restriction tests, typecheck
+  and CI passed; Octopus reviewed that commit with zero findings (4/5).
+- Blocker: Maestro rejected creation of `Respovia Staging Test` in Jodi's
+  Organisation with "You do not have permission to create brands in this
+  organization", although the CLI reports `ORGANIZATION_ADMIN`. No brand was
+  created. A Maestro administrator must resolve this permission or create the
+  synthetic brand there.
+- Still required: grant the verified Maestro identity staging administration,
+  approve the synthetic workspace, and verify ticket operations and isolated
+  uploads. Vercel retirement remains on hold.
 
 Deploy the database, then the API, then the web service, one at a time. Check API
 `/api/v1/health` and `/api/v1/health/ready`, Maestro callback/sign-in, authenticated
