@@ -46,6 +46,9 @@
     // Vercel 308 redirect apex/www -> app is REQUIRED, not cosmetic.
     window.RESPOVIA_API_BASE = 'https://api.respovia.com';
     window.RESPOVIA_ENV = 'production';
+  } else if (h === 'staging.respovia.com') {
+    window.RESPOVIA_API_BASE = 'https://staging-api.respovia.com';
+    window.RESPOVIA_ENV = 'staging';
   } else if (/^maestro-desk-git-(?!main-)[a-z0-9-]+-jodi-1420s-projects\.vercel\.app$/.test(h)) {
     // STAGING (`git-staging`) and every PR-preview branch deploy → the staging
     // API + staging DB, never prod. The `git-` marker is REQUIRED and `git-main`

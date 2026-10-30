@@ -1,0 +1,36 @@
+# Maestro Connect app manifest for isolated Respovia staging.
+# Staging app id: 46fc9b1d-0aa3-4e66-b3bc-580bd4313cf7
+# Lifecycle: maestro apps submit <appId> --file maestro.yml (first review),
+# then maestro apps diff / maestro apps revise for every change after approval.
+maestroVersion: '1'
+
+partner:
+  name: Respovia Staging
+  slug: respovia-staging
+  description: >-
+    Test deployment of Respovia on the company server, using synthetic data.
+    Maestro is the sole identity provider. Install only in the approved test
+    organisation; production email delivery and headless integrations stay off.
+  homepageUrl: https://staging.respovia.com
+
+oauth:
+  # The OAuth flow is brokered by the Desk API (Better Auth genericOAuth, PKCE):
+  # the API exchanges the code, stores tokens, and bounces back to the SPA.
+  # Only the company staging callback is registered.
+  redirectUris:
+    - https://staging-api.respovia.com/api/auth/oauth2/callback/maestro
+  scopes:
+    - openid
+    - profile
+    - email
+    - offline_access
+    - organizations:read
+    - brands:read
+    - members:read
+    - members:balance
+    - transactions:read
+    - bonuses:read
+    - rg:read
+  grantTypes:
+    - authorization_code
+    - refresh_token
