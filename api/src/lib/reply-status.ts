@@ -109,7 +109,7 @@ export async function completeReplyStatus(workspaceId: string, messageId: string
     return { ticketId: owner.id, changed, category: choice.base_key, previousCategory: checked.ticket.status_key };
   });
   if (!result) return;
-  if (result.changed && ['resolved', 'escalated'].includes(result.category!)) {
+  if (result.changed && (result.category === 'resolved' || result.category === 'escalated')) {
     if (result.category !== result.previousCategory) {
       const event = result.category === 'resolved' ? 'ticket.resolved' as const : 'ticket.escalated' as const;
       for (const notify of [notifySlack, dispatchTicketEvent]) {
