@@ -32,7 +32,7 @@ test('manual replies preserve checks, rich content and attachments without AI', 
         return { message: { id: 'sent', body: body.body, body_html: body.body_html, created_at: '2026-10-06T12:00:00Z' }, draft_version: 6 };
       },
       clearComposer: () => { cleared = true; }, renderPendingAttachments() {}, openTicket() {},
-      setComposerMode() {}, invalidateAgentReport() {}, showToast() {}, alert() {},
+      setComposerMode() {}, invalidateAgentReport() {}, applySavedActivity() {}, showToast() {}, alert() {},
     };
     await runInNewContext(send + (scenario === 'double-click'
       ? "Promise.all([sendCompose('T1',true),sendCompose('T1',true)])" : "sendCompose('T1',true)"), context);

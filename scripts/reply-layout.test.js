@@ -90,14 +90,17 @@ test('sending closes replies, including expanded and send-and-resolve, but failu
       setAiThinking() {}, prepareCustomerReply: async () => ({ translation: text }),
       replyWarnings: () => [], loadMessageReview: () => null, confirmedReplySuggestion: () => null,
       pendingAttachmentIds: () => [], renderPendingAttachments() {}, attachmentsUploading:()=>false, parseMentions: () => [],
-      apiPost: async () => {
+      apiPost: async (_path, body) => {
         if (scenario === 'failed') throw new Error('Offline');
-        return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text }, delivery: { emailed: true } };
+        status = body.after_send?.status || null;
+        return { message: { id: 'message', created_at: '2026-09-30T12:00:00Z', body: text,
+          email_metadata: body.after_send ? { after_send: { ...body.after_send, state: 'applied' } } : undefined }, delivery: { emailed: true } };
       },
       clearComposer() { text = ''; }, clearDraft() {}, onComposeInput() {},
       prepareDraftSend: async () => ({ version: 1 }), finishDraftSend: () => true, refreshPersonalDraft: async () => {},
       openTicket() {}, invalidateAgentReport() {}, hideSendMenu() {}, notifyReplyDelivery() {}, alert() {},
-      changeTicketStatus: async (_id, value) => { status = value; },
+      applySavedActivity() {}, loadTicketDetail: async () => {}, updateNavBadges() {}, showToast() {},
+      changeTicketStatus: async () => { throw Error('The server already owns the status action'); },
       chooseStatusReason: async () => null,
     };
     await runInNewContext(sendFunctions + (scenario === 'resolve'

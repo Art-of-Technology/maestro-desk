@@ -2,11 +2,12 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
+import { sentReplyActivity } from '../lib/sent-reply-activity.js';
 
 export const activity = new Hono();
 activity.use('*', requireAuth);
 const Query = z.object({
-  kind: z.enum(['all', 'status', 'snooze', 'priority', 'agent', 'inbox', 'tag', 'note', 'created', 'system']).default('all'),
+  kind: z.enum(['all', 'sent', 'status', 'snooze', 'priority', 'agent', 'inbox', 'tag', 'note', 'created', 'system']).default('all'),
   entity: z.enum(['all', 'ticket', 'customer']).default('all'),
   q: z.string().max(200).default(''),
   ticket: z.string().uuid().optional(),
@@ -32,6 +33,10 @@ activity.get('/', async c => {
       t.id as entity_uuid, t.display_id as entity_id, t.subject as entity_name
     from events e join tickets t on t.id = e.entity_id and t.workspace_id = e.workspace_id
     where e.workspace_id = ${ws} and e.entity_type = 'ticket' and t.deleted_at is null
+    union all
+    select e.id,e.created_at,e.kind,e.author_label,e.details,'ticket',t.id,t.display_id,t.subject
+    from (${sentReplyActivity(sql, ws, ticket)}) e join tickets t on t.id=e.entity_id and t.workspace_id=${ws}
+    where t.deleted_at is null
     union all
     select t.id, t.created_at, 'created', 'System', 'Ticket created', 'ticket', t.id, t.display_id, t.subject
     from tickets t where t.workspace_id = ${ws} and t.deleted_at is null

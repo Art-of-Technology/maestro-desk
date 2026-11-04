@@ -22,7 +22,7 @@ test('new ticket changes each selected status only after confirmed sending and v
   const functions = wizard.slice(wizard.indexOf('async function confirmSend('), wizard.indexOf('async function createOnServer('));
   for (const status of ['', 'resolved', 'pending', 'escalated', 'custom-review']) {
     for (const outcome of ['sent', 'unconfirmed', 'denied', 'reason-missing']) {
-      let creates = 0, updates = [];
+      let creates = 0, updates = [], sentAction;
       const ticket = { id: 'TK-NEW', _uuid: 'ticket', status: 'open' };
       const context = {
         NT: { busy: false, statusAfterSend: status, closeReason: '', files: [], customer: { uuid: 'customer' } },
@@ -34,14 +34,15 @@ test('new ticket changes each selected status only after confirmed sending and v
         loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }),
         statusChoice: () => ({ is_active: true, reason_required: outcome === 'reason-missing', reasons: [] }),
         prepareCustomerReply: async () => ({ translation: 'Hello', replyLanguage: 'English' }),
-        createOnServer: async () => { creates++; return { displayId: ticket.id, emailed: outcome === 'sent' }; },
+        createOnServer: async (_snapshot, options) => { creates++; sentAction = options.afterSend; return { displayId: ticket.id, emailed: outcome === 'sent' }; },
+        loadTicketDetail: async () => {},
         applySentStatus: async (...args) => updates.push(args),
         closeModal() {}, resetNT() {}, updateNavBadges() {}, openTicket() {}, console: { error() {} },
       };
       await runInNewContext(functions + 'confirmSend()', context);
       expect(creates).toBe(status && ['denied', 'reason-missing'].includes(outcome) ? 0 : 1);
-      expect(updates.length).toBe(status && outcome === 'sent' ? 1 : 0);
-      if (updates.length) expect(updates[0]).toEqual(['TK-NEW', status, null]);
+      expect(updates.length).toBe(0);
+      if (creates) expect(sentAction).toEqual(status ? { status, reason: null } : undefined);
       expect(ticket.status).toBe('open');
     }
   }
@@ -74,13 +75,35 @@ test('combined reply actions require confirmed delivery before changing status',
   for (const status of ['resolved', 'pending', 'escalated', 'custom-review']) {
     let sends = 0;
     await runInNewContext(handler + `sendComposeAnd('T1', '${status}')`, {
-      CURRENT_TICKET: 'T1', COMPOSE_TAB: 'reply', hideSendMenu() {},
+      CURRENT_TICKET: 'T1', COMPOSE_TAB: 'reply', TICKETS: [{ id: 'T1' }], hideSendMenu() {},
       getWorkspaceId: () => 'workspace', getJwt: () => 'session',
       loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }),
       statusChoice: () => ({ is_active: true }), chooseStatusReason: async () => null,
       sendCompose: async (_id, _withoutAI, options) => { sends++; expect(options.requireEmail).toBe(true); return false; },
       applySentStatus: () => { throw Error('Unconfirmed delivery must not update status'); },
       changeTicketStatus: () => { throw Error('Unconfirmed delivery must not update status'); },
+    });
+    expect(sends).toBe(1);
+  }
+});
+
+test('live combined sends carry the selected action in the send request even when the agent navigates away', async () => {
+  const handler = detail.slice(detail.indexOf('async function sendComposeAnd('), detail.indexOf('// Retry only'));
+  for (const navigate of [false, true]) {
+    let sends = 0, current = 'T1';
+    await runInNewContext(handler + "sendComposeAnd('T1', 'resolved')", {
+      get CURRENT_TICKET() { return current; }, COMPOSE_TAB: 'reply', TICKETS: [{ id: 'T1', _uuid: 'server-ticket' }],
+      hideSendMenu() {}, getWorkspaceId: () => 'workspace', getJwt: () => 'session',
+      loadStatusOptions: async () => {}, statusOptionsState: () => ({ ready: true }),
+      statusChoice: () => ({ is_active: true }), chooseStatusReason: async () => 'answered',
+      sendCompose: async (_id, _withoutAI, options) => {
+        sends++;
+        expect(options.afterSend).toEqual({ status: 'resolved', reason: 'answered' });
+        if (navigate) current = 'T2';
+        return true;
+      },
+      applySentStatus: () => { throw Error('The browser must not repeat the server status action'); },
+      changeTicketStatus: () => { throw Error('The browser must not repeat the server status action'); },
     });
     expect(sends).toBe(1);
   }

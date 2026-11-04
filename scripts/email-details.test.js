@@ -10,6 +10,17 @@ globalThis.window ||= globalThis;
 window.escHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 window.escAttr = value => window.escHtml(value).replaceAll('"', '&quot;');
 
+test('email details distinguish completed, delayed and review-required status actions', () => {
+  const email = { status: 'sent', after_send: { status: '<custom>', state: 'applied' } };
+  expect(renderEmailDetails({ email })).toContain('&lt;custom&gt;: completed');
+  email.after_send.state = 'review';
+  expect(renderEmailDetails({ email })).toContain('not applied; the ticket or access changed');
+  email.after_send.state = 'pending';
+  expect(renderEmailDetails({ email })).toContain('do not resend this email');
+  email.status = 'saved';
+  expect(renderEmailDetails({ email })).toContain('waiting for sending confirmation');
+});
+
 test('delivery labels count every distinct To and CC recipient and show receipt timestamps', () => {
   const message = { createdAt: '2026-10-16T12:00:00Z', email: { status: 'sent', sent_at: '2026-10-16T12:00:00Z',
     to: ['one@example.test'], cc: ['ONE@example.test', 'two@example.test'] } };

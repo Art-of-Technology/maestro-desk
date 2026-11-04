@@ -7,7 +7,7 @@ import { registerActions, registerChangeActions } from './event-delegation.js';
 
 let feed;
 let filters = { kind: 'all', entity: 'all', q: '' };
-const kinds = { all: 'All types', status: 'Status', snooze: 'Snooze', agent: 'Assignment', priority: 'Priority', tag: 'Tag', created: 'Created', note: 'Note' };
+const kinds = { all: 'All types', sent: 'Email sent', status: 'Status', snooze: 'Snooze', agent: 'Assignment', priority: 'Priority', tag: 'Tag', created: 'Created', note: 'Note' };
 function context() { return JSON.stringify([getWorkspaceId(), getJwt(), SESSION]); }
 function state() {
   const key = context();
@@ -84,7 +84,7 @@ export function renderSavedActivity() {
       <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>When</th><th>Type</th><th>Entity</th><th>Reference</th><th>Detail</th><th>Author</th></tr></thead><tbody>${rows}</tbody></table></div>
       ${!current.loading && !current.error && !rows ? '<p class="empty-state">No activity matches these filters.</p>' : ''}
       ${current.cursor ? `<button class="btn" data-action="savedActivity.more" ${current.loading ? 'disabled' : ''}>Load more activity</button>` : ''}
-      <p style="font-size:12px;color:var(--ink3)">Saved assignment, priority and tag changes, ticket creation, and customer notes. Earlier changes that were not saved are unavailable.</p>
+      <p style="font-size:12px;color:var(--ink3)">Saved ticket changes, confirmed email sends, ticket creation, and customer notes. Earlier changes that were not saved are unavailable.</p>
     </div></div>`;
 }
 registerActions({

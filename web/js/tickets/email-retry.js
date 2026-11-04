@@ -4,6 +4,9 @@ import { apiPost, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { registerActions } from '../core/event-delegation.js';
 import { showToast } from '../core/toast.js';
 import { openTicket, notifyReplyDelivery } from './detail.js';
+import { loadTicketDetail } from '../core/bootstrap.js';
+import { applySavedActivity } from '../core/ticket-history.js';
+import { updateNavBadges } from '../core/router.js';
 
 const pending = new Set();
 export async function retryEmail(messageId, button) {
@@ -18,7 +21,13 @@ export async function retryEmail(messageId, button) {
     if (getWorkspaceId() !== workspace || getJwt() !== jwt) return;
     message.email = result.email_metadata;
     message.downloadableEmail = result.email_metadata?.status === 'sent';
+    applySavedActivity(ticket, result);
     notifyReplyDelivery(result.delivery);
+    if (result.email_metadata?.after_send) {
+      await loadTicketDetail(ticket.id, { force: true });
+      if (getWorkspaceId() !== workspace || getJwt() !== jwt) return;
+      updateNavBadges();
+    }
     if (CURRENT_TICKET === ticket.id) openTicket(ticket.id);
   } catch (error) {
     if (getWorkspaceId() === workspace && getJwt() === jwt) showToast(error.message || 'Could not retry sending. Refresh the ticket to check delivery.', 'error');

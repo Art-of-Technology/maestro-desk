@@ -29,11 +29,16 @@ export function renderEmailDetails(message) {
   if (!e) return '';
   const esc = window.escHtml;
   const row = (label, value) => value ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
+  const actionState = e.after_send?.state === 'applied' ? 'completed'
+    : e.after_send?.state === 'review' ? 'not applied; the ticket or access changed. Review the current ticket status.'
+    : e.status === 'sent' ? 'not completed. Review the current ticket status; do not resend this email.'
+    : e.delivery_state === 'failed' ? 'waiting for a successful send' : 'waiting for sending confirmation';
   const recipients = [...(e.status === 'received' ? [] : e.to || []), ...(e.cc || [])];
   const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
     + row('Delivery confirmed', Object.entries(e.delivered_recipients || {}).map(([address, at]) => `${address}: ${emailDate(at)}`).join('; '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')
+    + row('Status action', e.after_send ? `${e.after_send.status}: ${actionState}` : '')
     + row('Sent by sender', e.status === 'received' ? emailDate(e.sent_at) : '');
   return `<div class="message-email-details">${e.status === 'received' ? `<div class="email-inbox">Received via <strong>${esc(e.received_via || 'Inbox not recorded')}</strong></div>` : ''}
     ${recipients.length > 3 ? `<details><summary>Email details · ${recipients.length} recipients</summary><dl>${fields}</dl></details>` : `<dl>${fields}</dl>`}</div>`;

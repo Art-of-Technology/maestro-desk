@@ -18,7 +18,8 @@ export default async (browser, screenshotsDir) => {
       }));
       const row = { id, display_id: 'TK-ACTIONS', customer_id: customerId, subject: 'Synthetic send actions', status_key: 'open', status_option_key: 'open', status_survey_enabled: false, priority_key: 'normal' };
       const messages = [], drafts = {};
-      let creates = 0, updates = 0;
+      let creates = 0, updates = 0, statusActions = 0;
+      let holdReply;
       page.on('dialog', dialog => dialog.accept());
       await page.route('**/api/**', async route => {
         const req = route.request(), path = new URL(req.url()).pathname, body = req.postDataJSON();
@@ -30,6 +31,15 @@ export default async (browser, screenshotsDir) => {
         else if (path.endsWith('/tickets') && req.method() === 'POST') { creates++; Object.assign(row, body); json = { ticket: row }; }
         else if (path.endsWith('/messages') && req.method() === 'POST') {
           const message = { id: 'message-' + messages.length, role: 'agent', body: body.body, created_at: new Date().toISOString() };
+          message.email_metadata = { status: scenario === 'unconfirmed' ? 'saved' : 'sent', to: ['fixture@example.test'], cc: [] };
+          if (body.after_send) {
+            statusActions++;
+            message.email_metadata.after_send = { ...body.after_send, state: scenario === 'unconfirmed' ? 'pending' : scenario === 'retry' ? 'review' : 'applied' };
+            if (message.email_metadata.after_send.state === 'applied') {
+              const choice = statuses.find(s => s.key === body.after_send.status);
+              Object.assign(row, { status_key: choice.base_key, status_option_key: choice.key, status_survey_enabled: choice.send_survey });
+            }
+          }
           drafts.reply = { body: '', recipients: null, review: null, attachments: [], version: (drafts.reply?.version || 0) + 1 };
           messages.push(message); json = { message, draft_version: drafts.reply.version, delivery: { emailed: scenario !== 'unconfirmed', reason: scenario === 'unconfirmed' ? 'delivery_unconfirmed' : 'sent' } };
         } else if (path.includes('/drafts/')) {
@@ -38,13 +48,11 @@ export default async (browser, screenshotsDir) => {
           json = { draft: drafts[tab] || { body: '', is_html: false, recipients: null, review: null, attachments: [], version: 0 } };
         } else if (path.endsWith('/tickets/' + id) && req.method() === 'PATCH') {
           updates++;
-          if (scenario === 'retry' && updates === 1) { status = 503; json = { error: 'Synthetic status failure' }; }
-          else {
-            const choice = statuses.find(s => s.key === body.status_option_key);
-            Object.assign(row, { status_key: choice.base_key, status_option_key: choice.key, status_survey_enabled: choice.send_survey });
-            json = { ticket: row, activity: [], survey: choice.send_survey ? { sent: true } : undefined };
-          }
+          const choice = statuses.find(s => s.key === body.status_option_key);
+          Object.assign(row, { status_key: choice.base_key, status_option_key: choice.key, status_survey_enabled: choice.send_survey });
+          json = { ticket: row, activity: [], survey: choice.send_survey ? { sent: true } : undefined };
         } else if (path.endsWith('/tickets/' + id)) json = { ticket: { ...row, messages, activity: [], reply_recipients: { to: ['fixture@example.test'], cc: [], sending_inboxes: [], source_message_id: null } } };
+        if (holdReply && path.endsWith('/tickets/' + id + '/messages') && req.method() === 'POST') await holdReply;
         await route.fulfill({ status, json });
       });
       await page.goto('http://localhost:5173');
@@ -75,24 +83,20 @@ export default async (browser, screenshotsDir) => {
       await page.locator('#nt2-send-btn').click();
       await page.locator('#nt2-msg').waitFor({ state: 'detached' });
       if (scenario === 'retry') {
-        await page.getByRole('button', { name: 'Retry status only', exact: true }).waitFor();
-        check(creates === 1 && messages.length === 1 && updates === 1, 'Failed status update does not resend or recreate');
-        check(await page.getByRole('dialog', { name: 'Message sent. Status not updated.', exact: true }).count() === 1, 'Retry dialog has an accessible name');
-        await page.keyboard.press('Tab');
-        check(await page.getByRole('button', {name:'Close dialog', exact:true}).evaluate(el => el === document.activeElement), 'Retry dialog keeps forward keyboard focus inside');
-        await page.keyboard.press('Shift+Tab');
-        check(await page.getByRole('button', {name:'Retry status only', exact:true}).evaluate(el => el === document.activeElement), 'Retry dialog keeps backward keyboard focus inside');
+        await page.getByText('resolved: not applied; the ticket or access changed. Review the current ticket status.', { exact: true }).waitFor();
+        check(creates === 1 && messages.length === 1 && updates === 0, 'Failed status action does not resend or recreate');
         if (screenshotsDir) await page.screenshot({ path: `${screenshotsDir}/send-status-retry-390.png` });
-        await page.getByRole('button', { name: 'Retry status only', exact: true }).click();
-        await page.getByRole('button', { name: 'Retry status only', exact: true }).waitFor({ state: 'hidden' });
-        check(creates === 1 && messages.length === 1 && updates === 2, 'Retry changes status only');
+        await page.getByLabel('Ticket status', { exact: true }).selectOption('resolved');
+        await page.waitForFunction(() => document.querySelector('[aria-label="Ticket status"]')?.value === 'resolved');
+        check(creates === 1 && messages.length === 1 && updates === 1, 'Manual recovery changes status only');
       }
-      await page.waitForFunction(expected => document.querySelector('[aria-label="Ticket status"]')?.value === expected, scenario === 'unconfirmed' ? 'open' : target);
+      try { await page.waitForFunction(expected => document.querySelector('[aria-label="Ticket status"]')?.value === expected, scenario === 'unconfirmed' ? 'open' : target); }
+      catch (error) { console.log('Synthetic status state:', row.status_option_key, statusActions, updates); console.log(await page.locator('body').innerText()); throw error; }
       check(messages.length === 1 && creates === 1, 'First-message action sends and creates exactly once');
-      check(updates === (scenario === 'unconfirmed' ? 0 : scenario === 'retry' ? 2 : 1), 'Only confirmed sending permits the selected status update');
+      check(statusActions === 1 && updates === (scenario === 'retry' ? 1 : 0), 'Server owns the send action; browser does not repeat it');
       check(row.status_survey_enabled === (scenario !== 'unconfirmed' && target === 'resolved'), 'Only resolved uses the survey policy');
       if (scenario === 'unconfirmed') continue;
-      await page.getByRole('button', { name: 'Reply', exact: true }).click();
+      await page.getByRole('button', { name: 'Reply', exact: true }).click({ timeout: 20000 });
       await page.locator('[aria-label="More send options"]').click();
       const menu = page.locator('#send-menu-TK-ACTIONS');
       const text = await menu.locator('[data-action="td.sendAnd"], [data-action="td.send"]').locator('span').allTextContents();
@@ -118,6 +122,23 @@ export default async (browser, screenshotsDir) => {
       await reply.catch(async error => { console.log(await page.locator('body').innerText()); throw error; });
       check(messages.length === 2, scenario+': Plain Send sends the follow-up once ('+messages.length+')');
       check(updates === beforeUpdates && row.status_option_key === before, 'Plain Send preserves the existing status');
+      if (scenario === 'resolved') {
+        await page.getByRole('button', { name: 'Reply', exact: true }).click();
+        await page.locator('#compose-TK-ACTIONS .ql-editor').fill('Synthetic combined follow-up');
+        await page.locator('[aria-label="More send options"]').click();
+        let release;
+        holdReply = new Promise(resolve => { release = resolve; });
+        const sending = page.waitForRequest(req => req.method() === 'POST' && new URL(req.url()).pathname.endsWith('/tickets/' + id + '/messages'));
+        const sent = page.waitForResponse(res => res.request().method() === 'POST' && new URL(res.url()).pathname.endsWith('/tickets/' + id + '/messages'));
+        await page.getByRole('button', { name: 'Send & pending', exact: true }).click();
+        const request = await sending;
+        check(request.postDataJSON().after_send.status === 'pending', 'Existing composer sends the chosen action to the server');
+        await page.evaluate(async () => (await import('/js/tickets/detail.js')).openTicket('TK-001'));
+        release();
+        await sent;
+        check(row.status_option_key === 'pending' && statusActions === 2 && updates === beforeUpdates, 'Navigation does not cancel or repeat the server action');
+        check(await page.evaluate(async () => (await import('/js/core/state.js')).CURRENT_TICKET) === 'TK-001', 'Completion does not navigate back to the old ticket');
+      }
     } finally { await context.close(); }
   }
   return { checks };

@@ -763,7 +763,8 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
       snapshot.replyLanguage = prepared.replyLanguage;
     }
     if (form?.isConnected === false) return;
-    const res = await createOnServer(snapshot, { message, send });
+    const res = await createOnServer(snapshot, { message, send,
+      afterSend: statusAfterSend && statusAfterSend !== 'closed' ? { status: statusAfterSend, reason: closeReason || null } : undefined });
     if (form?.isConnected === false) return;
     if (workspace !== getWorkspaceId() || jwt !== getJwt()) { closeModal(); closeWorkspace(); resetNT(); return; }
     // Upload retries retain the created ticket; other failures open its draft.
@@ -794,9 +795,10 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
   openTicket(displayId);         // lazy detail load paints the thread (incl. the sent message)
   if (statusAfterSend && emailed) {
     if (statusAfterSend === 'closed') await closeCreatedTicket(displayId, closeReason, workspace, jwt);
-    else await applySentStatus(displayId, statusAfterSend, closeReason || null);
+    else if (!isApiBacked) await applySentStatus(displayId, statusAfterSend, closeReason || null);
+    else { await loadTicketDetail(displayId, { force: true }); updateNavBadges(); if (CURRENT_TICKET === displayId) openTicket(displayId); }
   }
-  else if (statusAfterSend) showToast('Ticket created and left open because the first email was not confirmed sent. Continue from this ticket; do not create it again.', 'warn', 10000);
+  else if (statusAfterSend) showToast('Ticket created. Check delivery and the selected status action in the ticket before retrying. Do not create another ticket.', 'warn', 10000);
 }
 
 async function closeCreatedTicket(id, reason, workspace, jwt) {
@@ -825,7 +827,7 @@ async function closeCreatedTicket(id, reason, workspace, jwt) {
   }
 }
 
-async function createOnServer(snap, { message, send }) {
+async function createOnServer(snap, { message, send, afterSend }) {
   const workspace = getWorkspaceId(), jwt = getJwt();
   const form = document.getElementById('nt2-msg') || document.getElementById('nt-subj');
   const current = () => workspace === getWorkspaceId() && jwt === getJwt() && form?.isConnected !== false;
@@ -895,10 +897,10 @@ async function createOnServer(snap, { message, send }) {
     const ticket = TICKETS.find(t => t._uuid === row.id);
     if (ticket && !ticket.tags.includes(tag)) ticket.tags.push(tag);
   }
-  return createWithFiles(row, snap, { message, send }, current);
+  return createWithFiles(row, snap, { message, send, afterSend }, current);
 }
 
-async function createWithFiles(row, snap, { message, send }, current) {
+async function createWithFiles(row, snap, { message, send, afterSend }, current) {
   try {
     const resolved = resolveTemplate({ text: message, html: snap.messageHtml }, { id: row.display_id, customerId: snap.customerDisplayId, agent: snap.agentName || SESSION?.name });
     message = resolved.text; snap.messageHtml = resolved.html;
@@ -933,6 +935,7 @@ async function createWithFiles(row, snap, { message, send }, current) {
   let response;
   try {
     response = await apiPost(`/api/v1/tickets/${row.id}/messages`, { role: 'agent', body: message,
+      after_send: afterSend,
       body_html: snap.messageHtml || undefined, email_recipients: snap.recipients,
       reply_language: snap.replyLanguage || undefined, draft_version: sent.version,
       attachment_ids: snap.files.map(entry => entry.attachment.id) });
@@ -946,6 +949,7 @@ async function createWithFiles(row, snap, { message, send }, current) {
   catch { showToast('Message saved. The local draft cache could not be updated. Reopen the ticket before continuing.', 'error'); }
   if (!current()) return { aborted: true };
   if (response.delivery) notifyReplyDelivery(response.delivery);
+  if (afterSend && response.message?.email_metadata?.after_send?.state !== 'applied') showToast('Check the selected status action in the ticket. Do not send the reply again while delivery is unconfirmed.', 'warn', 10000);
   if (response.subject) {
     const ticket = TICKETS.find(t => t._uuid === row.id);
     if (ticket) ticket.subject = response.subject;
