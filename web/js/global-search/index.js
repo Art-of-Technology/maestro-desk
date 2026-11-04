@@ -27,6 +27,8 @@ import { nav, renderPage } from '../core/router.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
 import { matchesContact } from '../customers/contacts.js';
+import { lookupPlayerQuery } from '../customers/player-lookup.js';
+import { getBrandId } from '../core/api-client.js';
 import {
   registerActions, registerMousedownActions, registerInputActions,
 } from '../core/event-delegation.js';
@@ -63,6 +65,14 @@ export const SEARCH_PAGES = [
 ];
 
 let SEARCH_PAGE_QUERY = '';
+
+function offerPlayerLookup(query) {
+  const q = (query || '').trim().toLowerCase();
+  return q && getBrandId() && !CUSTOMERS.some(c =>
+    [c.id, `${c.first || ''} ${c.last || ''}`, c.username].some(v => (v || '').toLowerCase().includes(q))
+    || matchesContact(c, q)
+  );
+}
 
 function globalSearch(q) {
   const results = document.getElementById('gs-results');
@@ -129,6 +139,8 @@ function globalSearch(q) {
   if (!html) html = `<div class="gs-empty">No matches for "<strong style="color:var(--ink2)">${window.escHtml(q)}</strong>"</div>`;
   else html += `<div style="padding:9px 14px;border-top:1px solid var(--rule);text-align:center;background:var(--off2);position:sticky;bottom:0"><span class="link" data-mousedown-action="gs.openAll" data-q="${window.escAttr(q)}" style="font-size:11px;font-weight:500">See all results for "${window.escHtml(q)}" →</span></div>`;
 
+  if (offerPlayerLookup(q)) html += `<button type="button" class="gs-result gs-lookup" data-action="gs.lookup" data-query="${window.escAttr(q.trim())}" title="Look up an exact email or username in this brand"><span class="gs-result-main">Look up in Maestro</span></button>`;
+
   results.innerHTML = html;
   results.classList.add('show');
 }
@@ -155,6 +167,7 @@ function gsGo(type, id) {
   else if (type === 'page') {
     nav(id);
   }
+  else if (type === 'player') return lookupPlayerQuery(id);
 }
 
 function gsKey(e) {
@@ -172,7 +185,10 @@ function gsKey(e) {
   else if (e.key === 'ArrowUp')   { e.preventDefault(); idx = Math.max(0, idx - 1); }
   else if (e.key === 'Enter')     {
     e.preventDefault();
-    if (idx >= 0) items[idx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    if (idx >= 0) {
+      if (items[idx].dataset.action) items[idx].click();
+      else items[idx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    }
     else { gsOpenAllResults(e.target.value); }
     return;
   }
@@ -325,6 +341,7 @@ export function renderSearchResults() {
       <div class="filter-bar" style="gap:10px">
         <input class="filter-select" id="search-page-input" placeholder="Search across the workspace…" style="flex:1;max-width:520px" value="${window.escHtml(SEARCH_PAGE_QUERY)}" data-input-action="gs.setQuery" autofocus/>
         <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3)">${ql ? `${totalCount} result${totalCount===1?'':'s'}` : ''}</span>
+        ${offerPlayerLookup(SEARCH_PAGE_QUERY) ? `<button type="button" class="btn btn-sm" data-action="gs.lookup" data-query="${window.escAttr(SEARCH_PAGE_QUERY.trim())}" title="Look up an exact email or username in this brand">Look up in Maestro</button>` : ''}
       </div>
       ${ql ? `<div class="filter-bar" style="border-top:none;padding-top:6px;padding-bottom:10px">
         <span class="filter-label">View</span>
@@ -345,6 +362,7 @@ function searchPageSetQuery(q) {
 // (fire before the #gs-input blur dismisses the dropdown); gsKey dispatches a
 // bubbling mousedown on Enter so it reaches this delegated handler.
 registerActions({
+  'gs.lookup':       (ds) => gsGo('player', ds.query),
   'gs.openTicket':   (ds) => openTicket(ds.id),
   'gs.openCustomer': (ds) => { setCustomerSelected(ds.id);   navTo('customers'); },
   'gs.openAgent':    (ds) => { setAgentSelected(ds.name);    navTo('agents'); },

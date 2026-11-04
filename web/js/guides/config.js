@@ -53,6 +53,7 @@ export const GUIDE_STEPS = [
     highlights: ["Open the customer from the ticket’s Details panel.","Check previous tickets for related issues.","Follow your team’s identity checks before sharing account information."],
     instructions: [
       'Open Customers and select the customer, or choose a customer result in the search bar. From a ticket’s Details sidebar, select the Customer section, then View full profile.',
+      'If a contact is not found, choose Look up in Maestro from the main search dropdown or Search results page. Use an exact email or username. This searches the selected brand, even if the player has never contacted support. Looking up a player does not create a customer or send a message.',
       'Check that the record belongs to the person and brand you are supporting. Review the Tickets section for related problems and commitments. Use Load more to see older tickets. If history could not be loaded, select Try again.',
       'Follow your team’s identity checks before disclosing account information or acting on a request. Include only the customer information needed in replies and notes.',
     ],

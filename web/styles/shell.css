@@ -88,6 +88,7 @@
 .gs-group{padding:8px 14px 4px;font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);background:var(--off2);border-top:1px solid var(--rule)}
 .gs-group:first-child{border-top:none}
 .gs-result{padding:8px 14px;cursor:pointer;display:flex;gap:10px;align-items:center;font-size:13px;color:var(--ink2);border-top:1px solid var(--rule)}
+.gs-lookup{width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--rule);font-family:inherit}
 .gs-result:hover,.gs-result.active{background:var(--purple-lt);color:var(--ink)}
 .gs-result-type{font-size:10px;color:var(--ink3);font-family:var(--font-sans);letter-spacing:.04em;text-transform:uppercase;flex-shrink:0;min-width:64px;font-weight:600}
 .gs-result-main{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;color:var(--ink)}

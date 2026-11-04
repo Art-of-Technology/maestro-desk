@@ -349,7 +349,7 @@ function openLocalCustomer(custId) {
 }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
-async function lookupPlayerQuery(query) {
+export async function lookupPlayerQuery(query) {
   const value = (query || '').trim();
   if (!value || !getBrandId() || STARTING) return;
   resetPlayerLookup();
