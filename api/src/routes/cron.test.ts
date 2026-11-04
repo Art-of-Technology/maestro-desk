@@ -4,7 +4,7 @@
 // CRON_SECRET so the guard is deterministic regardless of the ambient .env or
 // test-run order.
 
-import { describe, expect, it, mock, afterAll, beforeEach } from 'bun:test';
+import { describe, expect, it, mock, afterAll, beforeEach, spyOn } from 'bun:test';
 
 // Hermetic env so the real env.ts (pulled in below to derive a complete stub)
 // validates without an api/.env. The DB URL is a placeholder — connections are
@@ -43,23 +43,18 @@ mock.module('../lib/audit-verify.js', () => ({
   verifyAuditChainsFull: async () => auditResult,
 }));
 
-// Player-identity backfill: swapped per-test between a normal result and the
-// job's own abort error (dead token / consecutive gateway failures). The
-// cron-jobs module is SPREAD so every other export stays real — a partial
-// mock leaks to later test files in bun (the env mock above spreads for the
-// same reason) — and alertCronFailure is stubbed so the abort test can't make
-// a real Postmark call through lib/alert.ts when another file's env leaks in.
+// Restore these spies after the suite: a module mock leaves alertCronFailure
+// stubbed for the real delivery/privacy tests when this file runs first.
 const realCronJobs = await import('../lib/cron-jobs.js');
 const { BackfillAbortError, BackfillBusyError } = await import('../lib/player-identity.js');
 const OK_RESULT = {
   workspaces: 1, attempted: 2, linked: 1, notFound: 1, mismatched: 0, rejected: 0, noPlayerId: 0, skipped: 0, failed: 0, remaining: 0,
 };
 let backfillImpl: (opts?: { maxAttempts?: number }) => Promise<typeof OK_RESULT> = async () => OK_RESULT;
-mock.module('../lib/cron-jobs.js', () => ({
-  ...realCronJobs,
-  alertCronFailure: async () => {},
-  runPlayerIdentityBackfill: (opts?: { maxAttempts?: number }) => backfillImpl(opts),
-}));
+spyOn(realCronJobs, 'alertCronFailure').mockImplementation(async () => {});
+spyOn(realCronJobs, 'runPlayerIdentityBackfill').mockImplementation(
+  (opts?: { maxAttempts?: number }) => backfillImpl(opts),
+);
 
 const { cron } = await import('./cron.js');
 const realFetch = globalThis.fetch;
