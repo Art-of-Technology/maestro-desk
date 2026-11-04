@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 import { matchesContact } from '../web/js/customers/contacts.js';
 
 const source = file => readFileSync(new URL(`../web/js/${file}`, import.meta.url), 'utf8')
-  .replace(/^import .*;\r?\n/gm, '').replace(/\bexport /g, '');
+  .replace(/^import[\s\S]*?;\r?\n/gm, '').replace(/\bexport /g, '');
 const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
 
 function ticketSearch(query, customers = [], brand = 'brand') {
@@ -32,6 +32,79 @@ function playerLookup(brand = 'brand', failure = null) {
   });
   return { actions, calls, pages, renders, ...api };
 }
+
+function mainSearch(customers = [], brand = 'brand', lookup = async () => {}) {
+  const actions = {}, mouseActions = {}, classes = new Set(), opened = [];
+  const input = { value: '', blur() {}, focus() {}, setSelectionRange() {} };
+  const results = { innerHTML: '', classList: { add: x => classes.add(x), remove: x => classes.delete(x), contains: x => classes.has(x) } };
+  const api = runInNewContext(source('global-search/index.js') + '\n({globalSearch, gsKey, searchPageSetQuery, renderSearchResults})', {
+    CUSTOMERS: customers.map(c => ({ id: 'C-1', first: '', last: '', username: '', brand: '', email: '', vip: 'None', ...c })),
+    TICKETS: [], AGENTS: [], KB_ARTICLES: [], TAG_LIBRARY: [], SEARCH_PAGE_FILTER: 'all',
+    getBrandId: () => brand, matchesContact, lookupPlayerQuery: lookup,
+    window: { escHtml: esc, escAttr: esc },
+    document: { getElementById: id => id === 'gs-results' ? results : input },
+    registerActions: map => Object.assign(actions, map), registerMousedownActions: map => Object.assign(mouseActions, map), registerInputActions() {},
+    navTo: page => opened.push(page), renderPage() {}, MouseEvent: class { constructor(type) { this.type = type; } },
+  });
+  return { ...api, actions, mouseActions, results, input, opened, classes,
+    surfaces(query) { api.globalSearch(query); api.searchPageSetQuery(query); return [results.innerHTML, api.renderSearchResults()]; },
+  };
+}
+
+test('main search offers an escaped lookup in both surfaces without requiring ticket history', () => {
+  const h = mainSearch();
+  for (const html of h.surfaces('  MixedCase+tag@example.com  ')) {
+    expect(html).toContain('data-action="gs.lookup" data-query="MixedCase+tag@example.com"');
+    expect(html).toContain('Look up in Maestro');
+  }
+  for (const html of h.surfaces('user"<name')) expect(html).toContain('data-query="user&quot;&lt;name"');
+  for (const html of h.surfaces('Dashboard')) expect(html).toContain('data-action="gs.lookup"');
+  expect(mainSearch([{ brand: 'Example' }]).surfaces('Example').every(html => html.includes('data-action="gs.lookup"'))).toBe(true);
+});
+
+test('main search hides lookup for blank queries, missing brands and existing contacts', () => {
+  for (const [query, customers, brand] of [
+    ['  ', [], 'brand'], ['unknown', [], null],
+    ...[{ email: 'person@example.com' }, { emails: [{ value: 'person@example.com' }] },
+      { username: 'person@example.com' }, { first: 'person@example.com' }]
+      .map(c => ['PERSON@EXAMPLE.COM', [c], 'brand']),
+  ]) {
+    for (const html of mainSearch(customers, brand).surfaces(query)) expect(html).not.toContain('data-action="gs.lookup"');
+  }
+});
+
+test('main search hands off once, clears its dropdown and preserves lookup errors', async () => {
+  for (const failure of [null, { status: 404 }, { status: 503, message: 'Lookup unavailable' }]) {
+    const player = playerLookup('brand', failure);
+    const h = mainSearch([], 'brand', query => player.actions['players.lookupQuery']({ query }));
+    h.input.value = 'MixedCase+tag@example.com';
+    h.globalSearch(h.input.value);
+    await h.actions['gs.lookup']({ query: h.input.value });
+    expect(h.input.value).toBe('');
+    expect(h.results.innerHTML).toBe('');
+    expect(h.classes.has('show')).toBe(false);
+    expect(player.calls).toEqual([{ path: '/api/v1/maestro/players?email=MixedCase%2Btag%40example.com', options: { brand: true } }]);
+    expect(player.renders[0]).toContain('value="MixedCase+tag@example.com"');
+    if (failure) expect(player.renderPlayerLookupView()).toContain(failure.status === 404 ? 'No player found' : 'Lookup unavailable');
+  }
+});
+
+test('main search keyboard activates lookup buttons and retains existing result navigation', async () => {
+  for (const button of [true, false]) {
+    const calls = [], active = new Set(), h = mainSearch();
+    const item = { dataset: button ? { action: 'gs.lookup' } : {},
+      classList: { add: x => active.add(x), remove: x => active.delete(x) }, scrollIntoView() {},
+      click: () => calls.push('lookup'), dispatchEvent: event => calls.push(event.type),
+    };
+    h.results.querySelectorAll = () => [item];
+    h.results.querySelector = () => active.has('active') ? item : null;
+    h.globalSearch('unknown');
+    const key = key => h.gsKey({ key, target: h.input, preventDefault() {} });
+    key('ArrowDown'); key('Enter');
+    expect(calls).toEqual([button ? 'lookup' : 'mousedown']);
+    key('Escape'); expect(h.classes.has('show')).toBe(false);
+  }
+});
 
 test('ticket search offers a lookup with the trimmed, escaped original query', () => {
   const html = ticketSearch('  MixedCase+tag@example.com  ');
