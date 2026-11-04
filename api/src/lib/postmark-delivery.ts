@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { getDb } from './db.js';
+import { completeReplyStatus } from './reply-status.js';
 
 export const PostmarkDelivery = z.object({
   RecordType: z.literal('Delivery'),
@@ -21,7 +22,7 @@ export async function processDeliveryEvent(payload: z.infer<typeof PostmarkDeliv
   const { workspace_id: workspaceId, message_id: messageId, send_attempt_id: attemptId } = reference.data;
   const recipient = payload.Recipient.toLowerCase();
   const sql = getDb();
-  return sql.begin(async tx => {
+  const matched = await sql.begin(async tx => {
     // Lock the original row: concurrent recipients and send acknowledgements must retain every receipt.
     const [message] = await tx`select m.email_metadata from ticket_messages m
       join tickets t on t.id=m.ticket_id and t.workspace_id=m.workspace_id
@@ -51,4 +52,8 @@ export async function processDeliveryEvent(payload: z.infer<typeof PostmarkDeliv
       where id=${messageId} and workspace_id=${workspaceId}`;
     return true;
   });
+  // Commit the receipt first; completion locks the ticket before the message.
+  // Duplicate receipts also retry an interrupted status update.
+  if (matched) await completeReplyStatus(workspaceId, messageId);
+  return matched;
 }

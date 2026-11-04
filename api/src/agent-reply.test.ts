@@ -1295,6 +1295,196 @@ runDbTests('agent-reply email delivery (DB-backed)', () => {
     }
   });
 
+  describe('saved send status actions', () => {
+  let surveyEnabled: boolean;
+  beforeEach(async () => {
+    const [choice] = await sql`select send_survey from ticket_statuses where workspace_id=${ctx.wsId} and key='resolved'`;
+    surveyEnabled = choice.send_survey;
+    await sql`update ticket_statuses set send_survey=false where workspace_id=${ctx.wsId} and key='resolved'`;
+  });
+  afterEach(async () => {
+    await sql`update ticket_statuses set send_survey=${surveyEnabled} where workspace_id=${ctx.wsId} and key='resolved'`;
+  });
+
+  it('finishes send and resolve on the server and exposes sending and resolution in both activity views', async () => {
+    const tid = await seedTicket(`AR-${RUN}-resolve`, { email: 'resolve@example.test' });
+    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+      role: 'agent', body: 'Synthetic reply', after_send: { status: 'resolved', reason: null },
+    }) });
+    expect(res.status).toBe(201);
+    const body: any = await res.json();
+    expect(body.delivery.emailed).toBe(true);
+    const detail: any = await (await as(`/api/v1/tickets/${tid}`)).json();
+    expect(detail.ticket.status_key).toBe('resolved');
+    const queue: any = await (await as('/api/v1/tickets/work-index?scope=outstanding')).json();
+    expect(queue.tickets.some((t: any) => t.id === tid)).toBe(false);
+    expect(detail.ticket.activity.some((e: any) => e.kind === 'sent')).toBe(true);
+    expect(detail.ticket.activity.some((e: any) => e.kind === 'status')).toBe(true);
+    const feed: any = await (await as(`/api/v1/activity?ticket=${tid}`)).json();
+    expect(feed.events.filter((e: any) => e.kind === 'sent')).toHaveLength(1);
+    expect(feed.events.filter((e: any) => e.kind === 'status')).toHaveLength(1);
+    expect(postmarkCalls).toBe(1);
+  });
+
+  it('finishes delayed delivery once without sending a second reply', async () => {
+    const tid = await seedTicket(`AR-${RUN}-late-resolve`, { email: 'late@example.test' });
+    failMail = true;
+    const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+      role: 'agent', body: 'Synthetic delayed reply', after_send: { status: 'resolved', reason: null },
+    }) });
+    const body: any = await res.json();
+    expect(body.delivery.emailed).toBe(false);
+    expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('open');
+    const { processDeliveryEvent } = await import('./lib/postmark-delivery.js');
+    const receipt = { RecordType: 'Delivery' as const, MessageStream: 'outbound' as const,
+      MessageID: providerId, Recipient: 'late@example.test', DeliveredAt: new Date().toISOString(), Metadata: lastBody.Metadata };
+    await processDeliveryEvent(receipt);
+    await processDeliveryEvent(receipt);
+    expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('resolved');
+    expect(await sql`select id from events where entity_id=${tid} and kind='status'`).toHaveLength(1);
+    expect(postmarkCalls).toBe(1);
+    await as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify({ status_option_key: 'open' }) });
+    await processDeliveryEvent(receipt);
+    expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('open');
+  });
+
+  it('runs the configured resolution survey once even when delivery receipts repeat', async () => {
+    await sql`update ticket_statuses set send_survey=true where workspace_id=${ctx.wsId} and key='resolved'`;
+    const tid = await seedTicket(`AR-${RUN}-action-survey`, { email: 'action-survey@example.test' });
+    const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+      role: 'agent', body: 'Synthetic reply', after_send: { status: 'resolved', reason: null },
+    }) });
+    const body: any = await response.json();
+    expect(response.status).toBe(201);
+    expect(postmarkCalls).toBe(2);
+    expect((await sql`select csat_requested_at from tickets where id=${tid}`)[0].csat_requested_at).not.toBeNull();
+    const { processDeliveryEvent } = await import('./lib/postmark-delivery.js');
+    const receipt = { RecordType: 'Delivery' as const, MessageStream: 'outbound' as const,
+      MessageID: providerId, Recipient: 'action-survey@example.test', DeliveredAt: new Date().toISOString(),
+      Metadata: { workspace_id: ctx.wsId, message_id: body.message.id, send_attempt_id: body.message.email_metadata.send_attempt_id } };
+    await processDeliveryEvent(receipt);
+    await processDeliveryEvent(receipt);
+    expect(postmarkCalls).toBe(2);
+    expect(await sql`select id from events where entity_id=${tid} and kind='status'`).toHaveLength(1);
+  });
+
+  it('does not apply an old send action after a new reply, a status change, or revoked access', async () => {
+    for (const scenario of ['reply', 'backdated-reply', 'status', 'access']) {
+      const recipient = `stale-${scenario}@example.test`;
+      const tid = await seedTicket(`AR-${RUN}-stale-${scenario}`, { email: recipient });
+      failMail = true;
+      const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+        role: 'agent', body: 'Synthetic stale reply', after_send: { status: 'resolved', reason: null },
+      }) });
+      expect(res.status).toBe(201);
+      if (scenario === 'reply' || scenario === 'backdated-reply') await sql`insert into ticket_messages(workspace_id,ticket_id,role,author_label,body,created_at)
+        values(${ctx.wsId},${tid},'customer','Synthetic customer','A newer question',${scenario === 'backdated-reply' ? new Date('2020-01-01') : new Date()})`;
+      if (scenario === 'status') await as(`/api/v1/tickets/${tid}`, { method: 'PATCH', body: JSON.stringify({ status_option_key: 'pending' }) });
+      if (scenario === 'access') await sql`update workspace_members set active=false where workspace_id=${ctx.wsId} and user_id=${admin.userId}`;
+      try {
+        const { processDeliveryEvent } = await import('./lib/postmark-delivery.js');
+        await processDeliveryEvent({ RecordType: 'Delivery', MessageStream: 'outbound', MessageID: providerId,
+          Recipient: recipient, DeliveredAt: new Date().toISOString(), Metadata: lastBody.Metadata });
+        expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe(scenario === 'status' ? 'pending' : 'open');
+        const [message] = await sql`select email_metadata from ticket_messages where id=${lastBody.Metadata.message_id}`;
+        expect(message.email_metadata.after_send.state).toBe('review');
+        expect(message.email_metadata.status).toBe('sent');
+      } finally {
+        await sql`update workspace_members set active=true where workspace_id=${ctx.wsId} and user_id=${admin.userId}`;
+      }
+    }
+    expect(postmarkCalls).toBe(4);
+  });
+
+  it('rejects unavailable statuses, missing reasons and note actions before sending', async () => {
+    const tid = await seedTicket(`AR-${RUN}-invalid-action`, { email: 'invalid@example.test' });
+    for (const [role, status] of [['agent','missing'], ['agent','closed'], ['note','resolved']]) {
+      const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+        role, body: 'Must not send', after_send: { status, reason: null },
+      }) });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+    }
+    await sql`update ticket_statuses set reason_required=true where workspace_id=${ctx.wsId} and key='resolved'`;
+    try {
+      expect((await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+        role: 'agent', body: 'Must not send', after_send: { status: 'resolved', reason: null },
+      }) })).status).toBe(400);
+    } finally {
+      await sql`update ticket_statuses set reason_required=false where workspace_id=${ctx.wsId} and key='resolved'`;
+    }
+    expect(postmarkCalls).toBe(0);
+    expect(await sql`select id from ticket_messages where ticket_id=${tid}`).toHaveLength(0);
+  });
+
+  it('requires status permissions before sending and again after delayed confirmation', async () => {
+    const [role] = await sql`select r.* from roles r join workspace_members wm on wm.role_id=r.id
+      where wm.workspace_id=${ctx.wsId} and wm.user_id=${admin.userId}`;
+    const denied = await seedTicket(`AR-${RUN}-denied-action`, { email: 'denied@example.test' });
+    const late = await seedTicket(`AR-${RUN}-revoked-role`, { email: 'revoked-role@example.test' });
+    failMail = true;
+    const sent = await as(`/api/v1/tickets/${late}/messages`, { method: 'POST', body: JSON.stringify({
+      role: 'agent', body: 'Synthetic reply', after_send: { status: 'resolved', reason: null },
+    }) });
+    expect(sent.status).toBe(201);
+    await sql`update roles set is_admin=false,permissions=${sql.json({ 'tickets.reply': true, 'tickets.view_all': true })} where id=${role.id}`;
+    try {
+      const response = await as(`/api/v1/tickets/${denied}/messages`, { method: 'POST', body: JSON.stringify({
+        role: 'agent', body: 'Must not send', after_send: { status: 'resolved', reason: null },
+      }) });
+      expect(response.status).toBe(403);
+      const { processDeliveryEvent } = await import('./lib/postmark-delivery.js');
+      await processDeliveryEvent({ RecordType: 'Delivery', MessageStream: 'outbound', MessageID: providerId,
+        Recipient: 'revoked-role@example.test', DeliveredAt: new Date().toISOString(), Metadata: lastBody.Metadata });
+      expect((await sql`select status_key from tickets where id=${late}`)[0].status_key).toBe('open');
+      expect(postmarkCalls).toBe(1);
+    } finally {
+      await sql`update roles set is_admin=${role.is_admin},permissions=${role.permissions ? sql.json(role.permissions) : null} where id=${role.id}`;
+    }
+  });
+
+  it('retries a refused email on its original message and completes the saved status action', async () => {
+    const tid = await seedTicket(`AR-${RUN}-retry-action`, { email: 'retry-action@example.test' });
+    refuseMail = true;
+    const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+      role: 'agent', body: 'Synthetic reply', after_send: { status: 'resolved', reason: null },
+    }) });
+    const body: any = await response.json();
+    expect(body.delivery.emailed).toBe(false);
+    refuseMail = false;
+    const retried = await as(`/api/v1/tickets/${tid}/messages/${body.message.id}/retry`, { method: 'POST', body: '{}' });
+    expect(retried.status).toBe(200);
+    expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('resolved');
+    expect(await sql`select id from ticket_messages where ticket_id=${tid}`).toHaveLength(1);
+    expect(await sql`select id from events where entity_id=${tid} and kind='status'`).toHaveLength(1);
+    expect(postmarkCalls).toBe(2);
+  });
+
+  it('keeps confirmed delivery when status history fails and finishes on a repeated receipt', async () => {
+    const tid = await seedTicket(`AR-${RUN}-action-rollback`, { email: 'rollback@example.test' });
+    const constraint = 'reply_status_failure_' + RUN;
+    await sql.unsafe(`alter table events add constraint ${constraint} check (entity_id <> '${tid}'::uuid or kind <> 'status') not valid`);
+    let body: any;
+    try {
+      const response = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({
+        role: 'agent', body: 'Synthetic reply', after_send: { status: 'resolved', reason: null },
+      }) });
+      expect(response.status).toBe(201);
+      body = await response.json();
+      expect(body.delivery.emailed).toBe(true);
+      expect(body.message.email_metadata.after_send.state).toBe('pending');
+      expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('open');
+      expect(await sql`select id from events where entity_id=${tid}`).toHaveLength(0);
+    } finally { await sql.unsafe(`alter table events drop constraint ${constraint}`); }
+    const { processDeliveryEvent } = await import('./lib/postmark-delivery.js');
+    await processDeliveryEvent({ RecordType: 'Delivery', MessageStream: 'outbound', MessageID: providerId,
+      Recipient: 'rollback@example.test', DeliveredAt: new Date().toISOString(), Metadata: lastBody.Metadata });
+    expect((await sql`select status_key from tickets where id=${tid}`)[0].status_key).toBe('resolved');
+    expect(await sql`select id from events where entity_id=${tid} and kind='status'`).toHaveLength(1);
+    expect(postmarkCalls).toBe(1);
+  });
+
+  });
+
   it('skips hard-bounced / spam-flagged addresses', async () => {
     const tid = await seedTicket(`AR-${RUN}-4`, { email: `bounced-${RUN}@acme.test`, bounce: 'hard' });
     const res = await as(`/api/v1/tickets/${tid}/messages`, { method: 'POST', body: JSON.stringify({ role: 'agent', body: 'hi' }) });

@@ -1259,7 +1259,10 @@ async function sendComposeAnd(id, status) {
   }
   const reason = await chooseStatusReason(statusChoice(status));
   if (reason === undefined || workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== id || COMPOSE_TAB !== composeTab) return;
-  const sent = await sendCompose(id, false, { requireEmail: COMPOSE_TAB === 'reply' });
+  const serverAction = composeTab === 'reply' && TICKETS.find(t => t.id === id)?._uuid;
+  const sent = await sendCompose(id, false, { requireEmail: composeTab === 'reply',
+    ...(serverAction ? { afterSend: { status, reason } } : {}) });
+  if (serverAction) return;
   if (sent === false || workspace !== getWorkspaceId() || jwt !== getJwt() || CURRENT_TICKET !== id || COMPOSE_TAB !== composeTab) return;
   if (COMPOSE_TAB === 'reply') await applySentStatus(id, status, reason);
   else await changeTicketStatus(id, status, reason);
@@ -1316,11 +1319,11 @@ function showSentTextModal(ticketId, msgIdx) {
     null, null);
 }
 
-async function sendCompose(id, withoutAI = false, { requireEmail = false } = {}) {
+async function sendCompose(id, withoutAI = false, { requireEmail = false, afterSend } = {}) {
   if (sendingReplies.has(id)) return false;
   sendingReplies.add(id);
   try {
-    const result = await sendComposeOnce(id, withoutAI, requireEmail);
+    const result = await sendComposeOnce(id, withoutAI, requireEmail, afterSend);
     if (result !== false) invalidateAgentReport();
     return result;
   }
@@ -1328,7 +1331,7 @@ async function sendCompose(id, withoutAI = false, { requireEmail = false } = {})
 }
 const sendingReplies = new Set();
 
-async function sendComposeOnce(id, withoutAI = false, requireEmail = false) {
+async function sendComposeOnce(id, withoutAI = false, requireEmail = false, afterSend) {
   const el = document.getElementById(`compose-${id}`);
   if (!el) return false;
   const txt = getPlainText(id).trim();
@@ -1427,6 +1430,7 @@ async function sendComposeOnce(id, withoutAI = false, requireEmail = false) {
       sentDraft = await prepareDraftSend(id, tab);
       if (!stillCurrent()) { finishDraftSend(id, tab, sentDraft); return false; }
       const res = await apiPost(`/api/v1/tickets/${t._uuid}/messages`, {
+        after_send: afterSend,
         draft_version: sentDraft.version,
         role: isNote ? 'note' : 'agent',
         email_recipients: recipients,
@@ -1448,6 +1452,12 @@ async function sendComposeOnce(id, withoutAI = false, requireEmail = false) {
         showToast('Message saved. The local draft cache could not be updated. Reopen the ticket before continuing.', 'error');
       }
       if (scope !== getWorkspaceId() || jwt !== getJwt()) return true;
+      applySavedActivity(t, res);
+      if (afterSend && message.email_metadata?.after_send?.state !== 'applied') {
+        showToast(message.email_metadata?.after_send?.state === 'pending' && !emailed
+          ? 'The status will update when sending is confirmed. Do not resend while delivery is unconfirmed.'
+          : 'Reply saved. The status update was not completed. Check delivery and use the ticket status control; do not send the reply again.', 'warn', 10000);
+      }
     } catch (err) {
       if (sentDraft) { try { finishDraftSend(id, tab, sentDraft); } catch { /* Preserve the original send error. */ } }
       void refreshPersonalDraft(id, tab);
@@ -1491,6 +1501,12 @@ async function sendComposeOnce(id, withoutAI = false, requireEmail = false) {
   if (clearSentDraft) {
     if (!t._uuid) clearDraft(id, tab);
     if (CURRENT_TICKET === id && COMPOSE_TAB === tab) clearComposer(id);
+  }
+  if (afterSend && t._uuid) {
+    try { await loadTicketDetail(id, { force: true }); }
+    catch { showToast('Could not refresh the ticket. Reload to check its status and delivery.', 'warn'); }
+    if (scope !== getWorkspaceId() || jwt !== getJwt()) return true;
+    updateNavBadges();
   }
   if (CURRENT_TICKET === id) {
     openTicket(id);

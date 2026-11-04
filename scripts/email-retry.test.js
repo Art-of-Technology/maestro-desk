@@ -19,7 +19,7 @@ test('retry updates the existing message, ignores double clicks and stale sessio
         if (scenario === 'switched') workspace = 'two';
         return { email_metadata: { status: 'sent' }, delivery: { emailed: true } };
       },
-      openTicket: () => { opens++; }, notifyReplyDelivery() {}, showToast() {}, button,
+      openTicket: () => { opens++; }, notifyReplyDelivery() {}, applySavedActivity() {}, showToast() {}, button,
     };
     await runInNewContext(handler + (scenario === 'double-click' ? 'Promise.all([retryEmail("original",button),retryEmail("original",button)])' : 'retryEmail("original",button)'), context);
     expect(calls).toBe(1); expect(ticket.msgs).toHaveLength(1); expect(ticket.msgs[0]).toBe(message);

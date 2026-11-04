@@ -26,6 +26,8 @@ import { setCustomerSpam } from '../lib/customer-spam.js';
 import { notifyMentionedAgents } from '../lib/mention-notify.js';
 import { notifyAssignedAgent } from '../lib/assignment-notify.js';
 import { sendAgentReplyEmail, type AgentReplyDelivery } from '../lib/agent-reply.js';
+import { ReplyStatus, prepareReplyStatus, completeReplyStatus } from '../lib/reply-status.js';
+import { sentReplyActivity } from '../lib/sent-reply-activity.js';
 import { composeEmail, type ComposedEmail } from '../lib/email-branding.js';
 import { emailTranslator } from '../lib/email-translation.js';
 import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
@@ -296,8 +298,9 @@ tickets.get('/:id', async (c) => {
     // Attachments per message with presigned URLs; body_html's cid: tokens are
     // swapped for the inline images' URLs in decorateMessages.
     loadAttachmentsForTicket(workspaceId, ticketId),
-    sql`select id, kind, author_user_id, author_label, details, created_at from events
+    sql`select * from (select id, kind, author_user_id, author_label, details, created_at from events
       where workspace_id = ${workspaceId} and entity_type = 'ticket' and entity_id = ${ticketId}
+      union all select id,kind,author_user_id,author_label,details,created_at from (${sentReplyActivity(sql, workspaceId, ticketId)}) sent) history
       order by created_at desc, id desc limit 100`,
     sql`with latest as (
         select s.* from ai_reply_suggestions s
@@ -831,6 +834,7 @@ tickets.patch('/:id/messages/:noteId', async (c) => {
 
 // ─── POST /:id/messages — agent reply or internal note ───────────────────
 const PostMessage = z.object({
+  after_send: ReplyStatus.optional(),
   reply_language: z.enum(SUPPORTED_LANGUAGES).optional(),
   draft_version: z.number().int().min(0).max(2147483646).optional(),
   role:     z.enum(['agent', 'note']),
@@ -862,6 +866,7 @@ tickets.post('/:id/messages', async (c) => {
     return c.json({ error: 'Invalid body', issues: parsed.error.issues }, 400);
   }
   const input = parsed.data;
+  if (input.after_send && input.role !== 'agent') return c.json({ error: 'Only email replies can have an after-send action.' }, 400);
   if (input.role === 'agent' && /\{[a-z][a-z0-9_]*\}/i.test(`${input.body || ''}\n${input.body_html || ''}\n${input.body_html ? htmlToText(input.body_html) : ''}`)) {
     return c.json({ error: 'Fill in the template placeholders before sending.' }, 400);
   }
@@ -967,6 +972,7 @@ tickets.post('/:id/messages', async (c) => {
   let message, draftVersion: number | undefined;
   try {
     message = await sql.begin(async (tx) => {
+      const afterSend = input.after_send ? await prepareReplyStatus(tx, workspaceId, ticketId, userId, input.after_send) : undefined;
       if (composed?.subject && originalSubject !== undefined) {
         const [updated] = await tx`update tickets set subject=${composed.subject}, updated_at=now()
           where id=${ticketId} and workspace_id=${workspaceId} and deleted_at is null and subject=${originalSubject}
@@ -982,7 +988,7 @@ tickets.post('/:id/messages', async (c) => {
       }
       const [row] = await tx<{ id: string; body_html: string | null; [key: string]: unknown }[]>`
         insert into ticket_messages (workspace_id, ticket_id, role, author_user_id, author_label, body, body_html, mentions, email_metadata)
-        values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []}, ${input.role === 'agent' ? tx.json({ status: 'saved', from: '', to: [], cc: [] }) : null})
+        values (${workspaceId}, ${ticketId}, ${input.role}, ${userId}, ${authorLabel}, ${bodyText}, ${bodyHtml}, ${input.mentions || []}, ${input.role === 'agent' ? tx.json({ status: 'saved', from: '', to: [], cc: [], ...(afterSend ? { after_send: afterSend } : {}) }) : null})
         returning id, role, author_user_id, author_label, body, body_html, mentions, created_at
       `;
       await claimAttachments(tx, { workspaceId, ticketId, messageId: row.id, ids: claimIds, userId });
@@ -1042,6 +1048,9 @@ tickets.post('/:id/messages', async (c) => {
     }
   }
 
+  // A status failure must never turn an already-sent reply into a failed-send response.
+  try { await completeReplyStatus(workspaceId, message.id); }
+  catch (err) { console.warn('[reply-status] completion pending:', safeError(err)); }
   const [emailRow] = await sql`select email_metadata from ticket_messages where id=${message.id} and workspace_id=${workspaceId}`;
   Object.assign(message, { email_metadata: emailRow?.email_metadata || (input.role === 'agent' ? { status: 'saved', from: '', to: [], cc: [] } : null) });
 
@@ -1051,7 +1060,7 @@ tickets.post('/:id/messages', async (c) => {
   const decorated = claimIds.length
     ? decorateMessages([message as { id: string; body_html?: string | null }], await loadAttachmentsForTicket(workspaceId, ticketId))[0]
     : { ...message, attachments: [] };
-  return c.json({ message: decorated, delivery, draft_version: draftVersion, subject: composed?.subject }, 201);
+  return c.json({ message: decorated, delivery, activity: await sentReplyActivity(sql, workspaceId, ticketId), draft_version: draftVersion, subject: composed?.subject }, 201);
 });
 
 // Retry delivery of a saved reply without inserting another thread message.
@@ -1070,8 +1079,10 @@ tickets.post('/:id/messages/:messageId/retry', async (c) => {
   if (message.email_metadata?.delivery_state !== 'failed') return c.json({ error: 'Delivery is unconfirmed or still in progress. Check delivery before trying again.' }, 409);
   const delivery = await sendAgentReplyEmail({ workspaceId, ticketId: id, messageId,
     authorUserId: message.author_user_id, body: message.body, bodyHtml: message.body_html });
+  try { await completeReplyStatus(workspaceId, messageId); }
+  catch (err) { console.warn('[reply-status] completion pending:', safeError(err)); }
   const [updated] = await sql`select email_metadata from ticket_messages where workspace_id=${workspaceId} and id=${messageId} and deleted_at is null`;
-  return c.json({ delivery, email_metadata: updated?.email_metadata || null });
+  return c.json({ delivery, email_metadata: updated?.email_metadata || null, activity: await sentReplyActivity(sql, workspaceId, id) });
 });
 
 // ─── POST /:id/sentiment/backfill — score unscored customer messages ─────
