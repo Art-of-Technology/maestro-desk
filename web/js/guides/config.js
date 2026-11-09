@@ -210,6 +210,7 @@ export const GUIDE_STEPS = [
     ],
     instructions: [
       'Choose New ticket from Tickets or a customer profile. The full-screen composer keeps the profile’s customer, primary email and saved language. Check From, To, Cc, subject, category, priority and assignee.',
+      'If the person has no player account, enter their email in the Customer field. Save as draft or Send will reuse a matching support contact or create one without requiring a name or player account. Typing alone creates nothing. Check the To address before sending.',
       'Write the first message or choose the Insert template icon. Your usual response templates and favourites are available here, alongside formatting, AI tools, preview and attachments. Inserting a response keeps your ticket details. Check Reply language before sending.',
       'Save as draft keeps the ticket details and any unsent message or attachments. You can leave the message empty, even if First message is required for sending. Wait for the save result, then continue from the ticket or reopen it from Tickets. Closing an unfinished composer asks before discarding it. The walkthrough never creates or sends a ticket for you.',
     ],
