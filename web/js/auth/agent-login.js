@@ -188,7 +188,7 @@ async function routeMembership(me) {
     if (!brand || brand.suspended_at) throw new Error('This workspace is unavailable.');
     return { workspace_id: brand.id, workspace_name: brand.name, workspace_slug: brand.slug,
       workspace_logo_url: brand.logo_url, workspace_primary_color: brand.primary_color,
-      maestro_brand_id: brand.maestro_brand_id, role_name: 'Platform Admin',
+      maestro_brand_id: brand.maestro_brand_id, role_name: 'Platform Admin', is_admin: true,
       can_manage_custom_fields: true, can_delete: true };
   }
   const membership = (me.memberships || []).find(m =>
