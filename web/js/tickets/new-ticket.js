@@ -13,9 +13,9 @@ import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
-import { updateOrInsertTicket, loadTicketDetail } from '../core/bootstrap.js';
+import { updateOrInsertTicket, loadTicketDetail, applyCustomerRow } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery, applySentStatus } from './detail.js';
-import { matchesContact } from '../customers/contacts.js';
+import { matchesContact, hasContact } from '../customers/contacts.js';
 import { saveDraft, saveDraftRecipients, saveDraftAttachments, flushPersonalDraft, prepareDraftSend, finishDraftSend, textHtml } from './drafts.js';
 import { mountComposer, disposeComposer, getHtml, getPlainText, setText, setHtml, isRich } from './composer.js';
 import { appendTemplate, resolveTemplate, unresolvedVariables } from './template-content.js';
@@ -39,6 +39,7 @@ const NT = {
   statusReason: '',
   busy: false,
   templateId: null,
+  email: '',
   customer: null,        // { uuid|null, displayId, label }
   categoryValue: '',     // category KEY (API-backed) or label (demo fallback)
   categoryLabel: '',
@@ -72,6 +73,7 @@ function resetNT() {
   for (const filter of Object.values(templateFilters)) { filter.query = ''; filter.category = ''; }
   NT.busy = false;
   NT.templateId = null;
+  NT.email = '';
   NT.customer = null;
   NT.categoryValue = '';
   NT.categoryLabel = '';
@@ -165,7 +167,7 @@ export async function showNewTicketModal(templateId, custDisplayId) {
 }
 
 function customerRef(c) {
-  return { uuid: c._uuid || null, displayId: c.id, label: `${c.first} ${c.last}`.trim() || c.id };
+  return { uuid: c._uuid || null, displayId: c.id, label: `${c.first} ${c.last}`.trim() || c.email || c.id };
 }
 
 // Keep agent edits; a previous template's untouched wording may be replaced.
@@ -237,7 +239,7 @@ function custBoxHtml() {
   }
   return `
     <input class="form-input" id="nt-cust-search" data-input-action="nt.custSearch"
-           placeholder="Search by name, email, or ID…" autocomplete="off" spellcheck="false"/>
+           value="${window.escAttr(NT.email)}" placeholder="Search customers or enter an email address…" autocomplete="off" spellcheck="false"/>
     <div id="nt-cust-sug" style="position:relative"></div>`;
 }
 
@@ -305,7 +307,7 @@ function harvestStep1() {
 
 function validateStep1(haveCats) {
   if (statusChoice('open')?.reason_required && !NT.statusReason) { alert('Choose a reason for the Open status.'); document.getElementById('nt-status-reason')?.focus(); return false; }
-  if (visible('customerId') && !NT.customer) { alert('Pick a customer — search by name, email, or ID.'); return false; }
+  if (visible('customerId') && !NT.customer && !validEmail(NT.email)) { alert('Choose a customer or enter a valid email address.'); return false; }
   if (visible('subject') && required('subject') && !NT.subject) { alert('Subject is required.'); return false; }
   // Category is compulsory (locked required in FIELD_LAYOUTS) — agents must
   // actively pick an accurate one. A workspace with no categories at all has
@@ -323,6 +325,12 @@ function validateStep1(haveCats) {
 // global-search recipe: rows pick on MOUSEDOWN so the choice beats the
 // input's blur; keyboard nav is wired imperatively post-render.
 
+function validEmail(value) {
+  const input = document.createElement('input');
+  input.type = 'email'; input.required = true; input.value = value;
+  return value.length <= 254 && input.checkValidity();
+}
+
 function matchCustomers(q) {
   const needle = q.trim().toLowerCase();
   if (!needle) return [];
@@ -338,7 +346,7 @@ function renderSuggestions(q) {
   const box = document.getElementById('nt-cust-sug');
   if (!box) return;
   const rows = matchCustomers(q);
-  if (!rows.length) { box.innerHTML = ''; return; }
+  if (!rows.length) { box.textContent = validEmail(q.trim()) ? 'A support contact will be created when you save or send. No player account is required.' : ''; return; }
   // Reuses the global-search dropdown classes (.gs-results/.gs-result in
   // web/styles/shell.css) so the keyboard highlight is actually VISIBLE and
   // hover comes from CSS — no inline styles, no per-row listeners.
@@ -382,6 +390,7 @@ function wireCustomerSearch() {
 }
 
 function pickCustomer(displayId) {
+  NT.email = '';
   const c = CUSTOMERS.find(x => x.id === displayId);
   if (!c) return;
   if (NT.customer?.displayId !== displayId) {
@@ -393,6 +402,7 @@ function pickCustomer(displayId) {
 }
 
 function clearCustomer() {
+  NT.email = '';
   NT.customer = null;
   NT.replyLanguage = '';
   const boxEl = document.getElementById('nt-cust-box');
@@ -452,7 +462,7 @@ function closeWorkspace() {
 
 function hasUnfinishedTicket() {
   return !!(NT.subject || NT.categoryValue || NT.message || NT.messageHtml || NT.files.length || NT.createdTicket
-    || NT.cc || NT.sendingChannel || NT.agentUserId || NT.priority !== 'normal');
+    || NT.email || NT.cc || NT.sendingChannel || NT.agentUserId || NT.priority !== 'normal');
 }
 
 function cancelWorkspace() {
@@ -476,7 +486,7 @@ function cancelWorkspace() {
 function recipientPayload() {
   const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
   const channel = NT.sendingInboxes.find(c => c.id === NT.sendingChannel);
-  return { source_message_id: null, mode: 'reply', to: customer?.email ? [customer.email] : [],
+  return { source_message_id: null, mode: 'reply', to: NT.email ? [NT.email] : customer?.email ? [customer.email] : [],
     cc: NT.cc.split(',').map(value => value.trim()).filter(Boolean),
     sending_channel_id: NT.sendingChannel || null, sending_address: channel?.address || null };
 }
@@ -488,7 +498,7 @@ function newTicketContext() {
 function insertResponse(template) {
   if (!currentWorkspace() || NT.busy || NT.aiBusy || !visible('message') || !can('tickets.reply')) return;
   harvestWorkspace();
-  if (!NT.customer) { showToast('Choose a customer before inserting a response.', 'warn'); return; }
+  if (!NT.customer && !validEmail(NT.email)) { showToast('Choose a customer or enter an email before inserting a response.', 'warn'); return; }
   return appendTemplate(newTicketContext(), template);
 }
 
@@ -526,7 +536,7 @@ function renderWorkspace() {
       ${NT.createdTicket ? `<p class="nt-saved-notice" role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is saved. Continue here to retry; your ticket will not be created again.</p>` : ''}
       ${renderTagControls('new-ticket')}
       <div class="nt-recipients"><label for="nt2-from">From</label><select id="nt2-from" class="form-input"><option value="">Workspace default sender</option>${channels.map(c => `<option value="${window.escAttr(c.id)}" ${NT.sendingChannel === c.id ? 'selected' : ''}>${window.escHtml(c.address)}</option>`).join('')}</select>
-      <span>To</span><span class="nt-to">${window.escHtml(customer?.email || 'Choose a customer with a usable email address')}</span>
+      <span>To</span><span class="nt-to">${window.escHtml(NT.email || customer?.email || 'Choose a customer or enter an email address')}</span>
       <label for="nt2-cc">Cc</label><input type="email" multiple id="nt2-cc" class="form-input" value="${window.escAttr(NT.cc)}" placeholder="Email addresses, separated by commas"></div>
       <div class="nt-writing-tools"><div class="composer-actions" role="group" aria-label="Message tools">
       <button type="button" class="btn btn-sm composer-tool" data-action="nt.responses" aria-label="Insert template" aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space" title="Insert template (Ctrl/Cmd+Shift+Space)" ${NT.aiBusy ? 'disabled' : ''}>
@@ -594,7 +604,7 @@ function renderWorkspace() {
 async function aiWriting(verb) {
   if (!currentWorkspace() || NT.busy || NT.aiBusy || !visible('message') || !can('tools.ai') || !can('tickets.reply')) return;
   harvestWorkspace();
-  const original = NT.message, originalHtml = NT.messageHtml, scope = NT.scope, customer = NT.customer;
+  const original = NT.message, originalHtml = NT.messageHtml, scope = NT.scope, customer = NT.customer, email = NT.email;
   const editor = document.getElementById('compose-new-ticket');
   if (!original.trim() && (verb !== 'draft' || !NT.subject.trim())) { showToast('Enter a subject or write a message first.', 'warn'); return; }
   NT.aiBusy = true;
@@ -604,7 +614,7 @@ async function aiWriting(verb) {
     const instruction = { draft: 'Draft a concise first customer-support message from the supplied subject and agent notes. Do not invent facts.', improve: 'Improve clarity without changing the meaning.', shorten: 'Shorten while preserving the meaning.', friendly: 'Make the tone warmer without changing the meaning.' }[verb];
     const result = await callClaude({ action: 'draft', system: instruction, messages: [{ role: 'user', content: `Subject: ${NT.subject}\nAgent notes or message:\n${original}` }], replyFormat: true, replyContext: 'reply', maxTokens: 1600 });
     if (!currentWorkspace() || NT.scope !== scope) return;
-    if (NT.customer !== customer || document.getElementById('compose-new-ticket') !== editor) {
+    if (NT.customer !== customer || NT.email !== email || document.getElementById('compose-new-ticket') !== editor) {
       showToast('The ticket changed while AI was working. Your message was kept. Generate the suggestion again.', 'warn'); return;
     }
     captureEditor();
@@ -736,6 +746,7 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
   // Snapshot everything the async path needs BEFORE the first await — NT is
   // module state and must not be read across it.
   const snapshot = {
+    email: NT.email,
     customerUuid: NT.customer?.uuid || null,
     customerDisplayId: NT.customer?.displayId || 'M001',
     subject: NT.subject,
@@ -781,6 +792,14 @@ async function runCreate({ message, send, withoutAI = false, statusAfterSend = '
     }
     displayId = res.displayId; keptDraft = res.keptDraft; emailed = res.emailed === true;
   } else {
+    if (!snapshot.customerUuid && snapshot.email) {
+      let customer = CUSTOMERS.find(c => !c.mergedInto && hasContact(c, 'email', snapshot.email));
+      if (!customer) {
+        customer = { id: 'M-email-' + Date.now(), first: '', last: '', email: snapshot.email, custom: {}, notes: [] };
+        CUSTOMERS.push(customer);
+      }
+      snapshot.customerDisplayId = customer.id;
+    }
     const res = createDemoTicket(snapshot, { message, send });
     displayId = res.displayId; keptDraft = res.keptDraft;
     emailed = send && !!message;
@@ -835,9 +854,17 @@ async function createOnServer(snap, { message, send, afterSend }) {
     showToast('Your role does not allow reply attachments.', 'error'); return null;
   }
   if (NT.createdTicket && (workspace !== NT.createdTicket.workspace || jwt !== NT.createdTicket.jwt)) return { aborted: true };
-  // The API requires a customer. The only way to reach this without one is a
-  // workspace whose layout hides the Customer field — say so plainly instead
-  // of failing with a schema error.
+  if (!snap.customerUuid && snap.email) {
+    const { customer: row } = await apiPost('/api/v1/customers/from-email', { email: snap.email });
+    if (!current()) return { aborted: true };
+    let customer = CUSTOMERS.find(c => c._uuid === row.id);
+    if (!customer) { customer = { _uuid: row.id, id: row.display_id, custom: {}, notes: [] }; CUSTOMERS.push(customer); }
+    applyCustomerRow(customer, row);
+    snap.customerUuid = row.id; snap.customerDisplayId = row.display_id;
+    NT.customer = customerRef(customer);
+    const box = document.getElementById('nt-cust-box');
+    if (box) box.innerHTML = custBoxHtml();
+  }
   if (!snap.customerUuid) {
     showToast('This workspace hides the Customer field, but a ticket needs one — re-enable it under Configuration › Layouts.', 'error', 8000);
     return null;
@@ -1049,7 +1076,14 @@ registerChangeActions({
 
 registerInputActions({
   'nt.templateSearch': (ds, el) => { if (!NT.busy) { templateFilters[ds.templateStep].query = el.value; filterTemplateOptions(ds.templateStep); } },
-  'nt.custSearch': (_, el) => renderSuggestions(el.value),
+  'nt.custSearch': (_, el) => {
+    if (!currentWorkspace() || NT.busy || NT.createdTicket) return;
+    NT.email = el.value.trim().toLowerCase();
+    NT.review = null;
+    const to = document.querySelector('#new-ticket-container .nt-to');
+    if (to) to.textContent = NT.email || 'Choose a customer or enter an email address';
+    renderSuggestions(el.value);
+  },
   'nt.subjectInput': (_, el) => { NT.subject = el.value; scheduleTagSuggestions(NT); },
   'nt.msgInput': (_, el) => { if (!currentWorkspace()) return; NT.message = el.value; NT.messageHtml = null; NT.messageTouched = true; scheduleTagSuggestions(NT); const copy = document.getElementById('nt2-msg'); if (copy) copy.value = el.value; },
 });

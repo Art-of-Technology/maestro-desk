@@ -55,6 +55,31 @@ test('save as draft keeps text and files without sending a customer message', as
   expect(f.draft.files).toHaveLength(2);
 });
 
+test('email-only save resolves a contact before creating the ticket and preserves the entered recipient', async () => {
+  const f = fixture(), post = f.context.apiPost;
+  Object.assign(f.context, { CUSTOMERS: [], custBoxHtml: () => 'Selected contact', customerRef: c => ({ uuid: c._uuid, displayId: c.id }),
+    applyCustomerRow: (c, row) => Object.assign(c, { email: row.email }) });
+  f.context.apiPost = async (path, body) => {
+    if (path.endsWith('/from-email')) return { customer: { id: 'resolved-contact', display_id: 'M-EMAIL', email: 'primary@example.test' } };
+    return post(path, body);
+  };
+  Object.assign(f.snap, { customerUuid: null, email: 'secondary@example.test', recipients: { to: ['secondary@example.test'], cc: [], mode: 'reply' } });
+  expect((await f.run(false)).keptDraft).toBe(true);
+  expect(f.posts[0].body.customer_id).toBe('resolved-contact');
+  expect(f.context.CUSTOMERS).toHaveLength(1);
+  expect(f.draft.recipients.to).toEqual(['secondary@example.test']);
+  expect(f.posts).toHaveLength(1);
+});
+
+test('contact resolution failure never creates a ticket or consumes the message', async () => {
+  const f = fixture();
+  Object.assign(f.snap, { customerUuid: null, email: 'new@example.test' });
+  f.context.apiPost = async () => { throw Error('Contact unavailable'); };
+  await expect(f.run()).rejects.toThrow('Contact unavailable');
+  expect(f.posts).toHaveLength(0);
+  expect(f.finished).toHaveLength(0);
+});
+
 test('saves selected library tags before saving the new email draft', async () => {
   const f = fixture(); f.snap.tags = ['billing', 'withdrawal'];
   expect((await f.run(false)).keptDraft).toBe(true);

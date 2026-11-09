@@ -38,6 +38,43 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
   }
   const create = (body: object, user = 0, workspace = 0) => request('POST', '', { first_name: 'Manual', last_name: 'Customer', ...body }, user, workspace);
 
+  it('resolves email-only contacts without names or player identity, including concurrent saves', async () => {
+    const replies = await Promise.all([request('POST', '/from-email', { email: ' New@Example.test ' }), request('POST', '/from-email', { email: 'new@example.test' })]);
+    expect(replies.map(r => r.status)).toEqual([200, 200]);
+    const [a, b] = await Promise.all(replies.map(r => r.json())) as any[];
+    expect(a.customer.id).toBe(b.customer.id);
+    expect(a.customer.first_name).toBe('');
+    expect(a.customer.last_name).toBe('');
+    expect(a.customer.maestro_user_id).toBeNull();
+    expect(a.customer.consent).toBe(false);
+    expect(a.customer.emails[0].value).toBe('new@example.test');
+    const other: any = await (await request('POST', '/from-email', { email: 'new@example.test' }, 0, 1)).json();
+    expect(other.customer.id).not.toBe(a.customer.id);
+    expect((await request('POST', '/from-email', { email: 'new@example.test' }, 1, 1)).status).toBe(403);
+    for (const body of [{ email: 'invalid' }, { email: 'new@example.test', consent: true }]) {
+      expect((await request('POST', '/from-email', body)).status).toBe(400);
+    }
+  });
+
+  it('reuses secondary addresses and permits only this contact’s live addresses as outbound recipients', async () => {
+    const { customer } = await (await create({ email: 'primary-outbound@example.test' })).json() as any;
+    expect((await request('POST', `/${customer.id}/contacts`, { kind: 'email', value: 'secondary-outbound@example.test' })).status).toBe(201);
+    const resolved: any = await (await request('POST', '/from-email', { email: 'SECONDARY-outbound@example.test' })).json();
+    expect(resolved.customer.id).toBe(customer.id);
+    expect(resolved.customer.email).toBe('primary-outbound@example.test');
+    const response = await app.request('/api/v1/tickets', { method: 'POST',
+      headers: { Authorization: `Bearer ${users[0].token}`, 'X-Workspace-Id': workspaces[0], 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customer_id: customer.id, subject: 'Email only' }) });
+    expect(response.status).toBe(201);
+    const { ticket } = await response.json() as any;
+    const { ticketReplyRecipients } = await import('./lib/email-recipients.js');
+    const input = { source_message_id: null, mode: 'reply' as const, to: ['secondary-outbound@example.test'], cc: [] };
+    expect((await ticketReplyRecipients(workspaces[0], ticket.id, input)).to).toEqual(input.to);
+    await expect(ticketReplyRecipients(workspaces[0], ticket.id, { ...input, to: ['foreign@example.test'] })).rejects.toThrow('recipient changed');
+    await sql`update customer_contacts set deleted_at=now() where customer_id=${customer.id} and value='secondary-outbound@example.test'`;
+    await expect(ticketReplyRecipients(workspaces[0], ticket.id, input)).rejects.toThrow('recipient changed');
+  });
+
   it('persists an agent-created profile with primary contacts and no invented identity or consent', async () => {
     const r = await create({ email: ' Manual@Example.test ', jurisdiction: 'UK' }, 1);
     expect(r.status).toBe(201);

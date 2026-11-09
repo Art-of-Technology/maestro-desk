@@ -64,6 +64,14 @@ export async function ticketReplyRecipients(workspaceId: string, ticketId: strin
   const own = new Set(cleanEmails([...channels.map(c => c.address), branded?.fromEmail, env.POSTMARK_OUTBOUND_FROM, env.POSTMARK_INBOUND_REPLY_ADDRESS]));
   const external = (values: string[]) => cleanEmails(values).filter(e => !own.has(e) && !e.endsWith('@inbound.postmarkapp.com'));
   const to = external(meta ? [meta.reply_to || meta.from] : [recipient?.email || '']);
+  // Outbound tickets may address another email already held by their contact.
+  if (input && !meta && input.to.length === 1 && !to.includes(input.to[0].trim().toLowerCase())) {
+    const [contact] = await sql`select cc.value from customer_contacts cc join tickets t
+      on t.customer_id=cc.customer_id and t.workspace_id=cc.workspace_id
+      where t.id=${ticketId} and t.workspace_id=${workspaceId} and t.deleted_at is null
+        and cc.kind='email' and cc.deleted_at is null and lower(cc.value::text)=${input.to[0].trim().toLowerCase()}`;
+    if (contact) to.splice(0, to.length, ...external([contact.value]));
+  }
   if (input && JSON.stringify(cleanEmails(input.to)) !== JSON.stringify(to)) throw new HTTPException(409, { message: 'The email recipient changed. Reopen the ticket and review the recipients.' });
   const suggestedCc = external([...(meta?.to || []), ...(meta?.cc || [])]).filter(e => !to.includes(e));
   const cc = input ? external(input.cc).filter(e => !to.includes(e)) : suggestedCc;

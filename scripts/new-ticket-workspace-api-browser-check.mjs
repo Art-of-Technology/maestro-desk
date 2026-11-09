@@ -2,7 +2,7 @@
 export default async function checkWorkspaceApi(browser) {
   let checks = 0;
   const check = (ok, message) => { if (!ok) throw Error(message); checks++; };
-  for (const scenario of ['busy-shortcut', 'hidden-message', 'empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
+  for (const scenario of ['email-draft', 'email-send', 'email-failed', 'ai-email', 'busy-shortcut', 'hidden-message', 'empty-draft', 'rich-draft', 'draft-retry', 'send', 'create-failed', 'plain-fallback', 'loading-editor', 'restricted', 'scope-change', 'ai', 'ai-edited', 'ai-failed', 'ai-label', 'ai-rerender']) {
     console.log('CHECK ticket workspace: ' + scenario);
     const context = await browser.newContext(), page = await context.newPage();
     const errors = [], requests = [], drafts = {};
@@ -18,9 +18,14 @@ export default async function checkWorkspaceApi(browser) {
       requests.push({ path, method: request.method(), body });
       let status = 200, json = {};
       if (path.endsWith('/ai/messages')) {
-        if (['ai-edited','ai-rerender'].includes(scenario)) await new Promise(resolve => { releaseAi = resolve; });
+        if (['ai-edited','ai-rerender','ai-email'].includes(scenario)) await new Promise(resolve => { releaseAi = resolve; });
         if (scenario === 'ai-failed') { status = 503; json = { error: 'Synthetic AI unavailable' }; }
         else json = { text: 'Customer suggestion only.', internal: { notes: ['Private agent note.'], references: [] } };
+      }
+      else if (path.endsWith('/customers/from-email')) {
+        check(body.email === 'new@example.test', 'Email is normalized before resolution');
+        if (scenario === 'email-failed') { status = 503; json = { error: 'Synthetic contact failure' }; }
+        else json = { customer: { id: customerId, display_id: 'M-EMAIL', first_name: '', last_name: '', email: body.email, emails: [{ value: body.email, is_primary: true }] } };
       }
       else if (path.endsWith('/channels/sending-inboxes')) json = { inboxes: [{ id: channelId, address: 'support@example.test' }] };
       else if (path.endsWith('/ticket-statuses')) json = { statuses: ['open','pending','resolved','escalated','closed'].map(key => ({ key, label: key, base_key: key, is_active: true, reasons: [], send_survey: key === 'resolved' })) };
@@ -61,8 +66,13 @@ export default async function checkWorkspaceApi(browser) {
         if (scenario === 'restricted') {
           const state = await import('/js/core/state.js'); state.setSession({ ...state.SESSION, permissions: { 'tickets.create': true } });
         }
-        await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, data.CUSTOMERS[0].id);
+        await (await import('/js/tickets/new-ticket.js')).showNewTicketModal(null, (scenario.startsWith('email-') || scenario === 'ai-email') ? null : data.CUSTOMERS[0].id);
       }, { customerId, channelId, scenario });
+      if (scenario.startsWith('email-')) {
+        await page.locator('#nt-cust-search').fill('New@Example.test');
+        check(await page.locator('.nt-to').innerText() === 'new@example.test', 'Typed email is visible as the recipient');
+        check(!requests.some(r => r.path.endsWith('/from-email')), 'Typing does not create contacts');
+      }
       await page.locator('#nt-subj').fill('Synthetic workspace'); await page.locator('#nt-cat').selectOption({ index: 1 });
       await page.locator('#nt-pri').selectOption('high');
       if (scenario === 'hidden-message') {
@@ -99,11 +109,12 @@ export default async function checkWorkspaceApi(browser) {
           await page.locator('#compose-new-ticket .ql-editor').waitFor();
         }
         await page.getByRole('button', { name: 'Improve', exact: true }).click();
-        if (['ai-edited','ai-rerender'].includes(scenario)) {
+        if (['ai-edited','ai-rerender','ai-email'].includes(scenario)) {
           await page.waitForFunction(() => document.querySelector('#nt-ai-status')?.textContent.includes('Preparing'));
           await editor.focus(); await page.keyboard.press('Control+Shift+Space');
           check(await page.locator('#template-picker-results').count() === 0, 'Template shortcut cannot open the picker during AI generation');
-          if (scenario === 'ai-edited') await editor.fill('Agent edits made while waiting');
+          if (scenario === 'ai-email') await page.locator('#nt-cust-search').fill('changed@example.test');
+          else if (scenario === 'ai-edited') await editor.fill('Agent edits made while waiting');
           else {
             await page.locator('#nt2-files').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('synthetic') });
             check(await page.locator('#nt2-send-btn').isDisabled() && await page.locator('#nt2-draft-btn').isDisabled() && await page.locator('#nt2-without-ai-btn').isDisabled(), 'AI-busy buttons remain disabled after the form redraws');
@@ -128,13 +139,18 @@ export default async function checkWorkspaceApi(browser) {
         continue;
       }
       check(creates === 0, 'Typing never creates a ticket');
-      await page.locator(scenario === 'send' ? '#nt2-without-ai-btn' : '#nt2-draft-btn').click();
+      await page.locator(['send','email-send'].includes(scenario) ? '#nt2-without-ai-btn' : '#nt2-draft-btn').click();
       if (scenario === 'busy-shortcut') {
         await page.locator('.new-ticket-workspace').evaluate(node => { node.tabIndex = -1; node.focus(); });
         await page.keyboard.press('Control+Shift+Space');
         check(await page.locator('#template-picker-results').count() === 0, 'Template shortcut cannot open the picker during saving');
         while (!releaseCreate) await new Promise(resolve => setTimeout(resolve, 10));
         releaseCreate();
+      }
+      if (scenario === 'email-failed') {
+        await page.locator('#nt2-draft-btn:not(:disabled)').waitFor();
+        check(creates === 0 && messages === 0 && (await editor.innerText()).includes('{ticket}'), 'Contact failure keeps the message and creates no ticket');
+        continue;
       }
       if (scenario === 'create-failed') {
         await page.locator('#nt2-draft-btn:not(:disabled)').waitFor();
@@ -146,9 +162,14 @@ export default async function checkWorkspaceApi(browser) {
         await page.locator('#nt2-draft-btn').click();
       }
       await page.locator('.new-ticket-workspace').waitFor({ state: 'detached' });
+      if (scenario.startsWith('email-')) {
+        check(requests.filter(r => r.path.endsWith('/from-email')).length === 1, 'Save/send resolves the contact once');
+        const sent = requests.find(r => r.path.endsWith('/messages') && r.method === 'POST');
+        check((sent ? sent.body.email_recipients.to : drafts.reply.recipients.to)[0] === 'new@example.test', 'Saved and sent recipient stays the entered email');
+      }
       check(creates === 1, 'Explicit save/send creates exactly one ticket, including retries');
-      check(messages === (scenario === 'send' ? 1 : 0), 'Saving a draft never emails');
-      if (scenario !== 'send') {
+      check(messages === (['send','email-send'].includes(scenario) ? 1 : 0), 'Saving a draft never emails');
+      if (!['send','email-send'].includes(scenario)) {
         check(drafts.reply.recipients.cc === 'copy@example.test' && drafts.reply.recipients.sending_address === 'support@example.test', 'Draft retains Cc and sender');
         if (!['empty-draft','restricted'].includes(scenario)) check(drafts.reply.body.includes('TK-WORKSPACE'), 'Draft resolves the minted ticket reference');
         // Reload the application, restore only the synthetic session/list row, then fetch the personal draft.
