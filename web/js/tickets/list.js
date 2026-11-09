@@ -314,7 +314,7 @@ export function renderTickets() {
       <div class="topbar">
         <div class="tb-title" data-guide="tickets">Tickets</div>
         <button class="btn btn-sm" data-action="tickets.export">Export CSV</button>
-        <button class="btn btn-solid btn-sm" data-action="tickets.newTicket">+ New Ticket</button>
+        <button class="btn btn-solid btn-new-ticket" data-action="tickets.newTicket"><span aria-hidden="true">+</span> New ticket</button>
       </div>
       <div class="kpi-bar queue-kpis">
         <button class="kpi" data-action="tickets.focusQueue" data-focus="outstanding"><span class="kpi-n">${outstanding.length}</span><span class="kpi-l">Outstanding</span></button>

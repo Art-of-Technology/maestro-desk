@@ -1181,7 +1181,7 @@ function renderCustomerDetail(custId) {
         </div>` : ''}
         <div class="cust-quickactions">
           <button class="btn btn-sm" data-action="cust.addNote" data-cust-id="${window.escAttr(c.id)}">+ Note</button>
-          ${!c.mergedInto ? `<button class="btn btn-sm" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}">✉ New ticket</button>` : ''}
+          ${!c.mergedInto ? `<button class="btn btn-solid btn-new-ticket" data-action="cust.newTicket" data-cust-id="${window.escAttr(c.id)}"><span aria-hidden="true">+</span> New ticket</button>` : ''}
           ${can('customers.merge') && !c.mergedInto ? `<button class="btn btn-sm" data-action="cust.showMergeModal" data-cust-id="${window.escAttr(c.id)}">↩ Merge</button>` : ''}
           <button class="btn btn-sm btn-danger" style="margin-left:auto" data-action="cust.showGdpr" data-cust-id="${window.escAttr(c.id)}">GDPR</button>
         </div>
