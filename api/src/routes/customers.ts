@@ -111,6 +111,42 @@ customers.post('/', async (c) => {
   }
 });
 
+// Resolve an outbound email without asserting a player identity.
+customers.post('/from-email', async (c) => {
+  const denied = await requirePermission(c, 'tickets.create');
+  if (denied) return denied;
+  const parsed = z.object({ email: z.string().trim().email().max(254) }).strict()
+    .safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Enter a valid email address.' }, 400);
+  const email = parsed.data.email.toLowerCase(), workspaceId = c.get('workspaceId'), sql = getDb();
+  const find = async () => {
+    const hit = await resolveCustomerByContact(sql, workspaceId, 'email', email);
+    if (!hit) return null;
+    const [row] = await sql`select ${sql.unsafe(CUSTOMER_ROW_COLS)} from customers
+      where id=${hit.merged_into_customer_id || hit.id} and workspace_id=${workspaceId}
+        and deleted_at is null and erased_at is null`;
+    return row || null;
+  };
+  let customer = await find();
+  if (!customer) {
+    try {
+      customer = await sql.begin(async tx => {
+        const displayId = await nextDisplayId(tx, workspaceId, 'customer');
+        const [row] = await tx`insert into customers (workspace_id, display_id, first_name, last_name, email, consent)
+          values (${workspaceId}, ${displayId}, '', '', ${email}, false)
+          returning ${tx.unsafe(CUSTOMER_ROW_COLS)}`;
+        await ensurePrimaryContacts(tx, { workspaceId, customerId: row.id, email, mobile: null }, { strict: true });
+        return row;
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') throw error;
+      customer = await find();
+      if (!customer) return c.json({ error: 'This email is unavailable. Refresh the customer list and try again.' }, 409);
+    }
+  }
+  return c.json({ customer: { ...customer, ...await contactsFor(sql, workspaceId, customer.id) } });
+});
+
 // Create (or find) a local customer from a live Maestro player — so an agent can
 // proactively open a conversation with someone who has NEVER contacted support
 // (and therefore has no local record yet). The caller passes one lookup key; we
