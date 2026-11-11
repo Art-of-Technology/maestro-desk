@@ -3,7 +3,25 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import './bridge-smoke-shim-prefix.js';
 
-const { captureTicketLayout, setComposerMode } = await import('../web/js/tickets/layout.js');
+const { captureTicketLayout, setComposerMode, resizeReply } = await import('../web/js/tickets/layout.js');
+
+test('reply resizing is bounded, accessible and retained across layout capture', () => {
+  const attributes = {}, styles = {};
+  const root = { dataset: {}, style: { setProperty: (key, value) => { styles[key] = value; } },
+    querySelector: selector => selector === '.composer-resizer' ? { setAttribute: (key, value) => { attributes[key] = value; } } : null };
+  document.getElementById = () => root;
+  expect(captureTicketLayout('test').replySize).toBe(70);
+  resizeReply('test', 72);
+  expect(captureTicketLayout('test').replySize).toBe(72);
+  expect(styles['--reply-size']).toBe('72%');
+  expect(attributes['aria-valuenow']).toBe('72');
+  resizeReply('test', 200);
+  expect(root.dataset.replySize).toBe('85');
+  resizeReply('test', -1);
+  expect(root.dataset.replySize).toBe('35');
+  resizeReply('test', NaN);
+  expect(root.dataset.replySize).toBe('35');
+});
 
 function replyTools(tab = 'reply', admin = true, live = true) {
   const source = readFileSync(new URL('../web/js/tickets/detail.js', import.meta.url), 'utf8');

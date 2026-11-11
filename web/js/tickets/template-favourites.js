@@ -79,6 +79,7 @@ export function favouriteStatus() {
 export function favouritesRow(ticketId, insertAction = 'templateFavourites.insert') {
   const state = templateFavourites();
   const pinned = CANNED_RESPONSES.filter(t => state.pins.has(templateKey(t)));
+  if (!pinned.length && state.loaded && !state.loading && !state.error && !state.loadError) return '';
   return `<div class="template-favourites-heading">Favourites</div><div class="template-favourites-links">${pinned.length ? pinned.map(t => `<button type="button" class="btn btn-sm" data-action="${window.escAttr(insertAction)}" data-ticket-id="${window.escAttr(ticketId)}" data-template-key="${window.escAttr(templateKey(t))}" title="${window.escAttr(t.name)}">${window.escHtml(t.name)}</button>`).join('') : '<span>Pin templates in the picker for quick access here.</span>'}</div><div class="template-favourites-status">${favouriteStatus()}</div>`;
 }
 

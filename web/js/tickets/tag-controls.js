@@ -29,18 +29,22 @@ export function mountTagControls(model, context, add, remove) {
   host.querySelector('details').hidden = !editable();
   let busy = false;
   const applied = host.querySelector('[data-applied]'), options = host.querySelector('[data-tag-options]'), suggestions = host.querySelector('[data-suggestions]');
+  const suggestionsSlot = document.getElementById('ticket-tag-suggestions-' + model.id);
+  if (suggestionsSlot) suggestionsSlot.appendChild(suggestions);
+  const focusFallback = () => suggestionsSlot?.parentElement?.querySelector('summary') || host.querySelector('summary');
   function draw() {
     if (!active()) return;
-    const focused = host.contains?.(document.activeElement) ? document.activeElement?.dataset : null;
+    const focused = host.contains?.(document.activeElement) || suggestions.contains?.(document.activeElement) ? document.activeElement?.dataset : null;
     const button = (tag, action, label) => `<button type="button" class="btn btn-sm" data-tag-operation="${action}" data-tag="${window.escAttr(tag)}" aria-label="${window.escAttr(label + ' ' + tag)}"${busy || !editable() ? ' disabled' : ''}>${window.escHtml(tag)}${action === 'remove' ? ' ×' : ''}</button>`;
     applied.innerHTML = (model.tags || []).map(tag => button(tag, 'remove', 'Remove tag')).join('');
     const choices = availableTags(model.tags, host.querySelector('[data-tag-search]').value);
     options.innerHTML = choices.map(t => button(t.tag, 'add', 'Add tag')).join('') || `<p>${TAG_LIBRARY.length ? 'No available tags match.' : 'No tags yet. Ask an admin to add tags in Settings.'}</p>`;
     suggestions.innerHTML = '<span>Suggested tags</span> ' + (state.loading ? '<span>Finding matches…</span>' : validSuggestions(state.names, model.tags).map(tag => button(tag, 'add', 'Add suggested tag')).join('')) + (state.error ? `<span role="alert">${window.escHtml(state.error)}</span> <button type="button" class="btn btn-sm" data-tag-operation="retry">Retry</button>` : '') + (!state.loading && state.key && !state.error && !validSuggestions(state.names, model.tags).length ? '<span>No matching tags.</span>' : '');
     suggestions.hidden = !jwt || !can('tools.ai') || !TAG_LIBRARY.length;
+    if (suggestionsSlot?.parentElement) suggestionsSlot.parentElement.hidden = suggestions.hidden;
     if (focused?.tagOperation) {
-      const target = [...host.querySelectorAll('[data-tag-operation]')].find(el => !el.disabled && el.dataset.tagOperation === focused.tagOperation && el.dataset.tag === focused.tag);
-      (target || host.querySelector('summary')).focus({ preventScroll: true });
+      const target = [...host.querySelectorAll('[data-tag-operation]'), ...suggestions.querySelectorAll('[data-tag-operation]')].find(el => !el.disabled && el.dataset.tagOperation === focused.tagOperation && el.dataset.tag === focused.tag);
+      (target || focusFallback()).focus({ preventScroll: true });
     }
   }
   async function generate() {
@@ -86,6 +90,7 @@ export function mountTagControls(model, context, add, remove) {
   host.onclick = async event => {
     const button = event.target.closest('[data-tag-operation]');
     if (!button || busy || !active() || !editable()) return;
+    const fromSuggestions = suggestions.contains?.(button);
     if (button.dataset.tagOperation === 'retry') { state.key = null; void generate(); return; }
     const tag = button.dataset.tag;
     if (button.dataset.tagOperation === 'add' && !availableTags(model.tags).some(t => t.tag === tag)) return;
@@ -96,9 +101,15 @@ export function mountTagControls(model, context, add, remove) {
     } catch (err) { if (active()) state.error = err.message || 'Could not save the tag.'; }
     finally {
       busy = false; draw();
-      if (jwt === getJwt() && workspace === getWorkspaceId()) document.getElementById('tag-controls-' + model.id)?.querySelector('summary')?.focus({ preventScroll: true });
+      if (jwt === getJwt() && workspace === getWorkspaceId()) {
+        const target = fromSuggestions && suggestionsSlot
+          ? document.getElementById('ticket-tag-suggestions-' + model.id)?.parentElement?.querySelector('summary')
+          : document.getElementById('tag-controls-' + model.id)?.querySelector('summary');
+        target?.focus({ preventScroll: true });
+      }
     }
   };
+  if (suggestionsSlot) suggestions.onclick = host.onclick;
   draw(); schedule();
 }
 export function scheduleTagSuggestions(model) { views.get(model)?.schedule(); }
