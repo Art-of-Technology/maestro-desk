@@ -25,6 +25,8 @@ function setup(sidebar = false) {
 test('sidebar suggestions retain their add and retry actions', async () => {
   const f = setup(true);
   expect(f.slot.child).toBe(f.nodes['[data-suggestions]']);
+  expect(f.slot.child.innerHTML).not.toContain('Suggested tags');
+  expect(setup().nodes['[data-suggestions]'].innerHTML).toContain('Suggested tags');
   expect(f.slot.child.onclick).toBe(f.host.onclick);
   await f.slot.child.onclick({ target: { closest: () => ({ dataset: { tagOperation: 'add', tag: 'billing' } }) } });
   expect(f.model.tags).toEqual(['billing']);
