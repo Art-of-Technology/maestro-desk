@@ -10,6 +10,7 @@ export function captureTicketLayout(id) {
     details: root?.dataset?.details || 'auto',
     languageOpen: !!root?.querySelector?.('.ticket-language[open]'),
     detailsBeforeExpand: root?.dataset?.detailsBeforeExpand || '',
+    replySize: Number(root?.dataset?.replySize) || 70,
   };
 }
 
@@ -62,6 +63,7 @@ function toggleDetails(id, close = false) {
 export function syncTicketLayout(id) {
   const root = page(id);
   if (!root?.querySelector) return; // render-smoke DOM
+  root.style?.setProperty?.('--reply-size', `${Number(root.dataset.replySize) || 70}%`);
   const button = root.querySelector('[data-action="tl.details"]');
   const sidebar = root.querySelector('.ticket-sidebar');
   if (button && sidebar) {
@@ -81,6 +83,41 @@ export function syncTicketLayout(id) {
     }
   }
 }
+
+export function resizeReply(id, percent) {
+  const root = page(id);
+  if (!root || !Number.isFinite(percent)) return;
+  const size = Math.round(Math.max(35, Math.min(85, percent)));
+  root.dataset.replySize = String(size);
+  root.style.setProperty('--reply-size', `${size}%`);
+  root.querySelector('.composer-resizer')?.setAttribute('aria-valuenow', String(size));
+}
+
+document.addEventListener('pointerdown', event => {
+  const handle = event.target.closest?.('.composer-resizer');
+  if (!handle || event.button !== 0) return;
+  const root = page(handle.dataset.ticketId);
+  const main = root.querySelector('.ticket-main').getBoundingClientRect();
+  if (!main.height) return;
+  event.preventDefault();
+  handle.focus();
+  handle.setPointerCapture(event.pointerId);
+  const move = e => resizeReply(handle.dataset.ticketId, (main.bottom - e.clientY) / main.height * 100);
+  const stop = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('lostpointercapture', stop);
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('lostpointercapture', stop);
+});
+
+document.addEventListener('keydown', event => {
+  const handle = event.target.closest?.('.composer-resizer');
+  if (!handle || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const current = Number(page(handle.dataset.ticketId).dataset.replySize) || 70;
+  resizeReply(handle.dataset.ticketId, event.key === 'Home' ? 35 : event.key === 'End' ? 85 : current + (event.key === 'ArrowUp' ? 5 : -5));
+});
 
 registerActions({
   'tl.minimise': ds => setComposerMode(ds.ticketId, 'read', true),

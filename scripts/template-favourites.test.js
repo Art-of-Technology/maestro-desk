@@ -100,3 +100,21 @@ test('demo favourites stay in memory and never write to the API', async () => {
   session.name = 'Another demo';
   expect(templateFavourites().pins.size).toBe(0);
 });
+
+test('empty quick access disappears, but pinned templates and load problems remain visible', async () => {
+  await loadTemplateFavourites();
+  expect(favouritesRow('ticket')).toContain('data-template-key="one"');
+  await toggleTemplateFavourite('one');
+  expect(favouritesRow('ticket')).toBe('');
+  expect(favouritesRow('new-ticket', 'nt.favourite')).toBe('');
+  const state = templateFavourites();
+  state.loading = true;
+  expect(favouritesRow('ticket')).toContain('Loading favourites');
+  state.loading = false;
+  failRead = true;
+  await loadTemplateFavourites();
+  expect(favouritesRow('ticket')).toContain('Retry favourites');
+  failRead = false;
+  await loadTemplateFavourites();
+  expect(favouritesRow('ticket')).toContain('data-template-key="one"');
+});

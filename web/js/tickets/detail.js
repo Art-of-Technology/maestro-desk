@@ -541,23 +541,24 @@ export function openTicket(id) {
   const keepScroll = captureMessageScroll(prevThread);
   const currentTicketUrl = ticketUrl(t.id);
   main.innerHTML = `
-    <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}">
+    <div class="page ticket-page" id="ticket-page-${id}" data-ticket-id="${window.escAttr(id)}" data-compose-mode="${layout.mode}" data-details="${layout.details}" data-details-before-expand="${layout.detailsBeforeExpand}" data-reply-size="${layout.replySize}">
       <div class="topbar ticket-topbar">
         <div class="tb-breadcrumb">
           <button class="ticket-back" data-action="td.openTicketsList">Tickets</button>
           <span class="tb-sep">/</span>
           <span style="color:var(--ink);font-weight:500">${window.escHtml(t.id)}</span>${copyButton(t.id, 'ticket number')}
           ${currentTicketUrl ? `<a class="ticket-copy-link" href="${window.escAttr(currentTicketUrl)}" data-action="copy.value" data-copy-value="${window.escAttr(currentTicketUrl)}" aria-label="${window.escAttr(`Copy link to ticket ${t.id}`)}">Copy link</a>` : ''}
+          <div class="ticket-subject"><span id="ticket-subject-${id}">${window.escHtml(threadOn && hasSubjectTranslation(t) ? t.subjectTranslation.translation : t.subject)}</span> <button type="button" class="btn btn-sm" data-action="td.editSubject" data-ticket-id="${window.escAttr(id)}" aria-label="Edit subject" title="Edit subject">✎</button></div>
           <span class="ticket-header-actions">
             <div id="presence-chips" class="presence-chips" aria-label="Agents viewing this ticket"></div>
             <button class="btn btn-sm" data-action="td.prev" aria-label="Previous ticket">← Prev</button>
             <button class="btn btn-sm" data-action="td.next" aria-label="Next ticket">Next →</button>
-            ${!t.mergedInto ? (CUSTOMERS.find(c => c.id === t.customerId)?.isSpam
-              ? `<button class="btn btn-sm" data-action="td.unmarkSpam" data-ticket-id="${window.escAttr(id)}" title="Stop filtering this contact’s future emails; old spam tickets stay closed">Unmark contact as spam</button>`
-              : `<button class="btn btn-sm" data-permission="customers.spam tickets.close" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam" title="Close as spam and filter future emails from this contact">Mark as spam</button>`) : ''}
             <details class="ticket-popover ticket-more">
               <summary class="btn btn-sm">More ▾</summary>
               <div class="ticket-popover-panel">
+            ${!t.mergedInto ? (CUSTOMERS.find(c => c.id === t.customerId)?.isSpam
+              ? `<button class="btn btn-sm" data-action="td.unmarkSpam" data-ticket-id="${window.escAttr(id)}" title="Stop filtering this contact’s future emails; old spam tickets stay closed">Unmark contact as spam</button>`
+              : `<button class="btn btn-sm" data-permission="customers.spam tickets.close" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="spam" title="Close as spam and filter future emails from this contact">Mark as spam</button>`) : ''}
             ${t._uuid && !t.mergedInto ? `<button type="button" class="btn btn-sm" data-action="emailDownload.open" data-ticket-id="${window.escAttr(id)}">Download thread</button>` : ''}
             ${t.status !== 'closed' && !t.mergedInto ? `<button class="btn btn-sm" data-action="td.quickStatus" data-ticket-id="${window.escAttr(id)}" data-status="closed">Close without resolution</button>` : ''}
             ${t.mergedInto ? '' : `<button class="btn btn-sm" data-action="td.summarize" data-ticket-id="${window.escAttr(id)}" title="Generate an AI summary of this ticket"${summarizing ? ' disabled' : ''}>${summarizing ? '⏳' : '📝'} Summarize</button>`}
@@ -580,7 +581,6 @@ export function openTicket(id) {
       <div class="ticket-heading">
         ${mergedBanner}
         ${snoozeBanner}
-        <div style="font-family:\'Syne\',sans-serif;font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em;margin-bottom:7px"><span id="ticket-subject-${id}">${window.escHtml(threadOn && hasSubjectTranslation(t) ? t.subjectTranslation.translation : t.subject)}</span> <button type="button" class="btn btn-sm" data-action="td.editSubject" data-ticket-id="${window.escAttr(id)}">Edit subject</button></div>
         <div class="ticket-metadata">
           ${renderTicketInbox(t)}
           <label class="ticket-inline-property ticket-inline-status" data-status="${window.escAttr(t.status)}">
@@ -594,7 +594,6 @@ export function openTicket(id) {
             </select>
           </label>
           ${renderTagControls(id)}
-          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="${t.status !== 'closed' && findMatchingSLAPolicy(t) ? `sla-${t.sla}` : ''}">${t.status === 'closed' ? 'N/A' : !findMatchingSLAPolicy(t) ? 'No matching policy' : t.sla.toUpperCase()}</span></span>
         </div>
       </div>
       <div class="ticket-layout">
@@ -602,6 +601,7 @@ export function openTicket(id) {
           ${threadBarHtml}
           <div id="ticket-close-reminder" data-ticket-id="${window.escAttr(id)}" tabindex="-1" aria-label="Ticket close reminder">${closeReminder(t)}</div>
           <div class="thread" id="thread-${id}">${msgsHtml}</div>
+          <div class="composer-resizer" role="separator" tabindex="0" aria-label="Resize reply area" aria-orientation="horizontal" aria-controls="composer-body-${id}" aria-valuemin="35" aria-valuemax="85" aria-valuenow="${layout.replySize}" title="Drag or use arrow keys to resize the reply area" data-ticket-id="${window.escAttr(id)}"></div>
           <div class="composer" data-compose-tab="${COMPOSE_TAB}">
             <div id="presence-banner"></div>
             <div class="composer-launcher">
@@ -630,12 +630,11 @@ export function openTicket(id) {
               <div class="comp-meta">
                 <span id="draft-status-${id}" role="status">${window.escHtml(draftSyncStatus(id))}</span>
                 <button type="button" class="btn btn-sm" id="draft-conflict-${id}" data-action="td.resolveDraft" data-ticket-id="${window.escAttr(id)}" ${draftHasConflict(id) ? '' : 'hidden'}>Review draft copies</button>
+                <button type="button" class="btn btn-sm composer-save" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
                 <span id="char-count-${id}">${loadDraft(id).length} chars</span>
               </div>
             </div>
               <div class="composer-foot">
-                <button type="button" class="btn btn-sm" data-action="td.saveDraftAndExit" data-ticket-id="${window.escAttr(id)}">Save draft and exit</button>
-                <span style="font-size:11px;color:var(--ink3)">Uploaded files sync with your draft.</span>
                 <div class="composer-actions" role="group" aria-label="Reply tools">
                   <button class="btn btn-sm" data-permission="tickets.attach" data-action="td.showAttach" data-ticket-id="${window.escAttr(id)}">Attach${t.attachments&&t.attachments.length?' · '+t.attachments.length:''}</button>
                   <button type="button" class="btn btn-sm composer-tool" data-action="td.macroPanel" data-ticket-id="${window.escAttr(id)}" aria-label="Insert template" aria-keyshortcuts="Control+Shift+Space Meta+Shift+Space" title="Insert template (Ctrl/Cmd+Shift+Space)">
@@ -701,6 +700,7 @@ export function openTicket(id) {
             </select>
           </div>
           ${unscoredCount > 0 ? `<details class="ts-section ticket-secondary"><summary>Sentiment · ${unscoredCount} unscored</summary>${sentimentBackfillBar}</details>` : ''}
+          <details class="ts-section ticket-secondary"><summary>Suggested tags</summary><div id="ticket-tag-suggestions-${window.escAttr(id)}"></div></details>
           ${closureDetails(t)}
           <details class="ts-section ticket-secondary"><summary>Customer satisfaction</summary>
           <div class="ts-section">
@@ -716,8 +716,11 @@ export function openTicket(id) {
           ${ticketCSATBlock(t)}
           </details>
           ${aiSummaryBlock}
+          <details class="ts-section ticket-secondary"><summary>SLA & timing</summary>
+          <span style="font-family:'Inter',sans-serif;font-size:11px;color:var(--ink3);margin-left:auto">SLA: <span class="${t.status !== 'closed' && findMatchingSLAPolicy(t) ? `sla-${t.sla}` : ''}">${t.status === 'closed' ? 'N/A' : !findMatchingSLAPolicy(t) ? 'No matching policy' : t.sla.toUpperCase()}</span></span>
           ${timeBlock}
           ${slaBlock}
+          </details>
           ${followersBlock}
           ${kbBlock}
           ${extKbBlock}

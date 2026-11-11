@@ -2,24 +2,36 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-function setup() {
+function setup(sidebar = false) {
   let timer, calls = [], content = 'withdrawal question', resolve, workspace = 'one';
   const nodes = Object.fromEntries(['[data-applied]', '[data-tag-options]', '[data-suggestions]', '[data-tag-search]', 'details'].map(k => [k, { value: '', innerHTML: '', open: false }]));
   const host = { isConnected: true, querySelector: key => nodes[key] };
+  const slot = { appendChild(node) { this.child = node; } };
   const model = { id: 'ticket', _uuid: 'uuid', tags: [] };
   const ctx = {
     TAG_LIBRARY: ['withdrawal','billing','bonus','account'].map(tag => ({ tag })),
     can: () => true, getJwt: () => 'jwt', getWorkspaceId: () => workspace,
     apiGet: async () => ({ tags: ctx.TAG_LIBRARY }),
     callClaude: input => { calls.push(input); return new Promise(r => { resolve = r; }); },
-    document: { getElementById: () => host }, window: { escAttr: String, escHtml: String },
+    document: { getElementById: id => id === 'tag-controls-ticket' ? host : sidebar ? slot : null }, window: { escAttr: String, escHtml: String },
     setTimeout: fn => { timer = fn; return 1; }, clearTimeout() {},
   };
   const source = readFileSync('web/js/tickets/tag-controls.js', 'utf8').replace(/^import .*;\r?\n/gm, '').replaceAll('export ', '');
   runInNewContext(source + '\nglobalThis.controls={mountTagControls,scheduleTagSuggestions,validSuggestions,availableTags};', ctx);
   ctx.controls.mountTagControls(model, () => content, async tag => model.tags.push(tag), async tag => { model.tags = model.tags.filter(t => t !== tag); });
-  return { ctx, model, nodes, calls, host, run: () => timer(), reply: names => resolve({ text: JSON.stringify(names) }), content: text => { content = text; ctx.controls.scheduleTagSuggestions(model); }, switch: () => { workspace = 'two'; } };
+  return { ctx, model, nodes, calls, host, slot, run: () => timer(), reply: names => resolve({ text: JSON.stringify(names) }), content: text => { content = text; ctx.controls.scheduleTagSuggestions(model); }, switch: () => { workspace = 'two'; } };
 }
+
+test('sidebar suggestions retain their add and retry actions', async () => {
+  const f = setup(true);
+  expect(f.slot.child).toBe(f.nodes['[data-suggestions]']);
+  expect(f.slot.child.onclick).toBe(f.host.onclick);
+  await f.slot.child.onclick({ target: { closest: () => ({ dataset: { tagOperation: 'add', tag: 'billing' } }) } });
+  expect(f.model.tags).toEqual(['billing']);
+  await f.slot.child.onclick({ target: { closest: () => ({ dataset: { tagOperation: 'retry' } }) } });
+  expect(f.calls.length).toBe(1);
+  f.reply(['bonus']);
+});
 test('offers library tags only, filters search and caps unique suggestions at three', () => {
   const f = setup();
   expect([...f.ctx.controls.validSuggestions(['fake','bonus','bonus','billing','withdrawal','account'])]).toEqual(['bonus','billing','withdrawal']);
