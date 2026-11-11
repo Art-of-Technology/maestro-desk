@@ -33,7 +33,7 @@ mock.module('../web/js/core/api-client.js', () => ({
     if (fail) throw new Error('Offline');
     if (release) await new Promise(resolve => { release = resolve; });
     if (path.endsWith('/use')) return { macro: { usage_count: 1, last_used_at: '2026-09-30T12:00:00Z' } };
-    return path.endsWith('tags') ? { tag: { ...body, count: 0 } }
+    return path.endsWith('tags') ? { tag: { kind: 'manual', ai_confidence: null, ...body, count: 0 } }
       : { macro: { ...body, id: 'uuid', display_id: 'MAC-1', usage_count: 0, last_used_at: null } };
   },
   async apiPut(path, body) { calls.push({ path, body }); return { macro: { ...body, id: 'uuid', display_id: 'MAC-1' } }; },
@@ -47,7 +47,7 @@ beforeEach(() => {
   MACROS.length = 0; TAG_LIBRARY.length = 0; TICKETS.length = 0;
   workspace = 'a'; fail = false; release = null; calls = [];
   mutationFail = false; steps = [];
-  inputs = Object.fromEntries(Object.entries({ 'tag-name': 'Welcome Offer', 'tag-type': 'manual', 'tag-conf': '',
+  inputs = Object.fromEntries(Object.entries({ 'tag-name': 'Welcome Offer',
     'mac-name': 'Waiting', 'mac-icon': '⏸', 'mac-desc': 'Follow up', 'tag-error': '', 'mac-error': '', button: '',
   }).map(([key, value]) => [key, { value, isConnected: true, textContent: '', disabled: false }]));
   inputs['mac-steps'] = { querySelectorAll: () => [{ dataset: { macStep: '0' },
@@ -57,7 +57,7 @@ beforeEach(() => {
 
 test('tags save through the API even when a workspace has no tickets', async () => {
   actions['tags.new'](); await confirm();
-  expect(calls[0]).toEqual({ path: '/api/v1/tags', body: { tag: 'welcome-offer', kind: 'manual', ai_confidence: null } });
+  expect(calls[0]).toEqual({ path: '/api/v1/tags', body: { tag: 'welcome-offer' } });
   expect(TAG_LIBRARY[0].tag).toBe('welcome-offer');
   actions['tags.edit']({ tag: 'welcome-offer' }); inputs['tag-name'].value = 'Free Spins'; await confirm();
   expect(calls[1].path).toBe('/api/v1/tags/welcome-offer');
