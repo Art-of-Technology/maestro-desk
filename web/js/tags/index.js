@@ -20,7 +20,7 @@ import { STATUS_COLORS, PRIORITY_COLORS } from '../core/colors.js';
 import { registerActions, registerChangeActions, registerInputActions, registerMousedownActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from '../tickets/detail.js';
-import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
+import { apiGet, apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showModal, closeModal } from '../core/modal.js';
 
 export function renderTags() {
@@ -86,7 +86,7 @@ export function renderTags() {
       <div class="topbar">
         <div class="tb-title">Tags</div>
         ${admin
-          ? `<button class="btn btn-solid btn-sm" data-action="tags.new">+ New Tag</button>`
+          ? `<button class="btn btn-sm" data-action="tags.history">Merge history</button><button class="btn btn-solid btn-sm" data-action="tags.new">+ New Tag</button>`
           : `<span style="font-size:11px;color:var(--ink3);font-style:italic">Read-only — admin access required to edit</span>`}
       </div>
       <div class="kpi-bar">
@@ -245,22 +245,85 @@ function mergeTagPrompt(sourceName) {
 }
 
 async function mergeTags(sourceName, targetName) {
+  if (!window.isAdmin()) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
   const source = TAG_LIBRARY.find(x => x.tag === sourceName);
   const target = TAG_LIBRARY.find(x => x.tag === targetName);
   if (!source || !target) return;
+  let targetCount;
   if (tagsApiBacked()) {
-    try { await apiPost(`/api/v1/tags/${encodeURIComponent(sourceName)}/merge`, { into: targetName }); }
+    try { targetCount = (await apiPost(`/api/v1/tags/${encodeURIComponent(sourceName)}/merge`, { into: targetName })).target_count; }
     catch (err) { alert(`Couldn't merge: ${err?.message || err}`); return; }
   }
+  if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
   TICKETS.forEach(tk => {
     tk.tags = [...new Set((tk.tags || []).map(x => x === sourceName ? targetName : x))];
-    tk.aiTags = (tk.aiTags || []).map(at => at.tag === sourceName ? { ...at, tag: targetName } : at);
+    const hadTarget = (tk.aiTags || []).some(at => at.tag === targetName);
+    tk.aiTags = (tk.aiTags || []).filter(at => !hadTarget || at.tag !== sourceName).map(at => at.tag === sourceName ? { ...at, tag: targetName } : at);
+    tk._detailLoaded = false;
   });
-  target.count = (target.count || 0) + (source.count || 0);
+  target.count = targetCount ?? ((target.count || 0) + (source.count || 0));
   const i = TAG_LIBRARY.findIndex(x => x.tag === sourceName);
   if (i >= 0) TAG_LIBRARY.splice(i, 1);
   if (TAG_SELECTED === sourceName) setTagSelected(targetName);
   renderPage('tags');
+}
+
+async function showTagMergeHistory() {
+  if (!window.isAdmin()) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  showModal('Merge history', '<div id="tag-merge-history" role="status" style="overflow-wrap:anywhere">Loading merges…</div>', null);
+  const host = document.getElementById('tag-merge-history');
+  if (!jwt) { host.textContent = 'Merge history is available in a connected workspace.'; return; }
+  try {
+    const { merges } = await apiGet('/api/v1/tags/merges');
+    if (!host.isConnected || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    host.innerHTML = '<p>Only merges recorded after undo became available appear here. Later edits may prevent an undo.</p>' +
+      (merges.length ? merges.map(m => `<div style="padding:12px 0;border-bottom:1px solid var(--rule)">
+        <div><strong>${window.escHtml(m.source)}</strong> → <strong>${window.escHtml(m.target)}</strong></div>
+        <div style="margin:6px 0">${window.escHtml(new Date(m.created_at).toLocaleString())}</div>
+        ${m.undone_at ? '<span>Undone</span>' : `<button class="btn btn-sm" data-action="tags.undoMerge" data-id="${window.escAttr(m.id)}" data-source="${window.escAttr(m.source)}" data-target="${window.escAttr(m.target)}">Undo merge</button>`}
+      </div>`).join('') : '<p>No recorded merges yet.</p>');
+  } catch (err) { if (host.isConnected) host.textContent = "Couldn't load merges: " + err.message; }
+}
+
+function undoTagMerge({ id, source, target }) {
+  if (!window.isAdmin()) return;
+  const workspace = getWorkspaceId(), jwt = getJwt();
+  let saving = false;
+  showModal('Undo merge', `<p>Restore <strong>${window.escHtml(source)}</strong> and its original ticket assignments from the merge into <strong>${window.escHtml(target)}</strong>?</p>
+    <p>If affected tags have changed since the merge, nothing will be changed.</p><p id="tag-undo-error" role="status"></p>`, async () => {
+    if (saving || workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+    saving = true; button.disabled = true;
+    try {
+      const result = await apiPost('/api/v1/tags/merges/' + encodeURIComponent(id) + '/undo', {});
+      if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+      for (const row of result.assignments) {
+        const ticket = TICKETS.find(t => t._uuid === row.ticket_id);
+        if (!ticket) continue;
+        if (row.kind === 'manual') {
+          ticket.tags = [...new Set((ticket.tags || []).filter(t => row.had_target || t !== result.target).concat(result.source))];
+        } else {
+          ticket.aiTags = (ticket.aiTags || []).filter(t => row.had_target || t.tag !== result.target);
+          ticket.aiTags.push({ tag: result.source, conf: row.source_confidence, accepted: row.source_accepted });
+        }
+        ticket._detailLoaded = false;
+      }
+      // The undo succeeded even if refreshing counts fails; never offer to submit it again.
+      status.textContent = 'Merge undone. Refreshing tags…';
+      try {
+        const response = await apiGet('/api/v1/tags');
+        if (workspace !== getWorkspaceId() || jwt !== getJwt()) return;
+        TAG_LIBRARY.splice(0, TAG_LIBRARY.length, ...response.tags.map(t => ({ tag: t.tag, type: t.kind, conf: t.ai_confidence, count: t.count })));
+      } catch { status.textContent = 'Merge undone. Reload the Tags page to refresh the list.'; return; }
+      if (status.isConnected) { closeModal(); renderPage('tags'); }
+    } catch (err) {
+      if (status.isConnected) status.textContent = err.message;
+      saving = false; if (button.isConnected) button.disabled = false;
+    }
+  }, 'Undo merge');
+  const status = document.getElementById('tag-undo-error');
+  const button = document.querySelector('#modal-container [data-action="modal.confirm"]');
 }
 
 function renderTagDetail(tagName) {
@@ -501,6 +564,8 @@ function tagDelete(name) {
 }
 
 registerActions({
+  'tags.history':        () => showTagMergeHistory(),
+  'tags.undoMerge':      (ds) => undoTagMerge(ds),
   'tags.openDetail':     (ds) => openTagDetail(ds.tag),
   'tags.closeDetail':    () => closeTagDetail(),
   'tags.setSort':        (ds) => setTagSort(ds.col),
