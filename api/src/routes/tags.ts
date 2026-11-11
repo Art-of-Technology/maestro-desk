@@ -35,18 +35,14 @@ tags.post('/', async (c) => {
 });
 
 // ─── GET / — list the workspace tag library with usage counts ────────────
-// Counts come from a per-row subquery (manual tags against ticket_tags, AI
-// tags against ticket_ai_tags) — the library set is small, so this is fine.
+// Count applied tags; AI suggestions only count once accepted onto a ticket.
 tags.get('/', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
 
   const rows = await sql`
     select l.tag, l.kind, l.ai_confidence,
-      case when l.kind = 'ai'
-        then (select count(*)::int from ticket_ai_tags a where a.workspace_id = l.workspace_id and a.tag = l.tag)
-        else (select count(*)::int from ticket_tags m where m.workspace_id = l.workspace_id and m.tag = l.tag)
-      end as count
+      (select count(*)::int from ticket_tags m where m.workspace_id = l.workspace_id and m.tag = l.tag) as count
     from tag_library l
     where l.workspace_id = ${workspaceId}
     order by l.tag asc
@@ -161,8 +157,7 @@ tags.post('/:tag/merge', async (c) => {
     // A later merge into the same target makes earlier snapshots ambiguous.
     const [updatedTarget] = await tx`update tag_library set tag=tag where workspace_id=${workspaceId} and tag=${target} returning revision`;
     await tx`update tag_merges set target_revision=${updatedTarget.revision} where workspace_id=${workspaceId} and id=${merge.id}`;
-    const table = targetRow.kind === 'ai' ? 'ticket_ai_tags' : 'ticket_tags';
-    const [usage] = await tx`select count(*)::int as count from ${tx(table)} where workspace_id=${workspaceId} and tag=${target}`;
+    const [usage] = await tx`select count(*)::int as count from ticket_tags where workspace_id=${workspaceId} and tag=${target}`;
     return { id: merge.id, target_count: usage.count };
   });
   if (!result) return c.json({ error: 'Source or target tag not found in library' }, 404);

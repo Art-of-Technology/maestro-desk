@@ -50,6 +50,37 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
     expect((await json(await request(0, 0, 'tags'))).tags).toHaveLength(0);
   });
 
+  it('counts applied tags consistently across legacy types and preserves metadata on name-only edits', async () => {
+    const suffix = crypto.randomUUID(), manual = 'manual-' + suffix, ai = 'ai-' + suffix;
+    await request(0, 0, 'tags', 'POST', { tag: manual });
+    await request(0, 0, 'tags', 'POST', { tag: ai, kind: 'ai', ai_confidence: 17 });
+    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name)
+      values (${workspaces[0]},${'C-' + suffix},'Shared library test') returning id`;
+    const tickets: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key)
+        values (${workspaces[0]},${customer.id},${'T-' + i + suffix},'Shared library test','open','normal') returning id`;
+      tickets.push(ticket.id);
+      await sql`insert into ticket_ai_tags(workspace_id,ticket_id,tag,confidence,accepted)
+        values (${workspaces[0]},${ticket.id},${ai},90,${i === 1})`;
+    }
+    await sql`insert into ticket_tags(workspace_id,ticket_id,tag) values
+      (${workspaces[0]},${tickets[0]},${manual}), (${workspaces[0]},${tickets[1]},${ai})`;
+    const counts = async () => (await json(await request(0, 0, 'tags'))).tags;
+    expect(await counts()).toContainEqual({ tag: manual, kind: 'manual', ai_confidence: null, count: 1 });
+    expect(await counts()).toContainEqual({ tag: ai, kind: 'ai', ai_confidence: 17, count: 1 });
+    expect((await request(0, 0, `tickets/${tickets[0]}/ai_tags/${ai}`, 'PATCH', { accepted: true })).status).toBe(200);
+    expect(await counts()).toContainEqual({ tag: ai, kind: 'ai', ai_confidence: 17, count: 2 });
+    const renamed = ai + '-new';
+    expect((await json(await request(0, 0, `tags/${ai}`, 'PATCH', { tag: renamed }))).tag)
+      .toEqual({ tag: renamed, kind: 'ai', ai_confidence: 17 });
+    const merged = await json(await request(0, 0, `tags/${manual}/merge`, 'POST', { into: renamed }));
+    expect(merged.target_count).toBe(2);
+    expect((await request(0, 0, `tags/merges/${merged.merge_id}/undo`, 'POST')).status).toBe(200);
+    expect(await counts()).toContainEqual({ tag: renamed, kind: 'ai', ai_confidence: 17, count: 2 });
+    expect(await counts()).toContainEqual({ tag: manual, kind: 'manual', ai_confidence: null, count: 1 });
+  });
+
   async function mergeFixture() {
     const suffix = crypto.randomUUID();
     const source = 'source-' + suffix, target = 'target-' + suffix;
