@@ -39,7 +39,7 @@ export function mountTagControls(model, context, add, remove) {
     applied.innerHTML = (model.tags || []).map(tag => button(tag, 'remove', 'Remove tag')).join('');
     const choices = availableTags(model.tags, host.querySelector('[data-tag-search]').value);
     options.innerHTML = choices.map(t => button(t.tag, 'add', 'Add tag')).join('') || `<p>${TAG_LIBRARY.length ? 'No available tags match.' : 'No tags yet. Ask an admin to add tags in Settings.'}</p>`;
-    suggestions.innerHTML = '<span>Suggested tags</span> ' + (state.loading ? '<span>Finding matches…</span>' : validSuggestions(state.names, model.tags).map(tag => button(tag, 'add', 'Add suggested tag')).join('')) + (state.error ? `<span role="alert">${window.escHtml(state.error)}</span> <button type="button" class="btn btn-sm" data-tag-operation="retry">Retry</button>` : '') + (!state.loading && state.key && !state.error && !validSuggestions(state.names, model.tags).length ? '<span>No matching tags.</span>' : '');
+    suggestions.innerHTML = (suggestionsSlot ? '' : '<span>Suggested tags</span> ') + (state.loading ? '<span>Finding matches…</span>' : validSuggestions(state.names, model.tags).map(tag => button(tag, 'add', 'Add suggested tag')).join('')) + (state.error ? `<span role="alert">${window.escHtml(state.error)}</span> <button type="button" class="btn btn-sm" data-tag-operation="retry">Retry</button>` : '') + (!state.loading && state.key && !state.error && !validSuggestions(state.names, model.tags).length ? '<span>No matching tags.</span>' : '');
     suggestions.hidden = !jwt || !can('tools.ai') || !TAG_LIBRARY.length;
     if (suggestionsSlot?.parentElement) suggestionsSlot.parentElement.hidden = suggestions.hidden;
     if (focused?.tagOperation) {
