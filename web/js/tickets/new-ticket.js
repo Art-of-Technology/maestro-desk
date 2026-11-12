@@ -28,7 +28,8 @@ import { statusChoice, loadStatusOptions, statusOptionsState } from './status-op
 import { sendActions, SEND_ACTIONS, SEND_WITHOUT_AI_HINT } from './send-actions.js';
 import { statusReasonField } from './status-reasons.js';
 import { TRANSLATOR_LANGS, prepareCustomerReply, setCustomerLanguage } from '../ai/translate.js';
-import { jurisdictionLanguage } from './jurisdiction-language.js';
+import { suggestedCustomerLanguage } from './jurisdiction-language.js';
+import { refreshCustomerAccount } from '../customers/account-refresh.js';
 import { showCloseTickets, applyClosedTicket } from './closure.js';
 import { markCloseReminder } from './close-reminder.js';
 import { filterTemplates, templateCategories } from './template-search.js';
@@ -59,6 +60,7 @@ const NT = {
   review: null,
   messageTouched: false, // the AGENT edited the message (vs a template filling it)
   replyLanguage: '',
+  languageTouched: false, // the AGENT chose the reply language (vs a suggestion)
   statusAfterSend: '',
   closeReason: '',
   files: [],
@@ -94,6 +96,7 @@ function resetNT() {
   NT.review = null;
   NT.messageTouched = false;
   NT.replyLanguage = '';
+  NT.languageTouched = false;
   NT.statusAfterSend = '';
   NT.closeReason = '';
   NT.files = [];
@@ -159,11 +162,52 @@ export async function showNewTicketModal(templateId, custDisplayId) {
   }
   NT.active = true;
   NT.scope = { workspace, jwt, user: SESSION?.userId || null };
-  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
-  NT.replyLanguage = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : jurisdictionLanguage(customer?.jurisdiction || '');
+  suggestLanguage();
   closeModal();
   renderWorkspace();
   void loadTemplateFavourites();
+}
+
+// Suggest, never force: the agent's own choice is kept. A customer whose
+// account details have not been fetched yet has no jurisdiction, so fetch
+// them and fill the suggestion in when they arrive.
+function suggestLanguage() {
+  const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
+  NT.replyLanguage = suggestedCustomerLanguage(customer)?.language || '';
+  NT.languageTouched = false;
+  if (!customer || String(customer.jurisdiction || '').trim()) return;
+  const scope = NT.scope;
+  void refreshCustomerAccount(customer, () => {
+    if (!currentWorkspace() || NT.scope !== scope || NT.customer?.displayId !== customer.id) return;
+    const jurisdiction = document.getElementById('nt-jurisdiction');
+    if (jurisdiction) jurisdiction.textContent = customer.jurisdiction || 'Not set';
+    const language = suggestedCustomerLanguage(customer)?.language;
+    const select = document.getElementById('nt2-language');
+    // Never switch the language under an agent who has chosen one or is already writing.
+    if (language && !NT.languageTouched && !NT.messageTouched && !NT.busy && !NT.createdTicket && !select?.value) {
+      NT.replyLanguage = language;
+      if (select) select.value = language;
+    }
+    showLanguageHint();
+  }, () => { /* The hint already says there is no suggestion. */ });
+}
+
+function showLanguageHint() {
+  const hint = document.getElementById('nt2-language-hint');
+  if (!hint) return;
+  const selected = document.getElementById('nt2-language')?.value ?? NT.replyLanguage;
+  hint.textContent = languageHint(CUSTOMERS.find(c => c.id === NT.customer?.displayId), selected);
+}
+
+// Says what is actually selected, so a suggestion that was not applied is not mistaken for one that was.
+function languageHint(customer, selected) {
+  if (!customer) return '';
+  const suggestion = suggestedCustomerLanguage(customer);
+  if (suggestion) return suggestion.language === selected
+    ? `Suggested from ${suggestion.source}. You can change it.`
+    : `Suggestion from ${suggestion.source}: ${suggestion.language} (not selected).`;
+  const jurisdiction = String(customer.jurisdiction || '').trim();
+  return jurisdiction ? `No language suggestion for jurisdiction ${jurisdiction}.` : 'No language suggestion: jurisdiction is not set.';
 }
 
 function customerRef(c) {
@@ -531,7 +575,7 @@ function renderWorkspace() {
   container.innerHTML = `<section class="new-ticket-workspace" role="dialog" aria-modal="true" aria-labelledby="nt-heading" data-guide="new-ticket">
     <header class="nt-heading"><div><h1 id="nt-heading">New ticket</h1><p>${messageVisible ? 'Write the first message or save the details as a draft.' : 'Save the ticket details as a draft.'}</p></div><button type="button" class="btn" data-action="nt.cancel" aria-label="Close new ticket">Close</button></header>
     <div class="nt-workspace-body ${messageVisible ? '' : 'nt-details-only'}"><aside class="nt-details" aria-label="Ticket details">${detailsHtml()}
-      ${customer ? `<dl class="nt-customer-context"><dt>Customer ID</dt><dd>${window.escHtml(customer.id)}</dd><dt>Email</dt><dd>${window.escHtml(customer.email || 'No primary email saved')}</dd><dt>Brand</dt><dd>${window.escHtml(customer.brand || 'Current workspace')}</dd><dt>Jurisdiction</dt><dd>${window.escHtml(customer.jurisdiction || 'Not set')}</dd></dl>` : ''}
+      ${customer ? `<dl class="nt-customer-context"><dt>Customer ID</dt><dd>${window.escHtml(customer.id)}</dd><dt>Email</dt><dd>${window.escHtml(customer.email || 'No primary email saved')}</dd><dt>Brand</dt><dd>${window.escHtml(customer.brand || 'Current workspace')}</dd><dt>Jurisdiction</dt><dd id="nt-jurisdiction">${window.escHtml(customer.jurisdiction || 'Not set')}</dd></dl>` : ''}
     </aside>${messageVisible ? `<div class="nt-writing">
       ${NT.createdTicket ? `<p class="nt-saved-notice" role="status">Ticket ${window.escHtml(NT.createdTicket.row.display_id)} is saved. Continue here to retry; your ticket will not be created again.</p>` : ''}
       ${renderTagControls('new-ticket')}
@@ -544,7 +588,8 @@ function renderWorkspace() {
       </button><button type="button" class="btn btn-sm composer-tool" data-action="nt.preview" aria-label="Preview message" title="Preview message">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
       </button></div>
-      <label for="nt2-language">Reply language</label><select class="form-input" id="nt2-language"><option value="">As written</option>${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}</select></div>
+      <label for="nt2-language">Reply language</label><select class="form-input" id="nt2-language" data-change-action="nt.language" aria-describedby="nt2-language-hint"><option value="">As written</option>${TRANSLATOR_LANGS.map(lang => `<option ${NT.replyLanguage === lang ? 'selected' : ''}>${lang}</option>`).join('')}</select>
+      <p class="nt-language-hint" id="nt2-language-hint" role="status">${window.escHtml(languageHint(customer, NT.replyLanguage))}</p></div>
       <div class="template-favourites" id="nt-favourites" aria-label="Favourite response templates">${favouritesRow('new-ticket', 'nt.favourite')}</div>
       <label class="form-label" for="nt2-msg">Message to the customer</label>
       <div id="compose-new-ticket" class="compose-area compose-rich nt-rich-editor" data-rich="1" aria-label="Message to the customer" hidden></div>
@@ -1059,6 +1104,7 @@ registerChangeActions({
     renderWorkspace(); document.getElementById('nt2-files')?.focus();
   },
   'nt.templateCategory': (ds, el) => { if (!NT.busy) { templateFilters[ds.templateStep].category = el.value; filterTemplateOptions(ds.templateStep); } },
+  'nt.language': () => { NT.languageTouched = true; showLanguageHint(); },
   'nt.afterSend': (_, el) => {
     if (!currentWorkspace() || NT.busy) return;
     harvestWorkspace(); NT.statusAfterSend = el.value; NT.closeReason = ''; renderWorkspace();
@@ -1092,8 +1138,7 @@ registerMousedownActions({
   'nt.pick': ds => {
     if (!currentWorkspace() || NT.busy || NT.createdTicket) return;
     harvestWorkspace(); pickCustomer(ds.custId);
-    const customer = CUSTOMERS.find(c => c.id === NT.customer?.displayId);
-    NT.replyLanguage = TRANSLATOR_LANGS.includes(customer?.preferredLanguage) ? customer.preferredLanguage : jurisdictionLanguage(customer?.jurisdiction || '');
+    suggestLanguage();
     NT.cc = ''; NT.review = null; renderWorkspace();
     if (NT.message) showToast('Customer changed. Review the recipient and message before sending.', 'warn');
   },

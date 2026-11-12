@@ -16,8 +16,10 @@ export async function refreshCustomerAccount(customer, onUpdated, onError) {
   const workspace = getWorkspaceId();
   if (!token || !workspace) return;
   const previous = attempts.get(customer);
-  if (previous && (previous.pending || Date.now() - previous.at < RETRY_MS)) return;
-  const attempt = { at: Date.now(), pending: true };
+  // A second screen asking during a lookup still hears about its result.
+  if (previous?.pending) { previous.waiting.push(onUpdated); return; }
+  if (previous && Date.now() - previous.at < RETRY_MS) return;
+  const attempt = { at: Date.now(), pending: true, waiting: [] };
   attempts.set(customer, attempt);
   const before = JSON.stringify(customer);
   const stillCurrent = () => getJwt() === token && getWorkspaceId() === workspace && CUSTOMERS.includes(customer);
@@ -28,6 +30,7 @@ export async function refreshCustomerAccount(customer, onUpdated, onError) {
     if (!stillCurrent() || JSON.stringify(customer) !== before || !response?.customer) return;
     applyCustomerRow(customer, response.customer);
     onUpdated();
+    for (const waiter of attempt.waiting) waiter();
   } catch (err) {
     if (stillCurrent()) onError(err);
   } finally {
