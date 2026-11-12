@@ -7,7 +7,9 @@ import { applyCustomerRow } from '../core/bootstrap.js';
 const attempts = new WeakMap();
 const RETRY_MS = 60_000;
 
-export async function refreshCustomerAccount(customer, onUpdated, onError) {
+// join: a different screen that asks during a lookup is told when it lands.
+// A screen that merely re-renders must not join, or it would repaint twice.
+export async function refreshCustomerAccount(customer, onUpdated, onError, { join = false } = {}) {
   if (!customer._uuid || customer.erased || customer.mergedInto || customer._mergedIntoUuid) return;
   const needsBackoffice = getBrandId() === '58d5016a-91bb-49e6-a9be-b3f36f08afde'
     && /^\d+$/.test(customer.maestroUserId || '') && !String(customer.bo || '').trim();
@@ -16,8 +18,7 @@ export async function refreshCustomerAccount(customer, onUpdated, onError) {
   const workspace = getWorkspaceId();
   if (!token || !workspace) return;
   const previous = attempts.get(customer);
-  // A second screen asking during a lookup still hears about its result.
-  if (previous?.pending) { previous.waiting.push(onUpdated); return; }
+  if (previous?.pending) { if (join) previous.waiting.push(onUpdated); return; }
   if (previous && Date.now() - previous.at < RETRY_MS) return;
   const attempt = { at: Date.now(), pending: true, waiting: [] };
   attempts.set(customer, attempt);

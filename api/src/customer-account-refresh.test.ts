@@ -77,6 +77,18 @@ describe('customer account refresh in the browser', () => {
     expect(h.requests()).toBe(1);
   });
 
+  it('tells a second screen that joins a lookup in flight, without a second request', async () => {
+    const h = setup();
+    const pending = h.refresh();
+    let joined = 0;
+    await h.context.refreshCustomerAccount(h.customer, () => { joined++; }, () => {}, { join: true });
+    h.respond();
+    await pending;
+    expect(h.requests()).toBe(1);
+    expect(h.updated()).toBe(1);
+    expect(joined).toBe(1);
+  });
+
   it('discards an old response after a workspace or login change', async () => {
     for (const switchSession of [
       (ctx: any) => ctx.setWorkspaceId('workspace-B'),

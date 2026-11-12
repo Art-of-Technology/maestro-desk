@@ -189,7 +189,7 @@ function suggestLanguage() {
       if (select) select.value = language;
     }
     showLanguageHint();
-  }, () => { /* The hint already says there is no suggestion. */ });
+  }, () => { /* The hint already says there is no suggestion. */ }, { join: true });
 }
 
 function showLanguageHint() {
