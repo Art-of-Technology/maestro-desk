@@ -10,7 +10,9 @@ import { copyButton } from '../core/copy.js';
 // reversal can restore them, and primary-record backfill is undoable.
 //
 // Click/change/input/mousedown handlers route through
-// core/event-delegation.js. Drag-to-reorder on the column headers uses
+// core/event-delegation.js. The list's column headers sort on click
+// (cust.sort) and reorder on drag; the ordering logic for both is the pure
+// ./table-order.js. Drag-to-reorder uses
 // module-internal document-level listeners at the bottom of this file
 // (scoped via `closest('th[draggable="true"]')`; coexists with
 // widget-shell's drag dispatcher because the selectors disambiguate).
@@ -37,6 +39,7 @@ import { showNewTicketModal } from '../tickets/new-ticket.js';
 import { showManageFieldsModal } from '../custom-fields/index.js';
 import { showCSVModal, showNewCustomerModal } from './modals.js';
 import { matchesContact, applyContacts } from './contacts.js';
+import { moveColumn, dropSide, sortCustomers, nextSort } from './table-order.js';
 import { renderDetailsCard, attachPinObserver, detachPinObserver } from './details-card.js';
 import { unmarkSpamContact, markSpamContact } from '../tickets/closure.js';
 import { apiPost, apiPut, apiPatch, apiDelete, getBrandId } from '../core/api-client.js';
@@ -91,19 +94,40 @@ function buildCustHeaders() {
   const checkboxHeader = `<th style="width:32px;padding-right:0" data-action="">
     <input type="checkbox" ${allSelected?'checked':''} data-change-action="cust.toggleAll" style="cursor:pointer;accent-color:var(--purple)" title="Select all in view"/>
   </th>`;
-  return checkboxHeader + cols.map((col,i)=>`<th draggable="true" data-col-idx="${i}" style="cursor:grab;user-select:none;white-space:nowrap" title="Drag to reorder">${col.label} <span style="opacity:.3;font-size:10px">⠿</span></th>`).join('');
+  // One header does both jobs: a click sorts (cust.sort), a drag reorders (the
+  // dispatcher at the bottom of this file). They can't collide — the browser
+  // doesn't fire a click at the end of a drag.
+  const sortCol = activeCustSortCol();
+  return checkboxHeader + cols.map(col => {
+    const sorted = sortCol === col.id;
+    const aria = sorted ? (CUST_SORT.dir === 1 ? 'ascending' : 'descending') : 'none';
+    return `<th class="cust-th" draggable="true" tabindex="0" data-action="cust.sort" data-col-id="${window.escAttr(col.id)}" aria-sort="${aria}" title="Click to sort · drag to reorder">${window.escHtml(col.label)}${sorted ? ` <span class="cust-th-arrow" aria-hidden="true">${CUST_SORT.dir === 1 ? '↑' : '↓'}</span>` : ''} <span class="cust-th-grip" aria-hidden="true">⠿</span></th>`;
+  }).join('');
 }
 
-function dropCustCol(targetIdx) {
-  const vis = getCustColumns().filter(c=>c.visible);
-  const all = getCustColumns();
-  if(CUST_DRAG_COL===null||CUST_DRAG_COL===targetIdx) return;
-  const src=vis[CUST_DRAG_COL], tgt=vis[targetIdx];
-  if(!src||!tgt||src.fixed||tgt.fixed) return;
-  const si=all.indexOf(src), ti=all.indexOf(tgt);
-  all.splice(si,1); all.splice(ti,0,src);
-  setCustDragCol(null);
+// The column the rows are sorted by, or null. A sort on a column that has
+// since been hidden (or whose custom field was deleted) is ignored rather than
+// left reordering the rows with nothing on screen to explain or undo it.
+function activeCustSortCol() {
+  if (!CUST_SORT.col) return null;
+  return getCustColumns().some(c => c.id === CUST_SORT.col && c.visible) ? CUST_SORT.col : null;
+}
+
+function sortCustBy(colId) {
+  CUST_SORT = nextSort({ col: activeCustSortCol(), dir: CUST_SORT.dir }, colId);
   refreshCustTable(applyCustFilters());
+  // The header row was just rebuilt — put focus back so a keyboard user can
+  // press Enter again to flip the direction.
+  [...document.querySelectorAll('#cust-thead th.cust-th')].find(th => th.dataset.colId === colId)?.focus();
+}
+
+// CUST_DRAG_COL holds the dragged column's ID (it used to be an index into the
+// visible columns). Every column can move, Customer ID and Name included —
+// `fixed` only means "can't be hidden"; see moveColumn.
+function dropCustCol(targetId) {
+  const moved = moveColumn(getCustColumns(), CUST_DRAG_COL, targetId);
+  setCustDragCol(null);
+  if (moved) refreshCustTable(applyCustFilters());
 }
 
 // The grouped table body. Both the full render and the incremental refresh
@@ -116,6 +140,15 @@ function dropCustCol(targetIdx) {
 function buildCustTableBody(list) {
   const span = getCustColumns().filter(c => c.visible).length + 1;
   const groups = groupCustomersBy(list, CUST_GROUP_BY);
+  // Groups appear in first-seen order, so a header sort would shuffle the
+  // sections on every click. Pin them to the default (unsorted) order; the
+  // sort then only reorders rows inside each group.
+  if (groups.length > 1 && activeCustSortCol()) {
+    const pos = new Map(CUSTOMERS.map((c, i) => [c, i]));
+    const first = g => Math.min(...g.items.map(c => pos.get(c) ?? Infinity));
+    const rank = new Map(groups.map(g => [g, first(g)]));
+    groups.sort((a, b) => rank.get(a) - rank.get(b));
+  }
   const groupHeader = key => `<tr style="background:var(--off2)"><td colspan="${span}" style="padding:8px 14px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3)">${window.escHtml(key)}</td></tr>`;
   return groups.map(g =>
     (g.key !== null ? groupHeader(`${g.key} · ${g.items.length}`) : '') + buildCustRows(g.items)
@@ -132,7 +165,7 @@ export function refreshCustTable(list) {
 function showColumnPanel() {
   const cols=getCustColumns();
   showModal('Manage columns', `
-    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Toggle columns on/off. Drag column headers in the table to reorder.</div>
+    <div style="font-size:12px;color:var(--ink3);margin-bottom:14px">Toggle columns on/off. In the table, drag a column header to reorder, or click it to sort.</div>
     <div style="display:flex;flex-direction:column;gap:6px">
       ${cols.map((col,i)=>`
         <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border:1px solid var(--rule);border-radius:var(--r);background:var(--off2)">
@@ -150,6 +183,8 @@ function showColumnPanel() {
   `, null, null);
 }
 
+// Header-click sort. col is a column id (null = the default, unsorted order).
+let CUST_SORT = { col: null, dir: 1 };
 let CUST_QUERY = '';
 let CUST_VIP_FILTER = 'all';
 let CUST_BRAND_FILTER = 'all';
@@ -190,6 +225,10 @@ function applyCustFilters() {
   }
   if (CUST_VIP_FILTER !== 'all')   list = list.filter(c => c.vip === CUST_VIP_FILTER);
   if (CUST_BRAND_FILTER !== 'all') list = list.filter(c => c.brand === CUST_BRAND_FILTER);
+  // Sorted here rather than in the table builder so everything that reads the
+  // filtered list — grouping, select-all, the CSV export — sees the same order.
+  const sortCol = activeCustSortCol();
+  if (sortCol) list = sortCustomers(list, sortCol, CUST_SORT.dir);
   return list;
 }
 
@@ -1216,6 +1255,7 @@ registerActions({
     renderPage('customers');
   },
   'cust.setView':         (ds) => setCustView(ds.view),
+  'cust.sort':            (ds) => sortCustBy(ds.colId),
   'cust.bulkDelete':      () => bulkDeleteCustomers(),
   'cust.clearSelection':  () => clearCustSelection(),
   'cust.showColumnPanel': () => { closeCustMoreMenu(); showColumnPanel(); },
@@ -1252,7 +1292,14 @@ registerActions({
 registerChangeActions({
   'cust.toggleSelected': (ds) => toggleCustSelected(ds.custId),
   'cust.toggleAll':      () => toggleAllCustomers(),
-  'cust.toggleCol':      (ds, el) => { CUST_COLUMNS[parseInt(ds.colIdx, 10)].visible = el.checked; refreshCustTable(applyCustFilters()); },
+  'cust.toggleCol':      (ds, el) => {
+    const col = CUST_COLUMNS[parseInt(ds.colIdx, 10)];
+    col.visible = el.checked;
+    // Hiding the sorted column drops the sort for good, so it can't spring
+    // back unprompted when the column is shown again.
+    if (!el.checked && CUST_SORT.col === col.id) CUST_SORT = { col: null, dir: 1 };
+    refreshCustTable(applyCustFilters());
+  },
   'cust.bulkSetVIP':     (ds, el) => bulkSetCustVIP(el.value),
   'cust.bulkSetConsent': (ds, el) => bulkSetCustConsent(el.value),
   'cust.setVIP':         (ds, el) => custSetVIP(el.value),
@@ -1277,16 +1324,62 @@ registerMousedownActions({
 // selector `th[draggable="true"]` disambiguates from widget-shell's
 // `.widget[draggable="true"]`, so both modules' document-level listeners
 // coexist without stepping on each other.
-function _dragTh(e) { return e.target.closest('th[draggable="true"]'); }
+function _dragTh(e) { return e.target.closest?.('th[draggable="true"]'); }
+function _clearDragMarks() {
+  document.querySelectorAll('.cust-th.dragging, .cust-th.drop-before, .cust-th.drop-after')
+    .forEach(th => th.classList.remove('dragging', 'drop-before', 'drop-after'));
+}
+// A private drag type, not text/plain: with text/plain a header released over
+// the search box would be typed into it as the column id. It also lets the
+// handlers below tell a column drag from any other drag (a file, selected
+// text), even if CUST_DRAG_COL were left stale by a re-render mid-drag.
+const COL_DRAG_TYPE = 'application/x-respovia-column';
+function _isColDrag(e) {
+  return CUST_DRAG_COL !== null && [...(e.dataTransfer?.types || [])].includes(COL_DRAG_TYPE);
+}
 document.addEventListener('dragstart', e => {
   const th = _dragTh(e); if (!th) return;
-  setCustDragCol(parseInt(th.dataset.colIdx, 10));
+  setCustDragCol(th.dataset.colId);
+  e.dataTransfer.effectAllowed = 'move';
+  // Firefox won't start a drag at all unless some data is set.
+  try { e.dataTransfer.setData(COL_DRAG_TYPE, th.dataset.colId); } catch (err) {}
+  th.classList.add('dragging');
 });
 document.addEventListener('dragover', e => {
-  const th = _dragTh(e); if (!th) return;
+  const th = _dragTh(e); if (!th || !_isColDrag(e)) return;
   e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // Insertion line on the edge the column will actually land on. Reads
+  // CUST_COLUMNS directly: this fires many times a second, and
+  // getCustColumns() rebuilds the list on every call.
+  const side = dropSide(CUST_COLUMNS, CUST_DRAG_COL, th.dataset.colId);
+  document.querySelectorAll('.cust-th.drop-before, .cust-th.drop-after').forEach(el => {
+    if (el !== th) el.classList.remove('drop-before', 'drop-after');
+  });
+  th.classList.toggle('drop-before', side === 'before');
+  th.classList.toggle('drop-after', side === 'after');
+});
+document.addEventListener('dragleave', e => {
+  const th = _dragTh(e); if (!th || th.contains(e.relatedTarget)) return;
+  th.classList.remove('drop-before', 'drop-after');
 });
 document.addEventListener('drop', e => {
-  const th = _dragTh(e); if (!th) return;
-  dropCustCol(parseInt(th.dataset.colIdx, 10));
+  const th = _dragTh(e); if (!th || !_isColDrag(e)) return;
+  e.preventDefault();
+  _clearDragMarks();
+  dropCustCol(th.dataset.colId);
+});
+// Keyboard sort: the delegated dispatcher is click-only and a <th> isn't a
+// button, so Enter/Space on a focused header is mapped onto a click here.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (!e.target.classList?.contains('cust-th')) return;
+  e.preventDefault();
+  e.target.click();
+});
+// Cancelled drags (Escape, dropped outside the header) never reach `drop`.
+document.addEventListener('dragend', e => {
+  if (!_dragTh(e)) return;
+  _clearDragMarks();
+  setCustDragCol(null);
 });

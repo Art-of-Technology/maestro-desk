@@ -60,6 +60,9 @@ jobs:
       - name: Customer profile ticket history
         run: bun test scripts/customer-history.test.js
 
+      - name: Customers table column order + sort
+        run: bun test scripts/customer-table-order.test.js
+
       - name: Ticket customer account recovery
         run: bun test scripts/ticket-account-refresh.test.js
 
