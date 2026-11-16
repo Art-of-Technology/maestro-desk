@@ -8,22 +8,27 @@ const ticket = n => ({ id: `uuid-${n}`, display_id: `TK-${n}`, subject: `<Older 
 const summary = (rows = [ticket(1), ticket(2)], total = 3) => ({
   totals: { tickets: total, csat_count: 2, csat_avg: 4.5 }, by_status: { open: 1, escalated: 1 },
   activity: [],
+  email_names: { account_holder_name: 'Jane Doe', entries: [{ email: 'sender@example.test', sender_name: 'Alias', mismatch: true, review_key: 'abc' }] },
   tickets: { rows, total, limit: 2, offset: 0 },
 });
 
 function harness() {
   const actions = {}, calls = [], inserted = [], opened = [];
   const control = { jwt: 'session', workspace: 'workspace', response: summary(), hold: null, fail: false };
+  const names = { innerHTML: '' };
+  const reasonField = { value: '', isConnected: true, focus() {} }, errorField = { textContent: '', isConnected: true }, confirmButton = { disabled: false, isConnected: true }, saves = [];
   const counts = { innerHTML: '' }, tickets = { innerHTML: '' }, activity = { innerHTML: '' }, status = { textContent: '' }, translated = [];
   const root = { isConnected: true, dataset: { customerHistory: 'customer-uuid' },
-    querySelector: selector => selector === '[data-history-counts]' ? counts : selector === '[data-history-activity]' ? activity : tickets,
-    querySelectorAll: () => [counts, tickets, activity] };
+    querySelector: selector => selector === '[data-history-counts]' ? counts : selector === '[data-history-activity]' ? activity : selector === '[data-history-email-names]' ? names : tickets,
+    querySelectorAll: () => [counts, tickets, activity, names] };
   const el = { closest: selector => selector === '.cust-timeline-item' ? { querySelector: () => status } : root };
   const esc = value => String(value).replaceAll('<', '&lt;').replaceAll('"', '&quot;');
   const context = {
     getJwt: () => control.jwt, getWorkspaceId: () => control.workspace,
     registerActions: map => Object.assign(actions, map),
     translateActivity: (ds, el, entry) => translated.push(entry),
+    renderEmailNames: data => JSON.stringify(data), can: () => true,
+    showModal: (_title, _body, confirm) => { control.confirm = confirm; }, closeModal() {},
     statusLabel: t => t.statusOption || t.status, buildTicketLookups: () => ({}), copyButton: () => '',
     updateOrInsertTicket: (row, _lookups, target) => {
       if (!target) { inserted.push(row); return; }
@@ -31,10 +36,11 @@ function harness() {
     },
     openTicket: id => opened.push(id), window: { escHtml: esc, escAttr: esc },
     apiGet: async path => { calls.push(path); if (control.hold) await control.hold; if (control.fail) throw Error('Failed'); return control.response; },
-    queueMicrotask: () => {}, document: { querySelector: () => root },
+    apiPost: async (path, body) => { saves.push({ path, body }); if (control.hold) await control.hold; return { email_names: control.response.email_names }; },
+    queueMicrotask: () => {}, document: { querySelector: selector => selector.startsWith('#modal-container') ? confirmButton : root, getElementById: id => id === 'name-review-reason' ? reasonField : errorField },
   };
-  const api = runInNewContext(source + '\n({loadHistory, renderCustomerHistory})', context);
-  return { ...api, actions, calls, inserted, opened, control, counts, tickets, activity, status, translated, root, el };
+  const api = runInNewContext(source + '\n({loadHistory, renderCustomerHistory, refreshCustomerHistory})', context);
+  return { ...api, actions, calls, inserted, opened, control, counts, tickets, activity, status, translated, names, root, el, reasonField, errorField, confirmButton, saves };
 }
 
 test('loads full-history counts and older tickets without filling the workspace ticket list', async () => {
@@ -147,4 +153,37 @@ test('activity distinguishes errors from empty results and rejects late navigati
   expect(h.opened).toHaveLength(0);
   expect(h.inserted).toHaveLength(0);
   expect(h.translated).toHaveLength(0);
+});
+
+test('server names are loaded with an empty cache, and an account refresh reloads comparisons', async () => {
+  const h = harness();
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.loadHistory(h.root);
+  h.refreshCustomerHistory('customer-uuid');
+  h.control.hold = null;
+  release(); await pending;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(h.calls).toHaveLength(2);
+  expect(h.names.innerHTML).toContain('Alias');
+  expect(h.names.innerHTML).toContain('Jane Doe');
+  expect(h.inserted).toHaveLength(0);
+});
+
+test('review requires a reason, prevents duplicate saves and discards late responses', async () => {
+  const h = harness(); await h.loadHistory(h.root);
+  h.actions['customerHistory.reviewName']({ reviewKey: 'abc' }, h.el);
+  await h.control.confirm();
+  expect(h.saves).toHaveLength(0);
+  expect(h.errorField.textContent).toContain('Enter a reason');
+  h.reasonField.value = 'Middle name checked';
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.control.confirm();
+  await h.control.confirm();
+  expect(h.saves).toHaveLength(1);
+  expect(h.confirmButton.disabled).toBe(true);
+  const original = h.names.innerHTML;
+  h.control.response.email_names = { account_holder_name: 'Other', entries: [] };
+  h.control.workspace = 'other-workspace';
+  release(); await pending;
+  expect(h.names.innerHTML).toBe(original);
 });

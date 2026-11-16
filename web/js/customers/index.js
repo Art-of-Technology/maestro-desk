@@ -49,7 +49,7 @@ import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 import { refreshCustomerAccount } from './account-refresh.js';
 import { renderRiskPanel } from './risk-panel.js';
-import { renderCustomerHistory } from './history.js';
+import { renderCustomerHistory, refreshCustomerHistory } from './history.js';
 import { renderCustomerEmailNames } from './email-names.js';
 import './activity-translation.js';
 
@@ -971,6 +971,7 @@ function renderCustomerDetail(custId) {
     detachPinObserver();
     card.replaceWith(updated);
     attachPinObserver();
+    refreshCustomerHistory(c._uuid);
   }, (err) => {
     if (CUSTOMER_SELECTED === custId) showToast(err?.message || "Couldn't refresh account details.", 'error');
   });

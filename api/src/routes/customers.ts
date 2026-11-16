@@ -15,6 +15,7 @@ import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { customerRisk } from '../lib/customer-risk.js';
+import { customerEmailNames } from '../lib/customer-email-names.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
@@ -1229,6 +1230,39 @@ customers.get('/:id/risk', async (c) => {
       targetType: 'customer', targetId: customerId, metadata: { accessed: ['aml'] } });
   }
   return c.json(risk);
+});
+
+const NameReviewBody = z.object({
+  review_key: z.string().regex(/^[a-f0-9]{64}$/),
+  reason: z.string().trim().min(1).max(1000),
+}).strict();
+
+customers.post('/:id/name-review', async (c) => {
+  for (const permission of ['customers.edit', 'tickets.view_all'] as const) {
+    const denied = await requirePermission(c, permission);
+    if (denied) return denied;
+  }
+  const workspaceId = c.get('workspaceId'), customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const parsed = NameReviewBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Enter a reason for reviewing this name difference.' }, 400);
+  const result = await getDb().begin(async sql => {
+    const [customer] = await sql`select id from customers where id = ${customerId} and workspace_id = ${workspaceId}
+      and deleted_at is null and erased_at is null and merged_into_customer_id is null for update`;
+    if (!customer) return 'missing' as const;
+    const names = await customerEmailNames(sql, workspaceId, customerId);
+    const entry = names?.entries.find(e => e.review_key === parsed.data.review_key && e.mismatch);
+    if (!entry) return 'changed' as const;
+    if (!entry.reviewed) {
+      await sql`insert into customer_notes (workspace_id, customer_id, author_user_id, text, name_review_key)
+        values (${workspaceId}, ${customerId}, ${c.get('userId')},
+          ${'Name mismatch reviewed for ' + entry.email + ': ' + parsed.data.reason}, ${entry.review_key})`;
+    }
+    return { email_names: await customerEmailNames(sql, workspaceId, customerId) };
+  });
+  if (result === 'missing') return c.json({ error: 'Customer not found' }, 404);
+  if (result === 'changed') return c.json({ error: 'The names have changed. Refresh the profile and review them again.' }, 409);
+  return c.json(result);
 });
 
 // Full-history counts, CSAT, topics, timeline and ticket table. This aggregates
