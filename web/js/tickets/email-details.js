@@ -34,7 +34,7 @@ export function renderEmailDetails(message) {
     : e.status === 'sent' ? 'not completed. Review the current ticket status; do not resend this email.'
     : e.delivery_state === 'failed' ? 'waiting for a successful send' : 'waiting for sending confirmation';
   const recipients = [...(e.status === 'received' ? [] : e.to || []), ...(e.cc || [])];
-  const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
+  const fields = row('Email sender name', e.status === 'received' && message.from !== e.from ? message.from : '') + row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
     + row('Delivery confirmed', Object.entries(e.delivered_recipients || {}).map(([address, at]) => `${address}: ${emailDate(at)}`).join('; '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')

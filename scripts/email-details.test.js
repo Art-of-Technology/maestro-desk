@@ -139,3 +139,12 @@ test('Cc toggle focuses the input and never hides populated recipients', () => {
   input.value = ''; toggle({ ticketId: 'TK-1' }, button);
   expect(field.hidden).toBe(true); expect(expanded).toBe('false');
 });
+
+test('original email sender names stay beside their address and are escaped', () => {
+  const email = { status: 'received', from: 'sender@example.test', to: [] };
+  const html = renderEmailDetails({ from: '<Nickname>', email });
+  expect(html).toContain('<dt>Email sender name</dt><dd>&lt;Nickname&gt;</dd>');
+  expect(html).toContain('<dt>From</dt><dd>sender@example.test</dd>');
+  expect(renderEmailDetails({ from: email.from, email })).not.toContain('Email sender name');
+  expect(renderEmailDetails({ from: 'Agent', email: { ...email, status: 'sent' } })).not.toContain('Email sender name');
+});

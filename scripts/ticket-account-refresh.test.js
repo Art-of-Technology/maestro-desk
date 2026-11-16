@@ -94,11 +94,24 @@ test('failed lookups retry on a later open, with no duplicates or retries inside
   expect(h.customer.maestroUserId).toBe('50724');
 });
 
-test('linked, demo, erased and merged customers do not trigger ticket lookups', () => {
-  for (const extra of [{ maestroUserId: '50724' }, { _uuid: null }, { erased: true }, { mergedInto: 'M1' }]) {
+test('demo, erased and merged customers do not trigger ticket lookups', () => {
+  for (const extra of [{ _uuid: null }, { erased: true }, { mergedInto: 'M1' }]) {
     const h = setup(); Object.assign(h.customer, extra); h.open();
     expect(h.calls).toHaveLength(0);
   }
+});
+
+test('opening a linked ticket refreshes its registered name without losing a draft', async () => {
+  const h = setup();
+  Object.assign(h.customer, { maestroUserId: '50724', first: 'Nickname', last: 'Sender' });
+  h.open();
+  const composer = h.context.document.getElementById('compose-input-' + h.ticket.id);
+  composer.value = 'Keep my draft';
+  h.respond(); await settle();
+  expect(h.customer.first).toBe('Francisco');
+  expect(h.customer.last).toBe('Test');
+  expect(h.panel.innerHTML).toContain('Francisco');
+  expect(composer.value).toBe('Keep my draft');
 });
 
 test('late results cannot repaint another customer or import data after switching workspace', async () => {

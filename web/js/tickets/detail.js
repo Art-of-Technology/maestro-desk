@@ -759,7 +759,7 @@ export function openTicket(id) {
   applyPermissionControls(main);
   syncTicketLayout(id);
   syncRoute('tickets', id);
-  if (cust && (!cust.maestroUserId || !String(cust.jurisdiction || '').trim())) {
+  if (cust) {
     void refreshCustomerAccount(cust, () => { refreshTicketCustomer(cust); void ensureCustomerLanguage(t); }, (err) => {
       if (CURRENT_TICKET === id && document.getElementById('ticket-customer')?.dataset.custId === cust.id) {
         showToast(err?.message || "Couldn't refresh account details.", 'error');

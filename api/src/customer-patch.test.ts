@@ -68,6 +68,17 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
     order by created_at
   `;
 
+  it('rejects local name changes for linked players while allowing other edits', async () => {
+    const id = await mkCustomer('linked-name', { maestro_user_id: 'player-name' });
+    for (const body of [{ first_name: 'Nickname' }, { last_name: 'Nickname' }]) {
+      const response = await patch(agent.token, id, body);
+      expect(response.status).toBe(409);
+      expect((await response.json() as { code: string }).code).toBe('player_name');
+    }
+    expect((await rowOf(id)).first_name).toBe('C');
+    expect((await patch(agent.token, id, { jurisdiction: 'GB' })).status).toBe(200);
+  });
+
   beforeAll(async () => {
     app = (await import('./index.js')).default as typeof app;
     sql = (await import('./lib/db.js')).getDb();
