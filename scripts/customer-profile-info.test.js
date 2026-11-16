@@ -13,7 +13,9 @@ test('profile groups owned sender names and escapes them without inferring owner
   const tickets = [{ customerId: 'c', msgs: [m, m, { ...m, from: 'Third party', email: { ...m.email, from: 'other@example.test' } }, { ...m, from: 'Forwarded', forwarded: true }] }];
   const html = renderCustomerEmailNames(c, tickets);
   expect(html.match(/&lt;Alias&gt;/g)).toHaveLength(1);
-  expect(html).toContain('Name differs from player account');
+  expect(html).toContain('Different from player name');
+  expect(html).not.toContain('Player account:');
+  expect(html).not.toContain('Jane Doe');
   expect(html).toContain('loaded conversations');
   expect(html).not.toContain('Third party');
   expect(html).not.toContain('Forwarded');
@@ -60,4 +62,20 @@ test('activity handles failures and ignores results after navigation or scope ch
     expect(f.text.textContent).toBe('Bonjour');
     if (f.row.isConnected) expect(f.status.textContent).toBe('');
   }
+});
+
+test('server preview translation keys stay stable when list positions change', async () => {
+  const f = fixture(async () => ({ translation: 'Hello' }));
+  const keys = [];
+  f.ctx.TICKETS = [];
+  f.ctx.messageTranslationRequest = key => { keys.push(JSON.stringify(key)); return async () => ({ text: 'Hello' }); };
+  const entry = { ticket: { _uuid: 'server-ticket' }, message: { t: 'Bonjour' }, created_at: '2026-11-16T10:00:00Z', role: 'customer', author_label: 'Sender' };
+  await f.ctx.translateActivity({ messageIndex: '0' }, f.button, entry);
+  expect(f.text.textContent).toBe('Hello');
+  await f.ctx.translateActivity({ messageIndex: '0' }, f.button, entry);
+  expect(f.text.textContent).toBe('Bonjour');
+  await f.ctx.translateActivity({ messageIndex: '4' }, f.button, entry);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+  expect(keys[0]).toContain('profile-preview');
 });

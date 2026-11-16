@@ -5,11 +5,11 @@ import { registerActions } from '../core/event-delegation.js';
 
 const translations = new WeakMap();
 
-export async function translateActivity(ds, button) {
+export async function translateActivity(ds, button, entry) {
   const row = button.closest('.cust-timeline-item');
   const text = row?.querySelector('[data-activity-text]'), status = row?.querySelector('[data-activity-status]');
-  const ticket = TICKETS.find(t => t.id === ds.ticketId);
-  const message = ticket?.msgs?.[Number(ds.messageIndex)];
+  const ticket = entry?.ticket || TICKETS.find(t => t.id === ds.ticketId);
+  const message = entry?.message || ticket?.msgs?.[Number(ds.messageIndex)];
   if (!text || !status || !message?.t || button.disabled) return;
   const scope = translationScope(), target = AGENT_PREFERRED_LANG, source = message.t;
   const previous = translations.get(row);
@@ -24,7 +24,10 @@ export async function translateActivity(ds, button) {
   status.textContent = 'Translating…';
   try {
     let warning = false;
-    const request = messageTranslationRequest(message._uuid || [ticket._uuid || ticket.id, Number(ds.messageIndex)], scope);
+    // Preview identity stays stable as new activity shifts the list; the cache also hashes the source text.
+    const key = entry ? ['profile-preview', ticket._uuid, entry.created_at, entry.role, entry.author_label]
+      : message._uuid || [ticket._uuid || ticket.id, Number(ds.messageIndex)];
+    const request = messageTranslationRequest(key, scope);
     const result = await translateText(source, target, async body => {
       const response = await request(body);
       warning ||= !!response.cacheWarning;
