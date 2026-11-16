@@ -7,21 +7,23 @@ const source = readFileSync(new URL('../web/js/customers/history.js', import.met
 const ticket = n => ({ id: `uuid-${n}`, display_id: `TK-${n}`, subject: `<Older ticket ${n}>`, status_key: 'resolved', priority_key: 'normal' });
 const summary = (rows = [ticket(1), ticket(2)], total = 3) => ({
   totals: { tickets: total, csat_count: 2, csat_avg: 4.5 }, by_status: { open: 1, escalated: 1 },
+  activity: [],
   tickets: { rows, total, limit: 2, offset: 0 },
 });
 
 function harness() {
   const actions = {}, calls = [], inserted = [], opened = [];
   const control = { jwt: 'session', workspace: 'workspace', response: summary(), hold: null, fail: false };
-  const counts = { innerHTML: '' }, tickets = { innerHTML: '' };
+  const counts = { innerHTML: '' }, tickets = { innerHTML: '' }, activity = { innerHTML: '' }, status = { textContent: '' }, translated = [];
   const root = { isConnected: true, dataset: { customerHistory: 'customer-uuid' },
-    querySelector: selector => selector === '[data-history-counts]' ? counts : tickets,
-    querySelectorAll: () => [counts, tickets] };
-  const el = { closest: () => root };
+    querySelector: selector => selector === '[data-history-counts]' ? counts : selector === '[data-history-activity]' ? activity : tickets,
+    querySelectorAll: () => [counts, tickets, activity] };
+  const el = { closest: selector => selector === '.cust-timeline-item' ? { querySelector: () => status } : root };
   const esc = value => String(value).replaceAll('<', '&lt;').replaceAll('"', '&quot;');
   const context = {
     getJwt: () => control.jwt, getWorkspaceId: () => control.workspace,
     registerActions: map => Object.assign(actions, map),
+    translateActivity: (ds, el, entry) => translated.push(entry),
     statusLabel: t => t.statusOption || t.status, buildTicketLookups: () => ({}), copyButton: () => '',
     updateOrInsertTicket: (row, _lookups, target) => {
       if (!target) { inserted.push(row); return; }
@@ -32,7 +34,7 @@ function harness() {
     queueMicrotask: () => {}, document: { querySelector: () => root },
   };
   const api = runInNewContext(source + '\n({loadHistory, renderCustomerHistory})', context);
-  return { ...api, actions, calls, inserted, opened, control, counts, tickets, root, el };
+  return { ...api, actions, calls, inserted, opened, control, counts, tickets, activity, status, translated, root, el };
 }
 
 test('loads full-history counts and older tickets without filling the workspace ticket list', async () => {
@@ -102,4 +104,47 @@ test('late responses cannot update another profile, workspace or login', async (
     h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-1' }, h.el);
     expect(h.opened).toHaveLength(0);
   }
+});
+
+test('fresh profile renders server activity with no cached tickets, and translates previews', async () => {
+  const h = harness();
+  h.control.response.activity = [{ ticket_id: 'uuid-9', display_id: 'TK-9', role: 'customer', author_label: '<Sender>', body: '<Bonjour>', body_truncated: true, created_at: '2026-11-16T10:00:00Z' }];
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('&lt;Bonjour>');
+  expect(h.activity.innerHTML).toContain('&lt;Sender>');
+  expect(h.activity.innerHTML).toContain('Preview only');
+  expect(h.inserted).toHaveLength(0);
+  h.actions['customerHistory.translateActivity']({ messageIndex: '0' }, h.el);
+  expect(h.translated[0].message.t).toBe('<Bonjour>');
+  h.control.response = { ticket: ticket(9) };
+  await h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  expect(h.calls.at(-1)).toBe('/api/v1/tickets/uuid-9');
+  expect(h.opened).toEqual(['TK-9']);
+});
+
+test('activity distinguishes errors from empty results and rejects late navigation', async () => {
+  const h = harness();
+  h.control.fail = true;
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('Couldn’t load activity');
+  expect(h.activity.innerHTML).not.toContain('No activity yet');
+  h.control.fail = false;
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('No activity yet');
+  h.control.response.activity = [{ ticket_id: 'uuid-9', display_id: 'TK-9', role: 'customer', body: 'Hello' }];
+  await h.loadHistory(h.root);
+  h.control.fail = true;
+  await h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  expect(h.status.textContent).toContain('Couldn’t open ticket');
+  expect(h.el.disabled).toBe(false);
+  h.control.fail = false;
+  h.control.response = { ticket: ticket(9) };
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  h.control.workspace = 'other';
+  release(); await pending;
+  h.actions['customerHistory.translateActivity']({ messageIndex: '0' }, h.el);
+  expect(h.opened).toHaveLength(0);
+  expect(h.inserted).toHaveLength(0);
+  expect(h.translated).toHaveLength(0);
 });

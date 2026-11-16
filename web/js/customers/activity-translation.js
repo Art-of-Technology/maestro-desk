@@ -5,11 +5,11 @@ import { registerActions } from '../core/event-delegation.js';
 
 const translations = new WeakMap();
 
-export async function translateActivity(ds, button) {
+export async function translateActivity(ds, button, entry) {
   const row = button.closest('.cust-timeline-item');
   const text = row?.querySelector('[data-activity-text]'), status = row?.querySelector('[data-activity-status]');
-  const ticket = TICKETS.find(t => t.id === ds.ticketId);
-  const message = ticket?.msgs?.[Number(ds.messageIndex)];
+  const ticket = entry?.ticket || TICKETS.find(t => t.id === ds.ticketId);
+  const message = entry?.message || ticket?.msgs?.[Number(ds.messageIndex)];
   if (!text || !status || !message?.t || button.disabled) return;
   const scope = translationScope(), target = AGENT_PREFERRED_LANG, source = message.t;
   const previous = translations.get(row);

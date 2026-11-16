@@ -4,6 +4,7 @@ import { registerActions } from '../core/event-delegation.js';
 import { statusLabel } from '../tickets/status-options.js';
 import { openTicket } from '../tickets/detail.js';
 import { copyButton } from '../core/copy.js';
+import { translateActivity } from './activity-translation.js';
 
 const histories = new WeakMap();
 const loading = '<p role="status">Loading ticket history…</p>';
@@ -47,13 +48,31 @@ function renderTickets(root, state) {
   </div>`;
 }
 
+function renderActivity(root, state) {
+  const slot = root.querySelector('[data-history-activity]');
+  if (!slot) return;
+  slot.innerHTML = '<div class="card"><div class="card-title">Activity timeline</div>'
+    + (state.activity.length ? '<div class="cust-timeline">' + state.activity.map((a, index) => `<div class="cust-timeline-item role-${window.escAttr(a.role)}">
+      <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
+        <strong>${window.escHtml(a.author_label || '')}</strong>
+        ${a.role === 'note' ? '<span class="note-mark">Note</span>' : a.role === 'ai' ? '<span class="ai-mark">AI</span>' : ''}
+        <button type="button" class="btn btn-sm" data-action="customerHistory.openTicket" data-ticket-uuid="${window.escAttr(a.ticket_id)}">${window.escHtml(a.display_id)}</button>
+        <span>${window.escHtml(a.created_at ? new Date(a.created_at).toLocaleString('en-GB') : '')}</span>
+      </div>
+      <div class="customer-activity-text" data-activity-text>${window.escHtml(a.message.t)}</div>
+      ${a.body_truncated ? '<p>Preview only. Open the ticket for the full message.</p>' : ''}
+      ${a.message.t.trim() ? `<button type="button" class="btn btn-sm" data-action="customerHistory.translateActivity" data-message-index="${index}">Translate</button>` : ''}
+      <span role="status" data-activity-status></span>
+    </div>`).join('') + '</div>' : '<p>No activity yet</p>') + '</div>';
+}
+
 async function loadHistory(root, more = false) {
   if (!root) return;
   let state = histories.get(root);
   if (state?.loading) return;
   if (more && (!state || !current(root, state) || !state.more)) return;
   if (!more) {
-    state = { jwt: getJwt(), workspace: getWorkspaceId(), rows: [], offset: 0, total: 0, limit: 25, more: false };
+    state = { jwt: getJwt(), workspace: getWorkspaceId(), rows: [], activity: [], offset: 0, total: 0, limit: 25, more: false };
     histories.set(root, state);
   }
   if (!state.jwt || !state.workspace) return;
@@ -61,7 +80,7 @@ async function loadHistory(root, more = false) {
   state.error = false;
   if (more) renderTickets(root, state);
   else {
-    for (const slot of root.querySelectorAll('[data-history-counts], [data-history-tickets]')) slot.innerHTML = loading;
+    for (const slot of root.querySelectorAll('[data-history-counts], [data-history-tickets], [data-history-activity]')) slot.innerHTML = loading;
   }
   try {
     const path = `/api/v1/customers/${encodeURIComponent(root.dataset.customerHistory)}`;
@@ -75,12 +94,16 @@ async function loadHistory(root, more = false) {
     if (!more) {
       state.total = page.total;
       renderCounts(root, result.totals, result.by_status);
+      state.activity = result.activity.map(a => ({ ...a, message: { t: a.body || '' }, ticket: { id: a.display_id, _uuid: a.ticket_id } }));
+      renderActivity(root, state);
     }
     state.more = page.rows.length > 0 && state.offset < state.total;
   } catch {
     if (!current(root, state)) return;
     state.error = true;
     if (!more) {
+      const activity = root.querySelector('[data-history-activity]');
+      if (activity) activity.innerHTML = '<div class="card"><div class="card-title">Activity timeline</div><p role="status">Couldn’t load activity.</p><button type="button" class="btn btn-sm" data-action="customerHistory.retry">Try again</button></div>';
       const counts = root.querySelector('[data-history-counts]');
       if (counts) counts.innerHTML = '<p role="status">Ticket counts unavailable</p>';
       const tickets = root.querySelector('[data-history-tickets]');
@@ -100,6 +123,7 @@ export function renderCustomerHistory(customer) {
   });
   return {
     kpis: `<div data-history-counts>${loading}</div>`,
+    timeline: `<div data-history-activity><div class="card"><div class="card-title">Activity timeline</div><p role="status">Loading activity…</p></div></div>`,
     tickets: `<div data-history-tickets><div class="card"><div class="card-title">Tickets</div>${loading}</div></div>`,
   };
 }
@@ -107,12 +131,33 @@ export function renderCustomerHistory(customer) {
 registerActions({
   'customerHistory.retry': (_ds, el) => loadHistory(el.closest('[data-customer-history]')),
   'customerHistory.more': (_ds, el) => loadHistory(el.closest('[data-customer-history]'), true),
-  'customerHistory.openTicket': (ds, el) => {
+  'customerHistory.translateActivity': (ds, el) => {
     const root = el.closest('[data-customer-history]'), state = histories.get(root);
     if (!state || !current(root, state)) return;
-    const row = state.rows.find(ticket => ticket.id === ds.ticketUuid);
-    if (!row) return;
-    updateOrInsertTicket(row);
-    openTicket(row.display_id);
+    const entry = state.activity[Number(ds.messageIndex)];
+    if (entry) return translateActivity(ds, el, entry);
+  },
+  'customerHistory.openTicket': async (ds, el) => {
+    const root = el.closest('[data-customer-history]'), state = histories.get(root);
+    if (!state || !current(root, state)) return;
+    let row = state.rows.find(ticket => ticket.id === ds.ticketUuid);
+    if (!row && !state.activity.some(a => a.ticket_id === ds.ticketUuid)) return;
+    if (el.disabled) return;
+    const status = el.closest('.cust-timeline-item')?.querySelector('[data-activity-status]');
+    el.disabled = true;
+    try {
+      if (!row) {
+        if (status) status.textContent = 'Opening ticket…';
+        row = (await apiGet('/api/v1/tickets/' + encodeURIComponent(ds.ticketUuid))).ticket;
+      }
+      if (!current(root, state)) return;
+      if (!row) throw new Error('Ticket unavailable');
+      updateOrInsertTicket(row);
+      openTicket(row.display_id);
+    } catch {
+      if (current(root, state) && status) status.textContent = 'Couldn’t open ticket. Try again.';
+    } finally {
+      el.disabled = false;
+    }
   },
 });

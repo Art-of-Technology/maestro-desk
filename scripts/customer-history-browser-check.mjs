@@ -21,6 +21,7 @@ export default async function checkCustomerHistory(page) {
   let fail = false, empty = false;
   await page.route('**/customers/*/summary', route => route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: 'Fixture failure' } : {
     totals: { tickets: empty ? 0 : 3, csat_count: 2, csat_avg: 4.5 }, by_status: { resolved: empty ? 0 : 3 },
+    activity: [],
     tickets: { rows: empty ? [] : [row(1), row(2)], total: empty ? 0 : 3, limit: 2, offset: 0 },
   } }));
   await page.route('**/customers/*/tickets?*', route => route.fulfill({ json: { rows: [row(3)], limit: 2, offset: 2 } }));
@@ -49,10 +50,10 @@ export default async function checkCustomerHistory(page) {
   await page.evaluate(async () => { (await import('/js/core/data.js')).TICKETS.length = 0; (await import('/js/core/router.js')).nav('tickets'); });
   fail = true;
   await search(true);
-  await page.getByRole('button', { name: 'Try again', exact: true }).waitFor();
+  await page.locator('[data-history-tickets]').getByRole('button', { name: 'Try again', exact: true }).waitFor();
   check(!(await page.locator('[data-history-tickets]').innerText()).includes('No tickets'), 'Failure is not an empty history');
   fail = false; empty = true;
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await page.locator('[data-history-tickets]').getByRole('button', { name: 'Try again', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[data-history-tickets]')?.textContent.includes('No tickets'));
   empty = false;
   await search(false);
