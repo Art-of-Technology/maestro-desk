@@ -46,7 +46,7 @@ export async function customerEmailNames(sql: Db, workspaceId: string, customerI
       order by n.name_review_key, n.created_at desc, n.id desc`;
     for (const entry of entries) {
       const review = reviews.find(n => n.name_review_key === entry.review_key);
-      if (review) entry.reviewed = { by: String(review.name || 'Agent'), at: String(review.created_at), reason: String(review.text) };
+      if (review) entry.reviewed = { by: String(review.name || 'Agent'), at: new Date(review.created_at).toISOString(), reason: String(review.text) };
     }
   }
   return { account_holder_name: accountName || null, entries };

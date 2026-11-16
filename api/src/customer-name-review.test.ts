@@ -57,6 +57,7 @@ test('name comparison normalizes casing, spacing and canonical Unicode', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.email_names.entries[0].reviewed.by).toBe('Review Agent');
+    expect(data.email_names.entries[0].reviewed.at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
     expect(data.email_names.entries[0].reviewed.reason).toContain(body.reason);
     await request(f.customer, body);
     const notes = await sql`select * from customer_notes where customer_id=${f.customer} and workspace_id=${workspace}`;
