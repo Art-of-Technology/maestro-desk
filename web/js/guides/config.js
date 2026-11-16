@@ -301,6 +301,7 @@ export const GUIDE_STEPS = [
     ],
     instructions: [
       'Review your profile and language preferences under Settings. Check the displayed save result when changing a preference.',
+      'Settings → Spam contacts lists contacts whose future emails are filtered. Search by name, email or contact ID, open a profile, or select View history to see recorded marking and unmarking events. Unmark as spam allows future emails through and records your action; existing tickets stay unchanged. This section requires contact viewing and Mark / unmark spam permission. Missing attribution is shown as Not recorded.',
       'Under Settings → Appearance, choose your menu position, colour scheme and Light, Dark or System mode. System follows your device. Choices preview immediately. Select Save changes to keep them across workspaces and devices. Cancel or leave Appearance to discard an unsaved preview. Restore defaults also needs Save changes. These choices affect only your account, not brand colours, the portal or emails.',
       'Under Notifications, Assignment emails controls emails when a teammate or assignment rule assigns a ticket to you. Self-assignment and an unchanged assignee do not send these emails.',
       'Enable queue sound under Settings → Notifications for email tickets assigned to you or reopened in your queue. Use Test sound to check your audio. This preference stays in this browser for your account and workspace. Keep Respovia open and interact with it after opening it to allow sound.',

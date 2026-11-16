@@ -1,4 +1,5 @@
 import { can } from '../core/permissions.js';
+import { settingsSpamContacts } from './spam-contacts.js';
 import { renderPersonalAppearance, cancelAppearancePreview } from './personal-appearance.js';
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Settings groups personal preferences, brand settings and workspace tools.
@@ -79,6 +80,7 @@ export function renderSettings() {
     {k:'ai',            l:'AI Assistant', heading:'Workspace'},
     {k:'knowledge-base', l:'Knowledge Base'},
     {k:'integrations',  l:'Integrations'},
+    ...(can('customers.view') && can('customers.spam') ? [{k:'spam-contacts', l:'Spam contacts'}] : []),
     ...(can('data.ai_reports') ? [{k:'reply-feedback', l:'Reply feedback'}] : []),
     ...(can('admin.inboxes') ? [{k:'categories', l:'Categories'}] : []),
   ];
@@ -94,6 +96,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'knowledge-base') panel = settingsKnowledgeBase();
   else if (SETTINGS_TAB === 'language')      panel = settingsLanguage();
   else if (SETTINGS_TAB === 'integrations')  panel = settingsIntegrations();
+  else if (SETTINGS_TAB === 'spam-contacts') panel = settingsSpamContacts();
   else if (SETTINGS_TAB === 'email')         panel = settingsEmailBranding();
   else if (SETTINGS_TAB === 'sender-domain') panel = settingsSenderDomain();
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
