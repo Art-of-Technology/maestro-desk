@@ -59,7 +59,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { messageTime, renderEmailDetails, renderEmailRetry, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import { messageTime, renderEmailDetails, renderEmailNameMismatch, renderEmailRetry, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
 import './email-retry.js';
 import './email-forward.js';
 import { saveDraftRecipients } from './drafts.js';
@@ -161,10 +161,16 @@ function renderTicketCustomer(cust) {
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
 }
 
-// Update only the contact panel so the composer, attachments and scroll stay intact.
+// Update contact details and name comparisons without disturbing the composer or thread.
 export function refreshTicketCustomer(cust) {
   const panel = document.getElementById('ticket-customer');
-  if (panel?.dataset.custId === cust.id) panel.innerHTML = renderTicketCustomer(cust);
+  if (panel?.dataset.custId !== cust.id) return;
+  panel.innerHTML = renderTicketCustomer(cust);
+  const ticket = TICKETS.find(t => t.id === CURRENT_TICKET && t.customerId === cust.id);
+  if (!ticket) return;
+  document.querySelectorAll('[data-email-name-index]').forEach(node => {
+    node.innerHTML = renderEmailNameMismatch(ticket.msgs[Number(node.dataset.emailNameIndex)], cust);
+  });
 }
 
 export function openTicket(id) {
@@ -478,7 +484,7 @@ export function openTicket(id) {
     return `
     <div class="msg msg-${m.r}">
       <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span class="message-time">${window.escHtml(messageTime(m))}</span></div>
-      ${renderEmailDetails(m)}
+      ${renderEmailDetails(m, cust, i)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
       ${t._uuid && !t.mergedInto ? renderEmailRetry(m) : ''}

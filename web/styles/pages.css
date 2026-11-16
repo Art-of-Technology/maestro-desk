@@ -914,6 +914,7 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .message-email-details dd { margin: 0; min-width: 0; }
 .message-email-details summary { cursor: pointer; padding: 4px 0; }
 .email-inbox { padding: 5px 0; }
+.email-name-comparison:not(:empty) { display: block; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--amber); color: var(--ink2); }
 .reply-recipients { display: grid; gap: 6px; padding: 0 0 8px; margin-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: 12px; }
 .reply-sender-row,.reply-address-row { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 8px; align-items: center; }
 .reply-recipients select, .reply-recipients input { min-width: 0; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--off); color: var(--ink); font: inherit; }
