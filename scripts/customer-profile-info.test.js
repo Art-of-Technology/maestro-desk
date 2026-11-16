@@ -58,5 +58,6 @@ test('activity handles failures and ignores results after navigation or scope ch
     finish({ translation: 'Hello' });
     await pending;
     expect(f.text.textContent).toBe('Bonjour');
+    if (f.row.isConnected) expect(f.status.textContent).toBe('');
   }
 });

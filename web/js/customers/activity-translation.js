@@ -39,7 +39,10 @@ export async function translateActivity(ds, button) {
   } catch (error) {
     if (row.isConnected && scope === translationScope()) status.textContent = error.message || 'Could not translate. Try again.';
   } finally {
-    if (row.isConnected) button.disabled = false;
+    if (row.isConnected) {
+      button.disabled = false;
+      if (status.textContent === 'Translating…') status.textContent = '';
+    }
   }
 }
 
