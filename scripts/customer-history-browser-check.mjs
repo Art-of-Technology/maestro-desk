@@ -12,6 +12,8 @@ export default async function checkCustomerHistory(page) {
     c._uuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     window.historyFixtureId = c.id;
     TICKETS.length = 0;
+    const state = await import('/js/core/state.js');
+    state.setSession({ ...state.SESSION, userId: 'history-test-user' });
     sessionStorage.setItem('maestro_jwt', 'fixture-session');
     sessionStorage.setItem('maestro_workspace_id', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
   });
@@ -21,11 +23,12 @@ export default async function checkCustomerHistory(page) {
   let fail = false, empty = false;
   await page.route('**/customers/*/summary', route => route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: 'Fixture failure' } : {
     totals: { tickets: empty ? 0 : 3, csat_count: 2, csat_avg: 4.5 }, by_status: { resolved: empty ? 0 : 3 },
-    activity: [],
+    activity: empty ? [] : [{ ticket_id: row(9).id, display_id: row(9).display_id, role: 'customer', author_label: 'History sender', body: 'Bonjour, aidez-moi.', body_truncated: true, created_at: '2026-01-02T00:00:00Z' }],
     tickets: { rows: empty ? [] : [row(1), row(2)], total: empty ? 0 : 3, limit: 2, offset: 0 },
   } }));
   await page.route('**/customers/*/tickets?*', route => route.fulfill({ json: { rows: [row(3)], limit: 2, offset: 2 } }));
-  await page.route('**/tickets/cccccccc-*', route => route.fulfill({ json: { ticket: { ...row(3), messages: [], tags: [], ai_tags: [], time_entries: [] } } }));
+  await page.route('**/tickets/cccccccc-*', route => route.fulfill({ json: { ticket: { ...row(Number(route.request().url().split('-').at(-1))), messages: [], tags: [], ai_tags: [], time_entries: [] } } }));
+  await page.route('**/ai/messages', route => route.fulfill({ json: { text: 'Hello, help me.' } }));
   const search = async keyboard => {
     await page.locator('#gs-input').fill('History Fixture');
     if (keyboard) { await page.locator('#gs-input').press('ArrowDown'); await page.locator('#gs-input').press('Enter'); }
@@ -37,6 +40,13 @@ export default async function checkCustomerHistory(page) {
   check(await page.locator('#modal-container').textContent() === '', 'Search opens full profile without popup');
   check((await page.locator('[data-history-counts]').innerText()).includes('4.5'), 'Counts come from server history');
   check(await page.evaluate(async () => (await import('/js/core/data.js')).TICKETS.length) === 0, 'History loading preserves workspace ticket list');
+  check((await page.locator('[data-history-activity]').innerText()).includes('Bonjour, aidez-moi.'), 'Server activity mounts with zero cached tickets');
+  check((await page.locator('[data-history-activity]').innerText()).includes('Preview only'), 'Truncated previews are labelled');
+  await page.locator('[data-action="customerHistory.translateActivity"]').click();
+  await page.getByText('Translated to English', { exact: true }).waitFor();
+  check(await page.locator('[data-history-activity] [data-activity-text]').textContent() === 'Hello, help me.', 'Server preview translates');
+  await page.locator('[data-action="customerHistory.translateActivity"]').click();
+  check(await page.locator('[data-history-activity] [data-activity-text]').textContent() === 'Bonjour, aidez-moi.', 'Original preview is restored');
   await page.getByRole('button', { name: 'Load more', exact: true }).click();
   await page.getByRole('button', { name: 'TK-9003', exact: true }).waitFor();
   check(await page.locator('[data-history-status]').innerText() === '3 of 3 tickets', 'Final page is reachable');
@@ -47,6 +57,10 @@ export default async function checkCustomerHistory(page) {
   await page.getByRole('button', { name: 'View full profile', exact: true }).click();
   await page.getByRole('button', { name: 'TK-9001', exact: true }).waitFor();
   check(await page.locator('#modal-container').textContent() === '', 'Popup closes before navigating');
+  await page.evaluate(async () => { (await import('/js/core/data.js')).TICKETS.length = 0; (await import('/js/core/router.js')).nav('tickets'); });
+  await search(false);
+  await page.locator('[data-history-activity]').getByRole('button', { name: 'TK-9009', exact: true }).click();
+  await page.waitForFunction(async () => (await import('/js/core/state.js')).CURRENT_TICKET === 'TK-9009');
   await page.evaluate(async () => { (await import('/js/core/data.js')).TICKETS.length = 0; (await import('/js/core/router.js')).nav('tickets'); });
   fail = true;
   await search(true);

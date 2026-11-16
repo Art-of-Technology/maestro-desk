@@ -61,3 +61,19 @@ test('activity handles failures and ignores results after navigation or scope ch
     if (f.row.isConnected) expect(f.status.textContent).toBe('');
   }
 });
+
+test('server preview translation keys stay stable when list positions change', async () => {
+  const f = fixture(async () => ({ translation: 'Hello' }));
+  const keys = [];
+  f.ctx.TICKETS = [];
+  f.ctx.messageTranslationRequest = key => { keys.push(JSON.stringify(key)); return async () => ({ text: 'Hello' }); };
+  const entry = { ticket: { _uuid: 'server-ticket' }, message: { t: 'Bonjour' }, created_at: '2026-11-16T10:00:00Z', role: 'customer', author_label: 'Sender' };
+  await f.ctx.translateActivity({ messageIndex: '0' }, f.button, entry);
+  expect(f.text.textContent).toBe('Hello');
+  await f.ctx.translateActivity({ messageIndex: '0' }, f.button, entry);
+  expect(f.text.textContent).toBe('Bonjour');
+  await f.ctx.translateActivity({ messageIndex: '4' }, f.button, entry);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).toBe(keys[1]);
+  expect(keys[0]).toContain('profile-preview');
+});

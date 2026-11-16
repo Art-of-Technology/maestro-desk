@@ -24,7 +24,10 @@ export async function translateActivity(ds, button, entry) {
   status.textContent = 'Translating…';
   try {
     let warning = false;
-    const request = messageTranslationRequest(message._uuid || [ticket._uuid || ticket.id, Number(ds.messageIndex)], scope);
+    // Preview identity stays stable as new activity shifts the list; the cache also hashes the source text.
+    const key = entry ? ['profile-preview', ticket._uuid, entry.created_at, entry.role, entry.author_label]
+      : message._uuid || [ticket._uuid || ticket.id, Number(ds.messageIndex)];
+    const request = messageTranslationRequest(key, scope);
     const result = await translateText(source, target, async body => {
       const response = await request(body);
       warning ||= !!response.cacheWarning;
