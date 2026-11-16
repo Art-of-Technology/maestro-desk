@@ -990,3 +990,11 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 @media(pointer:coarse){.ticket-tag-controls .btn{min-height:44px}}
 
 @media(pointer:coarse){.ticket-page .ticket-language-toggle .btn,.ticket-page .ticket-thread-tools>.ticket-jump-latest,.ticket-page .composer-save{min-height:44px}}
+.spam-contact-search{margin:20px 0}
+.spam-contact-search>div{display:flex;gap:8px;margin-top:8px}
+.spam-contact-search input{min-width:0}
+.spam-contact-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 0;border-bottom:1px solid var(--rule);overflow-wrap:anywhere}
+.spam-contact-row>div:first-child{min-width:0;flex:1 1 260px}
+.spam-contact-meta{color:var(--ink2);font-size:12px;margin-top:8px}
+.spam-contact-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+@media(pointer:coarse){[data-spam-contacts] .btn{min-height:44px}}
