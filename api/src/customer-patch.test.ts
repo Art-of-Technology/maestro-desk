@@ -76,7 +76,7 @@ runDbTests('PATCH /customers/:id (DB-backed)', () => {
       expect((await response.json() as { code: string }).code).toBe('player_name');
     }
     expect((await rowOf(id)).first_name).toBe('C');
-    expect((await patch(agent.token, id, { jurisdiction: 'GB' })).status).toBe(200);
+    expect((await patch(agent.token, id, { first_name: 'C', last_name: 'linked-name', jurisdiction: 'GB' })).status).toBe(200);
   });
 
   beforeAll(async () => {

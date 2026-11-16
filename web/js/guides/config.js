@@ -54,6 +54,7 @@ export const GUIDE_STEPS = [
     instructions: [
       'Open Customers and select the customer, or choose a customer result in the search bar. From a ticket’s Details sidebar, select the Customer section, then View full profile.',
       'If a contact is not found, choose Look up in Maestro from the main search dropdown or Search results page. Use an exact email or username. This searches the selected brand, even if the player has never contacted support. Looking up a player does not create a customer or send a message.',
+      'Linked contacts use the first and last names registered on the player account. Change those names in the player account, not Edit details. The original Email sender name appears beside From on received emails. A different sender name can help an investigation, but does not prove who owns the email address.',
       'Check that the record belongs to the person and brand you are supporting. Review the Tickets section for related problems and commitments. Use Load more to see older tickets. If history could not be loaded, select Try again.',
       'Follow your team’s identity checks before disclosing account information or acting on a request. Include only the customer information needed in replies and notes.',
     ],
