@@ -13,11 +13,10 @@ export function renderCustomerEmailNames(customer, tickets) {
       if (seen.has(key)) continue;
       seen.add(key);
       rows.push('<li><strong>' + window.escHtml(name) + '</strong> · ' + window.escHtml(address)
-        + '<span class="email-name-comparison">' + renderEmailNameMismatch(message, customer) + '</span></li>');
+        + (renderEmailNameMismatch(message, customer) ? '<span class="email-name-comparison">Different from player name</span>' : '') + '</li>');
     }
   }
   return '<section class="card customer-email-names"><div class="card-title">Email sender names</div>'
-    + (customer.maestroUserId ? '<p>Player account: ' + window.escHtml([customer.first, customer.last].filter(Boolean).join(' ') || 'Name unavailable') + '</p>' : '')
     + '<p>Names observed in loaded conversations. These do not verify email ownership.</p>'
     + (rows.length ? '<ul>' + rows.join('') + '</ul>' : '<p>No email sender names available in loaded conversations.</p>') + '</section>';
 }

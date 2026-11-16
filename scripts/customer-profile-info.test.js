@@ -13,7 +13,9 @@ test('profile groups owned sender names and escapes them without inferring owner
   const tickets = [{ customerId: 'c', msgs: [m, m, { ...m, from: 'Third party', email: { ...m.email, from: 'other@example.test' } }, { ...m, from: 'Forwarded', forwarded: true }] }];
   const html = renderCustomerEmailNames(c, tickets);
   expect(html.match(/&lt;Alias&gt;/g)).toHaveLength(1);
-  expect(html).toContain('Name differs from player account');
+  expect(html).toContain('Different from player name');
+  expect(html).not.toContain('Player account:');
+  expect(html).not.toContain('Jane Doe');
   expect(html).toContain('loaded conversations');
   expect(html).not.toContain('Third party');
   expect(html).not.toContain('Forwarded');
