@@ -289,8 +289,8 @@ function setConfirmBusy(busy) {
   if (btn) btn.disabled = Boolean(busy);
 }
 
-function editableFields() {
-  return getLayoutFields('customer').filter((f) => Object.hasOwn(EDITABLE, f.key) && (f.headerOwned || isFieldVisible('customer', f.key)));
+function editableFields(c) {
+  return getLayoutFields('customer').filter((f) => Object.hasOwn(EDITABLE, f.key) && !(c.maestroUserId && ['first', 'last'].includes(f.key)) && (f.headerOwned || isFieldVisible('customer', f.key)));
 }
 
 function inputFor(c, f) {
@@ -338,9 +338,10 @@ export function showEditDetailsModal(custId) {
   if (!ED.resume || ED.custId !== custId) ED.values = null;
   ED.resume = false;
   ED.custId = custId;
-  const fields = editableFields();
+  const fields = editableFields(c);
 
   showModal(`Edit details — ${c.first} ${c.last}`.trim(), `
+    ${c.maestroUserId ? '<p class="muted">The contact name comes from the linked player account.</p>' : ''}
     <div class="form-grid">
       ${fields.map((f) => `<div class="form-row"><label class="form-label" for="ed-${attr(f.key)}">${esc(f.label)}${f.headerOwned || f.required ? ' *' : ''}</label>${inputFor(c, f)}</div>`).join('\n      ')}
     </div>

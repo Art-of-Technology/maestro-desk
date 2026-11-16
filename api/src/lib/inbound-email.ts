@@ -439,14 +439,14 @@ export async function processInboundEmail(args: {
   try { await applyAssignmentRules({ workspaceId, ticketId: newTicket.id }); }
   catch (err) { console.error('[inbound-email] assignment failed:', safeError(err)); }
 
-  // 3a. Attach the contact to its Maestro player (ids + username; fills blank
-  //     VIP / country). Runs AFTER the ticket + message land so it never
+  // 3a. Link or refresh the registered name and fill blank account details.
+  //     Runs AFTER the ticket + message land so it never
   //     competes with them for the pool on the webhook hot path. Self-contained
-  //     — resolves an outcome instead of throwing, skips already-linked
+  //     — resolves an outcome instead of throwing, throttles recent lookups for
   //     contacts, no-ops for non-Maestro workspaces (lib/player-identity.ts).
   //     `email` is the address that wrote in: a casino login held as a
   //     SECONDARY address would never match on the primary mirror.
-  scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
+  const playerLink = scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
 
   // 3b. Audit row in the inbox view, attributed to the channel resolved
   //     above. Failures are logged but don't fail the webhook — the
@@ -462,11 +462,12 @@ export async function processInboundEmail(args: {
     // We deliberately don't await this. If the workspace is out of budget
     // (BudgetExceededError), we just log and move on — the ticket still
     // gets created.
-    void triageTicket({
+    // Resolve the registered name before composing the first reply.
+    void playerLink.then(() => triageTicket({
       ticketId: newTicket.id,
       workspaceId,
       userId: null,   // system-triggered, no user
-    }).catch((err) => {
+    })).catch((err) => {
       if (err instanceof BudgetExceededError) {
         console.log(`[inbound-email] auto-triage skipped — workspace ${workspaceId} out of budget`);
       } else {
@@ -544,10 +545,11 @@ async function attachReplyToTicket(args: {
   // linked only when the SENDER's address is one of that customer's own — a
   // colleague or third party replying on the thread must never bind the
   // customer to *their* player record. Resolution failures are swallowed.
+  let playerLink: Promise<unknown> = Promise.resolve();
   if (!spam) try {
     const sender = await resolveCustomerByContact(sql, workspaceId, 'email', email);
     if (sender && (sender.merged_into_customer_id || sender.id) === customerId) {
-      scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
+      playerLink = scheduleLink({ workspaceId, customerId, email, reason: 'inbound_email' });
     }
   } catch (err) {
     console.warn('[inbound-email] player-link sender check failed on thread-attach:', safeError(err));
@@ -602,7 +604,7 @@ async function attachReplyToTicket(args: {
   // Errors swallowed (same rationale as the create path) so Postmark gets 200.
   let autoTriageQueued = false;
   try {
-    void triageTicket({ ticketId, workspaceId, userId: null }).catch((err) => {
+    void playerLink.then(() => triageTicket({ ticketId, workspaceId, userId: null })).catch((err) => {
       if (err instanceof BudgetExceededError) {
         console.log(`[inbound-email] retriage skipped — workspace ${workspaceId} out of budget`);
       } else {

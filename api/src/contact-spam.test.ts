@@ -18,6 +18,7 @@ process.env.POSTMARK_OUTBOUND_FROM = 'support@maestro.test';
   const originalId = `<original-${run}@test.example>`;
   const spies: { mockRestore(): void }[] = [];
   let triageCalls = 0, sentimentCalls = 0;
+  let pendingLink: Promise<import('./lib/player-identity.js').LinkOutcome> | null = null;
 
   const request = (path: string, method: string, body?: unknown, ws = workspaceId) => app.request('/api/v1' + path, {
     method, headers: { Authorization: `Bearer ${token}`, 'X-Workspace-Id': ws, 'Content-Type': 'application/json' },
@@ -62,7 +63,7 @@ process.env.POSTMARK_OUTBOUND_FROM = 'support@maestro.test';
       values (${workspaceId}, ${ticketId}, 'customer', 'Sender', 'Original mail', ${originalId})`;
     spies.push(spyOn(await import('./lib/triage.js'), 'triageTicket').mockImplementation(async () => { triageCalls++; return {} as any; }));
     spies.push(spyOn(await import('./lib/sentiment.js'), 'scoreMessageSentiment').mockImplementation(async () => { sentimentCalls++; return null as any; }));
-    spies.push(spyOn(await import('./lib/player-identity.js'), 'scheduleLink').mockImplementation(() => {}));
+    spies.push(spyOn(await import('./lib/player-identity.js'), 'scheduleLink').mockImplementation(() => pendingLink || Promise.resolve('skipped')));
     spies.push(spyOn(await import('./lib/pubby.js'), 'publishTicketChanged').mockImplementation(async () => {}));
     inbound = (await import('./lib/inbound-email.js')).processInboundEmail;
   }, 30000);
@@ -207,4 +208,21 @@ process.env.POSTMARK_OUTBOUND_FROM = 'support@maestro.test';
     const ordinary = await sync(refresh.cursor);
     expect(ordinary.tickets.find((t: any) => t.id === ticket.id).queue_alert_at).toBeNull();
   });
+  it('keeps the sender name and waits for account linking before first-reply triage', async () => {
+    let finish!: (result: 'linked') => void;
+    pendingLink = new Promise(resolve => { finish = resolve; });
+    const before = triageCalls;
+    try {
+      const result = await inbound({ workspaceId, payload: payload('name-' + run + '@test.example') });
+      expect(triageCalls).toBe(before);
+      const [message] = await sql`select author_label,email_metadata from ticket_messages where ticket_id=${result.ticket_id} and role='customer'`;
+      expect(message.author_label).toBe('Sender');
+      expect(message.email_metadata.from).toBe('name-' + run + '@test.example');
+      finish('linked');
+      await pendingLink;
+      await Promise.resolve();
+      expect(triageCalls).toBe(before + 1);
+    } finally { finish('linked'); pendingLink = null; }
+  });
+
 });

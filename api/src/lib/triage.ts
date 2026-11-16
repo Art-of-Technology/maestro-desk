@@ -193,6 +193,7 @@ function buildUserMessage(t: TicketSnapshot, playerContext: string | null, inclu
   return `Triage ticket ${t.display_id}.
 
 CUSTOMER: ${customerContextLine(t, includePlayerAttrs)}
+Use the CUSTOMER name for greetings, never a thread author label, username or email display name. If unknown, use a greeting without a name.
 CURRENT STATUS: ${t.current_status_key}
 CURRENT CATEGORY: ${t.current_category_key ?? '(none)'}
 CURRENT PRIORITY: ${t.current_priority_key ?? '(none)'}

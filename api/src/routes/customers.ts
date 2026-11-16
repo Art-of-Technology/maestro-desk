@@ -1167,6 +1167,13 @@ customers.patch('/:id', async (c) => {
       return { status: 409, body: { error: 'This profile is merged — edit the survivor instead', code: 'merged', merged_into_customer_id: row.merged_into_customer_id } };
     }
 
+    if (row.maestro_user_id && (
+      ('first_name' in body && body.first_name !== row.first_name) ||
+      ('last_name' in body && body.last_name !== row.last_name)
+    )) {
+      return { status: 409, body: { error: 'This name comes from the linked player account. Update it there.', code: 'player_name' } };
+    }
+
     const updates: Record<string, unknown> = {};
     const changed: Changed = {};        // response: every change (the agent just typed them)
     const audited: Changed = {};        // audit row: values for non-PII columns only
