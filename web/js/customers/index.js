@@ -50,6 +50,8 @@ import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 import { refreshCustomerAccount } from './account-refresh.js';
 import { renderRiskPanel } from './risk-panel.js';
 import { renderCustomerHistory } from './history.js';
+import { renderCustomerEmailNames } from './email-names.js';
+import './activity-translation.js';
 
 // ─── Customer table column state ─────────────────────────────────────────────
 
@@ -580,7 +582,8 @@ function getCustomerStats(custId) {
 function getCustomerActivity(custId) {
   const items = [];
   TICKETS.filter(t => t.customerId === custId).forEach(t => {
-    (t.msgs || []).forEach(m => items.push({
+    (t.msgs || []).forEach((m, messageIndex) => items.push({
+      messageIndex,
       ticketId: t.id,
       from: m.from,
       role: m.r,
@@ -1034,14 +1037,16 @@ function renderCustomerDetail(custId) {
       <div class="card-title">Activity timeline</div>
       <div class="cust-timeline">
         ${activity.map(a => `
-          <div class="cust-timeline-item role-${a.role}" data-action="cust.openTicket" data-ticket-id="${window.escAttr(a.ticketId)}">
+          <div class="cust-timeline-item role-${a.role}">
             <div style="display:flex;gap:8px;align-items:baseline;margin-bottom:3px">
               <span style="font-size:11px;font-weight:600;color:var(--ink)">${window.escHtml(a.from)}</span>
               ${a.role === 'note' ? '<span class="note-mark">Note</span>' : a.role === 'ai' ? '<span class="ai-mark">AI</span>' : ''}
-              <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)">${a.ticketId}</span>
+              <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink3)"><button type="button" class="btn btn-sm" data-action="cust.openTicket" data-ticket-id="${window.escAttr(a.ticketId)}">${window.escHtml(a.ticketId)}</button></span>
               <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink4);margin-left:auto">${a.ts}</span>
             </div>
-            <div style="font-size:12px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(a.text)}</div>
+            <div class="customer-activity-text" data-activity-text>${window.escHtml(a.text)}</div>
+            ${a.text?.trim() ? `<button type="button" class="btn btn-sm" data-action="cust.translateActivity" data-ticket-id="${window.escAttr(a.ticketId)}" data-message-index="${a.messageIndex}">Translate</button>` : ''}
+            <span role="status" data-activity-status></span>
           </div>
         `).join('')}
       </div>
@@ -1172,7 +1177,7 @@ function renderCustomerDetail(custId) {
     // '1fr 1fr ...' rather than repeat(n,1fr) so the two-area case stays
     // byte-identical to the markup this replaced.
     const cols = Array(parts.length).fill('1fr').join(' ');
-    return `<div style="display:grid;grid-template-columns:${cols};gap:16px;margin-bottom:16px">
+    return `<div class="customer-profile-area-row" style="display:grid;grid-template-columns:${cols};gap:16px;margin-bottom:16px">
           ${parts.join('\n          ')}
         </div>`;
   }).join('\n        ');
@@ -1196,6 +1201,7 @@ function renderCustomerDetail(custId) {
         </div>
       </div>
       <div class="page-scroll"${c._uuid ? ` data-customer-history="${window.escAttr(c._uuid)}"` : ''}>${renderDetailsCard(c)}
+        ${renderCustomerEmailNames(c, TICKETS)}
         ${!c.erased && !c.mergedInto ? `<div class="card"><div class="card-title">${c.isSpam ? 'Spam contact' : 'Spam filtering'}</div><p>${c.isSpam ? 'Future emails from this contact are closed as spam without a reply or survey.' : 'Marking this contact as spam filters future emails. Existing tickets stay unchanged.'}</p><button type="button" class="btn btn-sm" data-action="${c.isSpam ? 'cust.unmarkSpam' : 'cust.markSpam'}" data-cust-id="${window.escAttr(c.id)}">${c.isSpam ? 'Unmark contact as spam' : 'Mark as spam'}</button></div>` : ''}
         ${c.mergedInto ? `<div style="margin:0 0 16px;padding:10px 14px;background:var(--purple-lt);border:1px solid var(--purple);border-radius:var(--r);font-size:11px;color:var(--purple);display:flex;align-items:center;gap:10px">
           <span style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Merged duplicate</span>
