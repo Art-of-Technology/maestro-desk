@@ -23,6 +23,7 @@ export default async function checkCustomerHistory(page) {
   let fail = false, empty = false;
   await page.route('**/customers/*/summary', route => route.fulfill({ status: fail ? 500 : 200, json: fail ? { error: 'Fixture failure' } : {
     totals: { tickets: empty ? 0 : 3, csat_count: 2, csat_avg: 4.5 }, by_status: { resolved: empty ? 0 : 3 },
+    email_names: { account_holder_name: 'History Fixture', entries: [{ email: 'sender@example.test', sender_name: 'Alias', mismatch: true, review_key: 'a'.repeat(64) }] },
     activity: empty ? [] : [{ ticket_id: row(9).id, display_id: row(9).display_id, role: 'customer', author_label: 'History sender', body: 'Bonjour, aidez-moi.', body_truncated: true, created_at: '2026-01-02T00:00:00Z' }],
     tickets: { rows: empty ? [] : [row(1), row(2)], total: empty ? 0 : 3, limit: 2, offset: 0 },
   } }));

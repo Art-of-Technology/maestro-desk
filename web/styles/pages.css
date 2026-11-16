@@ -33,7 +33,13 @@
 .customer-profile-area-row > *{min-width:0}
 @media(max-width:768px){.customer-profile-area-row{grid-template-columns:minmax(0,1fr)!important}}
 .customer-email-names{margin-bottom:16px;overflow-wrap:anywhere}
-.customer-email-names li + li{margin-top:12px}
+.customer-email-names dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px;margin:0 0 12px}
+.customer-email-names dt{color:var(--ink2)}
+.customer-email-names dd{margin:0;font-weight:600}
+.customer-email-names small{display:block;color:var(--ink2);font-weight:400}
+.contact-name-entry{padding:12px 0;border-top:1px solid var(--rule)}
+.contact-name-warning{color:var(--ink);border-left:3px solid var(--amber);padding-left:8px}
+.contact-name-reviewed{margin-top:8px;font-size:12px;color:var(--ink2)}
 .customer-activity-text{font-size:12px;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
 .cust-timeline-item [data-activity-status]{display:block;font-size:12px;color:var(--ink2);margin-top:4px}
 .cust-quickactions .btn{text-decoration:none}

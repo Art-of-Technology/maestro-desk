@@ -2,10 +2,11 @@ import { expect, test, mock } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftRecipients: () => null, saveDraftRecipients() {} }));
-const { renderCustomerEmailNames } = await import('../web/js/customers/email-names.js');
+const { renderCustomerEmailNames, renderEmailNames } = await import('../web/js/customers/email-names.js');
 
 globalThis.window ||= globalThis;
 window.escHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+window.escAttr = value => window.escHtml(value).replaceAll('"', '&quot;');
 
 test('profile groups owned sender names and escapes them without inferring ownership', () => {
   const c = { id: 'c', first: 'Jane', last: 'Doe', maestroUserId: 'p', email: 'a@example.test' };
@@ -13,14 +14,14 @@ test('profile groups owned sender names and escapes them without inferring owner
   const tickets = [{ customerId: 'c', msgs: [m, m, { ...m, from: 'Third party', email: { ...m.email, from: 'other@example.test' } }, { ...m, from: 'Forwarded', forwarded: true }] }];
   const html = renderCustomerEmailNames(c, tickets);
   expect(html.match(/&lt;Alias&gt;/g)).toHaveLength(1);
-  expect(html).toContain('Different from player name');
-  expect(html).not.toContain('Player account:');
-  expect(html).not.toContain('Jane Doe');
-  expect(html).toContain('loaded conversations');
+  expect(html).toContain('Names differ — check before responding.');
+  expect(html).toContain('Account holder name');
+  expect(html.match(/Jane Doe/g)).toHaveLength(1);
+  expect(html).toContain('Email sender name');
   expect(html).not.toContain('Third party');
   expect(html).not.toContain('Forwarded');
   expect(renderCustomerEmailNames({ ...c, erased: true }, tickets)).toBe('');
-  expect(renderCustomerEmailNames(c, [])).toContain('No email sender names');
+  expect(renderCustomerEmailNames(c, [])).toContain('No email addresses available');
 });
 
 function fixture(translateText) {
@@ -78,4 +79,19 @@ test('server preview translation keys stay stable when list positions change', a
   expect(keys).toHaveLength(2);
   expect(keys[0]).toBe(keys[1]);
   expect(keys[0]).toContain('profile-preview');
+});
+
+test('name comparison keeps both names and only hides warnings for reviewed pairs', () => {
+  const data = { account_holder_name: 'Jane Doe', entries: [{ email: 'jane@example.test', sender_name: 'Janey', mismatch: true, review_key: 'a'.repeat(64) }] };
+  const pending = renderEmailNames(data, true);
+  expect(pending).toContain('Names differ — check before responding.');
+  expect(pending).toContain('Mark as reviewed');
+  expect(renderEmailNames(data, false)).not.toContain('Mark as reviewed');
+  data.entries[0].reviewed = { by: '<Reviewer>', at: '2026-11-16T12:00:00Z', reason: '<Name change checked>' };
+  const reviewed = renderEmailNames(data, true);
+  expect(reviewed).not.toContain('Names differ');
+  expect(reviewed).not.toContain('Mark as reviewed');
+  expect(reviewed).toContain('Janey'); expect(reviewed).toContain('Jane Doe');
+  expect(reviewed).toContain('&lt;Reviewer&gt;'); expect(reviewed).toContain('&lt;Name change checked&gt;');
+  expect(renderCustomerEmailNames({ _uuid: 'server-id' }, [])).toContain('Loading names');
 });
