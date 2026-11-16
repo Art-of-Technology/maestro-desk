@@ -58,7 +58,7 @@ jobs:
         run: bun test scripts/route-location.test.js scripts/url-navigation.test.js
 
       - name: Customer profile ticket history
-        run: bun test scripts/customer-history.test.js
+        run: bun test scripts/customer-history.test.js scripts/customer-profile-info.test.js
 
       - name: Customers table column order + sort
         run: bun test scripts/customer-table-order.test.js
