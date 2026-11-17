@@ -59,7 +59,7 @@ function setup() {
       id: 'customer-uuid', display_id: customer.id, maestro_user_id: '50724',
       email: customer.email, emails: customer.emails || [],
       first_name: 'Francisco', last_name: 'Test', username: 'javier1107', brand: 'Space Casino',
-      vip_tier: 'Gold', jurisdiction: 'MX', backoffice_url: 'https://bo.spacecasino.com/Member/Detail/50724',
+      vip_tier: 'Gold', jurisdiction: 'MX', backoffice_url: 'https://backofficev2.spacecasino.com/members/50724',
     } } : { error: "Couldn't refresh account details. Try opening this profile again shortly." }), { status })),
   };
 }
@@ -78,7 +78,7 @@ test('opening an unlinked ticket refreshes only the customer panel and preserves
   expect(h.calls[0].options.headers['X-Workspace-Id']).toBe('workspace-A');
   expect(h.customer.maestroUserId).toBe('50724');
   expect(h.panel.innerHTML).toContain('Space Casino');
-  expect(h.panel.innerHTML).toContain('/Member/Detail/50724');
+  expect(h.panel.innerHTML).toContain('https://backofficev2.spacecasino.com/members/50724');
   expect(main.innerHTML).toBe(rendered);
   expect(composer.value).toBe('Unsent reply');
   h.open(); expect(h.calls).toHaveLength(1);
