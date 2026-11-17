@@ -9,7 +9,7 @@ const brandId = '58d5016a-91bb-49e6-a9be-b3f36f08afde';
 const migration = readFileSync(new URL('../../db/migrations/20260908100500_import_m25_account_details.sql', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../../db/migrations/20260908100600_verify_imported_global_id.sql', import.meta.url), 'utf8');
 
 it('only builds verified Space Casino member links', () => {
-  expect(playerBackofficeUrl(brandId, '50119')).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+  expect(playerBackofficeUrl(brandId, '50119')).toBe('https://backofficev2.spacecasino.com/members/50119');
   for (const id of [null, '', '../1', '1?admin=true', 'https://example.com', 'global-id']) {
     expect(playerBackofficeUrl(brandId, id)).toBeNull();
   }
@@ -49,7 +49,7 @@ runDbTests('verified M25 import', () => {
             expect(after[0].maestro_member_id).toBe('332f9967fcd142989ab5a2715c5cc802');
             expect(after[0].maestro_global_id_verified).toBe(true);
             expect(new Date(after[0].since).toISOString().slice(0, 10)).toBe('2026-08-30');
-            expect(after[0].backoffice_url).toBe(playerBackofficeUrl(brandId, '50119'));
+            expect(after[0].backoffice_url).toBe('https://bo.spacecasino.com/Member/Detail/50119');
             expect(audit.map(a => a.action)).toEqual(['customer.account_details_imported']);
             const [chain] = await tx`select ok from audit_events_verify(${workspaceId})`;
             expect(chain.ok).toBe(true);

@@ -390,7 +390,7 @@ runDbTests('player identity linking (DB-backed)', () => {
       await sql`update workspaces set maestro_brand_id = ${spaceBrand} where id = ${ws}`;
       const response = await lookup(spaceBrand);
       expect(response.status).toBe(200);
-      expect((await response.json() as any).backofficeUrl).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      expect((await response.json() as any).backofficeUrl).toBe('https://backofficev2.spacecasino.com/members/50119');
       const [{ count: after }] = await sql`select count(*)::int from customers where workspace_id = ${ws}`;
       expect(after).toBe(before);
     } finally {
@@ -411,7 +411,7 @@ runDbTests('player identity linking (DB-backed)', () => {
       stubGateway({ ...PLAYER, userId: '50119' });
       const response = await refresh(id);
       const body = await response.json() as any;
-      expect(body.customer.backoffice_url).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      expect(body.customer.backoffice_url).toBe('https://backofficev2.spacecasino.com/members/50119');
       expect(body.customer.maestro_member_id).toBe('imported-global-id');
       expect(new Date(body.customer.since).toISOString().slice(0, 10)).toBe('2026-08-30');
       expect(calls).toHaveLength(1);
