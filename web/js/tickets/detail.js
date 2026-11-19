@@ -79,7 +79,7 @@ import {
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
-import { enableRemoteImages, renderMessageBody, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
+import { enableRemoteImages, renderMessageBody, renderEmptyEmailNotice, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
 import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
 import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
@@ -485,6 +485,7 @@ export function openTicket(id) {
     <div class="msg msg-${m.r}">
       <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span class="message-time">${window.escHtml(messageTime(m))}</span></div>
       ${renderEmailDetails(m, cust, i)}
+      ${renderEmptyEmailNotice(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
       ${t._uuid && !t.mergedInto ? renderEmailRetry(m) : ''}
