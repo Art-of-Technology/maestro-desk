@@ -57,7 +57,7 @@ export const SEARCH_PAGES = [
   {p:'sla-breach', l:'SLA Breach Report'},
   {p:'portal',    l:'Customer Portal'},
   {p:'channels',  l:'Channels'},
-  {p:'webhooks',  l:'Webhooks'},
+  {p:'integrations', l:'Integrations'},
   {p:'settings',  l:'Settings'},
   {p:'help',          l:'Help & Support'},
   {p:'notifications', l:'Notifications'},

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { expect, test } from 'bun:test';
 
-const source = readFileSync(new URL('../web/js/settings/index.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../web/js/integrations/index.js', import.meta.url), 'utf8');
 const handler = source.slice(source.indexOf('async function saveSlackIntegration()'), source.indexOf('async function deleteSlackIntegration()'));
 const testHandler = source.slice(source.indexOf('async function testSlackIntegration()'), source.indexOf('async function deleteSlackIntegration()'));
 
@@ -41,7 +41,7 @@ test('Slack settings omit an unchanged secret and clear a replacement after savi
     const context = { can: () => mode !== 'member', window: { isAdmin: () => mode !== 'member' }, document: { getElementById: id => elements[id] },
       SLACK_INTEGRATION: mode === 'new' ? null : { has_webhook: true }, SLACK_EVENTS: [{ k: 'ticket.created' }],
       apiPut: async (_path, body) => { calls.push(body); if (mode === 'failed') throw new Error('Offline'); },
-      apiGet: async () => ({ integration: { has_webhook: true } }), renderPage() {},
+      apiGet: async () => ({ integration: { has_webhook: true } }), repaint() {},
     };
     await runInNewContext(handler + '\nsaveSlackIntegration()', context);
     expect(calls.length).toBe(['member', 'new'].includes(mode) ? 0 : 1);
