@@ -25,11 +25,13 @@ let SLACK_INTEGRATION = null;
 let SLACK_LOADED = false;
 let OUTGOING_WEBHOOKS = [];
 let OUTGOING_WEBHOOKS_LOADED = false;
-let LAST_REVEALED_SECRET = null;        // shown once after a POST; cleared on next paint
+let LAST_REVEALED_SECRET = null;        // shown after a POST until the admin dismisses it
 let SUPPRESSED_CUSTOMERS = [];
 let SUPPRESSED_LOADED = false;
 let SUPPRESSED_SCOPE = null;
 const suppressionScope = () => `${getWorkspaceId() || ''}:${getJwt() || ''}`;
+// Which brand/session the Slack and webhook snapshots below belong to.
+let INTEGRATIONS_SCOPE = null;
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
   { k: 'ticket.resolved',  l: 'Ticket resolved' },
@@ -63,12 +65,22 @@ export function renderIntegrations() {
 
 // ─── Slack ──────────────────────────────────────────
 function integrationsPanel() {
-  // Lazy load on first paint; trigger a re-render when the fetch lands.
+  // This module outlives a brand switch. Drop the previous brand's snapshots
+  // so they are never shown, or saved, against the brand now open.
+  const scope = suppressionScope();
+  if (INTEGRATIONS_SCOPE !== scope) {
+    INTEGRATIONS_SCOPE = scope;
+    SLACK_INTEGRATION = null; SLACK_LOADED = false;
+    OUTGOING_WEBHOOKS = []; OUTGOING_WEBHOOKS_LOADED = false;
+    LAST_REVEALED_SECRET = null;
+  }
+  // Lazy load on first paint; trigger a re-render when the fetch lands. A
+  // failed load clears the flag so the next paint tries again.
   if (!SLACK_LOADED) {
     SLACK_LOADED = true;
     apiGet('/api/v1/integrations/slack')
-      .then((res) => { SLACK_INTEGRATION = res.integration; repaint(); })
-      .catch((err) => { console.warn('[integrations] slack load failed:'); });
+      .then((res) => { if (suppressionScope() !== scope) return; SLACK_INTEGRATION = res.integration; repaint(); })
+      .catch(() => { if (suppressionScope() !== scope) return; SLACK_LOADED = false; console.warn('[integrations] slack load failed:'); });
   }
   const slack = SLACK_INTEGRATION;
   const events = slack?.events || ['ticket.resolved', 'ticket.escalated'];
@@ -149,30 +161,28 @@ function integrationsPanel() {
 //
 // Multiple webhooks per workspace, distinct from Slack
 // (which is single-instance). List + Create + Delete are exposed in
-// this slice; rotating the secret = delete + recreate. Secrets are
-// surfaced once at creation time via LAST_REVEALED_SECRET, then
-// cleared on the next render so they can't be re-read by paging
-// through DevTools.
+// this slice. Secrets are surfaced once, at creation or rotation, via
+// LAST_REVEALED_SECRET and stay on screen until the admin dismisses the
+// banner, so a background re-render can't take the only copy away.
 
 function settingsOutgoingWebhooksSection() {
   if (!OUTGOING_WEBHOOKS_LOADED) {
     OUTGOING_WEBHOOKS_LOADED = true;
+    const scope = suppressionScope();
     apiGet('/api/v1/integrations/webhooks')
-      .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; repaint(); })
-      .catch((err) => { console.warn('[integrations] webhooks load failed:'); });
+      .then((res) => { if (suppressionScope() !== scope) return; OUTGOING_WEBHOOKS = res.webhooks || []; repaint(); })
+      .catch(() => { if (suppressionScope() !== scope) return; OUTGOING_WEBHOOKS_LOADED = false; console.warn('[integrations] webhooks load failed:'); });
   }
   const list = OUTGOING_WEBHOOKS;
 
-  // One-time secret reveal — pulled out before render so the next
-  // re-render starts clean and the user can't accidentally
-  // re-read it by switching tabs.
+  // One-time secret reveal: shown until dismissed (integrations.dismissSecret).
   const revealedBanner = LAST_REVEALED_SECRET ? `
     <div style="margin-bottom:14px;padding:12px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px">
       <div style="font-weight:600;color:var(--amber);margin-bottom:6px">Save this signing secret — it won't be shown again</div>
       <div style="font-family:'DM Mono',monospace;color:var(--ink);background:var(--off2);padding:8px 10px;border-radius:3px;word-break:break-all;user-select:all">${window.escHtml(LAST_REVEALED_SECRET)}</div>
       <div style="margin-top:6px;color:var(--ink3)">Use this with HMAC-SHA256 over <code>v0:&lt;X-Maestro-Timestamp&gt;:&lt;raw-body&gt;</code> and compare to the <code>X-Maestro-Signature</code> header.</div>
+      <button class="btn btn-sm" style="margin-top:10px" data-action="integrations.dismissSecret">I've saved it</button>
     </div>` : '';
-  LAST_REVEALED_SECRET = null;
 
   const rows = list.length === 0 ? `
     <div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No outgoing webhooks configured.</div>
@@ -432,6 +442,7 @@ function renderDeliveryRows(webhookId, deliveries) {
 }
 
 async function retryWebhookDelivery(webhookId, deliveryId) {
+  if (!can('admin.integrations')) return;
   try {
     await apiPost(`/api/v1/integrations/webhooks/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(deliveryId)}/retry`);
     // Refresh the modal in-place so the row flips to pending with
@@ -504,6 +515,7 @@ function editOutgoingWebhook(id) {
 // delegated action. Reads the form by id rather than closing over the webhook
 // record (see modal.js comment).
 async function saveOutgoingWebhookEdit() {
+  if (!can('admin.integrations')) return;
   const id     = document.getElementById('we-id').value;
   const name   = document.getElementById('we-name').value.trim();
   const url    = document.getElementById('we-url').value.trim();
@@ -527,6 +539,7 @@ async function saveOutgoingWebhookEdit() {
 }
 
 async function rotateOutgoingWebhookSecret() {
+  if (!can('admin.integrations')) return;
   const id = document.getElementById('we-id').value;
   if (!confirm('Rotate the signing secret? The current secret will stop working immediately.')) return;
   const msg = document.getElementById('we-msg');
@@ -571,11 +584,14 @@ async function saveSlackIntegration() {
     if (botToken)      body.bot_token      = botToken;
     if (signingSecret) body.signing_secret = signingSecret;
     await apiPut('/api/v1/integrations/slack', body);
-    document.getElementById('slack-url').value = '';
+    // The form may be gone if the admin navigated away mid-save; the saved
+    // state must still be refreshed, so never let a missing field throw.
+    const clear = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
+    clear('slack-url');
     const res = await apiGet('/api/v1/integrations/slack');
     SLACK_INTEGRATION = res.integration;
-    document.getElementById('slack-bot-token').value = '';
-    document.getElementById('slack-signing-secret').value = '';
+    clear('slack-bot-token');
+    clear('slack-signing-secret');
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
     repaint();
   } catch (err) {
@@ -631,6 +647,7 @@ registerActions({
   'integrations.saveWebhookEdit':   () => saveOutgoingWebhookEdit(),
   'integrations.rotateSecret':      () => rotateOutgoingWebhookSecret(),
   'integrations.closeModal':        () => closeModal(),
+  'integrations.dismissSecret':     () => { LAST_REVEALED_SECRET = null; repaint(); },
   // suppression list
   'integrations.resetSuppressed':   (ds) => resetSuppressedCustomer(ds.id, ds.contactId),
 });

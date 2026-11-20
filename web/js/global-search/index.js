@@ -58,6 +58,8 @@ export const SEARCH_PAGES = [
   {p:'portal',    l:'Customer Portal'},
   {p:'channels',  l:'Channels'},
   {p:'integrations', l:'Integrations'},
+  {p:'integrations', l:'Slack'},
+  {p:'integrations', l:'Webhooks'},
   {p:'settings',  l:'Settings'},
   {p:'help',          l:'Help & Support'},
   {p:'notifications', l:'Notifications'},

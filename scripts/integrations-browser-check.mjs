@@ -18,7 +18,10 @@ export default async function checkIntegrations(page) {
     }
     if (url.pathname === '/api/v1/integrations/slack/test') return route.fulfill({ json: { ok: true } });
     if (url.pathname === '/api/v1/integrations/webhooks' && method === 'GET') return route.fulfill({ json: { webhooks: [hook] } });
-    if (url.pathname === `/api/v1/integrations/webhooks/${hook.id}` && method === 'PATCH') return route.fulfill({ json: { webhook: { ...hook, ...body } } });
+    if (url.pathname === `/api/v1/integrations/webhooks/${hook.id}` && method === 'PATCH') {
+      if (body.rotate_secret) return route.fulfill({ json: { webhook: { ...hook, name: 'CRM sync v2' }, secret: 'whsec_fixture' } });
+      return route.fulfill({ json: { webhook: { ...hook, ...body } } });
+    }
     if (url.pathname === '/api/v1/integrations/postmark/suppressed/contacts') return route.fulfill({ json: { suppressed: [] } });
     return route.fulfill({ json: {} });
   });
@@ -64,6 +67,17 @@ export default async function checkIntegrations(page) {
   check(patch && patch.body.events.includes('ticket.closed') && patch.body.events.includes('ticket.created'), 'Edit keeps every subscribed event');
   check(await page.locator('.tb-title').textContent() === 'Integrations', 'Saving stays on the Integrations page');
 
+  // A rotated secret stays visible through a re-render until it is dismissed.
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Rotate secret' }).click();
+  await page.getByText('whsec_fixture', { exact: true }).waitFor();
+  await page.evaluate(async () => { (await import('/js/core/router.js')).renderPage('integrations'); });
+  check(await page.getByText('whsec_fixture', { exact: true }).count() === 1, 'Secret survives a re-render');
+  await page.getByRole('button', { name: "I've saved it" }).click();
+  await page.getByText('CRM sync v2', { exact: true }).waitFor();
+  check(await page.getByText('whsec_fixture', { exact: true }).count() === 0, 'Secret is gone once dismissed');
+
   // Settings no longer has an Integrations tab.
   await page.evaluate(async () => { (await import('/js/core/router.js')).nav('settings'); });
   await page.locator('.settings-tab').first().waitFor();
@@ -91,9 +105,12 @@ export default async function checkIntegrations(page) {
   });
   await page.getByText('CRM sync', { exact: false }).first().waitFor();
   check(await page.getByRole('button', { name: 'Send test alert' }).isDisabled(), 'Test alert is disabled without permission');
-  const before = calls.length;
-  await page.locator('[data-action="integrations.saveSlack"]').click();
-  check(calls.length === before, 'Save does nothing without permission');
+  for (const action of ['saveSlack', 'deleteSlack', 'createWebhook', 'editWebhook', 'deleteWebhook']) {
+    check(await page.locator(`[data-action="integrations.${action}"]`).first().isDisabled(), `${action} is disabled without permission`);
+  }
+
+  // Old Webhooks links land on Integrations.
+  check(await page.evaluate(async () => (await import('/js/core/route-location.js')).parseRoute('#/webhooks')?.page) === 'integrations', 'Old webhooks link maps to Integrations');
 
   check(errors.length === 0, 'No page errors: ' + errors.join('; '));
   return { checks: 'hub card, three sections, responsive layout, Slack test alert, webhook edit keeps ticket.closed, Settings tab removed, late-load navigation guard, storage cleanup, permissions' };

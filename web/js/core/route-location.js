@@ -29,6 +29,8 @@ export function parseRoute(hash) {
       else if (isReadableWorkspaceSlug(workspace)) workspaceSlug = workspace;
       else return null;
     }
+    // The Webhooks page was folded into Integrations; keep old links working.
+    if (parts[0] === 'webhooks') parts[0] = 'integrations';
     const [page, entityId] = parts;
     if (!ROUTE_PAGES.has(page) || parts.length > 2 || (page === 'god' && (workspaceId || workspaceSlug))) return null;
     if (parts.length === 2 && (!['tickets', 'customers'].includes(page)
