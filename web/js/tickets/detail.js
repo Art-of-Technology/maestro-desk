@@ -80,7 +80,6 @@ import {
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
 import { enableRemoteImages, renderMessageBody, renderEmptyEmailNotice, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
 import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
@@ -981,7 +980,6 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
     }
     catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } if (!silent) alert(`Couldn't change status: ${err?.message || err}`); return false; }
   }
-  const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}${reasonKey ? ' · Reason: ' + choice.reasons.find(r => r.key === reasonKey)?.label : ''}`);
   t.status = category;
   t.statusOption = val;
@@ -995,9 +993,6 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
   }
   updateNavBadges();
   if (CURRENT_TICKET === id) openTicket(id);
-  if (val === 'resolved')   fireWebhook('ticket.resolved',  ticketPayload(t));
-  if (val === 'escalated')  fireWebhook('ticket.escalated', ticketPayload(t));
-  if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
   return true;
 }
 function quickStatus(id, val) { return changeTicketStatus(id, val); }
@@ -1091,7 +1086,6 @@ export async function changeTicketAgent(id, val) {
   if (!t._uuid) logTicketEvent(id, 'agent', `Reassigned: ${old} → ${val}`);
   t.agent = val;
   if (CURRENT_TICKET === id) openTicket(id);
-  fireWebhook('ticket.assigned', { ...ticketPayload(t), previousAgent: old });
 }
 
 function prevNextTicket(dir) {

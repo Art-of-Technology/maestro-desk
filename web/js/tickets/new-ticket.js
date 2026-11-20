@@ -11,7 +11,6 @@ import { registerActions, registerChangeActions, registerInputActions, registerM
 import { isFieldRequired, isFieldVisible } from '../layouts/index.js';
 import { isAgentOOO, applyAssignmentRules } from './assignment-rules.js';
 import { refreshTicketSLA } from './sla.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { apiGet, apiPost, apiPatch, apiDelete, apiUpload, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { updateOrInsertTicket, loadTicketDetail, applyCustomerRow } from '../core/bootstrap.js';
 import { openTicket, notifyReplyDelivery, applySentStatus } from './detail.js';
@@ -1049,7 +1048,6 @@ function createDemoTicket(snap, { message, send }) {
   });
   if (!snap.agentUserId) applyAssignmentRules(TICKETS[0]);
   refreshTicketSLA(TICKETS[0]);
-  fireWebhook('ticket.created', ticketPayload(TICKETS[0]));
   const keptDraft = !send;
   if (keptDraft) {
     saveDraft(newId, snap.messageHtml || message, 'reply');

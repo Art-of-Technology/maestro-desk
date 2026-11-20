@@ -47,7 +47,7 @@ import { renderActivityLog } from './activity-log.js';
 import { renderPortal } from '../portal/preview.js';
 import { renderSearchResults } from '../global-search/index.js';
 import { renderChannels } from '../channels/index.js';
-import { renderWebhooks } from '../webhooks/index.js';
+import { renderIntegrations } from '../integrations/index.js';
 import { renderSettings } from '../settings/index.js';
 import { renderConfigHub } from '../config-hub/index.js';
 import { renderTicketStatuses } from '../settings/ticket-statuses.js';
@@ -131,7 +131,7 @@ export function renderPage(page) {
     portal:        renderPortal,
     search:        renderSearchResults,
     channels:      renderChannels,
-    webhooks:      renderWebhooks,
+    integrations:  renderIntegrations,
     settings:      renderSettings,
     config:        renderConfigHub,
     'ticket-statuses': renderTicketStatuses,
