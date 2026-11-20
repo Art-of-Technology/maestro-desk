@@ -146,10 +146,6 @@ function whEdit(id) {
 // the relay (Zapier, n8n, serverless function, etc.) which makes templates
 // composable rather than locked-in.
 const WEBHOOK_TEMPLATES = [
-  { id:'slack', name:'Slack — incoming webhook',
-    url:'https://hooks.slack.com/services/T0000/B0000/XXXXXXXXXXXX',
-    events:['ticket.escalated','sla.breach'],
-    note:'Slack incoming webhooks expect {text}. Route via a relay (Zapier / Workflow) that formats the native payload into Slack message text, or use a Slack workflow accepting raw JSON.' },
   { id:'teams', name:'Microsoft Teams — incoming webhook',
     url:'https://outlook.office.com/webhook/00000000-0000/IncomingWebhook/...',
     events:['ticket.escalated','sla.breach'],
