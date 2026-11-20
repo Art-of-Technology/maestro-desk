@@ -50,6 +50,100 @@ process.env.POSTMARK_INBOUND_SECRET ||= 'inbound-secret-0123456789';
     expect((await json(await request(0, 0, 'tags'))).tags).toHaveLength(0);
   });
 
+  async function mergeFixture() {
+    const suffix = crypto.randomUUID();
+    const source = 'source-' + suffix, target = 'target-' + suffix;
+    await request(0, 0, 'tags', 'POST', { tag: source, kind: 'ai', ai_confidence: 72 });
+    await request(0, 0, 'tags', 'POST', { tag: target });
+    const [customer] = await sql`insert into customers(workspace_id,display_id,first_name)
+      values (${workspaces[0]},${'C-' + suffix},'Merge test') returning id`;
+    const tickets = [];
+    for (let i = 0; i < 3; i++) {
+      const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key)
+        values (${workspaces[0]},${customer.id},${'T-' + i + suffix},'Merge test','open','normal') returning id`;
+      tickets.push(ticket.id);
+    }
+    for (const ticket of tickets.slice(0, 2)) {
+      await sql`insert into ticket_tags(workspace_id,ticket_id,tag) values (${workspaces[0]},${ticket},${source})`;
+      await sql`insert into ticket_ai_tags(workspace_id,ticket_id,tag,confidence,accepted)
+        values (${workspaces[0]},${ticket},${source},72,true)`;
+    }
+    await sql`insert into ticket_tags(workspace_id,ticket_id,tag) values (${workspaces[0]},${tickets[1]},${target})`;
+    await sql`insert into ticket_ai_tags(workspace_id,ticket_id,tag,confidence,accepted)
+      values (${workspaces[0]},${tickets[1]},${target},91,false)`;
+    const response = await request(0, 0, `tags/${source}/merge`, 'POST', { into: target });
+    expect(response.status).toBe(200);
+    return { source, target, tickets, id: (await json(response)).merge_id };
+  }
+
+  it('undo restores manual and AI assignments, preserves overlaps and later unrelated assignments', async () => {
+    const { source, target, tickets, id } = await mergeFixture();
+    await sql`insert into ticket_tags(workspace_id,ticket_id,tag) values (${workspaces[0]},${tickets[2]},${target})`;
+    expect((await request(2, 0, 'tags/merges')).status).toBe(403);
+    expect((await request(2, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(403);
+    expect((await request(1, 1, `tags/merges/${id}/undo`, 'POST')).status).toBe(404);
+    expect((await json(await request(1, 1, 'tags/merges'))).merges).toHaveLength(0);
+    expect((await json(await request(0, 0, 'tags/merges'))).merges).toContainEqual(expect.objectContaining({ id, source, target }));
+    expect((await request(0, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(200);
+    const library = await sql`select kind,ai_confidence from tag_library where workspace_id=${workspaces[0]} and tag=${source}`;
+    expect(library[0]).toEqual({ kind: 'ai', ai_confidence: 72 });
+    expect((await sql`select tag from ticket_tags where ticket_id=${tickets[0]}`).map(r => r.tag)).toEqual([source]);
+    expect((await sql`select tag from ticket_tags where ticket_id=${tickets[1]}`).map(r => r.tag).sort()).toEqual([source, target].sort());
+    expect((await sql`select tag from ticket_tags where ticket_id=${tickets[2]}`).map(r => r.tag)).toEqual([target]);
+    const ai = await sql`select tag,confidence,accepted from ticket_ai_tags where ticket_id=${tickets[1]} order by tag`;
+    expect([...ai]).toEqual([{ tag: source, confidence: 72, accepted: true }, { tag: target, confidence: 91, accepted: false }]);
+    expect((await request(0, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(409);
+    expect((await json(await request(0, 0, 'tags/merges'))).merges.find((m: any) => m.id === id).undone_at).toBeTruthy();
+  });
+
+  it('blocks undo after affected assignments or tags change without partially restoring anything', async () => {
+    for (const change of ['readd', 'ai-edit', 'rename', 'recreate-source', 'delete-ticket', 'merge-again', 'merge-into-target']) {
+      const { source, target, tickets, id } = await mergeFixture();
+      if (change === 'readd') {
+        await sql`delete from ticket_tags where ticket_id=${tickets[0]} and tag=${target}`;
+        await sql`insert into ticket_tags(workspace_id,ticket_id,tag) values (${workspaces[0]},${tickets[0]},${target})`;
+      } else if (change === 'ai-edit') {
+        await sql`update ticket_ai_tags set accepted=true where ticket_id=${tickets[1]} and tag=${target}`;
+      } else if (change === 'rename') {
+        expect((await request(0, 0, `tags/${target}`, 'PATCH', { tag: target + '-new' })).status).toBe(200);
+      } else if (change === 'recreate-source') {
+        expect((await request(0, 0, 'tags', 'POST', { tag: source })).status).toBe(201);
+      } else if (change === 'delete-ticket') {
+        await sql`delete from tickets where id=${tickets[0]}`;
+      } else if (change === 'merge-again') {
+        await request(0, 0, 'tags', 'POST', { tag: target + '-new' });
+        expect((await request(0, 0, `tags/${target}/merge`, 'POST', { into: target + '-new' })).status).toBe(200);
+      } else {
+        await request(0, 0, 'tags', 'POST', { tag: target + '-new' });
+        expect((await request(0, 0, `tags/${target}-new/merge`, 'POST', { into: target })).status).toBe(200);
+      }
+      expect((await request(0, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(409);
+      expect(await sql`select tag from ticket_tags where workspace_id=${workspaces[0]} and tag=${source}`).toHaveLength(0);
+      expect((await sql`select undone_at from tag_merges where id=${id}`)[0].undone_at).toBeNull();
+    }
+  });
+
+  it('rolls back every undo change if restoring an assignment fails', async () => {
+    const { source, target, tickets, id } = await mergeFixture();
+    await sql.unsafe(`alter table ticket_ai_tags add constraint tag_undo_test_failure check (tag <> '${source}') not valid`);
+    try {
+      expect((await request(0, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(500);
+      expect(await sql`select tag from tag_library where workspace_id=${workspaces[0]} and tag=${source}`).toHaveLength(0);
+      expect((await sql`select tag from ticket_tags where ticket_id=${tickets[0]}`).map(r => r.tag)).toEqual([target]);
+      expect((await sql`select undone_at from tag_merges where id=${id}`)[0].undone_at).toBeNull();
+    } finally { await sql`alter table ticket_ai_tags drop constraint tag_undo_test_failure`; }
+    expect((await request(0, 0, `tags/merges/${id}/undo`, 'POST')).status).toBe(200);
+  });
+
+  it('validates merge inputs and safely serializes duplicate undo requests', async () => {
+    const { source, target, id } = await mergeFixture();
+    expect((await request(0, 0, `tags/${source}/merge`, 'POST', { into: target })).status).toBe(404);
+    expect((await request(0, 0, `tags/${target}/merge`, 'POST', { into: target })).status).toBe(400);
+    expect((await request(0, 0, 'tags/merges/invalid/undo', 'POST')).status).toBe(400);
+    const results = await Promise.all([request(0, 0, `tags/merges/${id}/undo`, 'POST'), request(0, 0, `tags/merges/${id}/undo`, 'POST')]);
+    expect(results.map(r => r.status).sort()).toEqual([200, 409]);
+  });
+
   it('rejects unapproved tags and restricts AI suggestions to the workspace library', async () => {
     const [customer] = await sql`insert into customers(workspace_id,display_id,first_name) values (${workspaces[0]},'M-TAG','Test') returning id`;
     const [ticket] = await sql`insert into tickets(workspace_id,customer_id,display_id,subject,status_key,priority_key) values (${workspaces[0]},${customer.id},'TK-TAG','Test tags','open','normal') returning id`;
