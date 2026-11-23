@@ -110,7 +110,7 @@ function integrationsPanel() {
           <li>In the app's settings, open <strong>Incoming Webhooks</strong> and switch on <strong>Activate Incoming Webhooks</strong>.</li>
           <li>Click <strong>Add New Webhook to Workspace</strong>, pick the channel for your alerts, and click <strong>Allow</strong>. To pick a private channel, you must be a member of it.</li>
           <li>Copy the link Slack gives you into <strong>Slack link (webhook URL)</strong> below. Leave <strong>Send to a different channel</strong> empty to use the channel you picked in Slack.</li>
-          <li>Tick at least one alert, keep <strong>Alerts on</strong> switched on, and click <strong>Save</strong>. Leave the <strong>Reply from Slack</strong> boxes empty if you only want alerts.</li>
+          <li>Tick at least one box under <strong>Tell me when…</strong>, keep <strong>Alerts on</strong> switched on, and click <strong>Save</strong>. Leave the <strong>Reply from Slack</strong> boxes empty if you only want alerts.</li>
         </ol>
         Keep this link secret, like a password. Anyone who has it can post in your channel. After saving, click <strong>Send test alert</strong> to check it works.
         <a href="https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/" target="_blank" rel="noopener noreferrer" style="color:var(--purple)">Slack setup help (opens in a new tab)</a>.
@@ -148,11 +148,11 @@ function integrationsPanel() {
           </div>` : ''}
         <div class="form-row">
           <label class="form-label">Bot token</label>
-          <input class="form-input" id="slack-bot-token" type="password" placeholder="${slack?.has_bot_token ? 'Paste a new token to rotate' : 'xoxb-...'}" autocomplete="off"/>
+          <input class="form-input" id="slack-bot-token" type="password" placeholder="${slack?.has_bot_token ? 'Paste a new token to replace the saved one' : 'xoxb-...'}" autocomplete="off"/>
         </div>
         <div class="form-row">
           <label class="form-label">Signing secret</label>
-          <input class="form-input" id="slack-signing-secret" type="password" placeholder="${slack?.has_signing_secret ? 'Paste a new secret to rotate' : 'app signing secret'}" autocomplete="off"/>
+          <input class="form-input" id="slack-signing-secret" type="password" placeholder="${slack?.has_signing_secret ? 'Paste a new secret to replace the saved one' : 'app signing secret'}" autocomplete="off"/>
         </div>
       </div>
 
@@ -162,7 +162,7 @@ function integrationsPanel() {
         ${slack ? '<button class="btn btn-sm btn-danger" data-action="integrations.deleteSlack">Disconnect</button>' : ''}
         <span id="slack-msg" role="status" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
       </div>
-      <div class="settings-desc" style="margin-top:8px">The test uses your saved settings, so save your changes first.</div>
+      <div class="settings-desc" style="margin-top:8px">The test uses your saved settings. Save your changes first and keep <strong>Alerts on</strong> switched on.</div>
     </div>
     ${settingsOutgoingWebhooksSection()}
     ${settingsSuppressionListSection()}`;
@@ -222,7 +222,7 @@ function settingsOutgoingWebhooksSection() {
         </div>
         <button class="btn btn-sm" data-action="integrations.editWebhook" data-id="${window.escAttr(w.id)}">Edit</button>
         <button class="btn btn-sm" data-action="integrations.webhookDeliveries" data-id="${window.escAttr(w.id)}" data-name="${window.escAttr(w.name)}">Sent messages</button>
-        <button class="btn btn-sm btn-danger" data-action="integrations.deleteWebhook" data-id="${window.escAttr(w.id)}">Delete</button>
+        <button class="btn btn-sm btn-danger" data-action="integrations.deleteWebhook" data-id="${window.escAttr(w.id)}">Remove</button>
       </div>`;
   }).join('');
 
@@ -236,7 +236,7 @@ function settingsOutgoingWebhooksSection() {
     <div class="settings-section">
       <div class="settings-h">Send updates to other apps (webhooks)</div>
       <div class="settings-desc" style="margin-bottom:14px">
-        Respovia can tell another app the moment something happens to a ticket, for example your CRM or a spreadsheet tool. You give us a web address, and we send a short message there each time. Each message is signed with a secret code so the other app can check it really came from Respovia.
+        Respovia can tell another app the moment something happens to a ticket, for example your CRM or a spreadsheet tool. You give us a web address, and we send a short message there each time. Each message is signed with a secret code so the other app can check it really came from Respovia. You will see the secret code once, right after you add the app.
       </div>
       ${revealedBanner}
       <div>${rows}</div>
@@ -255,7 +255,7 @@ function settingsOutgoingWebhooksSection() {
           ${eventCheckboxes}
         </div>
         <div style="display:flex;gap:8px;margin-top:10px">
-          <button class="btn btn-solid btn-sm" data-action="integrations.createWebhook">Create</button>
+          <button class="btn btn-solid btn-sm" data-action="integrations.createWebhook">Add</button>
           <span id="wh-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
         </div>
       </div>
@@ -272,7 +272,7 @@ async function createOutgoingWebhook() {
   if (!name) { msg.textContent = 'Name is required'; msg.style.color = 'var(--red)'; return; }
   if (!url)  { msg.textContent = 'The web address is required';  msg.style.color = 'var(--red)'; return; }
   if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
-  msg.textContent = 'Creating...'; msg.style.color = 'var(--ink3)';
+  msg.textContent = 'Adding...'; msg.style.color = 'var(--ink3)';
   try {
     const res = await apiPost('/api/v1/integrations/webhooks', { name, url, events });
     if (suppressionScope() !== scope) {
@@ -288,7 +288,7 @@ async function createOutgoingWebhook() {
     repaint();
   } catch (err) {
     if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
-    msg.textContent = err?.message || 'Create failed';
+    msg.textContent = err?.message || 'Could not add the app';
     msg.style.color = 'var(--red)';
   }
 }
@@ -304,7 +304,7 @@ async function deleteOutgoingWebhook(id) {
     repaint();
   } catch (err) {
     if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
-    alert(`Couldn't delete: ${err?.message || err}`);
+    alert(`Couldn't remove: ${err?.message || err}`);
   }
 }
 
@@ -414,7 +414,7 @@ async function resetSuppressedCustomer(customerId, contactId) {
 
 function showOutgoingWebhookDeliveries(id, name) {
   showModal(
-    `Deliveries · ${name}`,
+    `Sent messages · ${name}`,
     `<div id="wh-deliveries-body" data-webhook-id="${window.escAttr(id)}" style="min-height:120px;color:var(--ink3);font-size:12px">Loading…</div>`,
     null, null, true,
   );
@@ -519,7 +519,7 @@ function editOutgoingWebhook(id) {
      </div>
      <div class="form-row" style="display:flex;align-items:center;gap:8px">
        <label class="toggle"><input type="checkbox" id="we-active" ${w.active ? 'checked' : ''}/><span class="toggle-slider"></span></label>
-       <span style="font-size:13px;color:var(--ink2)">Active</span>
+       <span style="font-size:13px;color:var(--ink2)">Sending on</span>
      </div>
      <div style="display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)">
        <button class="btn" data-action="integrations.closeModal">Cancel</button>
@@ -529,7 +529,7 @@ function editOutgoingWebhook(id) {
      <div style="margin-top:18px;padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r)">
        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px">Get a new secret code</div>
        <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;line-height:1.5">
-         The old code stops working straight away. Messages will be rejected by the other app until you paste the new code there.
+         The old code stops working straight away. If the other app checks the code, it will reject messages until you paste the new one there.
        </div>
        <button class="btn btn-sm btn-danger" data-action="integrations.rotateSecret">Get a new code</button>
      </div>`,
@@ -605,7 +605,7 @@ async function saveSlackIntegration() {
   const signingSecret = document.getElementById('slack-signing-secret')?.value.trim() || '';
   const msg = document.getElementById('slack-msg');
   if (!url && !SLACK_INTEGRATION?.has_webhook) { msg.textContent = 'The Slack link is required'; msg.style.color = 'var(--red)'; return; }
-  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
+  if (events.length === 0) { msg.textContent = 'Tick at least one box'; msg.style.color = 'var(--red)'; return; }
   msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
   try {
     // Only send bot_token / signing_secret when the user actually
