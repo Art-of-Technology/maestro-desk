@@ -57,13 +57,7 @@ if (!env.DATABASE_URL) {
 // reload would leak a fresh Pool (and its connections). Stashing it on
 // globalThis keeps one pool for the process lifetime.
 const g = globalThis as unknown as { __maestroBetterAuthPool?: Pool };
-//
-// Under Bun (tests and local dev) idle connections are kept open. pg-pool
-// closes a client 10s after its last use by default, and under Bun a request
-// that reaches the pool at that moment can hang; see the matching note on
-// idle_timeout in lib/db.ts. Node (production) keeps the default.
-const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DATABASE_URL,
-  ...(process.versions.bun ? { idleTimeoutMillis: 0 } : {}) }));
+const pool = (g.__maestroBetterAuthPool ??= new Pool({ connectionString: env.DATABASE_URL }));
 
 const SESSION_SECONDS = 8 * 60 * 60;
 const invitationDelivery = new AsyncLocalStorage<{ sent: boolean }>();
