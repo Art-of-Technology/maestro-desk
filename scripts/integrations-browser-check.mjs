@@ -44,9 +44,9 @@ export default async function checkIntegrations(page) {
   await page.locator('.confighub-card', { hasText: 'Integrations' }).click();
   await page.locator('.tb-title', { hasText: 'Integrations' }).waitFor();
   await page.getByText('CRM sync', { exact: true }).waitFor();
-  await page.getByText('No suppressed addresses.').waitFor();
+  await page.getByText('No blocked addresses.').waitFor();
   check(await page.locator('#slack-evt-ticket\\.created').isChecked(), 'Saved Slack events load');
-  check(await page.locator('.settings-h').allTextContents().then(t => t.join('|')) === 'Slack|Outgoing webhooks|Postmark suppression list', 'All three sections render');
+  check(await page.locator('.settings-h').allTextContents().then(t => t.join('|')) === 'Slack|Send updates to other apps (webhooks)|Blocked email addresses', 'All three sections render');
 
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 }); await page.waitForTimeout(300);
@@ -70,7 +70,7 @@ export default async function checkIntegrations(page) {
   // A rotated secret stays visible through a re-render until it is dismissed.
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
-  await page.getByRole('button', { name: 'Rotate secret' }).click();
+  await page.getByRole('button', { name: 'Get a new code' }).click();
   await page.getByText('whsec_fixture', { exact: true }).waitFor();
   await page.evaluate(async () => { (await import('/js/core/router.js')).renderPage('integrations'); });
   check(await page.getByText('whsec_fixture', { exact: true }).count() === 1, 'Secret survives a re-render');
