@@ -35,7 +35,8 @@ export function getDb() {
       // functions on Vercel (target stack), so a large pool is wasteful.
       max: 5,
       idle_timeout: 20,
-      connect_timeout: 10,
+      // EXPERIMENT: no connect timer under Bun, to see whether CI hangs stop.
+      connect_timeout: process.versions.bun ? 0 : 10,
       // Disable prepared statements: Neon's pooled (PgBouncer, transaction
       // mode) connection string does not support them. Safe for the direct
       // connection too.
