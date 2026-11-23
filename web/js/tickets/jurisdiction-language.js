@@ -1,3 +1,5 @@
+import { TRANSLATOR_LANGS } from '../ai/languages.js';
+
 // Suggestions only: unknown and multilingual markets require an agent's choice.
 const markets = [
   ['English', 'UK', 'GB', 'GBR', 'United Kingdom', 'IE', 'IRL', 'Ireland', 'US', 'USA', 'United States', 'United States of America', 'AU', 'AUS', 'Australia', 'NZ', 'NZL', 'New Zealand'],
@@ -28,4 +30,12 @@ const languages = new Map(markets.flatMap(([language, ...aliases]) => aliases.ma
 
 export function jurisdictionLanguage(jurisdiction) {
   return languages.get(normalize(jurisdiction)) || '';
+}
+
+// The language saved on the profile wins; otherwise a recognised single-language market.
+export function suggestedCustomerLanguage(customer) {
+  if (!customer) return null;
+  if (TRANSLATOR_LANGS.includes(customer.preferredLanguage)) return { language: customer.preferredLanguage, source: 'saved customer language' };
+  const language = jurisdictionLanguage(customer.jurisdiction);
+  return language ? { language, source: `jurisdiction ${String(customer.jurisdiction).trim()}` } : null;
 }

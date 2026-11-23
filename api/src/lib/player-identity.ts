@@ -6,10 +6,10 @@ import { safeError } from './diagnostics.js';
 // wrote in and, on an exact match, stores the player's stable ids on the
 // customers row (legacy database column names are retained) and fills
 // username / VIP / country / brand / mobile
-// where the contact has none — an agent's value is never overwritten, and a
+// where the contact has none. Registered names replace contact names, and a
 // contact that already has a maestro_user_id is never re-pointed.
 //
-// Everything here is BEST-EFFORT and additive, like lib/player-context.ts: a
+// Everything here is BEST-EFFORT, like lib/player-context.ts: a
 // missing token, a workspace without a brand, an unreachable gateway or any DB
 // error is logged and swallowed. Linking must never fail an inbound webhook or
 // a portal submission — those call scheduleLink() fire-and-forget.
@@ -75,7 +75,7 @@ export function linkedCategories(member: Member): PlayerAccessCategory[] {
 }
 
 /**
- * Fill blanks from the same account, never change an existing identity.
+ * Sync registered names and fill other blanks from the same account. Never re-point identity.
  * Hold the customer lock while maintaining contacts and their scalar mirrors,
  * matching the lock order used by contact edits, merges and erasure.
  */
@@ -92,7 +92,7 @@ export async function applyPlayerToCustomer(
       and (${args.accessGeneration ?? null}::bigint is null or suspension_generation=${args.accessGeneration ?? null}::bigint) for share`;
     if (!workspace) return false;
     const [current] = await tx<Record<string, unknown>[]>`
-      select c.maestro_user_id, c.maestro_member_id, c.username, c.vip_tier,
+      select c.maestro_user_id, c.maestro_member_id, c.first_name, c.last_name, c.username, c.vip_tier,
              c.jurisdiction, c.brand, c.email, c.mobile, c.backoffice_url,
              w.name as workspace_name, w.maestro_brand_id as workspace_brand_id
       from customers c join workspaces w on w.id = c.workspace_id
@@ -109,9 +109,13 @@ export async function applyPlayerToCustomer(
       backoffice_url: playerBackofficeUrl(str(current.workspace_brand_id), userId),
       ...playerProfileFields(m, str(current.workspace_name)),
     };
-    const updates: Record<string, string> = {};
+    const updates: Record<string, string | null> = {};
     for (const [key, value] of Object.entries(fields)) {
       if (!str(current[key]) && value) updates[key] = value;
+    }
+    // Replace the pair together: never combine a registered name with a sender nickname.
+    for (const [key, value] of Object.entries({ first_name: str(m.firstName), last_name: str(m.lastName) })) {
+      if ((current[key] ?? null) !== value) updates[key] = value;
     }
     // Heal legacy contacts first so a saved mobile always wins. Only add the
     // account mobile when no live mobile contact exists.
@@ -188,11 +192,12 @@ async function runLink(args: LinkArgs): Promise<LinkOutcome> {
  * is registered with waitUntil — same guard as lib/outgoing-webhooks.ts. On
  * the long-running Node container (prod) the promise simply runs on.
  */
-export function scheduleLink(args: LinkArgs): void {
+export function scheduleLink(args: LinkArgs): Promise<LinkOutcome> {
   const p = linkCustomerToPlayer(args);
   if (process.env.VERCEL) {
     void import('@vercel/functions').then(({ waitUntil }) => waitUntil(p));
   }
+  return p;
 }
 
 interface CustomerRow {
@@ -228,8 +233,6 @@ async function link(args: LinkArgs): Promise<LinkOutcome> {
   const brandId = await maestroBrandIdForWorkspace(args.workspaceId);
   if (!brandId) return 'no_brand';
   const accessGeneration = await workspaceAccessGeneration(args.workspaceId);
-  const missingBackoffice = !str(c.backoffice_url) && playerBackofficeUrl(brandId, c.maestro_user_id);
-  if (c.maestro_user_id && !missingBackoffice && [c.username, c.vip_tier, c.jurisdiction, c.brand, c.mobile].every(str)) return 'skipped';
 
   // Lookup is by ONE exact key. Not-found is a 200 envelope (memberNotFound);
   // a 404 from the gateway is treated the same way. A deterministic per-contact

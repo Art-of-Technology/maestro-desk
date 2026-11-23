@@ -10,6 +10,7 @@ import {
 } from '../lib/cron-jobs.js';
 import { BackfillAbortError, BackfillBusyError } from '../lib/player-identity.js';
 import { refreshDueKnowledgeSources } from '../lib/knowledge-sources.js';
+import { processSlaBreaches } from '../lib/sla-breach-worker.js';
 
 // Vercel Cron endpoints (Step 6). Vercel invokes these with a GET on the
 // schedule in vercel.json and sends `Authorization: Bearer ${CRON_SECRET}`;
@@ -87,6 +88,21 @@ cron.get('/webhook-retry', async (c) => {
     return c.json({ ok: true, ...(await runWebhookRetryJob()) });
   } catch {
     return c.json({ ok: false, error: 'webhook-retry failed' }, 500);
+  }
+});
+
+// SLA-breach sweep on demand. The in-process worker (lib/sla-breach-worker.ts)
+// runs this every minute on the long-running server; this route is for
+// manual checks, so there is no schedule for it.
+cron.get('/sla-breach', async (c) => {
+  try {
+    const result = await processSlaBreaches();
+    // Same rule as the worker: tickets that failed make the run a failure.
+    if (result.failed) await alertCronFailure('sla-breach', new Error(`${result.failed} SLA breach announcements failed; they will be retried.`));
+    return c.json({ ok: result.failed === 0, ...result }, result.failed ? 500 : 200);
+  } catch (err) {
+    await alertCronFailure('sla-breach', err);
+    return c.json({ ok: false, error: 'sla-breach failed' }, 500);
   }
 });
 

@@ -15,14 +15,12 @@
 // External reaches (interim, via window): escHtml, escAttr — all still in
 // app.js. showModal, closeModal, openTicket and navTo are direct ES imports.
 //
-// logTicketEvent is imported from core/activity-log.js; fireWebhook and
-// ticketPayload from webhooks/index.js — those are already extracted.
+// logTicketEvent is imported from core/activity-log.js.
 
 import { CUSTOMERS, TICKETS } from '../core/data.js';
 import { CSAT_FILTER_AGENT, CSAT_FILTER_SCORE, CURRENT_PAGE, CURRENT_TICKET, setCsatFilterAgent, setCsatFilterScore } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { logTicketEvent } from '../core/activity-log.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { registerActions, registerChangeActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
 import { openTicket } from './detail.js';
@@ -198,7 +196,6 @@ async function submitCSAT(id, score, comment) {
   t.csatSubmittedAt = submittedAt;
   t.csatRequestedAt = requestedAt;
   logTicketEvent(id, 'system', `CSAT submitted: ${clamped}/5${comment ? ' with comment' : ''}`);
-  fireWebhook('csat.submitted', { ...ticketPayload(t), csat: clamped, comment: comment || null });
   closeModal();
   if (CURRENT_TICKET === id) openTicket(id);
   if (CURRENT_PAGE === 'csat') renderPage('csat');

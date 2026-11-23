@@ -84,7 +84,7 @@ integrations.put('/slack', async (c) => {
     const { workspace_id, ...fields } = row;
     const updated = await sql`update slack_integrations set ${sql(fields)}
       where workspace_id = ${workspaceId} returning workspace_id`;
-    if (!updated.length) return c.json({ error: 'Webhook URL is required for a new connection' }, 400);
+    if (!updated.length) return c.json({ error: 'The Slack link (webhook URL) is required for a new connection' }, 400);
   }
   return c.json({ ok: true });
 });
@@ -133,7 +133,10 @@ integrations.delete('/slack', async (c) => {
 });
 
 // ─── Outgoing webhooks (multiple per workspace) ─────────────────────────
-const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.closed', 'ticket.escalated', 'priority.urgent'] as const;
+// Keep in sync with WebhookEvent (lib/outgoing-webhooks.ts) and WEBHOOK_EVENTS
+// in web/js/integrations/index.js.
+const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.closed', 'ticket.escalated', 'ticket.assigned',
+  'ticket.merged', 'priority.urgent', 'csat.submitted', 'sla.breach'] as const;
 
 const WebhookBody = z.object({
   name:   z.string().min(1).max(100),

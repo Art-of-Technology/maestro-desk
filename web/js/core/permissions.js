@@ -32,6 +32,10 @@ const actions = {
   'tickets.assign': ['tickets.bulkAssign', 'td.runRules', 'ar.bulkRun'],
   'tickets.delete': ['td.deleteTicket', 'tickets.bulkDelete'],
   'tools.ai': ['td.summarize', 'td.clearSummary'],
+  'admin.integrations': ['integrations.saveSlack', 'integrations.testSlack', 'integrations.deleteSlack',
+    'integrations.createWebhook', 'integrations.editWebhook', 'integrations.deleteWebhook',
+    'integrations.saveWebhookEdit', 'integrations.rotateSecret', 'integrations.retryDelivery',
+    'integrations.resetSuppressed'],
 };
 const actionKeys = Object.fromEntries(Object.entries(actions).flatMap(([key, names]) => names.map(name => [name, key])));
 export function actionPermission(element) {

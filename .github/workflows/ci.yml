@@ -58,7 +58,10 @@ jobs:
         run: bun test scripts/route-location.test.js scripts/url-navigation.test.js
 
       - name: Customer profile ticket history
-        run: bun test scripts/customer-history.test.js
+        run: bun test scripts/customer-history.test.js scripts/customer-profile-info.test.js
+
+      - name: Customers table column order + sort
+        run: bun test scripts/customer-table-order.test.js
 
       - name: Ticket customer account recovery
         run: bun test scripts/ticket-account-refresh.test.js
@@ -192,7 +195,7 @@ jobs:
 
       - name: Customer reply separation
         run: |
-          bun test scripts/contact-spam.test.js
+          bun test scripts/contact-spam.test.js scripts/spam-contacts.test.js
           bun test scripts/ai-reply-separation.test.js
           bun test scripts/template-tailoring.test.js
           bun test scripts/template-search.test.js

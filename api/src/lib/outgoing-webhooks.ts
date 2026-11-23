@@ -82,7 +82,14 @@ export type WebhookEvent =
   | 'ticket.resolved'
   | 'ticket.closed'
   | 'ticket.escalated'
-  | 'priority.urgent';
+  | 'ticket.assigned'
+  | 'ticket.merged'
+  | 'priority.urgent'
+  | 'sla.breach'
+  | 'csat.submitted';
+
+// Plain JSON only, so the stored payload is exactly what gets signed and sent.
+export type EventData = { [key: string]: string | number | boolean | null | EventData };
 
 // Backoff schedule in seconds. Index = attempts already made.
 // attempts=0 (just enqueued) → fire ASAP
@@ -126,8 +133,20 @@ export async function dispatchTicketEvent(args: {
   workspaceId: string;
   event:       WebhookEvent;
   ticketId:    string;
+  // Event-specific facts, sent under `data`. Ids, scores and labels only:
+  // never notes, comments or message text, and never another customer's
+  // details. Erasure matches on the top-level ticket.id / customer.id, so
+  // anything identifying a person must stay there.
+  extra?:      EventData;
+  // For callers that must send an event at most once (the SLA-breach sweep).
+  // Runs inside the enqueue transaction, before the delivery rows are
+  // inserted: return false to cancel, and whatever it writes commits or rolls
+  // back together with the deliveries. With `claim` set, an enqueue failure
+  // is thrown to the caller instead of being logged and swallowed. It is not
+  // called at all when no webhook is subscribed.
+  claim?:      (tx: TransactionSql) => Promise<boolean>;
 }): Promise<number> {
-  const { workspaceId, event, ticketId } = args;
+  const { workspaceId, event, ticketId, extra, claim } = args;
   const sql = getDb();
 
   const webhooks = await sql<WebhookRow[]>`
@@ -173,6 +192,7 @@ export async function dispatchTicketEvent(args: {
       vip_tier:  customer.vip_tier,
       brand:     customer.brand,
     },
+    ...(extra ? { data: extra } : {}),
   };
 
   try {
@@ -180,6 +200,7 @@ export async function dispatchTicketEvent(args: {
       const [workspace] = await tx`select id from workspaces where id=${workspaceId}
         and deleted_at is null and suspended_at is null for share`;
       if (!workspace) return false;
+      if (claim && !(await claim(tx))) return false;
       for (const w of subscribed) await tx`
         insert into webhook_deliveries (workspace_id, webhook_id, event, payload, next_attempt_at)
         values (${workspaceId}, ${w.id}, ${event}, ${tx.json(payload)}, now())
@@ -188,6 +209,7 @@ export async function dispatchTicketEvent(args: {
     });
     if (!queued) return 0;
   } catch (err) {
+    if (claim) throw err;
     console.error('[outgoing-webhooks] enqueue failed:', safeError(err));
     return 0;
   }

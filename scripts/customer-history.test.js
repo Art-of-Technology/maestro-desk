@@ -7,21 +7,28 @@ const source = readFileSync(new URL('../web/js/customers/history.js', import.met
 const ticket = n => ({ id: `uuid-${n}`, display_id: `TK-${n}`, subject: `<Older ticket ${n}>`, status_key: 'resolved', priority_key: 'normal' });
 const summary = (rows = [ticket(1), ticket(2)], total = 3) => ({
   totals: { tickets: total, csat_count: 2, csat_avg: 4.5 }, by_status: { open: 1, escalated: 1 },
+  activity: [],
+  email_names: { account_holder_name: 'Jane Doe', entries: [{ email: 'sender@example.test', sender_name: 'Alias', mismatch: true, review_key: 'abc' }] },
   tickets: { rows, total, limit: 2, offset: 0 },
 });
 
 function harness() {
   const actions = {}, calls = [], inserted = [], opened = [];
   const control = { jwt: 'session', workspace: 'workspace', response: summary(), hold: null, fail: false };
-  const counts = { innerHTML: '' }, tickets = { innerHTML: '' };
+  const names = { innerHTML: '' };
+  const reasonField = { value: '', isConnected: true, focus() {} }, errorField = { textContent: '', isConnected: true }, confirmButton = { disabled: false, isConnected: true }, saves = [];
+  const counts = { innerHTML: '' }, tickets = { innerHTML: '' }, activity = { innerHTML: '' }, status = { textContent: '' }, translated = [];
   const root = { isConnected: true, dataset: { customerHistory: 'customer-uuid' },
-    querySelector: selector => selector === '[data-history-counts]' ? counts : tickets,
-    querySelectorAll: () => [counts, tickets] };
-  const el = { closest: () => root };
+    querySelector: selector => selector === '[data-history-counts]' ? counts : selector === '[data-history-activity]' ? activity : selector === '[data-history-email-names]' ? names : tickets,
+    querySelectorAll: () => [counts, tickets, activity, names] };
+  const el = { closest: selector => selector === '.cust-timeline-item' ? { querySelector: () => status } : root };
   const esc = value => String(value).replaceAll('<', '&lt;').replaceAll('"', '&quot;');
   const context = {
     getJwt: () => control.jwt, getWorkspaceId: () => control.workspace,
     registerActions: map => Object.assign(actions, map),
+    translateActivity: (ds, el, entry) => translated.push(entry),
+    renderEmailNames: data => JSON.stringify(data), can: () => true,
+    showModal: (_title, _body, confirm) => { control.confirm = confirm; }, closeModal() {},
     statusLabel: t => t.statusOption || t.status, buildTicketLookups: () => ({}), copyButton: () => '',
     updateOrInsertTicket: (row, _lookups, target) => {
       if (!target) { inserted.push(row); return; }
@@ -29,10 +36,11 @@ function harness() {
     },
     openTicket: id => opened.push(id), window: { escHtml: esc, escAttr: esc },
     apiGet: async path => { calls.push(path); if (control.hold) await control.hold; if (control.fail) throw Error('Failed'); return control.response; },
-    queueMicrotask: () => {}, document: { querySelector: () => root },
+    apiPost: async (path, body) => { saves.push({ path, body }); if (control.hold) await control.hold; return { email_names: control.response.email_names }; },
+    queueMicrotask: () => {}, document: { querySelector: selector => selector.startsWith('#modal-container') ? confirmButton : root, getElementById: id => id === 'name-review-reason' ? reasonField : errorField },
   };
-  const api = runInNewContext(source + '\n({loadHistory, renderCustomerHistory})', context);
-  return { ...api, actions, calls, inserted, opened, control, counts, tickets, root, el };
+  const api = runInNewContext(source + '\n({loadHistory, renderCustomerHistory, refreshCustomerHistory})', context);
+  return { ...api, actions, calls, inserted, opened, control, counts, tickets, activity, status, translated, names, root, el, reasonField, errorField, confirmButton, saves };
 }
 
 test('loads full-history counts and older tickets without filling the workspace ticket list', async () => {
@@ -102,4 +110,80 @@ test('late responses cannot update another profile, workspace or login', async (
     h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-1' }, h.el);
     expect(h.opened).toHaveLength(0);
   }
+});
+
+test('fresh profile renders server activity with no cached tickets, and translates previews', async () => {
+  const h = harness();
+  h.control.response.activity = [{ ticket_id: 'uuid-9', display_id: 'TK-9', role: 'customer', author_label: '<Sender>', body: '<Bonjour>', body_truncated: true, created_at: '2026-11-16T10:00:00Z' }];
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('&lt;Bonjour>');
+  expect(h.activity.innerHTML).toContain('&lt;Sender>');
+  expect(h.activity.innerHTML).toContain('Preview only');
+  expect(h.inserted).toHaveLength(0);
+  h.actions['customerHistory.translateActivity']({ messageIndex: '0' }, h.el);
+  expect(h.translated[0].message.t).toBe('<Bonjour>');
+  h.control.response = { ticket: ticket(9) };
+  await h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  expect(h.calls.at(-1)).toBe('/api/v1/tickets/uuid-9');
+  expect(h.opened).toEqual(['TK-9']);
+});
+
+test('activity distinguishes errors from empty results and rejects late navigation', async () => {
+  const h = harness();
+  h.control.fail = true;
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('Couldn’t load activity');
+  expect(h.activity.innerHTML).not.toContain('No activity yet');
+  h.control.fail = false;
+  await h.loadHistory(h.root);
+  expect(h.activity.innerHTML).toContain('No activity yet');
+  h.control.response.activity = [{ ticket_id: 'uuid-9', display_id: 'TK-9', role: 'customer', body: 'Hello' }];
+  await h.loadHistory(h.root);
+  h.control.fail = true;
+  await h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  expect(h.status.textContent).toContain('Couldn’t open ticket');
+  expect(h.el.disabled).toBe(false);
+  h.control.fail = false;
+  h.control.response = { ticket: ticket(9) };
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.actions['customerHistory.openTicket']({ ticketUuid: 'uuid-9' }, h.el);
+  h.control.workspace = 'other';
+  release(); await pending;
+  h.actions['customerHistory.translateActivity']({ messageIndex: '0' }, h.el);
+  expect(h.opened).toHaveLength(0);
+  expect(h.inserted).toHaveLength(0);
+  expect(h.translated).toHaveLength(0);
+});
+
+test('server names are loaded with an empty cache, and an account refresh reloads comparisons', async () => {
+  const h = harness();
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.loadHistory(h.root);
+  h.refreshCustomerHistory('customer-uuid');
+  h.control.hold = null;
+  release(); await pending;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(h.calls).toHaveLength(2);
+  expect(h.names.innerHTML).toContain('Alias');
+  expect(h.names.innerHTML).toContain('Jane Doe');
+  expect(h.inserted).toHaveLength(0);
+});
+
+test('review requires a reason, prevents duplicate saves and discards late responses', async () => {
+  const h = harness(); await h.loadHistory(h.root);
+  h.actions['customerHistory.reviewName']({ reviewKey: 'abc' }, h.el);
+  await h.control.confirm();
+  expect(h.saves).toHaveLength(0);
+  expect(h.errorField.textContent).toContain('Enter a reason');
+  h.reasonField.value = 'Middle name checked';
+  let release; h.control.hold = new Promise(resolve => release = resolve);
+  const pending = h.control.confirm();
+  await h.control.confirm();
+  expect(h.saves).toHaveLength(1);
+  expect(h.confirmButton.disabled).toBe(true);
+  const original = h.names.innerHTML;
+  h.control.response.email_names = { account_holder_name: 'Other', entries: [] };
+  h.control.workspace = 'other-workspace';
+  release(); await pending;
+  expect(h.names.innerHTML).toBe(original);
 });

@@ -62,7 +62,7 @@ export function renderTicketTemplates() {
         <button class="btn btn-sm btn-solid" data-action="ticket-templates.use" data-tt-id="${window.escAttr(t.id)}">Use</button>
         ${admin ? `
           <button class="btn btn-sm" data-action="ticket-templates.edit" data-tt-id="${window.escAttr(t.id)}">Edit</button>
-          <button class="btn btn-sm" data-action="ticket-templates.duplicate" data-tt-id="${window.escAttr(t.id)}">Copy</button>
+          <button class="btn btn-sm" data-action="ticket-templates.duplicate" data-tt-id="${window.escAttr(t.id)}">Duplicate</button>
           <button class="btn btn-sm btn-danger" data-action="ticket-templates.delete" data-tt-id="${window.escAttr(t.id)}">Delete</button>` : ''}
       </td>
     </tr>`).join('');

@@ -31,6 +31,7 @@
 // problem; that belongs with the flags-panel work, not here.
 
 import { getDb } from './db.js';
+import { customerEmailNames } from './customer-email-names.js';
 import { ticketListCols } from './ticket-cols.js';
 
 /** Newest messages shown in the profile's activity timeline. */
@@ -56,6 +57,7 @@ export const CUSTOMER_TICKETS_MAX_LIMIT = 100;
 
 export interface CustomerSummary {
   customer_id: string;
+  email_names: Awaited<ReturnType<typeof customerEmailNames>>;
   totals: {
     tickets: number;
     merged: number;
@@ -266,15 +268,17 @@ export async function customerSummary(args: {
 
   if (!(await customerVisible(workspaceId, customerId))) return null;
 
-  const [totalsRow, tags, timeline, page] = await Promise.all([
+  const [totalsRow, tags, timeline, page, emailNames] = await Promise.all([
     rollup(workspaceId, customerId),
     topTags(workspaceId, customerId),
     activity(workspaceId, customerId),
     customerTicketPage({ workspaceId, customerId }),
+    customerEmailNames(getDb(), workspaceId, customerId),
   ]);
 
   return {
     customer_id: customerId,
+    email_names: emailNames,
     totals: {
       tickets: Number(totalsRow?.total ?? 0),
       merged: Number(totalsRow?.merged ?? 0),

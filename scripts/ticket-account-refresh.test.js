@@ -14,10 +14,10 @@ beforeAll(async () => {
       builder.onResolve({ filter: /^ticket-refresh-test$/ }, () => ({ path: 'entry', namespace: 'test' }));
       builder.onLoad({ filter: /.*/, namespace: 'test' }, () => ({ loader: 'js', contents: `
         import '${web}/app.js';
-        import { openTicket } from '${web}/tickets/detail.js';
+        import { openTicket, refreshTicketCustomer } from '${web}/tickets/detail.js';
         import { CUSTOMERS, TICKETS } from '${web}/core/data.js';
         import { setJwt, setWorkspaceId } from '${web}/core/api-client.js';
-        Object.assign(globalThis, { openTicket, customers: CUSTOMERS, tickets: TICKETS, setJwt, setWorkspaceId });
+        Object.assign(globalThis, { openTicket, refreshTicketCustomer, customers: CUSTOMERS, tickets: TICKETS, setJwt, setWorkspaceId });
       ` }));
     } }],
   });
@@ -57,8 +57,9 @@ function setup() {
     advance: () => { now += 61_000; },
     respond: (status = 200) => complete(new Response(JSON.stringify(status === 200 ? { customer: {
       id: 'customer-uuid', display_id: customer.id, maestro_user_id: '50724',
+      email: customer.email, emails: customer.emails || [],
       first_name: 'Francisco', last_name: 'Test', username: 'javier1107', brand: 'Space Casino',
-      vip_tier: 'Gold', jurisdiction: 'MX', backoffice_url: 'https://bo.spacecasino.com/Member/Detail/50724',
+      vip_tier: 'Gold', jurisdiction: 'MX', backoffice_url: 'https://backofficev2.spacecasino.com/members/50724',
     } } : { error: "Couldn't refresh account details. Try opening this profile again shortly." }), { status })),
   };
 }
@@ -77,7 +78,7 @@ test('opening an unlinked ticket refreshes only the customer panel and preserves
   expect(h.calls[0].options.headers['X-Workspace-Id']).toBe('workspace-A');
   expect(h.customer.maestroUserId).toBe('50724');
   expect(h.panel.innerHTML).toContain('Space Casino');
-  expect(h.panel.innerHTML).toContain('/Member/Detail/50724');
+  expect(h.panel.innerHTML).toContain('https://backofficev2.spacecasino.com/members/50724');
   expect(main.innerHTML).toBe(rendered);
   expect(composer.value).toBe('Unsent reply');
   h.open(); expect(h.calls).toHaveLength(1);
@@ -94,11 +95,24 @@ test('failed lookups retry on a later open, with no duplicates or retries inside
   expect(h.customer.maestroUserId).toBe('50724');
 });
 
-test('linked, demo, erased and merged customers do not trigger ticket lookups', () => {
-  for (const extra of [{ maestroUserId: '50724' }, { _uuid: null }, { erased: true }, { mergedInto: 'M1' }]) {
+test('demo, erased and merged customers do not trigger ticket lookups', () => {
+  for (const extra of [{ _uuid: null }, { erased: true }, { mergedInto: 'M1' }]) {
     const h = setup(); Object.assign(h.customer, extra); h.open();
     expect(h.calls).toHaveLength(0);
   }
+});
+
+test('opening a linked ticket refreshes its registered name without losing a draft', async () => {
+  const h = setup();
+  Object.assign(h.customer, { maestroUserId: '50724', first: 'Nickname', last: 'Sender' });
+  h.open();
+  const composer = h.context.document.getElementById('compose-input-' + h.ticket.id);
+  composer.value = 'Keep my draft';
+  h.respond(); await settle();
+  expect(h.customer.first).toBe('Francisco');
+  expect(h.customer.last).toBe('Test');
+  expect(h.panel.innerHTML).toContain('Francisco');
+  expect(composer.value).toBe('Keep my draft');
 });
 
 test('late results cannot repaint another customer or import data after switching workspace', async () => {
@@ -111,4 +125,30 @@ test('late results cannot repaint another customer or import data after switchin
     expect(h.panel.innerHTML).toBe('Keep current panel');
     if (drift === 'workspace') expect(h.customer.maestroUserId).toBeNull();
   }
+});
+
+test('account refresh updates only the name comparison and preserves the draft and email details', async () => {
+  const h = setup();
+  Object.assign(h.customer, { first: 'Nickname', last: 'Sender', email: 'player@example.test', emails: [{ value: 'player@example.test' }] });
+  h.ticket.msgs = [{ r: 'customer', from: 'Nickname Sender', t: 'Hello', email: { status: 'received', from: 'player@example.test' } }];
+  const comparison = h.context._node();
+  comparison.dataset.emailNameIndex = '0';
+  h.context.document.querySelectorAll = selector => selector === '[data-email-name-index]' ? [comparison] : [];
+  h.open();
+  const main = h.context.document.getElementById('main'), rendered = main.innerHTML;
+  expect(rendered).not.toContain('Name differs from player account');
+  const composer = h.context.document.getElementById('compose-input-' + h.ticket.id);
+  composer.value = 'Keep this draft';
+  h.respond(); await settle();
+  expect(comparison.innerHTML).toContain('Name differs from player account');
+  expect(comparison.innerHTML).toContain('Francisco Test');
+  expect(main.innerHTML).toBe(rendered);
+  expect(composer.value).toBe('Keep this draft');
+  h.ticket.msgs[0].from = 'Francisco Test';
+  h.context.refreshTicketCustomer(h.customer);
+  expect(comparison.innerHTML).toBe('');
+  comparison.innerHTML = 'Keep other ticket';
+  h.panel.dataset.custId = 'another-customer';
+  h.context.refreshTicketCustomer(h.customer);
+  expect(comparison.innerHTML).toBe('Keep other ticket');
 });

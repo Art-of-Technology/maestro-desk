@@ -125,6 +125,26 @@ export function renderEmailPreview(html, attachments) {
     srcdoc="${window.escAttr(frameDocument(html, attachmentOrigins(attachments), false))}"></iframe>`;
 }
 
+export function renderEmptyEmailNotice(m) {
+  if (m.r !== 'customer' || m.email?.status !== 'received' || m.attachments?.length) return '';
+  // shortcut: recognise only the English Google Groups footer; add other formats with fixtures.
+  const footer = /^To unsubscribe from this group and stop receiving emails from it, send an email to ([^\s<>@]+\+unsubscribe@[^\s<>@]+)\.$/;
+  const normalise = text => String(text || '').replace(/\s+/g, ' ').trim();
+  const match = normalise(m.t).match(footer);
+  if (!match) return '';
+  if (m.html) {
+    const template = document.createElement('template');
+    template.innerHTML = m.html;
+    if (normalise(template.content.textContent) !== normalise(m.t)) return '';
+    for (const element of template.content.querySelectorAll('*')) {
+      if (!['DIV', 'P', 'BR', 'SPAN', 'A'].includes(element.tagName) ||
+          element.hasAttribute('background') || /url\s*\(/i.test(element.getAttribute('style') || '') ||
+          (element.tagName === 'A' && element.getAttribute('href') !== `mailto:${match[1]}`)) return '';
+    }
+  }
+  return '<p class="ticket-message-language">No message text. This email contains only an automatic unsubscribe footer.</p>';
+}
+
 /**
  * Body markup for a message. Falls back to the escaped plain text when the
  * message has no HTML (notes, older messages, plain-text mail).

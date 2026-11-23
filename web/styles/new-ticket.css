@@ -19,6 +19,8 @@
 .nt-writing-tools .composer-tool{width:44px;min-width:44px;padding:0;justify-content:center;color:var(--ink2)}
 .nt-writing-tools label{font-size:12px;margin-left:auto}
 .nt-writing-tools select{width:auto;max-width:100%;min-width:120px}
+.nt-language-hint{flex-basis:100%;margin:0;font-size:12px;color:var(--ink3);text-align:right}
+.nt-language-hint:empty{display:none}
 .nt-rich-editor{height:280px;min-height:240px;max-height:400px;border-radius:0 0 var(--r) var(--r)}
 .nt-rich-editor .ql-editor{min-height:240px;font:14px/1.6 var(--font-sans);color:var(--ink)}
 .nt-plain-editor{min-height:280px;resize:vertical}

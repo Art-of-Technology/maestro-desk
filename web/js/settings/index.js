@@ -1,4 +1,5 @@
 import { can } from '../core/permissions.js';
+import { settingsSpamContacts } from './spam-contacts.js';
 import { renderPersonalAppearance, cancelAppearancePreview } from './personal-appearance.js';
 // ─── Settings ────────────────────────────────────────────────────────────────
 // Settings groups personal preferences, brand settings and workspace tools.
@@ -10,7 +11,6 @@ import { renderPersonalAppearance, cancelAppearancePreview } from './personal-ap
 // External reaches (interim, via window): isAdmin, escAttr, escHtml — all
 // still in app.js. navTo is a direct ES import.
 // refreshNotifBadge, setAIModel, setAgentPreferredLang,
-// showModal/closeModal,
 // KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles are
 // direct ES imports.
 //
@@ -21,7 +21,7 @@ import { renderPersonalAppearance, cancelAppearancePreview } from './personal-ap
 // window.setSettingsTab to dodge the settings↔notifications import cycle
 // (settings already imports refreshNotifBadge from notifications).
 
-import { CUSTOMERS, CATEGORIES } from '../core/data.js';
+import { CATEGORIES } from '../core/data.js';
 import { NOTIF_PREFS, SESSION, SETTINGS_TAB, setSettingsTabValue } from '../core/state.js';
 import { renderPage } from '../core/router.js';
 import { AI_MODEL, AI_MODELS, setAIModel, getAIStatus, checkAIConnection, checkAIGeneration } from '../ai/client.js';
@@ -30,8 +30,7 @@ import {
 } from '../ai/translate.js';
 import { refreshNotifBadge } from '../notifications/index.js';
 import { renderSoundSettings } from '../notifications/sound.js';
-import { apiGet, apiPost, apiPut, apiPatch, apiDelete, API_BASE, getWorkspaceId, getJwt } from '../core/api-client.js';
-import { showModal, closeModal } from '../core/modal.js';
+import { apiGet, apiPost, apiPatch, API_BASE, getWorkspaceId, getJwt } from '../core/api-client.js';
 import { KB_INTEGRATION, KB_TICKET_CACHE, saveKbIntegration, fetchKbArticles } from '../kb-integration/index.js';
 import { settingsEmailBranding, settingsMySignature } from '../email-branding/index.js';
 import { settingsSenderDomain } from '../email-domain/index.js';
@@ -39,28 +38,11 @@ import { settingsPushSection } from '../push/index.js';
 import { settingsReplyFeedback } from './reply-feedback.js';
 import { registerActions, registerChangeActions, registerInputActions } from '../core/event-delegation.js';
 
-// In-memory snapshots of the workspace's integrations, loaded lazily
-// when the Integrations tab is opened.
-let SLACK_INTEGRATION = null;
-let SLACK_LOADED = false;
-let OUTGOING_WEBHOOKS = [];
-let OUTGOING_WEBHOOKS_LOADED = false;
-let LAST_REVEALED_SECRET = null;        // shown once after a POST; cleared on next paint
-let SUPPRESSED_CUSTOMERS = [];
-let SUPPRESSED_LOADED = false;
-let SUPPRESSED_SCOPE = null;
-const suppressionScope = () => `${getWorkspaceId() || ''}:${getJwt() || ''}`;
 let WORKSPACE_SETTINGS = null;
 let WORKSPACE_SETTINGS_LOADED = false;
 let ME_PREFS = null;
 let ME_PREFS_LOADED = false;
 let CATEGORIES_LOADED = false;   // Categories tab lazy-load guard
-const SLACK_EVENTS = [
-  { k: 'ticket.created',   l: 'Ticket created' },
-  { k: 'ticket.resolved',  l: 'Ticket resolved' },
-  { k: 'ticket.escalated', l: 'Ticket escalated' },
-  { k: 'priority.urgent',  l: 'Priority set to urgent' },
-];
 
 // Module-scoped state for the Settings → Knowledge Base test panel. Kept off
 // `window` so it doesn't pollute the global namespace.
@@ -78,7 +60,7 @@ export function renderSettings() {
     ...(can('admin.integrations') ? [{k:'sender-domain', l:'Sender domain'}] : []),
     {k:'ai',            l:'AI Assistant', heading:'Workspace'},
     {k:'knowledge-base', l:'Knowledge Base'},
-    {k:'integrations',  l:'Integrations'},
+    ...(can('customers.view') && can('customers.spam') ? [{k:'spam-contacts', l:'Spam contacts'}] : []),
     ...(can('data.ai_reports') ? [{k:'reply-feedback', l:'Reply feedback'}] : []),
     ...(can('admin.inboxes') ? [{k:'categories', l:'Categories'}] : []),
   ];
@@ -93,7 +75,7 @@ export function renderSettings() {
   else if (SETTINGS_TAB === 'ai')            panel = settingsAI();
   else if (SETTINGS_TAB === 'knowledge-base') panel = settingsKnowledgeBase();
   else if (SETTINGS_TAB === 'language')      panel = settingsLanguage();
-  else if (SETTINGS_TAB === 'integrations')  panel = settingsIntegrations();
+  else if (SETTINGS_TAB === 'spam-contacts') panel = settingsSpamContacts();
   else if (SETTINGS_TAB === 'email')         panel = settingsEmailBranding();
   else if (SETTINGS_TAB === 'sender-domain') panel = settingsSenderDomain();
   else if (SETTINGS_TAB === 'categories')    panel = settingsCategories();
@@ -725,561 +707,6 @@ function settingsLanguage() {
     </div>`;
 }
 
-// ─── Integrations panel (Slack) ──────────────────────────────────────────
-function settingsIntegrations() {
-  // Lazy load on first paint; trigger a re-render when the fetch lands.
-  if (!SLACK_LOADED) {
-    SLACK_LOADED = true;
-    apiGet('/api/v1/integrations/slack')
-      .then((res) => { SLACK_INTEGRATION = res.integration; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] slack load failed:'); });
-  }
-  const slack = SLACK_INTEGRATION;
-  const events = slack?.events || ['ticket.resolved', 'ticket.escalated'];
-  const checkbox = (k, l) => `
-    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">
-      <input type="checkbox" id="slack-evt-${k}" ${events.includes(k) ? 'checked' : ''}/>
-      ${window.escHtml(l)}
-    </label>`;
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Slack</div>
-      <div class="settings-desc" style="margin-bottom:14px">
-        Send ticket alerts to a shared Slack channel. Each brand has one Slack connection.
-      </div>
-      <div class="settings-desc" style="margin-bottom:18px">
-        <strong>Set up Slack alerts</strong>
-        <ol style="padding-left:20px;margin:8px 0;line-height:1.6">
-          <li>Open <a href="https://api.slack.com/apps" target="_blank" rel="noopener noreferrer" style="color:var(--purple)">your Slack apps (opens in a new tab)</a>. Create an app for your Slack workspace, or choose an existing app.</li>
-          <li>In the app settings, open <strong>Incoming Webhooks</strong> and turn on <strong>Activate Incoming Webhooks</strong>.</li>
-          <li>Select <strong>Add New Webhook to Workspace</strong>, choose the channel for alerts, and authorize it. You must belong to a private channel to select it.</li>
-          <li>Copy the webhook URL into <strong>Webhook URL</strong> below. Leave <strong>Channel override</strong> blank to use the channel you chose in Slack.</li>
-          <li>Select at least one event, keep <strong>Active</strong> on, and select <strong>Save</strong>. Leave the two-way sync fields blank if you only want alerts.</li>
-        </ol>
-        Keep the webhook URL private, like a password. After saving, select <strong>Send test alert</strong> to check delivery.
-        <a href="https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/" target="_blank" rel="noopener noreferrer" style="color:var(--purple)">Slack setup help (opens in a new tab)</a>.
-      </div>
-      <div class="form-row">
-        <label class="form-label" for="slack-url">Webhook URL</label>
-        <input class="form-input" id="slack-url" type="password" placeholder="${slack?.has_webhook ? 'Leave blank to keep the saved webhook' : 'https://hooks.slack.com/services/...'}" autocomplete="off"/>
-      </div>
-      <div class="form-row">
-        <label class="form-label">Channel override (optional)</label>
-        <input class="form-input" id="slack-channel" value="${window.escAttr(slack?.channel || '')}" placeholder="#support"/>
-        <div style="font-size:11px;color:var(--ink3);margin-top:4px">Leave blank to use the channel the webhook is bound to in Slack.</div>
-      </div>
-      <div class="form-row">
-        <label class="form-label">Events</label>
-        ${SLACK_EVENTS.map((e) => checkbox(e.k, e.l)).join('')}
-      </div>
-      <div class="form-row" style="display:flex;align-items:center;gap:8px">
-        <label class="toggle"><input type="checkbox" id="slack-active" ${slack?.active !== false ? 'checked' : ''}/><span class="toggle-slider"></span></label>
-        <span style="font-size:13px;color:var(--ink2)">Active</span>
-      </div>
-
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
-        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px">Two-way sync (optional)</div>
-        <div style="font-size:11px;color:var(--ink3);margin-bottom:12px;line-height:1.5">
-          Lets agents reply directly from the Slack thread that the notification creates — replies are recorded on the ticket. Requires a Slack app with the <code style="font-family:'DM Mono',monospace;color:var(--ink2)">chat:write</code>, <code style="font-family:'DM Mono',monospace;color:var(--ink2)">users:read</code>, and <code style="font-family:'DM Mono',monospace;color:var(--ink2)">users:read.email</code> scopes plus the Events API URL pointed at <code style="font-family:'DM Mono',monospace;color:var(--ink2)">/api/v1/webhooks/slack/events</code>.
-        </div>
-        ${slack?.has_bot_token ? `
-          <div style="margin-bottom:10px;padding:8px 10px;background:var(--green-lt);border:1px solid var(--green);border-radius:var(--r);font-size:11px;color:var(--green);display:flex;gap:8px;align-items:center">
-            <span style="font-weight:600">Two-way ready</span>
-            <span style="font-family:'DM Mono',monospace;color:var(--ink2)">xoxb-...${window.escHtml(slack.bot_token_suffix || '')}</span>
-          </div>` : ''}
-        <div class="form-row">
-          <label class="form-label">Bot token</label>
-          <input class="form-input" id="slack-bot-token" type="password" placeholder="${slack?.has_bot_token ? 'Paste a new token to rotate' : 'xoxb-...'}" autocomplete="off"/>
-        </div>
-        <div class="form-row">
-          <label class="form-label">Signing secret</label>
-          <input class="form-input" id="slack-signing-secret" type="password" placeholder="${slack?.has_signing_secret ? 'Paste a new secret to rotate' : 'app signing secret'}" autocomplete="off"/>
-        </div>
-      </div>
-
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">
-        <button class="btn btn-solid btn-sm" data-action="settings.saveSlack">Save</button>
-        <button class="btn btn-sm" id="slack-test" data-action="settings.testSlack" ${slack?.active && can('admin.integrations') ? '' : 'disabled'}>Send test alert</button>
-        ${slack ? '<button class="btn btn-sm btn-danger" data-action="settings.deleteSlack">Disconnect</button>' : ''}
-        <span id="slack-msg" role="status" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
-      </div>
-      <div class="settings-desc" style="margin-top:8px">Test alerts use the saved, active connection. Save any changes first.</div>
-    </div>
-    ${settingsOutgoingWebhooksSection()}
-    ${settingsSuppressionListSection()}`;
-}
-
-// ─── Outgoing webhooks ──────────────────────────────────────────────────
-//
-// Multiple webhooks per workspace, distinct from Slack
-// (which is single-instance). List + Create + Delete are exposed in
-// this slice; rotating the secret = delete + recreate. Secrets are
-// surfaced once at creation time via LAST_REVEALED_SECRET, then
-// cleared on the next render so they can't be re-read by paging
-// through DevTools.
-
-function settingsOutgoingWebhooksSection() {
-  if (!OUTGOING_WEBHOOKS_LOADED) {
-    OUTGOING_WEBHOOKS_LOADED = true;
-    apiGet('/api/v1/integrations/webhooks')
-      .then((res) => { OUTGOING_WEBHOOKS = res.webhooks || []; renderPage('settings'); })
-      .catch((err) => { console.warn('[settings] webhooks load failed:'); });
-  }
-  const list = OUTGOING_WEBHOOKS;
-
-  // One-time secret reveal — pulled out before render so the next
-  // settings re-render starts clean and the user can't accidentally
-  // re-read it by switching tabs.
-  const revealedBanner = LAST_REVEALED_SECRET ? `
-    <div style="margin-bottom:14px;padding:12px 14px;background:var(--amber-lt);border:1px solid var(--amber);border-radius:var(--r);font-size:12px">
-      <div style="font-weight:600;color:var(--amber);margin-bottom:6px">Save this signing secret — it won't be shown again</div>
-      <div style="font-family:'DM Mono',monospace;color:var(--ink);background:var(--off2);padding:8px 10px;border-radius:3px;word-break:break-all;user-select:all">${window.escHtml(LAST_REVEALED_SECRET)}</div>
-      <div style="margin-top:6px;color:var(--ink3)">Use this with HMAC-SHA256 over <code>v0:&lt;X-Maestro-Timestamp&gt;:&lt;raw-body&gt;</code> and compare to the <code>X-Maestro-Signature</code> header.</div>
-    </div>` : '';
-  LAST_REVEALED_SECRET = null;
-
-  const rows = list.length === 0 ? `
-    <div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No outgoing webhooks configured.</div>
-  ` : list.map((w) => {
-    const last = w.last_delivery_at ? new Date(w.last_delivery_at).toISOString().slice(0, 19).replace('T', ' ') : '—';
-    const statusColor = w.last_delivery_error
-      ? 'var(--red)'
-      : (w.last_delivery_status && w.last_delivery_status < 400 ? 'var(--green)' : 'var(--ink3)');
-    const statusLabel = w.last_delivery_error
-      ? `error · ${window.escHtml(w.last_delivery_error.slice(0, 40))}`
-      : (w.last_delivery_status ? `HTTP ${w.last_delivery_status}` : 'no deliveries yet');
-    return `
-      <div style="padding:10px 0;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:12px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(w.name)}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(w.url)}</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">
-            <span style="color:${statusColor}">${statusLabel}</span>
-            <span style="color:var(--ink4);margin-left:8px">last: ${last}</span>
-            <span style="color:var(--ink4);margin-left:8px">${w.events.length} event${w.events.length === 1 ? '' : 's'}</span>
-          </div>
-        </div>
-        <button class="btn btn-sm" data-action="settings.editWebhook" data-id="${window.escAttr(w.id)}">Edit</button>
-        <button class="btn btn-sm" data-action="settings.webhookDeliveries" data-id="${window.escAttr(w.id)}" data-name="${window.escAttr(w.name)}">Deliveries</button>
-        <button class="btn btn-sm btn-danger" data-action="settings.deleteWebhook" data-id="${window.escAttr(w.id)}">Delete</button>
-      </div>`;
-  }).join('');
-
-  const eventCheckboxes = SLACK_EVENTS.map((e) => `
-    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
-      <input type="checkbox" id="wh-evt-${e.k}" checked/>
-      ${window.escHtml(e.l)}
-    </label>`).join('');
-
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Outgoing webhooks</div>
-      <div class="settings-desc" style="margin-bottom:14px">
-        Register HTTP endpoints to receive ticket-event POSTs. Generic alternative to the Slack integration — useful for piping events into a CRM, analytics pipeline, or homemade automation. Payloads are JSON, signed with HMAC-SHA256 using a secret generated at creation time.
-      </div>
-      ${revealedBanner}
-      <div>${rows}</div>
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--rule)">
-        <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:10px">Add webhook</div>
-        <div class="form-row">
-          <label class="form-label">Name</label>
-          <input class="form-input" id="wh-name" placeholder="e.g. CRM sync"/>
-        </div>
-        <div class="form-row">
-          <label class="form-label">URL</label>
-          <input class="form-input" id="wh-url" type="url" placeholder="https://your-receiver.example.com/maestro"/>
-        </div>
-        <div class="form-row">
-          <label class="form-label">Events</label>
-          ${eventCheckboxes}
-        </div>
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button class="btn btn-solid btn-sm" data-action="settings.createWebhook">Create</button>
-          <span id="wh-msg" style="margin-left:auto;font-size:11px;color:var(--ink3);font-family:'DM Mono',monospace"></span>
-        </div>
-      </div>
-    </div>`;
-}
-
-async function createOutgoingWebhook() {
-  if (!can('admin.integrations')) return;
-  const name   = document.getElementById('wh-name').value.trim();
-  const url    = document.getElementById('wh-url').value.trim();
-  const events = SLACK_EVENTS.filter((e) => document.getElementById(`wh-evt-${e.k}`)?.checked).map((e) => e.k);
-  const msg = document.getElementById('wh-msg');
-  if (!name) { msg.textContent = 'Name is required'; msg.style.color = 'var(--red)'; return; }
-  if (!url)  { msg.textContent = 'URL is required';  msg.style.color = 'var(--red)'; return; }
-  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
-  msg.textContent = 'Creating...'; msg.style.color = 'var(--ink3)';
-  try {
-    const res = await apiPost('/api/v1/integrations/webhooks', { name, url, events });
-    LAST_REVEALED_SECRET = res.secret;
-    // Re-fetch the list so the new row appears.
-    const list = await apiGet('/api/v1/integrations/webhooks');
-    OUTGOING_WEBHOOKS = list.webhooks || [];
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Create failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function deleteOutgoingWebhook(id) {
-  if (!can('admin.integrations')) return;
-  if (!confirm('Delete this webhook? Events will stop firing immediately.')) return;
-  try {
-    await apiDelete(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`);
-    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.filter((w) => w.id !== id);
-    renderPage('settings');
-  } catch (err) {
-    alert(`Couldn't delete: ${err?.message || err}`);
-  }
-}
-
-// ─── Postmark suppression list ──────────────────────────────────────────
-//
-// Surfaces every customer whose email is currently in hard or spam
-// bounce state. Reset clears the local bounce summary; if the address
-// is still suppressed at Postmark, the next send will bounce again
-// and re-populate this list. Soft bounces aren't shown here — they're
-// transient by nature and the count badge on the customer detail is
-// enough.
-
-function settingsSuppressionListSection() {
-  const scope = suppressionScope();
-  if (SUPPRESSED_SCOPE !== scope) {
-    SUPPRESSED_SCOPE = scope;
-    SUPPRESSED_CUSTOMERS = [];
-    SUPPRESSED_LOADED = false;
-  }
-  if (!SUPPRESSED_LOADED) {
-    SUPPRESSED_LOADED = true;
-    apiGet('/api/v1/integrations/postmark/suppressed/contacts')
-      .then((res) => {
-        if (suppressionScope() !== scope) return;
-        SUPPRESSED_CUSTOMERS = res.suppressed || [];
-        renderPage('settings');
-      })
-      .catch((err) => {
-        if (suppressionScope() !== scope) return;
-        SUPPRESSED_LOADED = false;
-        console.warn('[settings] suppression load failed:');
-      });
-  }
-  const list = SUPPRESSED_CUSTOMERS;
-  const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '—';
-  const rows = list.length === 0 ? `
-    <div style="color:var(--ink3);font-size:12px;padding:14px 0;text-align:center">No suppressed addresses.</div>
-  ` : list.map((c) => {
-    const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.display_id || '(no name)';
-    const stateColor = c.email_bounce_state === 'spam' ? 'var(--red)' : 'var(--red)';
-    return `
-      <div style="padding:10px 0;border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:12px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:500;color:var(--ink);font-size:13px">${window.escHtml(name)}</div>
-          <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${window.escHtml(c.email || '')}</div>
-          <div style="font-size:11px;color:var(--ink3);margin-top:2px">
-            <span style="color:${stateColor};font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">${window.escHtml(c.email_bounce_state)}</span>
-            <span style="color:var(--ink4);margin-left:8px">${window.escHtml(c.email_last_bounce_type || '')}</span>
-            <span style="color:var(--ink4);margin-left:8px">last: ${fmtTs(c.email_last_bounce_at)}</span>
-            <span style="color:var(--ink4);margin-left:8px">${c.email_bounce_count} bounce${c.email_bounce_count === 1 ? '' : 's'}</span>
-          </div>
-        </div>
-        <button class="btn btn-sm" data-action="settings.resetSuppressed" data-id="${window.escAttr(c.id)}" data-contact-id="${window.escAttr(c.contact_id || '')}">Reset</button>
-      </div>`;
-  }).join('');
-
-  return `
-    <div class="settings-section">
-      <div class="settings-h">Postmark suppression list</div>
-      <div class="settings-desc" style="margin-bottom:14px">
-        Email addresses flagged by a bounce or spam complaint. Reset clears the flag for that address only. Postmark may still block delivery until its suppression is removed.
-      </div>
-      <div>${rows}</div>
-    </div>`;
-}
-
-async function resetSuppressedCustomer(customerId, contactId) {
-  if (!can('admin.integrations')) return;
-  const scope = suppressionScope();
-  if (!confirm('Reset the bounce status for this email address? Respovia will allow sends to it again.')) return;
-  try {
-    const target = contactId ? `/contacts/${encodeURIComponent(contactId)}` : '';
-    const result = await apiPost(`/api/v1/integrations/postmark/suppressed/${encodeURIComponent(customerId)}${target}/reset`);
-    if (suppressionScope() !== scope) return;
-    SUPPRESSED_CUSTOMERS = SUPPRESSED_CUSTOMERS.filter((c) => contactId ? c.contact_id !== contactId : c.id !== customerId);
-    // Also clear the in-memory customer record so the badge disappears
-    // on the customer detail without a full bootstrap reload.
-    if (typeof CUSTOMERS !== 'undefined') {
-      const cust = CUSTOMERS.find((c) => c._uuid === customerId);
-      if (cust) {
-        const address = cust.emails?.find((x) => contactId ? x.id === contactId : x.is_primary);
-        if (address) {
-          address.bounce_state = 'none';
-          address.bounce_count = 0;
-          address.bounce_last_at = null;
-        }
-        if (result.contact?.is_primary ?? !contactId) {
-          cust.emailBounceState = 'none';
-          cust.emailBounceCount = 0;
-          cust.emailLastBounce  = null;
-        }
-      }
-    }
-    renderPage('settings');
-  } catch (err) {
-    alert(`Couldn't reset: ${err?.message || err}`);
-  }
-}
-
-// ─── Delivery log modal ─────────────────────────────────────────────────
-//
-// Opens a modal listing the 50 most recent delivery attempts for one
-// webhook. Renders empty-then-load (showModal first with a "loading"
-// stub, then swap the inner container's HTML when the fetch resolves)
-// so the user gets immediate feedback. No re-fetch or live update —
-// this is a snapshot view, the user closes + reopens for a refresh.
-
-function showOutgoingWebhookDeliveries(id, name) {
-  showModal(
-    `Deliveries · ${name}`,
-    `<div id="wh-deliveries-body" data-webhook-id="${window.escAttr(id)}" style="min-height:120px;color:var(--ink3);font-size:12px">Loading…</div>`,
-    null, null, true,
-  );
-  loadOutgoingWebhookDeliveries(id);
-}
-
-async function loadOutgoingWebhookDeliveries(id) {
-  const container = document.getElementById('wh-deliveries-body');
-  if (!container) return;
-  try {
-    const res = await apiGet(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}/deliveries`);
-    container.innerHTML = renderDeliveryRows(id, res.deliveries || []);
-  } catch (err) {
-    container.innerHTML = `<div style="color:var(--red);font-size:12px">${window.escHtml(err?.message || 'Failed to load')}</div>`;
-  }
-}
-
-function renderDeliveryRows(webhookId, deliveries) {
-  if (deliveries.length === 0) {
-    return `<div style="color:var(--ink3);font-size:12px;text-align:center;padding:20px 0">No deliveries yet.</div>`;
-  }
-  const stateColor = (s) => s === 'success' ? 'var(--green)' : s === 'exhausted' ? 'var(--red)' : 'var(--amber)';
-  const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 19).replace('T', ' ') : '—';
-  return `
-    <div style="display:grid;grid-template-columns:auto 1fr auto auto auto auto auto;gap:8px 12px;font-size:11px;align-items:baseline">
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">State</div>
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Event</div>
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Attempts</div>
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Last status</div>
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Last attempt</div>
-      <div style="color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.04em">Next attempt</div>
-      <div></div>
-      ${deliveries.map((d) => {
-        const last = d.last_status
-          ? `HTTP ${d.last_status}`
-          : (d.last_error ? `<span title="${window.escAttr(d.last_error)}">err</span>` : '—');
-        const retryBtn = d.state === 'exhausted'
-          ? `<button class="btn btn-sm" data-action="settings.retryDelivery" data-webhook-id="${window.escAttr(webhookId)}" data-delivery-id="${window.escAttr(d.id)}">Retry</button>`
-          : '';
-        return `
-          <div><span style="color:${stateColor(d.state)};font-weight:600;text-transform:uppercase;font-family:'DM Mono',monospace">${d.state}</span></div>
-          <div style="font-family:'DM Mono',monospace;color:var(--ink2)">${window.escHtml(d.event)}</div>
-          <div style="font-family:'DM Mono',monospace;color:var(--ink)">${d.attempts}</div>
-          <div style="font-family:'DM Mono',monospace;color:var(--ink2)">${last}</div>
-          <div style="font-family:'DM Mono',monospace;color:var(--ink3)">${fmtTs(d.last_attempt_at)}</div>
-          <div style="font-family:'DM Mono',monospace;color:var(--ink3)">${d.state === 'pending' ? fmtTs(d.next_attempt_at) : '—'}</div>
-          <div>${retryBtn}</div>
-        `;
-      }).join('')}
-    </div>`;
-}
-
-async function retryWebhookDelivery(webhookId, deliveryId) {
-  try {
-    await apiPost(`/api/v1/integrations/webhooks/${encodeURIComponent(webhookId)}/deliveries/${encodeURIComponent(deliveryId)}/retry`);
-    // Refresh the modal in-place so the row flips to pending with
-    // attempts=0 and a fresh next_attempt_at. The worker tick will
-    // fire on the next ~5s cycle.
-    await loadOutgoingWebhookDeliveries(webhookId);
-  } catch (err) {
-    alert(`Couldn't re-queue: ${err?.message || err}`);
-  }
-}
-
-// ─── Edit modal ─────────────────────────────────────────────────────────
-//
-// Opens a modal pre-populated from OUTGOING_WEBHOOKS (no server fetch
-// needed — the list is already in module state). Form fields share an
-// `we-*` prefix so we don't collide with the inline create form's
-// `wh-*` fields. Save and Rotate-secret are separate actions; the
-// rotate flow surfaces the new secret in the same one-shot banner
-// the create flow uses.
-
-function editOutgoingWebhook(id) {
-  if (!can('admin.integrations')) return;
-  const w = OUTGOING_WEBHOOKS.find((x) => x.id === id);
-  if (!w) return;
-  const eventCheckboxes = SLACK_EVENTS.map((e) => `
-    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px">
-      <input type="checkbox" id="we-evt-${e.k}" ${w.events.includes(e.k) ? 'checked' : ''}/>
-      ${window.escHtml(e.l)}
-    </label>`).join('');
-  // onConfirm-with-callback is avoided here: showModal's .toString()
-  // round-trip loses our module-scope imports (apiPatch in particular),
-  // so the buttons are inlined into the body and routed through
-  // data-action delegation (settings.saveWebhookEdit / rotateSecret /
-  // closeModal) instead.
-  showModal(`Edit webhook · ${w.name}`,
-    `<input type="hidden" id="we-id" value="${window.escAttr(w.id)}"/>
-     <div class="form-row">
-       <label class="form-label">Name</label>
-       <input class="form-input" id="we-name" value="${window.escAttr(w.name)}"/>
-     </div>
-     <div class="form-row">
-       <label class="form-label">URL</label>
-       <input class="form-input" id="we-url" type="url" value="${window.escAttr(w.url)}"/>
-     </div>
-     <div class="form-row">
-       <label class="form-label">Events</label>
-       ${eventCheckboxes}
-     </div>
-     <div class="form-row" style="display:flex;align-items:center;gap:8px">
-       <label class="toggle"><input type="checkbox" id="we-active" ${w.active ? 'checked' : ''}/><span class="toggle-slider"></span></label>
-       <span style="font-size:13px;color:var(--ink2)">Active</span>
-     </div>
-     <div style="display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid var(--rule)">
-       <button class="btn" data-action="settings.closeModal">Cancel</button>
-       <button class="btn btn-solid" data-action="settings.saveWebhookEdit">Save</button>
-       <span id="we-msg" style="margin-left:auto;font-size:11px;font-family:'DM Mono',monospace;color:var(--ink3)"></span>
-     </div>
-     <div style="margin-top:18px;padding:12px;background:var(--off2);border:1px solid var(--rule);border-radius:var(--r)">
-       <div style="font-size:12px;font-weight:600;color:var(--ink);margin-bottom:6px">Rotate signing secret</div>
-       <div style="font-size:11px;color:var(--ink3);margin-bottom:10px;line-height:1.5">
-         Generates a fresh secret and invalidates the old one immediately. In-flight retries will start failing HMAC verification at the receiver until you update its configuration.
-       </div>
-       <button class="btn btn-sm btn-danger" data-action="settings.rotateSecret">Rotate secret</button>
-     </div>`,
-    null, null, true,
-  );
-}
-
-// Invoked from the edit modal's Save button via the settings.saveWebhookEdit
-// delegated action. Reads the form by id rather than closing over the webhook
-// record (see modal.js comment).
-async function saveOutgoingWebhookEdit() {
-  const id     = document.getElementById('we-id').value;
-  const name   = document.getElementById('we-name').value.trim();
-  const url    = document.getElementById('we-url').value.trim();
-  const events = SLACK_EVENTS.filter((e) => document.getElementById(`we-evt-${e.k}`)?.checked).map((e) => e.k);
-  const active = document.getElementById('we-active').checked;
-  const msg = document.getElementById('we-msg');
-  if (!name) { msg.textContent = 'Name is required'; msg.style.color = 'var(--red)'; return; }
-  if (!url)  { msg.textContent = 'URL is required';  msg.style.color = 'var(--red)'; return; }
-  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
-  try {
-    const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { name, url, events, active });
-    // Replace the row in module state so the panel re-renders with
-    // the new values without a full refetch.
-    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
-    closeModal();
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Save failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function rotateOutgoingWebhookSecret() {
-  const id = document.getElementById('we-id').value;
-  if (!confirm('Rotate the signing secret? The current secret will stop working immediately.')) return;
-  const msg = document.getElementById('we-msg');
-  msg.textContent = 'Rotating...'; msg.style.color = 'var(--ink3)';
-  try {
-    const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { rotate_secret: true });
-    // Surface the new secret via the same one-shot banner used by
-    // create — close the modal so the user can see it on the panel.
-    LAST_REVEALED_SECRET = res.secret;
-    OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
-    closeModal();
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Rotation failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function saveSlackIntegration() {
-  if (!can('admin.integrations')) return;
-  const url           = document.getElementById('slack-url').value.trim();
-  const channel       = document.getElementById('slack-channel').value.trim();
-  const active        = document.getElementById('slack-active').checked;
-  const events        = SLACK_EVENTS.filter((e) => document.getElementById(`slack-evt-${e.k}`)?.checked).map((e) => e.k);
-  const botToken      = document.getElementById('slack-bot-token')?.value.trim() || '';
-  const signingSecret = document.getElementById('slack-signing-secret')?.value.trim() || '';
-  const msg = document.getElementById('slack-msg');
-  if (!url && !SLACK_INTEGRATION?.has_webhook) { msg.textContent = 'Webhook URL is required'; msg.style.color = 'var(--red)'; return; }
-  if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
-  msg.textContent = 'Saving...'; msg.style.color = 'var(--ink3)';
-  try {
-    // Only send bot_token / signing_secret when the user actually
-    // typed something — sending undefined leaves the server-side value
-    // alone, which is what we want for "save settings without
-    // rotating credentials".
-    const body = {
-      channel:     channel || null,
-      active,
-      events,
-    };
-    if (url)           body.webhook_url    = url;
-    if (botToken)      body.bot_token      = botToken;
-    if (signingSecret) body.signing_secret = signingSecret;
-    await apiPut('/api/v1/integrations/slack', body);
-    document.getElementById('slack-url').value = '';
-    const res = await apiGet('/api/v1/integrations/slack');
-    SLACK_INTEGRATION = res.integration;
-    document.getElementById('slack-bot-token').value = '';
-    document.getElementById('slack-signing-secret').value = '';
-    msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
-    renderPage('settings');
-  } catch (err) {
-    msg.textContent = err?.message || 'Save failed';
-    msg.style.color = 'var(--red)';
-  }
-}
-
-async function testSlackIntegration() {
-  if (!can('admin.integrations')) return;
-  const button = document.getElementById('slack-test');
-  if (button.disabled) return;
-  const msg = document.getElementById('slack-msg');
-  button.disabled = true;
-  msg.textContent = 'Sending test alert...';
-  msg.style.color = 'var(--ink3)';
-  try {
-    await apiPost('/api/v1/integrations/slack/test', {});
-    msg.textContent = 'Slack accepted the test alert. Check your channel.';
-    msg.style.color = 'var(--green)';
-  } catch (err) {
-    msg.textContent = err?.message || 'Delivery could not be confirmed. Check Slack before trying again.';
-    msg.style.color = 'var(--red)';
-  } finally {
-    button.disabled = false;
-  }
-}
-
-async function deleteSlackIntegration() {
-  if (!can('admin.integrations')) return;
-  if (!confirm('Disconnect Slack? Future ticket events won\'t notify until you reconnect.')) return;
-  try {
-    await apiDelete('/api/v1/integrations/slack');
-    SLACK_INTEGRATION = null;
-    renderPage('settings');
-  } catch (err) {
-    alert(`Couldn't disconnect: ${err?.message || err}`);
-  }
-}
-
 // ─── Delegated actions ──────────────────────────────────────────────────────
 // All settings panels are injected via innerHTML, so the document-level
 // dispatcher in core/event-delegation.js catches these. setSettingsTab is the
@@ -1403,21 +830,6 @@ registerActions({
   'settings.verifyPortalDomain':() => verifyPortalDomain(),
   // KB test
   'settings.testKb':            () => testKbConnection(),
-  // integrations
-  'settings.saveSlack':         () => saveSlackIntegration(),
-  'settings.testSlack':         () => testSlackIntegration(),
-  'settings.deleteSlack':       () => deleteSlackIntegration(),
-  // outgoing webhooks
-  'settings.createWebhook':     () => createOutgoingWebhook(),
-  'settings.editWebhook':       (ds) => editOutgoingWebhook(ds.id),
-  'settings.deleteWebhook':     (ds) => deleteOutgoingWebhook(ds.id),
-  'settings.webhookDeliveries': (ds) => showOutgoingWebhookDeliveries(ds.id, ds.name),
-  'settings.retryDelivery':     (ds) => retryWebhookDelivery(ds.webhookId, ds.deliveryId),
-  'settings.saveWebhookEdit':   () => saveOutgoingWebhookEdit(),
-  'settings.rotateSecret':      () => rotateOutgoingWebhookSecret(),
-  'settings.closeModal':        () => closeModal(),
-  // suppression list
-  'settings.resetSuppressed':   (ds) => resetSuppressedCustomer(ds.id, ds.contactId),
   // categories (admin)
   'settings.addCategory':       () => addCategory(),
   'settings.toggleCategory':    (ds) => toggleCategory(ds.key, ds.next === 'true'),

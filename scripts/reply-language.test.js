@@ -2,12 +2,12 @@ import { test, expect, mock, beforeEach } from 'bun:test';
 
 let scope = 'user:workspace', answer = 'Spanish', failure = false, release, calls = 0;
 const cacheOptions = [], requests = [];
-const storage = new Map(), tickets = [];
+const storage = new Map(), tickets = [], customers = [];
 globalThis.localStorage = { getItem: () => null };
 globalThis.sessionStorage = { getItem: k => storage.get(k), setItem: (k,v) => storage.set(k,v) };
 const labels = new Map();
 globalThis.document = { getElementById: id => labels.get(id) };
-mock.module('../web/js/core/data.js', () => ({ TICKETS: tickets }));
+mock.module('../web/js/core/data.js', () => ({ TICKETS: tickets, CUSTOMERS: customers }));
 mock.module('../web/js/core/state.js', () => ({ CURRENT_TICKET: null }));
 mock.module('../web/js/tickets/detail.js', () => ({ openTicket() {} }));
 mock.module('../web/js/core/modal.js', () => ({ showModal() {} }));
@@ -26,7 +26,7 @@ mock.module('../web/js/ai/formatted-translation.js', () => ({ translateFormatted
 } }));
 const tx = await import('../web/js/ai/translate.js');
 const fixture = () => ({ id:'T1', _uuid:'ticket-1', _detailLoaded:true, msgs:[{ _uuid:'m1',r:'customer',t:'Necesito ayuda con mi cuenta' }] });
-beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; requests.length=0; storage.clear(); tickets.length=0; labels.clear(); });
+beforeEach(() => { scope='user:workspace'; answer='Spanish'; failure=false; release=null; calls=0; cacheOptions.length=0; requests.length=0; storage.clear(); tickets.length=0; customers.length=0; labels.clear(); });
 
 test('subject-only tickets translate, reuse results, and invalidate edited subjects and scope', async () => {
   const t = { ...fixture(), subject: 'Necesito ayuda', msgs: [] }; tickets.push(t);
@@ -192,4 +192,53 @@ test('subject and substantive body share the bounded sample with body precedence
 test('empty subject and body stay unknown without a request', async () => {
   const t={...fixture(),subject:'  ',msgs:[]};
   expect(await tx.ensureCustomerLanguage(t)).toBeNull(); expect(calls).toBe(0);
+});
+
+test('agent-started tickets use the customer profile instead of guessing from the subject', async () => {
+  customers.push({ id:'M1', jurisdiction:'MX', preferredLanguage:'' });
+  const t={...fixture(), customerId:'M1', subject:'Account update', msgs:[{ _uuid:'a1', r:'agent', t:'Hello' }]};
+  expect(await tx.ensureCustomerLanguage(t)).toBe('Spanish'); expect(calls).toBe(0);
+  expect(tx.customerLanguageStatus(t)).toBe('Customer language: Spanish · Suggested from jurisdiction MX');
+  expect(tx.outgoingLanguageStatus(t)).toBe('Reply language: Spanish');
+  answer='English'; const sent=await tx.prepareCustomerReply(t,'Hello');
+  expect(sent.translatedTo).toBe('Spanish');
+  customers[0].preferredLanguage='German';
+  expect(await tx.ensureCustomerLanguage(t)).toBe('German');
+  expect(tx.customerLanguageStatus(t)).toContain('Suggested from saved customer language');
+});
+test('a jurisdiction that arrives later fills the suggestion, and unknown markets still need a choice', async () => {
+  customers.push({ id:'M1', jurisdiction:'', preferredLanguage:'' });
+  const t={...fixture(), customerId:'M1', subject:'', msgs:[]};
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull();
+  customers[0].jurisdiction='Canada';
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull();
+  expect(tx.customerLanguageStatus(t)).toContain('Unknown');
+  customers[0].jurisdiction='MX';
+  expect(await tx.ensureCustomerLanguage(t)).toBe('Spanish');
+});
+test('a profile language arriving mid-check reaches a sender already waiting on that check', async () => {
+  customers.push({ id:'M1', jurisdiction:'', preferredLanguage:'' });
+  const t={...fixture(), customerId:'M1', subject:'Account update', msgs:[]}; answer='English';
+  release=true; const waiting=tx.ensureCustomerLanguage(t); await Promise.resolve(); const finish=release;
+  customers[0].jurisdiction='MX';
+  expect(await tx.ensureCustomerLanguage(t)).toBe('Spanish');
+  release=null; finish();
+  expect(await waiting).toBe('Spanish'); expect(t.detectedCustomerLang).toBe('Spanish');
+  expect(t.detectingCustomerLanguage).toBe(false);
+});
+test('customer wording always beats the profile, even when detection has no answer', async () => {
+  customers.push({ id:'M1', jurisdiction:'MX', preferredLanguage:'' });
+  const t={...fixture(), customerId:'M1'}; answer='French';
+  expect(await tx.ensureCustomerLanguage(t)).toBe('French');
+  expect(tx.customerLanguageStatus(t)).toContain('Detected automatically');
+  t.msgs[0].t='ok'; answer='unknown';
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull();
+  expect(tx.customerLanguageStatus(t)).toContain('Unknown');
+  const before=calls; customers[0].jurisdiction='CL'; customers[0].preferredLanguage='German';
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull(); expect(calls).toBe(before);
+  t.msgs[0].t='ok?'; failure=true;
+  expect(await tx.ensureCustomerLanguage(t)).toBeNull();
+  expect(tx.customerLanguageStatus(t)).toContain('Detection failed');
+  tickets.push(t); tx.setCustomerLanguage('T1','Italian');
+  expect(tx.customerLanguageStatus(t)).toContain('Selected manually');
 });

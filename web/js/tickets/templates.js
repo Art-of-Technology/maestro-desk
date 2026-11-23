@@ -38,7 +38,7 @@ export function renderTemplates() {
       <td>${favouriteButton(t)}</td>
       ${admin ? `<td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-action="templates.edit" data-tpl-id="${window.escAttr(t.id)}">Edit</button>
-        <button class="btn btn-sm" data-action="templates.duplicate" data-tpl-id="${window.escAttr(t.id)}">Copy</button>
+        <button class="btn btn-sm" data-action="templates.duplicate" data-tpl-id="${window.escAttr(t.id)}">Duplicate</button>
         <button class="btn btn-sm btn-danger" data-action="templates.delete" data-tpl-id="${window.escAttr(t.id)}">Delete</button>
       </td>` : ''}
     </tr>`;

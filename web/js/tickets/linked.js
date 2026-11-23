@@ -7,12 +7,12 @@
 //
 //   • Merged  — declares one ticket a duplicate of another. The source's
 //               messages copy across to the primary (tagged with mergedFrom
-//               so unmerge can strip them), the source goes to 'resolved',
-//               and a webhook fires. Reversible via unmergeTicket().
+//               so unmerge can strip them) and the source goes to 'resolved'.
+//               Reversible via unmergeTicket().
 //
 // External reaches (interim, via window): escAttr, escHtml — all still in
-// app.js. showModal, closeModal, logTicketEvent, fireWebhook, ticketPayload
-// and refreshTicketSLA are direct ES imports.
+// app.js. showModal, closeModal, logTicketEvent and refreshTicketSLA are
+// direct ES imports.
 //
 // No window-bridge namespace: unlink/unmerge + the show*Modal pickers are
 // consumed by tickets/detail.js via direct ES import (td.unlink / td.unmerge
@@ -29,7 +29,6 @@ import { openTicket } from './detail.js';
 import { apiPost } from '../core/api-client.js';
 import { logTicketEvent } from '../core/activity-log.js';
 import { applySavedActivity } from '../core/ticket-history.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { closeModal, showModal } from '../core/modal.js';
 import { registerMousedownActions } from '../core/event-delegation.js';
 
@@ -123,7 +122,6 @@ async function mergeTickets(srcId, primaryId) {
   updateNavBadges();
   if (CURRENT_TICKET === srcId || CURRENT_TICKET === primaryId) openTicket(primaryId);
   else renderPage('tickets');
-  fireWebhook('ticket.merged', { source: ticketPayload(src), primary: ticketPayload(primary) });
 }
 
 export async function unmergeTicket(srcId) {

@@ -4,7 +4,7 @@ export const ROUTE_PAGES = new Set([
   'dashboard', 'tickets', 'customers', 'reports', 'agents', 'ai', 'kb', 'tags',
   'roles', 'sla', 'business-hours', 'assignment-rules', 'csat', 'templates',
   'macros', 'ticket-templates', 'custom-fields', 'layouts', 'activity',
-  'sla-breach', 'portal', 'search', 'channels', 'webhooks', 'settings', 'config',
+  'sla-breach', 'portal', 'search', 'channels', 'integrations', 'settings', 'config',
   'help', 'notifications', 'profile', 'god',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -29,6 +29,8 @@ export function parseRoute(hash) {
       else if (isReadableWorkspaceSlug(workspace)) workspaceSlug = workspace;
       else return null;
     }
+    // The Webhooks page was folded into Integrations; keep old links working.
+    if (parts[0] === 'webhooks') parts[0] = 'integrations';
     const [page, entityId] = parts;
     if (!ROUTE_PAGES.has(page) || parts.length > 2 || (page === 'god' && (workspaceId || workspaceSlug))) return null;
     if (parts.length === 2 && (!['tickets', 'customers'].includes(page)
