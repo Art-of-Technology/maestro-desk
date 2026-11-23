@@ -51,6 +51,8 @@ const WEBHOOK_EVENTS = [
   { k: 'ticket.assigned', l: 'Ticket assignee changed' },
   { k: 'ticket.merged', l: 'Ticket merged into another' },
   { k: 'csat.submitted', l: 'CSAT response received' },
+  // The server counts SLA time 24/7; the ticket screen may pause outside business hours.
+  { k: 'sla.breach', l: 'SLA breached (counted around the clock)' },
 ];
 
 // renderPage NAVIGATES rather than repainting, so a fetch that lands after the
