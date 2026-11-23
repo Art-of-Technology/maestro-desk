@@ -59,7 +59,7 @@ import {
   updateMentionDropdown, hideMentionDropdown,
   mentionDropdownKey,
 } from './mentions.js';
-import { messageTime, renderEmailDetails, renderEmailRetry, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
+import { messageTime, renderEmailDetails, renderEmailNameMismatch, renderEmailRetry, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } from './email-details.js';
 import './email-retry.js';
 import './email-forward.js';
 import { saveDraftRecipients } from './drafts.js';
@@ -79,8 +79,7 @@ import {
 } from './composer.js';
 import { pendingAttachmentIds, renderPendingAttachments, attachmentsUploading } from './attachments.js';
 import { captureTicketLayout, setComposerMode, syncTicketLayout } from './layout.js';
-import { enableRemoteImages, renderMessageBody, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
+import { enableRemoteImages, renderMessageBody, renderEmptyEmailNotice, captureMessageScroll, restoreMessageScroll, sizeMessageFrames } from './message-html.js';
 import { loadTicketDetail } from '../core/bootstrap.js';
 import { apiPatch, apiPost, apiDelete, getJwt, getWorkspaceId } from '../core/api-client.js';
 import { showToast } from '../core/toast.js';
@@ -161,10 +160,16 @@ function renderTicketCustomer(cust) {
             <div class="ts-row"><span class="ts-key">Jurisdiction</span><span class="ts-val">${window.escHtml(cust.jurisdiction)}</span></div>`;
 }
 
-// Update only the contact panel so the composer, attachments and scroll stay intact.
+// Update contact details and name comparisons without disturbing the composer or thread.
 export function refreshTicketCustomer(cust) {
   const panel = document.getElementById('ticket-customer');
-  if (panel?.dataset.custId === cust.id) panel.innerHTML = renderTicketCustomer(cust);
+  if (panel?.dataset.custId !== cust.id) return;
+  panel.innerHTML = renderTicketCustomer(cust);
+  const ticket = TICKETS.find(t => t.id === CURRENT_TICKET && t.customerId === cust.id);
+  if (!ticket) return;
+  document.querySelectorAll('[data-email-name-index]').forEach(node => {
+    node.innerHTML = renderEmailNameMismatch(ticket.msgs[Number(node.dataset.emailNameIndex)], cust);
+  });
 }
 
 export function openTicket(id) {
@@ -478,7 +483,8 @@ export function openTicket(id) {
     return `
     <div class="msg msg-${m.r}">
       <div class="msg-from">${window.escHtml(m.from)} ${m.r==='ai'?'<span class="ai-mark">AI</span>':''} ${m.r==='note'?'<span class="note-mark">Note</span>':''}${sentimentBadge}<span class="message-time">${window.escHtml(messageTime(m))}</span></div>
-      ${renderEmailDetails(m)}
+      ${renderEmailDetails(m, cust, i)}
+      ${renderEmptyEmailNotice(m)}
       ${m.r === 'note' ? `<div id="ticket-note-${window.escAttr(id)}-${i}">${bodyHtml}${bodyNote}</div>` : bodyHtml}
       ${attachHtml}
       ${t._uuid && !t.mergedInto ? renderEmailRetry(m) : ''}
@@ -759,8 +765,8 @@ export function openTicket(id) {
   applyPermissionControls(main);
   syncTicketLayout(id);
   syncRoute('tickets', id);
-  if (cust && !cust.maestroUserId) {
-    void refreshCustomerAccount(cust, () => refreshTicketCustomer(cust), (err) => {
+  if (cust) {
+    void refreshCustomerAccount(cust, () => { refreshTicketCustomer(cust); void ensureCustomerLanguage(t); }, (err) => {
       if (CURRENT_TICKET === id && document.getElementById('ticket-customer')?.dataset.custId === cust.id) {
         showToast(err?.message || "Couldn't refresh account details.", 'error');
       }
@@ -974,7 +980,6 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
     }
     catch (err) { if (CURRENT_TICKET === id) { const el = document.querySelector('[aria-label="Ticket status"]'); if (el) el.value = selectedStatus(t); } if (!silent) alert(`Couldn't change status: ${err?.message || err}`); return false; }
   }
-  const prevSla = t.sla;
   if (!t._uuid) logTicketEvent(id, 'status', `Status: ${t.status} → ${val}${reasonKey ? ' · Reason: ' + choice.reasons.find(r => r.key === reasonKey)?.label : ''}`);
   t.status = category;
   t.statusOption = val;
@@ -988,9 +993,6 @@ export async function changeTicketStatus(id, val, reasonKey, { silent = false } 
   }
   updateNavBadges();
   if (CURRENT_TICKET === id) openTicket(id);
-  if (val === 'resolved')   fireWebhook('ticket.resolved',  ticketPayload(t));
-  if (val === 'escalated')  fireWebhook('ticket.escalated', ticketPayload(t));
-  if (prevSla !== 'breach' && t.sla === 'breach') fireWebhook('sla.breach', ticketPayload(t));
   return true;
 }
 function quickStatus(id, val) { return changeTicketStatus(id, val); }
@@ -1084,7 +1086,6 @@ export async function changeTicketAgent(id, val) {
   if (!t._uuid) logTicketEvent(id, 'agent', `Reassigned: ${old} → ${val}`);
   t.agent = val;
   if (CURRENT_TICKET === id) openTicket(id);
-  fireWebhook('ticket.assigned', { ...ticketPayload(t), previousAgent: old });
 }
 
 function prevNextTicket(dir) {

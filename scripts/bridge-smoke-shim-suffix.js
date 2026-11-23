@@ -11,7 +11,7 @@ console.log('init OK — renderPage exposed');
 
 const _routes = [
   'dashboard', 'tickets', 'reports', 'customers',
-  'agents', 'kb', 'channels', 'webhooks',
+  'agents', 'kb', 'channels', 'integrations',
   'tags', 'roles', 'settings', 'help',
   'notifications', 'profile', 'layouts', 'custom-fields',
   'ticket-templates', 'business-hours',

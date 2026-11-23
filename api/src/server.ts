@@ -11,6 +11,7 @@ import app from './index.js';
 import { env } from './lib/env.js';
 import { startWebhookWorker, stopWebhookWorker } from './lib/outgoing-webhooks.js';
 import { snoozeWorker } from './lib/snooze-worker.js';
+import { slaBreachWorker } from './lib/sla-breach-worker.js';
 
 // First webhook attempts fire inline at dispatch (lib/outgoing-webhooks.ts,
 // non-Vercel branch), so this poll only catches RETRIES, whose backoff is
@@ -29,6 +30,7 @@ const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
 });
 startWebhookWorker(RETRY_POLL_MS);
 snoozeWorker.start();
+slaBreachWorker.start();
 
 // Graceful drain on Dokploy redeploys/restarts: stop the retry poll, stop
 // accepting new connections, let in-flight requests (AI triage runs ~12s)
@@ -38,7 +40,7 @@ function shutdown(signal: string): void {
   console.log(`[server] ${signal} received — draining`);
   stopWebhookWorker();
   const drained = new Promise<void>(resolve => server.close(() => resolve()));
-  void Promise.all([drained, snoozeWorker.stop()]).then(() => process.exit(0));
+  void Promise.all([drained, snoozeWorker.stop(), slaBreachWorker.stop()]).then(() => process.exit(0));
   setTimeout(() => process.exit(1), 9_000).unref();
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));

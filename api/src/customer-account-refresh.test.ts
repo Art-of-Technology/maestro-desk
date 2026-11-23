@@ -67,6 +67,7 @@ describe('customer account refresh in the browser', () => {
     expect(h.requests()).toBe(1);
     h.respond();
     await pending;
+    expect(h.customer.first).toBe('Player');
     expect(h.customer.vip).toBe('Gold');
     expect(h.customer.brand).toBe('Account brand');
     expect(h.customer.jurisdiction).toBe('TR');
@@ -75,6 +76,29 @@ describe('customer account refresh in the browser', () => {
     expect(h.updated()).toBe(1);
     await h.refresh();
     expect(h.requests()).toBe(1);
+  });
+
+  it('requests registered names even when the linked contact already has every profile field', async () => {
+    const h = setup();
+    Object.assign(h.customer, { first: 'Nickname', last: 'Sender', username: 'nick', brand: 'Brand', mobile: '+44 1', vip: 'Gold', jurisdiction: 'GB' });
+    const pending = h.refresh();
+    expect(h.requests()).toBe(1);
+    h.respond();
+    await pending;
+    expect(h.customer.first).toBe('Player');
+    expect(h.customer.last).toBe('');
+  });
+
+  it('tells a second screen that joins a lookup in flight, without a second request', async () => {
+    const h = setup();
+    const pending = h.refresh();
+    let joined = 0;
+    await h.context.refreshCustomerAccount(h.customer, () => { joined++; }, () => {}, { join: true });
+    h.respond();
+    await pending;
+    expect(h.requests()).toBe(1);
+    expect(h.updated()).toBe(1);
+    expect(joined).toBe(1);
   });
 
   it('discards an old response after a workspace or login change', async () => {

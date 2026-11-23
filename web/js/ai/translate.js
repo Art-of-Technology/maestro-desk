@@ -16,7 +16,8 @@
 // still reached through window — they live in app.js / core/modal.js
 // and the lifts haven't happened yet.
 
-import { TICKETS } from '../core/data.js';
+import { TICKETS, CUSTOMERS } from '../core/data.js';
+import { suggestedCustomerLanguage } from '../tickets/jurisdiction-language.js';
 import { CURRENT_TICKET } from '../core/state.js';
 import { callClaude } from './client.js';
 import { LANGUAGE_DETECTION_PROMPT } from './language-detection-prompt.js';
@@ -184,6 +185,7 @@ export function initialiseReplyLanguage(t) {
     t.customerLanguageManual = false;
     t.detectedCustomerLang = null;
     t.customerLanguageSource = null;
+    t.customerLanguageSuggestion = null;
     t.customerLanguageError = false;
     t.detectingCustomerLanguage = false;
   }
@@ -207,6 +209,7 @@ function saveReplyLanguage(t) {
 export function customerLanguageStatus(t) {
   if (t.customerLanguageManual) return `Customer language: ${t.detectedCustomerLang} · Selected manually`;
   if (t.detectingCustomerLanguage) return 'Customer language: Detecting…';
+  if (t.detectedCustomerLang && t.customerLanguageSuggestion) return `Customer language: ${t.detectedCustomerLang} · Suggested from ${t.customerLanguageSuggestion}`;
   if (t.detectedCustomerLang) return `Customer language: ${t.detectedCustomerLang} · Detected automatically`;
   if (t.customerLanguageError) return 'Customer language: Detection failed · Retry or choose a language';
   return 'Customer language: Unknown · Choose a language';
@@ -228,6 +231,13 @@ function refreshLanguageStatus(t) {
 }
 
 const languageChecks = new WeakMap();
+// The profile only counts when the customer has written nothing, so a profile
+// change never invalidates detection of real customer wording.
+function languageSource(t, scope) {
+  const { message, text } = latestCustomerText(t);
+  const suggestion = message ? null : suggestedCustomerLanguage(CUSTOMERS.find(c => c.id === t.customerId));
+  return { suggestion, source: JSON.stringify([scope, message?._uuid, String(t.subject || '').trim(), text, suggestion?.source || null, suggestion?.language || null]) };
+}
 export function latestCustomerText(t) {
   const message = (t.msgs || []).findLast(m => m.r === 'customer' && String(m.t || '').trim());
   return { message, text: String(message?.t || '').split(/\n\s*(?:On .+wrote:|El .+escribió:|From:|De:|-----Original Message-----)/i)[0].trim() };
@@ -241,13 +251,29 @@ export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
   const text = subject ? `Subject: ${subject.slice(0, body ? 150 : 560)}\nBody: ${body.slice(0, 430)}` : body;
   const scope = translationScope();
   if (!scope || !t._uuid || !t._detailLoaded) return t.detectedCustomerLang || null;
-  const source = JSON.stringify([scope, message?._uuid, subject, body]);
+  const { suggestion, source } = languageSource(t, scope);
   if (!refresh && t.customerLanguageSource === source) return t.detectedCustomerLang || null;
+  // Nothing from the customer to detect from (an agent-started ticket): the
+  // subject is the agent's wording, so the profile is the better signal.
+  if (suggestion) {
+    // A sender may already be waiting on a subject check this replaces.
+    const replaced = languageChecks.get(t);
+    if (replaced) replaced.result = suggestion.language;
+    languageChecks.delete(t);
+    t.customerLanguageSource = source;
+    t.detectedCustomerLang = suggestion.language;
+    t.customerLanguageSuggestion = suggestion.source;
+    t.customerLanguageError = false;
+    t.detectingCustomerLanguage = false;
+    refreshLanguageStatus(t);
+    return suggestion.language;
+  }
   const pending = languageChecks.get(t);
   if (pending?.source === source && (!refresh || pending.refresh)) return pending.task;
   t.customerLanguageSource = null;
   t.detectedCustomerLang = null;
   t.customerLanguageError = false;
+  t.customerLanguageSuggestion = null;
   t.detectingCustomerLanguage = !!text;
   refreshLanguageStatus(t);
   const check = { source, refresh };
@@ -258,8 +284,11 @@ export async function ensureCustomerLanguage(t, { refresh = false } = {}) {
     try {
       if (text) language = await detectLanguage(text, messageTranslationRequest(message?._uuid || [t._uuid, text.slice(0, 30)], scope, 'text', { refresh }), true, t._uuid);
     } catch (error) { failed = true; errorMessage = error?.message || 'Language detection failed. Retry or choose a language.'; }
-    const latest = latestCustomerText(t);
-    if (scope !== translationScope() || t.customerLanguageManual || JSON.stringify([scope, latest.message?._uuid, String(t.subject || "").trim(), latest.text]) !== source || languageChecks.get(t) !== check) return null;
+    if (languageChecks.get(t) !== check) return check.result ?? null;
+    if (scope !== translationScope() || t.customerLanguageManual) return null;
+    const latest = languageSource(t, scope);
+    // The profile gained a language while the subject was being checked.
+    if (latest.source !== source) return latest.suggestion ? ensureCustomerLanguage(t) : null;
     t.detectingCustomerLanguage = false;
     t.customerLanguageSource = source;
     t.detectedCustomerLang = language;

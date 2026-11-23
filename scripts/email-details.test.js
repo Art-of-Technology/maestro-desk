@@ -4,7 +4,7 @@ import { runInNewContext } from 'node:vm';
 
 let savedRecipients = null;
 mock.module('../web/js/tickets/drafts.js', () => ({ loadDraftRecipients: () => savedRecipients, saveDraftRecipients: (_id, value) => { savedRecipients = value; } }));
-const { renderEmailDetails, renderEmailRetry, messageTime, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } = await import('../web/js/tickets/email-details.js');
+const { renderEmailNameMismatch, renderEmailDetails, renderEmailRetry, messageTime, renderReplyRecipients, replyDraft, changeReplyMode, replyRecipientPayload } = await import('../web/js/tickets/email-details.js');
 
 globalThis.window ||= globalThis;
 window.escHtml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -138,4 +138,46 @@ test('Cc toggle focuses the input and never hides populated recipients', () => {
   expect(field.hidden).toBe(false); expect(expanded).toBe('true');
   input.value = ''; toggle({ ticketId: 'TK-1' }, button);
   expect(field.hidden).toBe(true); expect(expanded).toBe('false');
+});
+
+test('original email sender names stay beside their address and are escaped', () => {
+  const email = { status: 'received', from: 'sender@example.test', to: [] };
+  const html = renderEmailDetails({ from: '<Nickname>', email });
+  expect(html).toContain('<dt>Email sender name</dt><dd>&lt;Nickname&gt;');
+  expect(html).toContain('<dt>From</dt><dd>sender@example.test</dd>');
+  expect(renderEmailDetails({ from: email.from, email })).not.toContain('Email sender name');
+  expect(renderEmailDetails({ from: 'Agent', email: { ...email, status: 'sent' } })).not.toContain('Email sender name');
+});
+
+test('name discrepancies compare the owned sender address and show escaped registered names', () => {
+  const customer = { maestroUserId: 'player-1', first: '<Jane>', last: 'Smith', email: 'primary@example.test',
+    emails: [{ value: 'primary@example.test' }, { value: 'secondary@example.test' }] };
+  const message = { r: 'customer', from: 'Nickname', email: { status: 'received', from: 'SECONDARY@example.test' } };
+  const html = renderEmailDetails(message, customer, 2);
+  expect(html).toContain('Name differs from player account');
+  expect(html).toContain('Player account: &lt;Jane&gt; Smith');
+  expect(html).toContain('Nickname');
+  expect(html).toContain('data-email-name-index="2"');
+  expect(renderEmailNameMismatch({ ...message, email: { ...message.email, from: customer.email } }, customer)).toContain('Name differs');
+  expect(renderEmailNameMismatch({ ...message, email: { ...message.email, from: 'third-party@example.test' } }, customer)).toBe('');
+});
+
+test('name comparison ignores casing, spacing and equivalent Unicode without hiding different names', () => {
+  const customer = { maestroUserId: 'player-1', first: 'José', last: 'Smith', email: 'jose@example.test' };
+  const message = { r: 'customer', from: '  JOSE\u0301   SMITH  ', email: { status: 'received', from: customer.email } };
+  expect(renderEmailNameMismatch(message, customer)).toBe('');
+  expect(renderEmailNameMismatch({ ...message, from: 'Jose Smith' }, customer)).toContain('Name differs');
+});
+
+test('name comparison skips unknown identity, incomplete names, email-only authors and unrelated messages', () => {
+  const customer = { maestroUserId: 'player-1', first: 'Jane', last: 'Smith', email: 'jane@example.test' };
+  const message = { r: 'customer', from: 'Nickname', email: { status: 'received', from: customer.email } };
+  for (const extra of [{ maestroUserId: null }, { first: '' }, { last: ' ' }, { erased: true }, { mergedInto: 'other' }, { _mergedIntoUuid: 'other' }]) {
+    expect(renderEmailNameMismatch(message, { ...customer, ...extra })).toBe('');
+  }
+  for (const extra of [{ from: '' }, { from: 'JANE@EXAMPLE.TEST' }, { r: 'agent' }, { forwarded: true }, { mergedFrom: 'other' }, { email: null }, { email: { ...message.email, status: 'sent' } }]) {
+    expect(renderEmailNameMismatch({ ...message, ...extra }, customer)).toBe('');
+  }
+  expect(renderEmailNameMismatch(undefined, customer)).toBe('');
+  expect(renderEmailNameMismatch(message, undefined)).toBe('');
 });

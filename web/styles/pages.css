@@ -29,12 +29,24 @@
 }
 .settings-row:last-of-type{border-bottom:none}
 /* ── Customer detail extras ── */
-.cust-quickactions{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.cust-quickactions{display:flex;gap:8px;margin:16px 0 18px;flex-wrap:wrap}
+.customer-profile-area-row > *{min-width:0}
+@media(max-width:768px){.customer-profile-area-row{grid-template-columns:minmax(0,1fr)!important}}
+.customer-email-names{margin-bottom:16px;overflow-wrap:anywhere}
+.customer-email-names dl{display:grid;grid-template-columns:minmax(110px,1fr) minmax(0,2fr);gap:8px;margin:0 0 12px}
+.customer-email-names dt{color:var(--ink2)}
+.customer-email-names dd{margin:0;font-weight:600}
+.customer-email-names small{display:block;color:var(--ink2);font-weight:400}
+.contact-name-entry{padding:12px 0;border-top:1px solid var(--rule)}
+.contact-name-warning{color:var(--ink);border-left:3px solid var(--amber);padding-left:8px}
+.contact-name-reviewed{margin-top:8px;font-size:12px;color:var(--ink2)}
+.customer-activity-text{font-size:12px;color:var(--ink2);white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:8px}
+.cust-timeline-item [data-activity-status]{display:block;font-size:12px;color:var(--ink2);margin-top:4px}
 .cust-quickactions .btn{text-decoration:none}
 .cust-timeline{position:relative;padding-left:18px;max-height:340px;overflow-y:auto}
 .cust-timeline::before{content:'';position:absolute;left:6px;top:6px;bottom:6px;width:1px;background:var(--rule)}
-.cust-timeline-item{position:relative;padding:8px 0 8px 8px;cursor:pointer;border-radius:var(--r);transition:background .1s}
-.cust-timeline-item:hover{background:var(--off2)}
+.cust-timeline-item{position:relative;padding:8px 0 8px 8px;border-radius:var(--r);transition:background .1s}
+.cust-timeline-item > div:first-child{flex-wrap:wrap;overflow-wrap:anywhere}
 .cust-timeline-item::before{content:'';position:absolute;left:-15px;top:14px;width:8px;height:8px;border-radius:50%;background:var(--purple);border:2px solid var(--off);box-sizing:content-box}
 .cust-timeline-item.role-customer::before{background:var(--cyan)}
 .cust-timeline-item.role-agent::before{background:var(--purple)}
@@ -914,6 +926,7 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 .message-email-details dd { margin: 0; min-width: 0; }
 .message-email-details summary { cursor: pointer; padding: 4px 0; }
 .email-inbox { padding: 5px 0; }
+.email-name-comparison:not(:empty) { display: block; margin-top: 4px; padding-left: 8px; border-left: 2px solid var(--amber); color: var(--ink2); }
 .reply-recipients { display: grid; gap: 6px; padding: 0 0 8px; margin-bottom: 8px; border-bottom: 1px solid var(--rule); font-size: 12px; }
 .reply-sender-row,.reply-address-row { display: grid; grid-template-columns: 36px minmax(0,1fr) auto; gap: 8px; align-items: center; }
 .reply-recipients select, .reply-recipients input { min-width: 0; width: 100%; min-height: 32px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: var(--r); background: var(--off); color: var(--ink); font: inherit; }
@@ -977,3 +990,11 @@ button.settings-tab:not(.active):not(:hover) { background: transparent; }
 @media(pointer:coarse){.ticket-tag-controls .btn{min-height:44px}}
 
 @media(pointer:coarse){.ticket-page .ticket-language-toggle .btn,.ticket-page .ticket-thread-tools>.ticket-jump-latest,.ticket-page .composer-save{min-height:44px}}
+.spam-contact-search{margin:20px 0}
+.spam-contact-search>div{display:flex;gap:8px;margin-top:8px}
+.spam-contact-search input{min-width:0}
+.spam-contact-row{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 0;border-bottom:1px solid var(--rule);overflow-wrap:anywhere}
+.spam-contact-row>div:first-child{min-width:0;flex:1 1 260px}
+.spam-contact-meta{color:var(--ink2);font-size:12px;margin-top:8px}
+.spam-contact-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+@media(pointer:coarse){[data-spam-contacts] .btn{min-height:44px}}

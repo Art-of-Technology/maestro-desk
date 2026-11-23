@@ -1,3 +1,4 @@
+import { hasContact } from '../customers/contacts.js';
 import { loadDraftRecipients, saveDraftRecipients } from './drafts.js';
 
 export function emailDate(value) {
@@ -24,17 +25,30 @@ export function renderEmailRetry(message) {
   if (message.email.delivery_state === 'unknown') return '<p role="status">Delivery could not be confirmed. Check delivery before sending again.</p>';
   return '';
 }
-export function renderEmailDetails(message) {
+export function renderEmailNameMismatch(message, customer) {
+  const normalize = value => String(value || '').normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+  const sender = normalize(message?.from), first = normalize(customer?.first), last = normalize(customer?.last);
+  const address = String(message?.email?.from || '').trim();
+  if (message?.r !== 'customer' || message.email?.status !== 'received' || message.forwarded || message.mergedFrom
+      || !customer?.maestroUserId || customer.erased || customer.mergedInto || customer._mergedIntoUuid
+      || !first || !last || !sender || sender === normalize(address) || !hasContact(customer, 'email', address)
+      || sender === first + ' ' + last) return '';
+  return '<strong>Name differs from player account</strong><br>Player account: '
+    + window.escHtml([customer.first.trim(), customer.last.trim()].join(' '));
+}
+
+export function renderEmailDetails(message, customer, messageIndex) {
   const e = message.email;
   if (!e) return '';
   const esc = window.escHtml;
-  const row = (label, value) => value ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
+  const row = (label, value, extra = '') => value ? `<div><dt>${label}</dt><dd>${esc(value)}${extra}</dd></div>` : '';
   const actionState = e.after_send?.state === 'applied' ? 'completed'
     : e.after_send?.state === 'review' ? 'not applied; the ticket or access changed. Review the current ticket status.'
     : e.status === 'sent' ? 'not completed. Review the current ticket status; do not resend this email.'
     : e.delivery_state === 'failed' ? 'waiting for a successful send' : 'waiting for sending confirmation';
   const recipients = [...(e.status === 'received' ? [] : e.to || []), ...(e.cc || [])];
-  const fields = row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
+  const comparison = `<span class="email-name-comparison" ${Number.isInteger(messageIndex) ? `data-email-name-index="${messageIndex}"` : ''}>${renderEmailNameMismatch(message, customer)}</span>`;
+  const fields = row('Email sender name', e.status === 'received' && message.from !== e.from ? message.from : '', comparison) + row('From', e.from) + row('To', e.status === 'received' ? '' : (e.to || []).join(', ')) + row('CC', (e.cc || []).join(', '))
     + row('Delivery confirmed', Object.entries(e.delivered_recipients || {}).map(([address, at]) => `${address}: ${emailDate(at)}`).join('; '))
     + row('Reply to', e.reply_to && e.reply_to !== e.from ? e.reply_to : '')
     + row('Sender fallback', e.used_fallback_from ? 'Sent from the platform address; replies go to the selected inbox.' : '')

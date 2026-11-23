@@ -17,7 +17,6 @@ import { CUSTOMERS, KB_ARTICLES, TICKETS } from '../core/data.js';
 import { renderPage, updateNavBadges } from '../core/router.js';
 import { refreshTicketSLA } from '../tickets/sla.js';
 import { logTicketEvent } from '../core/activity-log.js';
-import { fireWebhook, ticketPayload } from '../webhooks/index.js';
 import { applyAssignmentRules } from '../tickets/assignment-rules.js';
 import { registerActions } from '../core/event-delegation.js';
 import { navTo } from '../core/keybindings.js';
@@ -98,7 +97,6 @@ function portalCreateTicket() {
   TICKETS.unshift(newT);
   applyAssignmentRules(newT);
   refreshTicketSLA(newT);
-  fireWebhook('ticket.created', ticketPayload(newT));
   updateNavBadges();
   PORTAL_TICKET_ID = newId;
   PORTAL_VIEW = 'ticket';

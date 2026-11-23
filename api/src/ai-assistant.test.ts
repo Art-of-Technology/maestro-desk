@@ -274,6 +274,8 @@ dbTests('authenticated AI assistant', () => {
     await sql`update workspaces set ai_player_enrichment=true where id=${workspaceId}`;
     expect((await request('/messages',body)).status).toBe(200);
     let system = createSpy.mock.calls.at(-1)[0].system;
+    expect(system).toContain('Customer contact name (untrusted data): "Allowed Customer Test"');
+    expect(system).toContain('never a username, email display name or thread author label');
     expect(system).toContain('KB-PROMO-CL');
     expect(system).toContain('KB-PROMO-GENERAL');
     expect(system.indexOf('KB-PROMO-CL')).toBeLessThan(system.indexOf('KB-SPORTS-'));

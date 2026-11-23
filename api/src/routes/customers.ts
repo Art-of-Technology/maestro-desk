@@ -15,6 +15,7 @@ import { eraseCustomer, CUSTOMER_PII_FIELDS } from '../lib/gdpr-erasure.js';
 import { exportCustomer } from '../lib/gdpr-export.js';
 import { customerSummary, customerTicketPage, customerVisible } from '../lib/customer-summary.js';
 import { customerRisk } from '../lib/customer-risk.js';
+import { customerEmailNames } from '../lib/customer-email-names.js';
 import { writeAudit } from '../middleware/platform-admin.js';
 import { setCustomerSpam } from '../lib/customer-spam.js';
 import { SUPPORTED_LANGUAGES } from '../lib/language-detection.js';
@@ -41,6 +42,54 @@ const CUSTOMER_ROW_COLS = `id, display_id, first_name, last_name, username, emai
 export const customers = new Hono();
 
 customers.use('*', requireAuth);
+
+const SpamListQuery = z.object({
+  q: z.string().trim().max(200).default(''),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0),
+});
+
+customers.get('/spam', async c => {
+  const denied = await requirePermission(c, 'customers.spam');
+  if (denied) return denied;
+  const parsed = SpamListQuery.safeParse(c.req.query());
+  if (!parsed.success) return c.json({ error: 'Invalid spam contact filters' }, 400);
+  const { q, offset } = parsed.data, ws = c.get('workspaceId'), sql = getDb();
+  const rows = await sql`select c.id, c.display_id, c.first_name, c.last_name, c.email,
+      case when a.action = 'customer.spam_marked' then a.created_at end as marked_at,
+      case when a.action = 'customer.spam_marked' then coalesce(u.name, 'Former agent') end as marked_by
+    from (select c.id, c.display_id, c.first_name, c.last_name, c.email, c.created_at from customers c
+      where c.workspace_id = ${ws} and c.is_spam and c.deleted_at is null
+        and c.erased_at is null and c.merged_into_customer_id is null
+        and (${q} = '' or strpos(lower(concat_ws(' ', c.display_id, c.first_name, c.last_name, c.email)), lower(${q})) > 0
+          or exists (select 1 from customer_contacts cc where cc.workspace_id = ${ws} and cc.customer_id = c.id
+            and cc.kind = 'email' and cc.deleted_at is null and strpos(lower(cc.value::text), lower(${q})) > 0))
+      order by c.created_at desc, c.id desc limit 51 offset ${offset}) c
+    left join lateral (select action, created_at, actor_user_id from audit_events
+      where workspace_id = ${ws} and target_type = 'customer' and target_id = c.id
+        and action in ('customer.spam_marked', 'customer.spam_unmarked')
+      order by created_at desc, id desc limit 1) a on true
+    left join users u on u.id = a.actor_user_id
+    order by c.created_at desc, c.id desc`;
+  return c.json({ contacts: rows.slice(0, 50), next_offset: rows.length > 50 ? offset + 50 : null });
+});
+
+customers.get('/:id/spam-history', async c => {
+  const denied = await requirePermission(c, 'customers.spam');
+  if (denied) return denied;
+  const customerId = c.req.param('id'), ws = c.get('workspaceId'), sql = getDb();
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const parsed = SpamListQuery.pick({ offset: true }).safeParse(c.req.query());
+  if (!parsed.success) return c.json({ error: 'Invalid history page' }, 400);
+  const [customer] = await sql`select id from customers where workspace_id = ${ws} and id = ${customerId}
+    and deleted_at is null and erased_at is null and merged_into_customer_id is null`;
+  if (!customer) return c.json({ error: 'Customer not found' }, 404);
+  const rows = await sql`select a.id, a.action, a.created_at, coalesce(u.name, 'Former agent') as actor
+    from audit_events a left join users u on u.id = a.actor_user_id
+    where a.workspace_id = ${ws} and a.target_type = 'customer' and a.target_id = ${customerId}
+      and a.action in ('customer.spam_marked', 'customer.spam_unmarked')
+    order by a.created_at desc, a.id desc limit 51 offset ${parsed.data.offset}`;
+  return c.json({ events: rows.slice(0, 50), next_offset: rows.length > 50 ? parsed.data.offset + 50 : null });
+});
 
 customers.post('/:id/spam', async (c) => {
   const denied = await requirePermission(c, 'customers.spam');
@@ -1167,6 +1216,13 @@ customers.patch('/:id', async (c) => {
       return { status: 409, body: { error: 'This profile is merged — edit the survivor instead', code: 'merged', merged_into_customer_id: row.merged_into_customer_id } };
     }
 
+    if (row.maestro_user_id && (
+      ('first_name' in body && body.first_name !== row.first_name) ||
+      ('last_name' in body && body.last_name !== row.last_name)
+    )) {
+      return { status: 409, body: { error: 'This name comes from the linked player account. Update it there.', code: 'player_name' } };
+    }
+
     const updates: Record<string, unknown> = {};
     const changed: Changed = {};        // response: every change (the agent just typed them)
     const audited: Changed = {};        // audit row: values for non-PII columns only
@@ -1222,6 +1278,39 @@ customers.get('/:id/risk', async (c) => {
       targetType: 'customer', targetId: customerId, metadata: { accessed: ['aml'] } });
   }
   return c.json(risk);
+});
+
+const NameReviewBody = z.object({
+  review_key: z.string().regex(/^[a-f0-9]{64}$/),
+  reason: z.string().trim().min(1).max(1000),
+}).strict();
+
+customers.post('/:id/name-review', async (c) => {
+  for (const permission of ['customers.edit', 'tickets.view_all'] as const) {
+    const denied = await requirePermission(c, permission);
+    if (denied) return denied;
+  }
+  const workspaceId = c.get('workspaceId'), customerId = c.req.param('id');
+  if (!UUID_RE.test(customerId)) return c.json({ error: 'Customer not found' }, 404);
+  const parsed = NameReviewBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: 'Enter a reason for reviewing this name difference.' }, 400);
+  const result = await getDb().begin(async sql => {
+    const [customer] = await sql`select id from customers where id = ${customerId} and workspace_id = ${workspaceId}
+      and deleted_at is null and erased_at is null and merged_into_customer_id is null for update`;
+    if (!customer) return 'missing' as const;
+    const names = await customerEmailNames(sql, workspaceId, customerId);
+    const entry = names?.entries.find(e => e.review_key === parsed.data.review_key && e.mismatch);
+    if (!entry) return 'changed' as const;
+    if (!entry.reviewed) {
+      await sql`insert into customer_notes (workspace_id, customer_id, author_user_id, text, name_review_key)
+        values (${workspaceId}, ${customerId}, ${c.get('userId')},
+          ${'Name mismatch reviewed for ' + entry.email + ': ' + parsed.data.reason}, ${entry.review_key})`;
+    }
+    return { email_names: await customerEmailNames(sql, workspaceId, customerId) };
+  });
+  if (result === 'missing') return c.json({ error: 'Customer not found' }, 404);
+  if (result === 'changed') return c.json({ error: 'The names have changed. Refresh the profile and review them again.' }, 409);
+  return c.json(result);
 });
 
 // Full-history counts, CSAT, topics, timeline and ticket table. This aggregates

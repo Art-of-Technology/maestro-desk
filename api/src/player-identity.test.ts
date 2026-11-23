@@ -73,10 +73,10 @@ runDbTests('player identity linking (DB-backed)', () => {
   }
   async function row(id: string) {
     const [r] = await sql<{
-      username: string | null; vip_tier: string | null; jurisdiction: string | null; brand: string | null; mobile: string | null;
+      first_name: string | null; last_name: string | null; username: string | null; vip_tier: string | null; jurisdiction: string | null; brand: string | null; mobile: string | null;
       maestro_user_id: string | null; maestro_member_id: string | null; player_lookup_at: Date | null;
     }[]>`
-      select username, vip_tier, jurisdiction, brand, mobile, maestro_user_id, maestro_member_id, player_lookup_at
+      select first_name, last_name, username, vip_tier, jurisdiction, brand, mobile, maestro_user_id, maestro_member_id, player_lookup_at
       from customers where id = ${id}
     `;
     return r;
@@ -124,6 +124,8 @@ runDbTests('player identity linking (DB-backed)', () => {
     const r = await row(id);
     expect(r.maestro_user_id).toBe(PLAYER.userId);
     expect(r.maestro_member_id).toBeNull();       // Global ID is not in the gateway contract
+    expect(r.first_name).toBe(PLAYER.firstName);
+    expect(r.last_name).toBe(PLAYER.lastName);
     expect(r.username).toBe('ferit_bey');
     expect(r.vip_tier).toBe('Gold');
     expect(r.jurisdiction).toBe('TR');
@@ -142,6 +144,21 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect(audits[0].metadata.accessed).toEqual(['contact', 'vip']);
     // Never the values themselves.
     expect(JSON.stringify(audits[0].metadata)).not.toContain('12.50');
+  });
+
+  it('refreshes complete linked contacts and replaces names as a pair', async () => {
+    const id = await mkCustomer(ws, 'name-refresh-' + RUN + '@example.test', {
+      maestro_user_id: PLAYER.userId, username: 'saved', vip_tier: 'Gold', jurisdiction: 'TR', brand: 'Brand', mobile: '+90 1',
+    });
+    stubGateway({ ...PLAYER, firstName: 'Registered', lastName: null });
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, reason: 'profile_open' })).toBe('linked');
+    expect((await row(id)).first_name).toBe('Registered');
+    expect((await row(id)).last_name).toBeNull();
+    await sql`update customers set player_lookup_at=now() - interval '2 days' where id=${id}`;
+    stubGateway({ ...PLAYER, firstName: null, lastName: null });
+    expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, reason: 'profile_open' })).toBe('linked');
+    expect((await row(id)).first_name).toBeNull();
+    expect((await row(id)).last_name).toBeNull();
   });
 
   it('never overwrites an agent-entered username / VIP / country', async () => {
@@ -202,13 +219,13 @@ runDbTests('player identity linking (DB-backed)', () => {
     expect(await lib.linkCustomerToPlayer({ workspaceId: ws, customerId: id, reason: 'backfill' })).toBe('linked');
   });
 
-  it('skips erased, merged-away, complete linked and unlinked email-less contacts without calling the gateway', async () => {
+  it('skips erased, merged-away, recently checked linked and unlinked email-less contacts without calling the gateway', async () => {
     stubGateway(PLAYER);
     const survivor = await mkCustomer(ws, `surv-${RUN}@example.test`);
     const erased = await mkCustomer(ws, null, { erased_at: new Date() });
     const merged = await mkCustomer(ws, `merged-${RUN}@example.test`, { merged_into_customer_id: survivor });
     const linked = await mkCustomer(ws, `linked-${RUN}@example.test`, {
-      maestro_user_id: 'already', username: 'saved', vip_tier: 'Gold', jurisdiction: 'TR', brand: 'Saved brand', mobile: '+90 1',
+      maestro_user_id: 'already', player_lookup_at: new Date(), username: 'saved', vip_tier: 'Gold', jurisdiction: 'TR', brand: 'Saved brand', mobile: '+90 1',
     });
     const noEmail = await mkCustomer(ws, null);
 
@@ -373,7 +390,7 @@ runDbTests('player identity linking (DB-backed)', () => {
       await sql`update workspaces set maestro_brand_id = ${spaceBrand} where id = ${ws}`;
       const response = await lookup(spaceBrand);
       expect(response.status).toBe(200);
-      expect((await response.json() as any).backofficeUrl).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      expect((await response.json() as any).backofficeUrl).toBe('https://backofficev2.spacecasino.com/members/50119');
       const [{ count: after }] = await sql`select count(*)::int from customers where workspace_id = ${ws}`;
       expect(after).toBe(before);
     } finally {
@@ -394,7 +411,7 @@ runDbTests('player identity linking (DB-backed)', () => {
       stubGateway({ ...PLAYER, userId: '50119' });
       const response = await refresh(id);
       const body = await response.json() as any;
-      expect(body.customer.backoffice_url).toBe('https://bo.spacecasino.com/Member/Detail/50119');
+      expect(body.customer.backoffice_url).toBe('https://backofficev2.spacecasino.com/members/50119');
       expect(body.customer.maestro_member_id).toBe('imported-global-id');
       expect(new Date(body.customer.since).toISOString().slice(0, 10)).toBe('2026-08-30');
       expect(calls).toHaveLength(1);
@@ -415,6 +432,7 @@ runDbTests('player identity linking (DB-backed)', () => {
     });
     const { addContact } = await import('./lib/customer-contacts.js');
     await addContact(sql, { workspaceId: ws, customerId: id, kind: 'mobile', value: '+44 222' });
+    expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: PLAYER })).toBe(true);
     expect(await lib.applyPlayerToCustomer(sql, { workspaceId: ws, customerId: id, member: PLAYER })).toBe(false);
     const saved = await row(id);
     expect(saved.username).toBe('agent');

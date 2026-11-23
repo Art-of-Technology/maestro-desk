@@ -53,8 +53,9 @@ export async function processExpiredSnoozes(signal?: AbortSignal) {
 
 // The production Node entry owns this worker; importing the API for tests or
 // serverless previews never starts it. No overlapping ticks in this process.
+// `label` names the worker in logs; the SLA-breach sweep reuses this lifecycle.
 export function createSnoozeWorker(run = processExpiredSnoozes,
-  report = (error: unknown) => alertCronFailure('snooze-expiry', error)) {
+  report = (error: unknown) => alertCronFailure('snooze-expiry', error), label = 'snooze-worker') {
   let timer: ReturnType<typeof setInterval> | undefined;
   let running: Promise<void> | undefined;
   let stopped = true;
@@ -64,11 +65,13 @@ export function createSnoozeWorker(run = processExpiredSnoozes,
     running = (async () => {
       try {
         const result = await run(controller.signal);
-        if (result.processed) console.log('[snooze-worker]', JSON.stringify(result));
-        if (result.failed) throw new Error(`${result.failed} snooze wakeups failed; they will be retried.`);
+        if (result.processed) console.log(`[${label}]`, JSON.stringify(result));
+        if (result.failed) throw new Error(label === 'snooze-worker'
+          ? `${result.failed} snooze wakeups failed; they will be retried.`
+          : `${result.failed} ${label} items failed; they will be retried.`);
       } catch (error) {
         try { await report(error); }
-        catch { console.error('[snooze-worker] failure reporting failed'); }
+        catch { console.error(`[${label}] failure reporting failed`); }
       }
     })().finally(() => { running = undefined; });
   };

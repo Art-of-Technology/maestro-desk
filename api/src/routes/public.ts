@@ -1,4 +1,6 @@
 import { safeError } from '../lib/diagnostics.js';
+import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
+import { announceTicketCreated } from '../lib/ticket-events.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
@@ -198,6 +200,7 @@ publicRoutes.post('/:slug/tickets', async (c) => {
   // Keep the accepted ticket even if a rule cannot be evaluated.
   try { await applyAssignmentRules({ workspaceId: ws.id, ticketId: ticket.id }); }
   catch (err) { console.error('[public] ticket assignment failed:', safeError(err)); }
+  await announceTicketCreated(ws.id, ticket.id);
 
   // Attach the contact to its Maestro player — same fire-and-forget hook as
   // the inbound-email path (lib/player-identity.ts), after the ticket has
@@ -625,15 +628,23 @@ publicRoutes.post('/:slug/csat/:token', async (c) => {
 
   // Record the rating and clear the token: the survey is one-shot, and nulling
   // the token stops the link from returning customer data after submission (#12).
-  await sql`
+  // The update re-checks csat_submitted_at so two simultaneous submissions
+  // cannot both win (and both notify).
+  const [recorded] = await sql<{ id: string }[]>`
     update tickets set
       csat_score        = ${parsed.data.score},
       csat_stars        = ${parsed.data.score},
       csat_comment      = ${parsed.data.comment || null},
       csat_submitted_at = now(),
       csat_token        = null
-    where id = ${ticket.id} and workspace_id = ${ws.id}
+    where id = ${ticket.id} and workspace_id = ${ws.id} and csat_submitted_at is null
+    returning id
   `;
+  if (!recorded) return c.json({ error: 'Survey already submitted' }, 409);
+
+  // Score only: the comment is customer free text and stays inside Respovia.
+  try { await dispatchTicketEvent({ workspaceId: ws.id, event: 'csat.submitted', ticketId: ticket.id, extra: { score: parsed.data.score } }); }
+  catch (err) { console.warn('[outgoing-webhooks] csat failed:', safeError(err)); }
 
   return c.json({ ok: true });
 });
