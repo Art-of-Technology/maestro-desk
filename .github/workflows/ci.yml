@@ -67,7 +67,7 @@ jobs:
         run: bun test scripts/ticket-account-refresh.test.js
 
       - name: Ticket contact lookup handoff
-        run: bun test scripts/ticket-contact-lookup.test.js
+        run: bun test scripts/ticket-contact-lookup.test.js scripts/customer-merge-lookup.test.js
 
       - name: Dashboard calendar period tests
         run: bun test scripts/dashboard-period.test.js
