@@ -346,7 +346,7 @@ jobs:
         run: bun run migrate
 
       - name: Tests (hermetic + DB-backed isolation suite)
-        run: bun test
+        run: bun test --isolate
         env:
           EXPECT_LEGACY_KYC: absent
 
