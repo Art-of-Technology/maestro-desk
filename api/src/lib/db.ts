@@ -34,7 +34,13 @@ export function getDb() {
       // Keep the pool small — the API runs as short-lived serverless
       // functions on Vercel (target stack), so a large pool is wasteful.
       max: 5,
-      idle_timeout: 20,
+      // Close idle connections after 20s on Node (production, Vercel). Not
+      // under Bun (tests and local dev): there, a query that starts at the
+      // moment postgres.js closes an idle connection can be lost and never
+      // answer. Measured with bursts of queries spaced at the idle timeout:
+      // Bun 1.3.13 lost about 1 in 120, Node 24 none. In the test suite that
+      // showed up as one random test timing out per run.
+      idle_timeout: process.versions.bun ? undefined : 20,
       connect_timeout: 10,
       // Disable prepared statements: Neon's pooled (PgBouncer, transaction
       // mode) connection string does not support them. Safe for the direct
