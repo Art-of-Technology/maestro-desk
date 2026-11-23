@@ -96,7 +96,10 @@ cron.get('/webhook-retry', async (c) => {
 // manual checks, so there is no schedule for it.
 cron.get('/sla-breach', async (c) => {
   try {
-    return c.json({ ok: true, ...(await processSlaBreaches()) });
+    const result = await processSlaBreaches();
+    // Same rule as the worker: tickets that failed make the run a failure.
+    if (result.failed) await alertCronFailure('sla-breach', new Error(`${result.failed} SLA breach announcements failed; they will be retried.`));
+    return c.json({ ok: result.failed === 0, ...result }, result.failed ? 500 : 200);
   } catch (err) {
     await alertCronFailure('sla-breach', err);
     return c.json({ ok: false, error: 'sla-breach failed' }, 500);

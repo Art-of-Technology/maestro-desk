@@ -12,6 +12,8 @@ create table ticket_sla_breach_notices (
   target       text not null check (target in ('first_response', 'resolution', 'preexisting')),
   notified_at  timestamptz not null default now()
 );
+-- Backs the workspace cascade, so deleting a brand does not scan every notice.
+create index ticket_sla_breach_notices_workspace_idx on ticket_sla_breach_notices (workspace_id);
 
 -- Every ticket that exists at release is marked as already handled. Without
 -- this the first sweep would announce every old ticket that breached long

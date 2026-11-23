@@ -130,6 +130,35 @@ run('SLA breach sweep', () => {
     expect(await sent(id)).toHaveLength(0);
   });
 
+  it('marks a breach without sending while the webhook is off, and releases no backlog afterwards', async () => {
+    const id = await makeTicket({ ageMin: 5000 });
+    await sql`update workspace_webhooks set active = false where id = ${hook}`;
+    try { await sweep(); }
+    finally { await sql`update workspace_webhooks set active = true where id = ${hook}`; }
+    expect(await sql`select 1 from ticket_sla_breach_notices where ticket_id = ${id}`).toHaveLength(1);
+    await sweep();
+    expect(await sent(id)).toHaveLength(0);
+  });
+
+  it('leaves no marker behind when queuing the webhook fails, so the next sweep sends it', async () => {
+    const id = await makeTicket({ ageMin: 5000 });
+    // A delivery row for a webhook that no longer exists cannot be inserted.
+    const [doomed] = await sql`insert into workspace_webhooks (workspace_id, name, url, secret, events, active)
+      values (${ws}, 'Doomed', 'https://example.com/doomed', 'test-secret', array['sla.breach'], true) returning id`;
+    await sql`alter table webhook_deliveries add constraint sla_test_block check (webhook_id <> ${sql.unsafe("'" + doomed.id + "'")}::uuid) not valid`;
+    try {
+      const result = await processSlaBreaches();
+      expect(result.failed).toBeGreaterThan(0);
+      expect(await sql`select 1 from ticket_sla_breach_notices where ticket_id = ${id}`).toHaveLength(0);
+      expect(await sent(id)).toHaveLength(0);
+    } finally {
+      await sql`alter table webhook_deliveries drop constraint sla_test_block`;
+      await sql`delete from workspace_webhooks where id = ${doomed.id}`;
+    }
+    await sweep();
+    expect(await sent(id)).toHaveLength(1);
+  });
+
   it('skips a suspended brand', async () => {
     const id = await makeTicket({ ageMin: 5000 });
     await sql`update workspaces set suspended_at = now() where id = ${ws}`;
