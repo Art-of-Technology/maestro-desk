@@ -518,8 +518,8 @@ tickets.patch('/:id', async (c) => {
   const result = await sql.begin(async (sql) => {
     // Workspace-scope check before the update; also captures the pre-update
     // column values used below for change-detection (Slack / webhook events).
-    const [existing] = await sql<{ status_key: string; status_option_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null }[]>`
-      select status_key, status_option_key, priority_key, category_key, assigned_user_id from tickets
+    const [existing] = await sql<{ status_key: string; status_option_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null; csat_submitted_at: Date | null }[]>`
+      select status_key, status_option_key, priority_key, category_key, assigned_user_id, csat_submitted_at from tickets
       where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
     `;
     if (!existing) return c.json({ error: 'Ticket not found' }, 404);
@@ -597,6 +597,19 @@ tickets.patch('/:id', async (c) => {
   const { existing, updated, activity } = result;
   await notifyAssignedAgent({ workspaceId, ticketId, previousAssigneeId: existing.assigned_user_id,
     assigneeId: updated.assigned_user_id, actorId: c.get('userId') });
+  // Outgoing webhooks hear about every real change of assignee, including
+  // unassigning and self-assignment (which send no email above).
+  if (updates.assigned_user_id !== undefined && updated.assigned_user_id !== existing.assigned_user_id) {
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.assigned', ticketId,
+      extra: { previous_assigned_user_id: existing.assigned_user_id } }); }
+    catch (err) { console.warn('[outgoing-webhooks] assigned failed:', safeError(err)); }
+  }
+  // A rating an agent records on the customer's behalf. Score only: the
+  // comment is customer free text and stays inside Respovia.
+  if (!existing.csat_submitted_at && updated.csat_submitted_at && updated.csat_score != null) {
+    try { await dispatchTicketEvent({ workspaceId, event: 'csat.submitted', ticketId, extra: { score: updated.csat_score } }); }
+    catch (err) { console.warn('[outgoing-webhooks] csat failed:', safeError(err)); }
+  }
 
   // Slack notifications for the state transitions the workspace cares about.
   const statusChanged   = updates.status_key   !== undefined && updates.status_key   !== existing.status_key;
@@ -1367,7 +1380,7 @@ tickets.post('/:id/merge', async (c) => {
     return c.json({ error: 'Cannot merge a ticket into itself' }, 400);
   }
 
-  return sql.begin(async sql => {
+  const result = await sql.begin(async sql => {
     // Lock both rows in a stable order, including reverse simultaneous merges.
     const rows = await sql<{ id: string; display_id: string; subject: string; status_key: string; status_option_key: string; merged_into_id: string | null }[]>`
       select id, display_id, subject, status_key, status_option_key, merged_into_id
@@ -1426,12 +1439,19 @@ tickets.post('/:id/merge', async (c) => {
 
     const activity = await recordTicketActivity(sql, { workspaceId, ticketId: sourceId, actorId: c.get('userId'),
       kind: 'status', before: source.status_option_key, after: mergedStatus.status_option_key, source: 'merge', context: { primary_id: primaryId } });
-    return c.json({
+    return {
       activity,
       source: { id: sourceId, ...mergedStatus, merged_into_display_id: primary.display_id },
       primary: { id: primaryId, display_id: primary.display_id },
-    });
+    };
   });
+  if (result instanceof Response) return result;
+  // After commit, and only for a merge that happened (a repeat request is
+  // refused above). The payload describes the source ticket; the primary is
+  // referenced by id only, never with its customer's details.
+  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.merged', ticketId: sourceId, extra: { merged_into: result.primary } }); }
+  catch (err) { console.warn('[outgoing-webhooks] merged failed:', safeError(err)); }
+  return c.json(result);
 });
 
 // ─── POST /:id/unmerge — undo a merge ────────────────────────────────────
@@ -1679,6 +1699,11 @@ tickets.post('/:id/apply-rules', async (c) => {
 
   const result = await applyAssignmentRules({ workspaceId, ticketId, actorId: c.get('userId') });
   if (!result) return c.json({ matched: false });
+  if (result.assigned_user_id !== result.previous_assigned_user_id) {
+    try { await dispatchTicketEvent({ workspaceId, event: 'ticket.assigned', ticketId,
+      extra: { previous_assigned_user_id: result.previous_assigned_user_id } }); }
+    catch (err) { console.warn('[outgoing-webhooks] assigned failed:', safeError(err)); }
+  }
 
   return c.json({
     matched:  true,

@@ -30,6 +30,7 @@ export interface AssignResult {
   rule_id:       string;
   rule_name:     string;
   assigned_user_id: string | null;
+  previous_assigned_user_id: string | null;
   activity: Awaited<ReturnType<typeof recordTicketActivity>>;
   ticket: Record<string, any>;
 }
@@ -215,6 +216,7 @@ export async function applyAssignmentRules(args: {
         rule_id:          rule.id,
         rule_name:        rule.name,
         assigned_user_id: pick.userId,
+        previous_assigned_user_id: ticket.assigned_user_id,
         activity, ticket: saved,
       };
     }

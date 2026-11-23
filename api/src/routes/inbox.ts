@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getDb } from '../lib/db.js';
 import { nextDisplayId } from '../lib/display-id.js';
+import { announceTicketCreated } from '../lib/ticket-events.js';
 import { resolveCustomerByContact } from '../lib/customer-contacts.js';
 
 // Migration to Neon — Step 3. Member-level, workspace-scoped via getDb().
@@ -140,6 +141,7 @@ inbox.post('/:id/convert', async (c) => {
     `;
     return t;
   });
+  await announceTicketCreated(workspaceId, ticket.id);
 
   return c.json({ ticket }, 201);
 });
