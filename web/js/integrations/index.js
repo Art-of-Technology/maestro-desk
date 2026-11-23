@@ -30,7 +30,10 @@ let SUPPRESSED_CUSTOMERS = [];
 let SUPPRESSED_LOADED = false;
 let SUPPRESSED_SCOPE = null;
 const suppressionScope = () => `${getWorkspaceId() || ''}:${getJwt() || ''}`;
-// Which brand/session the Slack and webhook snapshots below belong to.
+// Which brand/session the Slack and webhook snapshots below belong to. Every
+// write handler notes the scope before its request and drops the response if
+// the brand has changed by the time it lands, so an answer about one brand is
+// never stored or shown under another.
 let INTEGRATIONS_SCOPE = null;
 const SLACK_EVENTS = [
   { k: 'ticket.created',   l: 'Ticket created' },
@@ -45,6 +48,9 @@ const SLACK_EVENTS = [
 const WEBHOOK_EVENTS = [
   ...SLACK_EVENTS,
   { k: 'ticket.closed', l: 'Ticket closed without resolution' },
+  { k: 'ticket.assigned', l: 'Ticket assignee changed' },
+  { k: 'ticket.merged', l: 'Ticket merged into another' },
+  { k: 'csat.submitted', l: 'CSAT response received' },
 ];
 
 // renderPage NAVIGATES rather than repainting, so a fetch that lands after the
@@ -249,6 +255,7 @@ function settingsOutgoingWebhooksSection() {
 
 async function createOutgoingWebhook() {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   const name   = document.getElementById('wh-name').value.trim();
   const url    = document.getElementById('wh-url').value.trim();
   const events = WEBHOOK_EVENTS.filter((e) => document.getElementById(`wh-evt-${e.k}`)?.checked).map((e) => e.k);
@@ -259,9 +266,11 @@ async function createOutgoingWebhook() {
   msg.textContent = 'Creating...'; msg.style.color = 'var(--ink3)';
   try {
     const res = await apiPost('/api/v1/integrations/webhooks', { name, url, events });
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     LAST_REVEALED_SECRET = res.secret;
     // Re-fetch the list so the new row appears.
     const list = await apiGet('/api/v1/integrations/webhooks');
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     OUTGOING_WEBHOOKS = list.webhooks || [];
     repaint();
   } catch (err) {
@@ -272,9 +281,11 @@ async function createOutgoingWebhook() {
 
 async function deleteOutgoingWebhook(id) {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   if (!confirm('Delete this webhook? Events will stop firing immediately.')) return;
   try {
     await apiDelete(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`);
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.filter((w) => w.id !== id);
     repaint();
   } catch (err) {
@@ -516,6 +527,7 @@ function editOutgoingWebhook(id) {
 // record (see modal.js comment).
 async function saveOutgoingWebhookEdit() {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   const id     = document.getElementById('we-id').value;
   const name   = document.getElementById('we-name').value.trim();
   const url    = document.getElementById('we-url').value.trim();
@@ -527,6 +539,7 @@ async function saveOutgoingWebhookEdit() {
   if (events.length === 0) { msg.textContent = 'Pick at least one event'; msg.style.color = 'var(--red)'; return; }
   try {
     const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { name, url, events, active });
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     // Replace the row in module state so the panel re-renders with
     // the new values without a full refetch.
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.map((w) => w.id === id ? { ...w, ...res.webhook } : w);
@@ -540,12 +553,14 @@ async function saveOutgoingWebhookEdit() {
 
 async function rotateOutgoingWebhookSecret() {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   const id = document.getElementById('we-id').value;
   if (!confirm('Rotate the signing secret? The current secret will stop working immediately.')) return;
   const msg = document.getElementById('we-msg');
   msg.textContent = 'Rotating...'; msg.style.color = 'var(--ink3)';
   try {
     const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { rotate_secret: true });
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     // Surface the new secret via the same one-shot banner used by
     // create — close the modal so the user can see it on the panel.
     LAST_REVEALED_SECRET = res.secret;
@@ -560,6 +575,7 @@ async function rotateOutgoingWebhookSecret() {
 
 async function saveSlackIntegration() {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   const url           = document.getElementById('slack-url').value.trim();
   const channel       = document.getElementById('slack-channel').value.trim();
   const active        = document.getElementById('slack-active').checked;
@@ -584,11 +600,13 @@ async function saveSlackIntegration() {
     if (botToken)      body.bot_token      = botToken;
     if (signingSecret) body.signing_secret = signingSecret;
     await apiPut('/api/v1/integrations/slack', body);
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     // The form may be gone if the admin navigated away mid-save; the saved
     // state must still be refreshed, so never let a missing field throw.
     const clear = (id) => { const el = document.getElementById(id); if (el) el.value = ''; };
     clear('slack-url');
     const res = await apiGet('/api/v1/integrations/slack');
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     SLACK_INTEGRATION = res.integration;
     clear('slack-bot-token');
     clear('slack-signing-secret');
@@ -622,9 +640,11 @@ async function testSlackIntegration() {
 
 async function deleteSlackIntegration() {
   if (!can('admin.integrations')) return;
+  const scope = suppressionScope();
   if (!confirm('Disconnect Slack? Future ticket events won\'t notify until you reconnect.')) return;
   try {
     await apiDelete('/api/v1/integrations/slack');
+    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
     SLACK_INTEGRATION = null;
     repaint();
   } catch (err) {
