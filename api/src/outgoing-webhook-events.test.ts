@@ -141,6 +141,16 @@ run('outgoing webhook events', () => {
     expect(manualSent).toHaveLength(1);
     expect(manualSent[0].payload.data).toEqual({ score: 2 });
     expect(JSON.stringify(manualSent[0].payload)).not.toContain('Agent typed remark');
+
+    // Date and score sent in separate requests still announce the rating, once.
+    const split = await makeTicket({ status_key: 'resolved' });
+    expect((await api(`/tickets/${split}`, 'PATCH', { csat_submitted_at: new Date().toISOString() })).status).toBe(200);
+    expect(await deliveries('csat.submitted', split)).toHaveLength(0);
+    expect((await api(`/tickets/${split}`, 'PATCH', { csat_score: 5, csat_stars: 5 })).status).toBe(200);
+    expect((await api(`/tickets/${split}`, 'PATCH', { priority_key: 'high' })).status).toBe(200);
+    const splitSent = await deliveries('csat.submitted', split);
+    expect(splitSent).toHaveLength(1);
+    expect(splitSent[0].payload.data).toEqual({ score: 5 });
   });
 
   it('sends ticket.created for portal, inbox and inbound-email tickets, but not for spam', async () => {
@@ -154,21 +164,22 @@ run('outgoing webhook events', () => {
       values (${ws}, 'CH-FIX', 'Fixture inbox', 'email', ${`fixture-${suffix}@inbound.example.test`}, 'active') returning id`;
     const [message] = await sql`insert into inbox_messages(workspace_id, channel_id, external_id, from_email, subject, body, received_at, status)
       values (${ws}, ${channel.id}, ${'inbox-' + suffix}, ${`customer-${suffix}@t.test`}, 'From the inbox', 'Hello', now(), 'new') returning id`;
-    const converted = await api(`/inbox/${message.id}/convert`, 'POST', {});
-    expect(converted.status).toBe(201);
+    // Two simultaneous conversions of one message make one ticket and one announcement.
+    const before = (await deliveries('ticket.created')).length;
+    const attempts = await Promise.all([1, 2].map(() => api(`/inbox/${message.id}/convert`, 'POST', {})));
+    expect(attempts.map(r => r.status).sort()).toEqual([201, 409]);
+    const converted = attempts.find(r => r.status === 201)!;
     expect(await deliveries('ticket.created', ((await converted.json()) as any).ticket.id)).toHaveLength(1);
+    expect((await deliveries('ticket.created')).length).toBe(before + 1);
+    const [{ count }] = await sql`select count(*)::int as count from tickets where source_inbox_id = ${message.id}`;
+    expect(count).toBe(1);
 
     const inbound = (from: string, id: string) => ({ MessageID: id, From: from, FromFull: { Email: from, Name: 'Mail Person' },
       Subject: 'From email', TextBody: 'Hello by email', HtmlBody: '', ToFull: [{ Email: 'support@inbound.example.test' }],
       Headers: [{ Name: 'Message-Id', Value: `<${id}@cust.test>` }] }) as any;
     const mailed = await processInboundEmail({ workspaceId: ws, payload: inbound(`mail-${suffix}@t.test`, `mail-${suffix}`) });
-    // The inbound path does not wait for the announcement; give it a moment.
-    let created: { event: string; payload: any }[] = [];
-    for (let i = 0; i < 40 && created.length === 0; i++) {
-      created = await deliveries('ticket.created', mailed.ticket_id);
-      if (!created.length) await new Promise(resolve => setTimeout(resolve, 50));
-    }
-    expect(created).toHaveLength(1);
+    // The webhook is queued before the inbound handler returns; only Slack runs behind it.
+    expect(await deliveries('ticket.created', mailed.ticket_id)).toHaveLength(1);
 
     await sql`update customers set is_spam = true where id = ${customer}`;
     try {

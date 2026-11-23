@@ -77,6 +77,8 @@ inbox.patch('/:id', async (c) => {
 // Refuses if no customer matches the from_email. Marks the inbox row
 // converted on success. The ticket + first message + status flip run in a
 // single transaction so a partial failure can't orphan a ticket.
+class AlreadyConverted extends Error {}
+
 inbox.post('/:id/convert', async (c) => {
   const sql = getDb();
   const workspaceId = c.get('workspaceId');
@@ -135,12 +137,19 @@ inbox.post('/:id/convert', async (c) => {
       insert into ticket_messages (workspace_id, ticket_id, role, author_label, body)
       values (${workspaceId}, ${t.id}, 'customer', ${authorLabel}, ${msg.body || ''})
     `;
-    await tx`
+    // Claim the message inside the transaction. Two simultaneous requests
+    // both pass the status check above; the second one waits here, finds the
+    // message already converted, and rolls its ticket back, so one email
+    // yields one ticket and one announcement.
+    const [claimed] = await tx`
       update inbox_messages set status = 'converted', converted_ticket_id = ${t.id}
-      where id = ${id} and workspace_id = ${workspaceId}
+      where id = ${id} and workspace_id = ${workspaceId} and status is distinct from 'converted'
+      returning id
     `;
+    if (!claimed) throw new AlreadyConverted();
     return t;
-  });
+  }).catch((err) => { if (err instanceof AlreadyConverted) return null; throw err; });
+  if (!ticket) return c.json({ error: 'Already converted' }, 409);
   await announceTicketCreated(workspaceId, ticket.id);
 
   return c.json({ ticket }, 201);

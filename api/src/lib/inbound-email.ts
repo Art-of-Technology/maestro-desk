@@ -439,9 +439,10 @@ export async function processInboundEmail(args: {
   // not discard accepted mail; unmatched tickets remain unassigned.
   try { await applyAssignmentRules({ workspaceId, ticketId: newTicket.id }); }
   catch (err) { console.error('[inbound-email] assignment failed:', safeError(err)); }
-  // Not awaited: this handler must answer Postmark quickly, and a slow Slack
-  // must not hold up accepted mail. Spam and quarantined mail returned above.
-  void announceTicketCreated(workspaceId, newTicket.id);
+  // The webhook enqueue is awaited; only the Slack post runs in the
+  // background, because this handler must answer Postmark quickly and a slow
+  // Slack must not hold up accepted mail. Spam and quarantined mail returned above.
+  await announceTicketCreated(workspaceId, newTicket.id, { slack: 'background' });
 
   // 3a. Link or refresh the registered name and fill blank account details.
   //     Runs AFTER the ticket + message land so it never

@@ -18,6 +18,7 @@ import { nextDisplayId } from '../lib/display-id.js';
 import { applyAssignmentRules } from '../lib/assign-rules-engine.js';
 import { notifySlack } from '../lib/slack-notify.js';
 import { dispatchTicketEvent } from '../lib/outgoing-webhooks.js';
+import { announceTicketCreated } from '../lib/ticket-events.js';
 import { scoreMessageSentiment } from '../lib/sentiment.js';
 import { ticketListCols } from '../lib/ticket-cols.js';
 import { activeTicketStatus, statusCategories, validateStatusReason } from '../lib/ticket-status.js';
@@ -518,8 +519,8 @@ tickets.patch('/:id', async (c) => {
   const result = await sql.begin(async (sql) => {
     // Workspace-scope check before the update; also captures the pre-update
     // column values used below for change-detection (Slack / webhook events).
-    const [existing] = await sql<{ status_key: string; status_option_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null; csat_submitted_at: Date | null }[]>`
-      select status_key, status_option_key, priority_key, category_key, assigned_user_id, csat_submitted_at from tickets
+    const [existing] = await sql<{ status_key: string; status_option_key: string; priority_key: string | null; category_key: string | null; assigned_user_id: string | null; csat_submitted_at: Date | null; csat_score: number | null }[]>`
+      select status_key, status_option_key, priority_key, category_key, assigned_user_id, csat_submitted_at, csat_score from tickets
       where id = ${ticketId} and workspace_id = ${workspaceId} and deleted_at is null for update
     `;
     if (!existing) return c.json({ error: 'Ticket not found' }, 404);
@@ -597,16 +598,20 @@ tickets.patch('/:id', async (c) => {
   const { existing, updated, activity } = result;
   await notifyAssignedAgent({ workspaceId, ticketId, previousAssigneeId: existing.assigned_user_id,
     assigneeId: updated.assigned_user_id, actorId: c.get('userId') });
-  // Outgoing webhooks hear about every real change of assignee, including
-  // unassigning and self-assignment (which send no email above).
+  // Outgoing webhooks hear about every real change of assignee on an
+  // existing ticket, including unassigning and self-assignment (which send
+  // no email above). A new ticket's first assignee travels in ticket.created.
   if (updates.assigned_user_id !== undefined && updated.assigned_user_id !== existing.assigned_user_id) {
     try { await dispatchTicketEvent({ workspaceId, event: 'ticket.assigned', ticketId,
       extra: { previous_assigned_user_id: existing.assigned_user_id } }); }
     catch (err) { console.warn('[outgoing-webhooks] assigned failed:', safeError(err)); }
   }
-  // A rating an agent records on the customer's behalf. Score only: the
-  // comment is customer free text and stays inside Respovia.
-  if (!existing.csat_submitted_at && updated.csat_submitted_at && updated.csat_score != null) {
+  // A rating an agent records on the customer's behalf, sent the first time
+  // the ticket holds both a score and a submitted date (they may arrive in
+  // separate requests). Score only: the comment is customer free text and
+  // stays inside Respovia.
+  const ratedBefore = existing.csat_submitted_at != null && existing.csat_score != null;
+  if (!ratedBefore && updated.csat_submitted_at && updated.csat_score != null) {
     try { await dispatchTicketEvent({ workspaceId, event: 'csat.submitted', ticketId, extra: { score: updated.csat_score } }); }
     catch (err) { console.warn('[outgoing-webhooks] csat failed:', safeError(err)); }
   }
@@ -1819,15 +1824,11 @@ tickets.post('/', async (c) => {
       assigneeId: input.assigned_user_id, actorId: userId });
   }
 
-  // Slack notification on creation. AWAITED deliberately: an unawaited
-  // dispatch can be dropped when the runtime freezes the moment the response
-  // is written (the same reason /sync awaits its last_active_at stamp).
-  try { await notifySlack({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[slack] notify created failed:', safeError(err)); }
-  // Generic outgoing webhooks (any URL the workspace configured) — awaited
-  // for the same durability reason.
-  try { await dispatchTicketEvent({ workspaceId, event: 'ticket.created', ticketId: created.id }); }
-  catch (err) { console.warn('[outgoing-webhooks] created failed:', safeError(err)); }
+  // Slack and outgoing webhooks, shared with every other creation path.
+  // AWAITED deliberately: an unawaited dispatch can be dropped when the
+  // runtime freezes the moment the response is written (the same reason
+  // /sync awaits its last_active_at stamp).
+  await announceTicketCreated(workspaceId, created.id);
 
   void publishTicketChanged(workspaceId, created.id);
 

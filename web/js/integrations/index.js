@@ -266,7 +266,11 @@ async function createOutgoingWebhook() {
   msg.textContent = 'Creating...'; msg.style.color = 'var(--ink3)';
   try {
     const res = await apiPost('/api/v1/integrations/webhooks', { name, url, events });
-    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
+    if (suppressionScope() !== scope) {
+      // The server has already created the webhook; say so rather than lose the secret silently.
+      alert('The brand changed before the new signing secret could be shown. Open the previous brand and rotate that webhook\'s secret to get a new one.');
+      return;
+    }
     LAST_REVEALED_SECRET = res.secret;
     // Re-fetch the list so the new row appears.
     const list = await apiGet('/api/v1/integrations/webhooks');
@@ -274,6 +278,7 @@ async function createOutgoingWebhook() {
     OUTGOING_WEBHOOKS = list.webhooks || [];
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     msg.textContent = err?.message || 'Create failed';
     msg.style.color = 'var(--red)';
   }
@@ -289,6 +294,7 @@ async function deleteOutgoingWebhook(id) {
     OUTGOING_WEBHOOKS = OUTGOING_WEBHOOKS.filter((w) => w.id !== id);
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     alert(`Couldn't delete: ${err?.message || err}`);
   }
 }
@@ -546,6 +552,7 @@ async function saveOutgoingWebhookEdit() {
     closeModal();
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
   }
@@ -560,7 +567,11 @@ async function rotateOutgoingWebhookSecret() {
   msg.textContent = 'Rotating...'; msg.style.color = 'var(--ink3)';
   try {
     const res = await apiPatch(`/api/v1/integrations/webhooks/${encodeURIComponent(id)}`, { rotate_secret: true });
-    if (suppressionScope() !== scope) return;   // brand changed while the request was in flight
+    if (suppressionScope() !== scope) {
+      // The server has already replaced the secret; say so rather than lose the secret silently.
+      alert('The brand changed before the new signing secret could be shown. Open the previous brand and rotate that webhook\'s secret to get a new one.');
+      return;
+    }
     // Surface the new secret via the same one-shot banner used by
     // create — close the modal so the user can see it on the panel.
     LAST_REVEALED_SECRET = res.secret;
@@ -568,6 +579,7 @@ async function rotateOutgoingWebhookSecret() {
     closeModal();
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     msg.textContent = err?.message || 'Rotation failed';
     msg.style.color = 'var(--red)';
   }
@@ -613,6 +625,7 @@ async function saveSlackIntegration() {
     msg.textContent = 'Saved'; msg.style.color = 'var(--green)';
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     msg.textContent = err?.message || 'Save failed';
     msg.style.color = 'var(--red)';
   }
@@ -648,6 +661,7 @@ async function deleteSlackIntegration() {
     SLACK_INTEGRATION = null;
     repaint();
   } catch (err) {
+    if (suppressionScope() !== scope) return;   // a failure about the previous brand is not shown under this one
     alert(`Couldn't disconnect: ${err?.message || err}`);
   }
 }
