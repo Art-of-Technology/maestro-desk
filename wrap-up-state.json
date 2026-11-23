@@ -7,7 +7,15 @@
     "transport": "slack-webhook",
     "runId": "44784714597"
   },
-  "pending": null,
+  "pending": {
+    "cutoff": "2026-11-23T17:34:49.941Z",
+    "date": "2026-11-23",
+    "mode": "send",
+    "runId": "45229183474",
+    "localCoverage": {
+      "orbit": "2026-11-23T17:31:06.326Z"
+    }
+  },
   "lastDate": "2026-11-20",
   "lastTestRun": "36992282000",
   "localCoverage": {
