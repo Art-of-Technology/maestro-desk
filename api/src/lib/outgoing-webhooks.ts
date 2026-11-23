@@ -82,7 +82,13 @@ export type WebhookEvent =
   | 'ticket.resolved'
   | 'ticket.closed'
   | 'ticket.escalated'
-  | 'priority.urgent';
+  | 'ticket.assigned'
+  | 'ticket.merged'
+  | 'priority.urgent'
+  | 'csat.submitted';
+
+// Plain JSON only, so the stored payload is exactly what gets signed and sent.
+export type EventData = { [key: string]: string | number | boolean | null | EventData };
 
 // Backoff schedule in seconds. Index = attempts already made.
 // attempts=0 (just enqueued) → fire ASAP
@@ -126,8 +132,13 @@ export async function dispatchTicketEvent(args: {
   workspaceId: string;
   event:       WebhookEvent;
   ticketId:    string;
+  // Event-specific facts, sent under `data`. Ids, scores and labels only:
+  // never notes, comments or message text, and never another customer's
+  // details. Erasure matches on the top-level ticket.id / customer.id, so
+  // anything identifying a person must stay there.
+  extra?:      EventData;
 }): Promise<number> {
-  const { workspaceId, event, ticketId } = args;
+  const { workspaceId, event, ticketId, extra } = args;
   const sql = getDb();
 
   const webhooks = await sql<WebhookRow[]>`
@@ -173,6 +184,7 @@ export async function dispatchTicketEvent(args: {
       vip_tier:  customer.vip_tier,
       brand:     customer.brand,
     },
+    ...(extra ? { data: extra } : {}),
   };
 
   try {
