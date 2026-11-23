@@ -136,7 +136,7 @@ integrations.delete('/slack', async (c) => {
 // Keep in sync with WebhookEvent (lib/outgoing-webhooks.ts) and WEBHOOK_EVENTS
 // in web/js/integrations/index.js.
 const OUTGOING_EVENTS = ['ticket.created', 'ticket.resolved', 'ticket.closed', 'ticket.escalated', 'ticket.assigned',
-  'ticket.merged', 'priority.urgent', 'csat.submitted'] as const;
+  'ticket.merged', 'priority.urgent', 'csat.submitted', 'sla.breach'] as const;
 
 const WebhookBody = z.object({
   name:   z.string().min(1).max(100),

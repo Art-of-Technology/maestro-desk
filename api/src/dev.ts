@@ -8,12 +8,14 @@ import app from './index.js';
 import { env } from './lib/env.js';
 import { startWebhookWorker } from './lib/outgoing-webhooks.js';
 import { snoozeWorker } from './lib/snooze-worker.js';
+import { slaBreachWorker } from './lib/sla-breach-worker.js';
 
 console.log(`respovia API listening on http://localhost:${env.PORT}`);
 
 // In-process workers — local only (this file isn't loaded on Vercel).
 startWebhookWorker();
 snoozeWorker.start();
+slaBreachWorker.start();
 
 export default {
   port: env.PORT,

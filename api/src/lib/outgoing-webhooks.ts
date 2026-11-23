@@ -85,6 +85,7 @@ export type WebhookEvent =
   | 'ticket.assigned'
   | 'ticket.merged'
   | 'priority.urgent'
+  | 'sla.breach'
   | 'csat.submitted';
 
 // Plain JSON only, so the stored payload is exactly what gets signed and sent.
