@@ -27,7 +27,9 @@ const testEnv = { ...realEnvMod.env, CRON_SECRET, DOKPLOY_WEB_DEPLOY_URL, DOKPLO
 mock.module('../lib/env.js', () => ({ ...realEnvMod, env: testEnv }));
 
 // Stub the sweeps so the handlers return without hitting the DB.
+const realWebhooks = await import('../lib/outgoing-webhooks.js');
 mock.module('../lib/outgoing-webhooks.js', () => ({
+  ...realWebhooks,
   processPendingDeliveries: async () => ({ processed: 3 }),
 }));
 
