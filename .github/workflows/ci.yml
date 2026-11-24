@@ -345,8 +345,25 @@ jobs:
       - name: Migrations re-run is a no-op (Bun)
         run: bun run migrate
 
+      - name: Check sequential test runner
+        run: bun test ../scripts/ci-api-runner.test.js
+
       - name: Tests (hermetic + DB-backed isolation suite)
-        run: bun test --isolate
+        run: |
+          # Fresh processes prevent connections and module mocks surviving between files.
+          status=0
+          count=0
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              *.test.[jt]s|*.test.[jt]sx|*_test.[jt]s|*_test.[jt]sx|*.spec.[jt]s|*.spec.[jt]sx|*_spec.[jt]s|*_spec.[jt]sx)
+                count=$((count + 1))
+                bun test "./$file" || status=1
+                ;;
+            esac
+          done < <(git ls-files -z)
+          test "$count" -gt 0 || status=1
+          echo "Ran $count test files in separate processes"
+          exit "$status"
         env:
           EXPECT_LEGACY_KYC: absent
 
