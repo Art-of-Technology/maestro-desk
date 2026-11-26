@@ -48,6 +48,7 @@ import { showToast } from '../core/toast.js';
 import { startPresence } from '../core/presence.js';
 import { playerLookupActive, renderPlayerLookupView } from './player-lookup.js';
 import { refreshCustomerAccount } from './account-refresh.js';
+import { mountMergeLookup } from './merge-lookup.js';
 import { renderRiskPanel } from './risk-panel.js';
 import { renderCustomerHistory, refreshCustomerHistory } from './history.js';
 import { renderCustomerEmailNames } from './email-names.js';
@@ -709,11 +710,7 @@ function showMergeCustomerModal(custId) {
   // Candidates: not self and not themselves a merged duplicate. A previously-
   // unmerged customer that used to have custId merged in is still a valid
   // primary, so we don't filter that out.
-  const candidates = CUSTOMERS.filter(x => x.id !== custId && !x.mergedInto);
-  if (!candidates.length) {
-    showModal('Merge customer into…', '<div style="color:var(--ink3);font-size:12px;text-align:center;padding:18px 0">No primary candidates available.</div>', null, null);
-    return;
-  }
+  const candidates = CUSTOMERS.filter(x => x.id !== custId && !x.mergedInto && !x._mergedIntoUuid && !x.erased);
   const card = c => `
     <div data-mousedown-action="cust.mergeFromModal" data-source="${window.escAttr(custId)}" data-target="${window.escAttr(c.id)}" style="padding:10px 12px;border:1px solid var(--rule);border-radius:var(--r);cursor:pointer;display:flex;gap:10px;align-items:center;background:var(--off2);margin-bottom:6px;transition:all .15s" onmouseover="this.style.borderColor='var(--purple)';this.style.background='var(--purple-lt)'" onmouseout="this.style.borderColor='var(--rule)';this.style.background='var(--off2)'">
       <div style="width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex-shrink:0">${window.escHtml((c.first[0]||'') + (c.last[0]||''))}</div>
@@ -725,8 +722,10 @@ function showMergeCustomerModal(custId) {
     </div>`;
   showModal('Merge customer into…', `
     <div style="font-size:12px;color:var(--ink3);margin-bottom:14px;line-height:1.5">Pick the surviving profile. You'll see both profiles side by side and confirm before anything merges.</div>
-    <div style="max-height:380px;overflow-y:auto">${candidates.map(card).join('')}</div>
+    ${getBrandId() ? '<div id="merge-player-lookup" style="margin-bottom:16px"></div>' : ''}
+    <div style="max-height:380px;overflow-y:auto">${candidates.map(card).join('') || '<p>No existing contacts available.</p>'}</div>
   `, null, null);
+  mountMergeLookup(custId, targetId => { closeModal(); showMergeConfirm(custId, targetId); });
 }
 
 // Server column names → client view-model keys, for applying merge/unmerge
@@ -741,7 +740,7 @@ function showMergeConfirm(srcId, primaryId) {
   if (!can('customers.merge')) return;
   const src = CUSTOMERS.find(x => x.id === srcId);
   const primary = CUSTOMERS.find(x => x.id === primaryId);
-  if (!src || !primary) return;
+  if (!src || !primary || srcId === primaryId || src.erased || primary.erased || src.mergedInto || primary.mergedInto || src._mergedIntoUuid || primary._mergedIntoUuid) return;
   const esc = window.escHtml;
   const nCount = (src.notes || []).length;
   // TICKETS holds only the loaded pages, so per-profile ticket counts here
